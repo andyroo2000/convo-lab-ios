@@ -14,10 +14,11 @@ final class AuthStore {
     private(set) var errorMessage: String?
 
     private let api: APIClient
-    private let keychain: KeychainStore
+    private let keychain: any CredentialStore
     private let tokenAccount = "learning-os-mobile-token"
+    private let userAccount = "learning-os-current-user"
 
-    init(api: APIClient, keychain: KeychainStore = KeychainStore()) {
+    init(api: APIClient, keychain: any CredentialStore = KeychainStore()) {
         self.api = api
         self.keychain = keychain
     }
@@ -30,11 +31,20 @@ final class AuthStore {
             }
             api.setAccessToken(token)
             let envelope: APIEnvelope<CurrentUser> = try await api.request("/api/me")
+            try cacheUser(envelope.data)
             state = .signedIn(envelope.data)
-        } catch {
-            api.setAccessToken(nil)
-            try? keychain.remove(account: tokenAccount)
+        } catch APIClientError.rejected(status: 401, message: _) {
+            clearCredentials()
             state = .signedOut
+        } catch {
+            // A network failure does not invalidate a bearer token. Use the last verified
+            // profile so a cold launch can still enter the local-first app while offline.
+            if let cachedUser = try? cachedUser() {
+                state = .signedIn(cachedUser)
+            } else {
+                errorMessage = "Your account could not be verified while offline."
+                state = .signedOut
+            }
         }
     }
 
@@ -53,6 +63,7 @@ final class AuthStore {
             try keychain.save(response.data.token, account: tokenAccount)
             api.setAccessToken(response.data.token)
             let user: APIEnvelope<CurrentUser> = try await api.request("/api/me")
+            try cacheUser(user.data)
             state = .signedIn(user.data)
         } catch {
             errorMessage = error.localizedDescription
@@ -85,9 +96,32 @@ final class AuthStore {
                 method: "DELETE"
             )
         }
+        clearCredentials()
+        state = .signedOut
+    }
+
+    private func cacheUser(_ user: CurrentUser) throws {
+        let data = try JSONEncoder().encode(user)
+        guard let value = String(data: data, encoding: .utf8) else {
+            return
+        }
+        try keychain.save(value, account: userAccount)
+    }
+
+    private func cachedUser() throws -> CurrentUser? {
+        guard
+            let value = try keychain.read(account: userAccount),
+            let data = value.data(using: .utf8)
+        else {
+            return nil
+        }
+        return try JSONDecoder().decode(CurrentUser.self, from: data)
+    }
+
+    private func clearCredentials() {
         api.setAccessToken(nil)
         try? keychain.remove(account: tokenAccount)
-        state = .signedOut
+        try? keychain.remove(account: userAccount)
     }
 }
 

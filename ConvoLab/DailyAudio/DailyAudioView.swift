@@ -123,6 +123,9 @@ struct DailyAudioView: View {
                             : "play.circle.fill")
                             .font(.title)
                     }
+                    .accessibilityLabel(
+                        player.isCurrent(track.id) && player.isPlaying ? "Pause" : "Play"
+                    )
                 }
             }
 
@@ -139,4 +142,3 @@ struct DailyAudioView: View {
         .padding(.vertical, 4)
     }
 }
-

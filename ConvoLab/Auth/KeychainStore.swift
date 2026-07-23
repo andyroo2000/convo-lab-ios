@@ -1,7 +1,13 @@
 import Foundation
 import Security
 
-struct KeychainStore {
+protocol CredentialStore {
+    func save(_ value: String, account: String) throws
+    func read(account: String) throws -> String?
+    func remove(account: String) throws
+}
+
+struct KeychainStore: CredentialStore {
     private let service = "com.cdcg.convolab"
 
     func save(_ value: String, account: String) throws {
@@ -61,4 +67,3 @@ struct KeychainError: LocalizedError {
         SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)"
     }
 }
-

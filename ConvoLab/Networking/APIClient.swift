@@ -81,7 +81,20 @@ final class APIClient {
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
-        return try await session.download(for: request)
+        let (temporaryURL, response) = try await session.download(for: request)
+        guard
+            let httpResponse = response as? HTTPURLResponse,
+            200..<300 ~= httpResponse.statusCode
+        else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw APIClientError.rejected(
+                status: status,
+                message: status == 0
+                    ? "The media server returned an invalid response."
+                    : HTTPURLResponse.localizedString(forStatusCode: status)
+            )
+        }
+        return (temporaryURL, response)
     }
 
     private struct ErrorPayload: Decodable {

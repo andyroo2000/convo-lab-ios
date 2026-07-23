@@ -243,6 +243,8 @@ final class StudyStore {
                     CreateStudyCardRequest.self,
                     from: mutation.payload
                 )
+                // The ConvoLab-compatible /api/study/cards mutations intentionally return
+                // StudyCardSummaryResource directly (without Laravel's `data` envelope).
                 serverCard = try await api.request(
                     "/api/study/cards",
                     method: "POST",

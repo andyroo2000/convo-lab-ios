@@ -9,6 +9,7 @@ final class MediaCache {
     private let rootURL: URL
 
     private(set) var activeDownloads = 0
+    @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -49,6 +50,20 @@ final class MediaCache {
             return existing
         }
 
+        let key = remoteURL.absoluteString
+        if let existingDownload = inFlightDownloads[key] {
+            return try await existingDownload.value
+        }
+
+        let download = Task { @MainActor [self] in
+            try await performDownload(remoteURL, category: category)
+        }
+        inFlightDownloads[key] = download
+        defer { inFlightDownloads[key] = nil }
+        return try await download.value
+    }
+
+    private func performDownload(_ remoteURL: URL, category: String) async throws -> URL {
         activeDownloads += 1
         defer { activeDownloads -= 1 }
 
@@ -106,4 +121,3 @@ final class MediaCache {
         }
     }
 }
-

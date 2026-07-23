@@ -9,6 +9,9 @@ final class AudioPlayer {
     private var timeObserver: Any?
     private var currentTrackID: String?
     private var currentTitle = ""
+    private var wasPlayingBeforeInterruption = false
+    @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
+    @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
 
     private(set) var isPlaying = false
     private(set) var elapsed: Double = 0
@@ -17,6 +20,7 @@ final class AudioPlayer {
     init() {
         configureAudioSession()
         configureRemoteCommands()
+        configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
@@ -101,6 +105,69 @@ final class AudioPlayer {
             seek(to: event.positionTime)
             return .success
         }
+    }
+
+    private func configureAudioNotifications() {
+        let center = NotificationCenter.default
+        interruptionObserver = center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+            Task { @MainActor [weak self] in
+                self?.handleInterruption(typeValue: typeValue, optionsValue: optionsValue)
+            }
+        }
+        routeChangeObserver = center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            Task { @MainActor [weak self] in
+                self?.handleRouteChange(reasonValue: reasonValue)
+            }
+        }
+    }
+
+    private func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
+        guard let typeValue, let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            player.pause()
+            isPlaying = false
+            updateNowPlaying()
+        case .ended:
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
+            if wasPlayingBeforeInterruption, options.contains(.shouldResume) {
+                try? AVAudioSession.sharedInstance().setActive(true)
+                player.play()
+                isPlaying = true
+            }
+            wasPlayingBeforeInterruption = false
+            updateNowPlaying()
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleRouteChange(reasonValue: UInt?) {
+        guard
+            let reasonValue,
+            AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable
+        else {
+            return
+        }
+        // Do not unexpectedly continue spoken audio through the speaker when headphones
+        // or another output route disappear.
+        player.pause()
+        isPlaying = false
+        updateNowPlaying()
     }
 
     private func persistPosition() {
