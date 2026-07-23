@@ -105,6 +105,12 @@ final class StudyStore {
         do {
             let payload = try StorageCodec.encoder.encode(event)
             context.insert(PendingMutation(kind: "review", resourceID: card.id, payload: payload))
+            let cardID = card.id
+            var descriptor = FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.id == cardID }
+            )
+            descriptor.fetchLimit = 1
+            try context.fetch(descriptor).first?.isInActiveSession = false
             try context.save()
             cards.removeAll { $0.id == card.id }
             try await flushReviewOutbox()

@@ -110,12 +110,18 @@ struct DailyAudioView: View {
                 }
                 Spacer()
 
-                if let url = store.playableURL(for: track), track.status == "ready" {
+                if track.audioUrl != nil, track.status == "ready" {
                     Button {
-                        if player.isCurrent(track.id) {
-                            player.toggle()
-                        } else {
-                            player.play(url: url, trackID: track.id, title: track.title)
+                        Task {
+                            if player.isCurrent(track.id) {
+                                player.toggle()
+                            } else if let url = await store.playableURL(for: track) {
+                                player.play(
+                                    url: url,
+                                    trackID: track.id,
+                                    title: track.title
+                                )
+                            }
                         }
                     } label: {
                         Image(systemName: player.isCurrent(track.id) && player.isPlaying

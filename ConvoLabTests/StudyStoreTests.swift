@@ -204,6 +204,36 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        try await store.createCard(expression: "鳥", reading: "とり", meaning: "bird")
+        let card = try XCTUnwrap(store.cards.first)
+
+        await store.recordReview(card: card, rating: .good, duration: nil)
+        let relaunchedStore = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(relaunchedStore.cards.isEmpty)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

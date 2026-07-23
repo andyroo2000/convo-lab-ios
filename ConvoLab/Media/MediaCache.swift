@@ -41,6 +41,7 @@ final class MediaCache {
             return nil
         }
         record.lastAccessedAt = .now
+        try? context.save()
         return url
     }
 
