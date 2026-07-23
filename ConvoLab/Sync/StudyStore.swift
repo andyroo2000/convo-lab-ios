@@ -14,6 +14,7 @@ final class StudyStore {
     private let context: ModelContext
     private let mediaCache: MediaCache
     private let deviceID: String
+    @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
 
     private(set) var cards: [StudyCard] = []
     private(set) var overview: StudyOverview?
@@ -231,11 +232,39 @@ final class StudyStore {
     }
 
     private func flushCardOutbox() async throws {
-        let descriptor = FetchDescriptor<PendingMutation>(
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-        let pending = try context.fetch(descriptor).filter { $0.kind.hasPrefix("card") }
-        for mutation in pending {
+        if let cardOutboxFlushTask {
+            return try await cardOutboxFlushTask.value
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await drainCardOutbox()
+        }
+        cardOutboxFlushTask = task
+        do {
+            try await task.value
+            cardOutboxFlushTask = nil
+        } catch {
+            cardOutboxFlushTask = nil
+            throw error
+        }
+    }
+
+    private func drainCardOutbox() async throws {
+        while true {
+            var descriptor = FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.kind == "cardCreate"
+                        || $0.kind == "cardUpdate"
+                        || $0.kind == "cardDelete"
+                },
+                sortBy: [SortDescriptor(\.createdAt)]
+            )
+            descriptor.fetchLimit = 1
+            guard let mutation = try context.fetch(descriptor).first else {
+                return
+            }
+
             let serverCard: StudyCard?
             switch mutation.kind {
             case "cardCreate":
@@ -267,16 +296,26 @@ final class StudyStore {
                 )
                 serverCard = nil
             default:
-                continue
+                return
             }
 
-            if let serverCard {
+            if let serverCard, try !hasPendingDelete(for: serverCard.id) {
                 try updateLocalCard(serverCard, markedDirty: false)
                 cards = cards.map { $0.id == serverCard.id ? serverCard : $0 }
             }
             context.delete(mutation)
             try context.save()
         }
+    }
+
+    private func hasPendingDelete(for cardID: String) throws -> Bool {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "cardDelete" && $0.resourceID == cardID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !context.fetch(descriptor).isEmpty
     }
 
     private func persist(cards: [StudyCard]) throws {

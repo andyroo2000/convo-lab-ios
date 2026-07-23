@@ -12,6 +12,7 @@ final class AudioPlayer {
     private var wasPlayingBeforeInterruption = false
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var completionObserver: NSObjectProtocol?
 
     private(set) var isPlaying = false
     private(set) var elapsed: Double = 0
@@ -55,10 +56,10 @@ final class AudioPlayer {
     func toggle() {
         if isPlaying {
             player.pause()
+            isPlaying = false
         } else {
-            player.play()
+            resumePlayback()
         }
-        isPlaying.toggle()
         updateNowPlaying()
     }
 
@@ -86,8 +87,7 @@ final class AudioPlayer {
     private func configureRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
         commands.playCommand.addTarget { [weak self] _ in
-            self?.player.play()
-            self?.isPlaying = true
+            self?.resumePlayback()
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
@@ -130,6 +130,15 @@ final class AudioPlayer {
                 self?.handleRouteChange(reasonValue: reasonValue)
             }
         }
+        completionObserver = center.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handlePlaybackCompletion()
+            }
+        }
     }
 
     private func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
@@ -167,6 +176,25 @@ final class AudioPlayer {
         // or another output route disappear.
         player.pause()
         isPlaying = false
+        updateNowPlaying()
+    }
+
+    private func handlePlaybackCompletion() {
+        isPlaying = false
+        elapsed = duration
+        if let currentTrackID {
+            UserDefaults.standard.removeObject(forKey: positionKey(currentTrackID))
+        }
+        updateNowPlaying()
+    }
+
+    private func resumePlayback() {
+        if duration > 0, elapsed >= duration - 0.25 {
+            player.seek(to: .zero)
+            elapsed = 0
+        }
+        player.play()
+        isPlaying = true
         updateNowPlaying()
     }
 

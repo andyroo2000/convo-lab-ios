@@ -10,9 +10,23 @@ final class AppModel {
     let study: StudyStore
     let dailyAudio: DailyAudioStore
     let audioPlayer: AudioPlayer
+    let isUsingEphemeralStorage: Bool
 
     init(configuration: AppConfiguration = .load()) {
-        let container = try! Persistence.makeContainer()
+        let container: ModelContainer
+        do {
+            container = try Persistence.makeContainer()
+            isUsingEphemeralStorage = false
+        } catch {
+            do {
+                // Keep the app usable if a future schema change makes the on-disk store
+                // unreadable. Server-backed data can still sync while the store is repaired.
+                container = try Persistence.makeContainer(inMemory: true)
+                isUsingEphemeralStorage = true
+            } catch {
+                fatalError("Unable to initialize persistent or recovery storage: \(error)")
+            }
+        }
         let api = APIClient(baseURL: configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
 
@@ -37,4 +51,3 @@ final class AppModel {
         _ = await (studySync, audioRefresh)
     }
 }
-
