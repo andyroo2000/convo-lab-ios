@@ -54,6 +54,53 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshKeepsLocallyDirtyCardInActiveQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
+        let card = try XCTUnwrap(store.cards.first)
+        let session = StudySession(
+            overview: StudyOverview(
+                newCount: 1,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 1
+            ),
+            cards: [card]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let envelopeData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                envelopeData
+            )
+        }
+
+        try await store.refreshSession()
+
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertTrue(try XCTUnwrap(records.first).isInActiveSession)
+        XCTAssertNotNil(records.first?.locallyUpdatedAt)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

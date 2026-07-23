@@ -326,10 +326,10 @@ final class StudyStore {
         for (index, card) in cards.enumerated() {
             let payload = try StorageCodec.encoder.encode(card)
             if let record = byID[card.id] {
+                record.isInActiveSession = true
                 guard record.locallyUpdatedAt == nil else { continue }
                 record.payload = payload
                 record.queueIndex = index
-                record.isInActiveSession = true
                 record.serverUpdatedAt = card.updatedAt
             } else {
                 context.insert(LocalCardRecord(card: card, queueIndex: index, payload: payload))

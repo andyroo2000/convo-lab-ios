@@ -71,6 +71,25 @@ final class APIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testDownloadDoesNotForwardBearerTokenToThirdPartyOrigin() async throws {
+        let client = makeClient { request in
+            let status = request.value(forHTTPHeaderField: "Authorization") == nil ? 200 : 418
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio".utf8)
+            )
+        }
+        client.setAccessToken("secret-mobile-token")
+
+        _ = try await client.download(URL(string: "https://cdn.example/audio.mp3")!)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

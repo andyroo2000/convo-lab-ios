@@ -116,7 +116,7 @@ final class AudioPlayer {
         ) { [weak self] notification in
             let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.handleInterruption(typeValue: typeValue, optionsValue: optionsValue)
             }
         }
@@ -126,7 +126,7 @@ final class AudioPlayer {
             queue: .main
         ) { [weak self] notification in
             let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.handleRouteChange(reasonValue: reasonValue)
             }
         }

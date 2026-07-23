@@ -78,7 +78,7 @@ final class APIClient {
     func download(_ rawURL: URL) async throws -> (URL, URLResponse) {
         let url = rawURL.scheme == nil ? baseURL.appending(path: rawURL.path) : rawURL
         var request = URLRequest(url: url)
-        if let accessToken {
+        if let accessToken, isSameOrigin(url, baseURL) {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
         let (temporaryURL, response) = try await session.download(for: request)
@@ -95,6 +95,19 @@ final class APIClient {
             )
         }
         return (temporaryURL, response)
+    }
+
+    private func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard lhs.scheme?.lowercased() == rhs.scheme?.lowercased(),
+              lhs.host?.lowercased() == rhs.host?.lowercased()
+        else {
+            return false
+        }
+
+        func effectivePort(for url: URL) -> Int? {
+            url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        }
+        return effectivePort(for: lhs) == effectivePort(for: rhs)
     }
 
     private struct ErrorPayload: Decodable {
