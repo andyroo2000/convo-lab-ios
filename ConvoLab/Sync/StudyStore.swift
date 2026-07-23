@@ -11,6 +11,14 @@ final class StudyStore {
         }
     }
 
+    private struct QuarantinedCardError: LocalizedError {
+        let count: Int
+
+        var errorDescription: String? {
+            "\(count) card \(count == 1 ? "change was" : "changes were") rejected and held for inspection."
+        }
+    }
+
     enum SyncStatus: Equatable {
         case idle
         case syncing
@@ -275,60 +283,87 @@ final class StudyStore {
     }
 
     private func drainCardOutbox() async throws {
+        var quarantinedCount = 0
         while true {
             var descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
-                    $0.kind == "cardCreate"
+                    ($0.kind == "cardCreate"
                         || $0.kind == "cardUpdate"
-                        || $0.kind == "cardDelete"
+                        || $0.kind == "cardDelete")
+                        && $0.lastError == nil
                 },
                 sortBy: [SortDescriptor(\.createdAt)]
             )
             descriptor.fetchLimit = 1
             guard let mutation = try context.fetch(descriptor).first else {
+                if quarantinedCount > 0 {
+                    throw QuarantinedCardError(count: quarantinedCount)
+                }
                 return
             }
 
-            let serverCard: StudyCard?
-            switch mutation.kind {
-            case "cardCreate":
-                let request = try StorageCodec.decoder.decode(
-                    CreateStudyCardRequest.self,
-                    from: mutation.payload
-                )
-                // The ConvoLab-compatible /api/study/cards mutations intentionally return
-                // StudyCardSummaryResource directly (without Laravel's `data` envelope).
-                serverCard = try await api.request(
-                    "/api/study/cards",
-                    method: "POST",
-                    body: request
-                )
-            case "cardUpdate":
-                let request = try StorageCodec.decoder.decode(
-                    UpdateStudyCardRequest.self,
-                    from: mutation.payload
-                )
-                serverCard = try await api.request(
-                    "/api/study/cards/\(mutation.resourceID)",
-                    method: "PATCH",
-                    body: request
-                )
-            case "cardDelete":
-                let _: IgnoredResponse = try await api.request(
-                    "/api/study/cards/\(mutation.resourceID)",
-                    method: "DELETE"
-                )
-                serverCard = nil
-            default:
-                return
-            }
+            do {
+                let serverCard: StudyCard?
+                switch mutation.kind {
+                case "cardCreate":
+                    let request = try StorageCodec.decoder.decode(
+                        CreateStudyCardRequest.self,
+                        from: mutation.payload
+                    )
+                    // The ConvoLab-compatible /api/study/cards mutations intentionally return
+                    // StudyCardSummaryResource directly (without Laravel's `data` envelope).
+                    serverCard = try await api.request(
+                        "/api/study/cards",
+                        method: "POST",
+                        body: request
+                    )
+                case "cardUpdate":
+                    let request = try StorageCodec.decoder.decode(
+                        UpdateStudyCardRequest.self,
+                        from: mutation.payload
+                    )
+                    serverCard = try await api.request(
+                        "/api/study/cards/\(mutation.resourceID)",
+                        method: "PATCH",
+                        body: request
+                    )
+                case "cardDelete":
+                    let _: IgnoredResponse = try await api.request(
+                        "/api/study/cards/\(mutation.resourceID)",
+                        method: "DELETE"
+                    )
+                    serverCard = nil
+                default:
+                    return
+                }
 
-            if let serverCard, try !hasPendingDelete(for: serverCard.id) {
-                try updateLocalCard(serverCard, markedDirty: false)
-                cards = cards.map { $0.id == serverCard.id ? serverCard : $0 }
+                if let serverCard, try !hasPendingDelete(for: serverCard.id) {
+                    try updateLocalCard(serverCard, markedDirty: false)
+                    cards = cards.map { $0.id == serverCard.id ? serverCard : $0 }
+                }
+                context.delete(mutation)
+                try context.save()
+            } catch let APIClientError.rejected(status, _)
+                where mutation.kind == "cardDelete" && status == 404
+            {
+                // A missing server record satisfies an idempotent delete.
+                context.delete(mutation)
+                try context.save()
+            } catch let APIClientError.rejected(status, message)
+                where [400, 404, 409, 410, 422].contains(status)
+            {
+                mutation.attemptCount += 1
+                mutation.lastAttemptAt = .now
+                mutation.lastError = "HTTP \(status): \(message)"
+                try context.save()
+                quarantinedCount += 1
+            } catch {
+                mutation.attemptCount += 1
+                mutation.lastAttemptAt = .now
+                mutation.lastError = nil
+                try context.save()
+                throw error
             }
-            context.delete(mutation)
-            try context.save()
         }
     }
 

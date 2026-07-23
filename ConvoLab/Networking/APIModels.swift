@@ -164,35 +164,3 @@ struct UpdateStudyCardRequest: Codable {
     let prompt: JSONValue
     let answer: JSONValue
 }
-
-struct SyncFeedPage: Decodable, Sendable {
-    struct Entry: Codable, Sendable {
-        let checkpoint: Int
-        let domain: String
-        let resourceType: String
-        let resourceId: String
-        let operation: String
-        let serverRecordedAt: Date?
-        let payload: JSONValue?
-
-        enum CodingKeys: String, CodingKey {
-            case checkpoint, domain, operation, payload
-            case resourceType = "resource_type"
-            case resourceId = "resource_id"
-            case serverRecordedAt = "server_recorded_at"
-        }
-    }
-
-    struct Metadata: Decodable, Sendable {
-        let nextCheckpoint: Int
-        let hasMore: Bool
-
-        enum CodingKeys: String, CodingKey {
-            case nextCheckpoint = "next_checkpoint"
-            case hasMore = "has_more"
-        }
-    }
-
-    let data: [Entry]
-    let meta: Metadata
-}

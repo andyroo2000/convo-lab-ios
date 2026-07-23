@@ -75,18 +75,6 @@ final class LocalDailyAudioPractice {
     }
 }
 
-@Model
-final class LocalSyncState {
-    @Attribute(.unique) var userID: String
-    var checkpoint: Int
-    var lastSuccessfulSyncAt: Date?
-
-    init(userID: String) {
-        self.userID = userID
-        checkpoint = 0
-    }
-}
-
 enum Persistence {
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         let schema = Schema([
@@ -94,7 +82,6 @@ enum Persistence {
             PendingMutation.self,
             CachedMediaRecord.self,
             LocalDailyAudioPractice.self,
-            LocalSyncState.self,
         ])
         let configuration = ModelConfiguration(
             "ConvoLab",
@@ -105,4 +92,3 @@ enum Persistence {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 }
-

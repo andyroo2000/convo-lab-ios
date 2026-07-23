@@ -136,6 +136,74 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRejectedCardMutationDoesNotBlockNewerCardMutation() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        try await store.createCard(expression: "犬", reading: "いぬ", meaning: "dog")
+        try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
+        let offlinePending = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(sortBy: [SortDescriptor(\.createdAt)])
+        ).filter { $0.kind.hasPrefix("card") }
+        let rejectedAttemptsBeforeSync = try XCTUnwrap(offlinePending.first).attemptCount
+        let acceptedCard = try XCTUnwrap(store.cards.last)
+        let acceptedCardData = try StorageCodec.encoder.encode(acceptedCard)
+        let session = StudySession(
+            overview: StudyOverview(
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let cardRequestCounter = LockedCounter()
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            let status = cardRequestCounter.next() == 1 ? 422 : 201
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                status == 422
+                    ? Data(#"{"message":"Invalid card"}"#.utf8)
+                    : acceptedCardData
+            )
+        }
+
+        await store.synchronize()
+
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+            .filter { $0.kind.hasPrefix("card") }
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.attemptCount, rejectedAttemptsBeforeSync + 1)
+        XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

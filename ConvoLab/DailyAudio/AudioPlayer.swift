@@ -103,22 +103,27 @@ final class AudioPlayer {
     private func configureRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
         commands.playCommand.addTarget { [weak self] _ in
-            self?.resumePlayback()
+            Task { @MainActor [weak self] in
+                self?.resumePlayback()
+            }
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
-            self?.player.pause()
-            self?.isPlaying = false
+            Task { @MainActor [weak self] in
+                self?.player.pause()
+                self?.isPlaying = false
+                self?.updateNowPlaying()
+            }
             return .success
         }
         commands.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard
-                let self,
-                let event = event as? MPChangePlaybackPositionCommandEvent
-            else {
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            seek(to: event.positionTime)
+            let position = event.positionTime
+            Task { @MainActor [weak self] in
+                self?.seek(to: position)
+            }
             return .success
         }
     }

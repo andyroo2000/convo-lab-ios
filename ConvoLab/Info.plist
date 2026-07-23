@@ -9,11 +9,6 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>processing</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.cdcg.convolab.sync</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
@@ -22,4 +17,3 @@
 	</dict>
 </dict>
 </plist>
-
