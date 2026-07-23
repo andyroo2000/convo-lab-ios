@@ -90,6 +90,26 @@ final class APIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testRelativeDownloadPreservesSignedQuery() async throws {
+        let client = makeClient { request in
+            let status = request.url?.query == "signature=abc123&expires=42" ? 200 : 403
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio".utf8)
+            )
+        }
+
+        _ = try await client.download(
+            URL(string: "/media/audio.mp3?signature=abc123&expires=42")!
+        )
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

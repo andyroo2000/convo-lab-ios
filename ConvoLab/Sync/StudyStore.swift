@@ -3,6 +3,14 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private struct QuarantinedReviewError: LocalizedError {
+        let count: Int
+
+        var errorDescription: String? {
+            "\(count) review \(count == 1 ? "event was" : "events were") rejected and held for inspection."
+        }
+    }
+
     enum SyncStatus: Equatable {
         case idle
         case syncing
@@ -49,16 +57,8 @@ final class StudyStore {
             try await refreshSession()
             lastSyncAt = .now
             syncStatus = .idle
-        } catch let error as URLError where [
-            .notConnectedToInternet,
-            .networkConnectionLost,
-            .timedOut,
-            .cannotFindHost,
-            .cannotConnectToHost,
-        ].contains(error.code) {
-            syncStatus = .offline
         } catch {
-            syncStatus = .failed(error.localizedDescription)
+            handleSyncError(error)
         }
     }
 
@@ -101,7 +101,7 @@ final class StudyStore {
             cards.removeAll { $0.id == card.id }
             try await flushReviewOutbox()
         } catch {
-            syncStatus = .offline
+            handleSyncError(error)
         }
     }
 
@@ -213,22 +213,46 @@ final class StudyStore {
 
     private func flushReviewOutbox() async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.kind == "review" },
+            predicate: #Predicate { $0.kind == "review" && $0.lastError == nil },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         let pending = try context.fetch(descriptor)
         guard !pending.isEmpty else { return }
 
-        let events = try pending.map {
-            try StorageCodec.decoder.decode(ReviewBatchRequest.Event.self, from: $0.payload)
+        var quarantinedCount = 0
+        for mutation in pending {
+            let event = try StorageCodec.decoder.decode(
+                ReviewBatchRequest.Event.self,
+                from: mutation.payload
+            )
+            do {
+                let _: IgnoredResponse = try await api.request(
+                    "/api/card-review-events/batch",
+                    method: "POST",
+                    body: ReviewBatchRequest(events: [event])
+                )
+                context.delete(mutation)
+                try context.save()
+            } catch let APIClientError.rejected(status, message)
+                where [400, 404, 409, 410, 422].contains(status)
+            {
+                mutation.attemptCount += 1
+                mutation.lastAttemptAt = .now
+                mutation.lastError = "HTTP \(status): \(message)"
+                try context.save()
+                quarantinedCount += 1
+            } catch {
+                mutation.attemptCount += 1
+                mutation.lastAttemptAt = .now
+                mutation.lastError = nil
+                try context.save()
+                throw error
+            }
         }
-        let _: IgnoredResponse = try await api.request(
-            "/api/card-review-events/batch",
-            method: "POST",
-            body: ReviewBatchRequest(events: events)
-        )
-        pending.forEach(context.delete)
-        try context.save()
+
+        if quarantinedCount > 0 {
+            throw QuarantinedReviewError(count: quarantinedCount)
+        }
     }
 
     private func flushCardOutbox() async throws {
@@ -370,6 +394,20 @@ final class StudyStore {
         )
         cards = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
+        }
+    }
+
+    private func handleSyncError(_ error: any Error) {
+        if let urlError = error as? URLError, [
+            .notConnectedToInternet,
+            .networkConnectionLost,
+            .timedOut,
+            .cannotFindHost,
+            .cannotConnectToHost,
+        ].contains(urlError.code) {
+            syncStatus = .offline
+        } else {
+            syncStatus = .failed(error.localizedDescription)
         }
     }
 }

@@ -38,6 +38,22 @@ final class AudioPlayer {
         }
     }
 
+    isolated deinit {
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+        }
+        let center = NotificationCenter.default
+        if let interruptionObserver {
+            center.removeObserver(interruptionObserver)
+        }
+        if let routeChangeObserver {
+            center.removeObserver(routeChangeObserver)
+        }
+        if let completionObserver {
+            center.removeObserver(completionObserver)
+        }
+    }
+
     func play(url: URL, trackID: String, title: String) {
         if currentTrackID != trackID {
             currentTrackID = trackID

@@ -101,6 +101,41 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRejectedReviewDoesNotBlockNewerReview() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let rejectedCard = makeCard(id: "01J00000000000000000000001", expression: "犬")
+        let acceptedCard = makeCard(id: "01J00000000000000000000002", expression: "猫")
+        let requestCounter = LockedCounter()
+        let client = makeClient { request in
+            let status = requestCounter.next() == 1 ? 422 : 204
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                status == 422 ? Data(#"{"message":"Invalid review"}"#.utf8) : Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        await store.recordReview(card: rejectedCard, rating: .good, duration: nil)
+        await store.recordReview(card: acceptedCard, rating: .good, duration: nil)
+
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+            .filter { $0.kind == "review" }
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.resourceID, rejectedCard.id)
+        XCTAssertEqual(pending.first?.attemptCount, 1)
+        XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
@@ -109,5 +144,39 @@ final class StudyStoreTests: XCTestCase {
             baseURL: URL(string: "https://learning-os.example")!,
             session: URLSession(configuration: configuration)
         )
+    }
+
+    @MainActor
+    private func makeCard(id: String, expression: String) -> StudyCard {
+        StudyCard(
+            id: id,
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string(expression)]),
+            answer: .object(["meaning": .string("meaning")]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "review",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
     }
 }

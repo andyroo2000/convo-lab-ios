@@ -76,7 +76,18 @@ final class APIClient {
     }
 
     func download(_ rawURL: URL) async throws -> (URL, URLResponse) {
-        let url = rawURL.scheme == nil ? baseURL.appending(path: rawURL.path) : rawURL
+        let url: URL
+        if rawURL.scheme == nil {
+            guard let resolved = URL(
+                string: rawURL.relativeString,
+                relativeTo: baseURL
+            )?.absoluteURL else {
+                throw APIClientError.invalidResponse
+            }
+            url = resolved
+        } else {
+            url = rawURL
+        }
         var request = URLRequest(url: url)
         if let accessToken, isSameOrigin(url, baseURL) {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
