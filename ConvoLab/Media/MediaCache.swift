@@ -123,12 +123,36 @@ final class MediaCache {
         }
     }
 
+    func cachedKeys(for remoteURLs: [URL]) -> Set<String> {
+        let desiredKeys = Set(remoteURLs.map(Self.stableCacheKey(for:)))
+        guard !desiredKeys.isEmpty else { return [] }
+
+        let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
+        var availableKeys: Set<String> = []
+        var removedMissingRecord = false
+
+        for record in records where desiredKeys.contains(record.remoteURL) {
+            let url = rootURL.appending(path: record.relativePath)
+            if FileManager.default.fileExists(atPath: url.path) {
+                availableKeys.insert(record.remoteURL)
+            } else {
+                context.delete(record)
+                removedMissingRecord = true
+            }
+        }
+
+        if removedMissingRecord {
+            try? context.save()
+        }
+        return availableKeys
+    }
+
     var totalByteCount: Int64 {
         let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
         return records.reduce(0) { $0 + $1.byteCount }
     }
 
-    private static func stableCacheKey(for url: URL) -> String {
+    static func stableCacheKey(for url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }

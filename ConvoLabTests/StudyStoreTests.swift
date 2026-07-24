@@ -5,6 +5,50 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testRefreshDeDuplicatesRepeatedServerCardIDs() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "01J00000000000000000000009", expression: "重複")
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 0,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card, card]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                sessionData
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<LocalCardRecord>()),
+            1
+        )
+    }
+
+    @MainActor
     func testRefreshOnlyMarksCardsPreparedWhenEveryDeclaredMediaFileExists() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let missingMediaCard = makeCard(
