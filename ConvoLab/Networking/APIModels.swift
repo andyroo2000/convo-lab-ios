@@ -89,23 +89,7 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     let updatedAt: Date
 
     var promptText: String {
-        if cardType == "cloze" {
-            if let clozeText = prompt.firstNonEmptyString(for: ["clozeText"]),
-               clozeText.range(of: #"\{\{c\d+::.*?\}\}"#, options: .regularExpression) != nil
-            {
-                return clozeText.replacingOccurrences(
-                    of: #"\{\{c\d+::.*?\}\}"#,
-                    with: "[...]",
-                    options: .regularExpression
-                )
-            }
-            if let displayText = prompt.firstNonEmptyString(for: ["clozeDisplayText", "clozeText"]) {
-                return displayText
-            }
-        }
-        return prompt.firstNonEmptyString(
-            for: ["cueText", "text", "expression", "clozeDisplayText", "clozeText"]
-        ) ?? prompt.preferredText ?? "Study card"
+        presentation.front.heading ?? "Media prompt"
     }
 
     var promptHint: String? {
