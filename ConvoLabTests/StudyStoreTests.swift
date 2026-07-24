@@ -320,15 +320,12 @@ final class StudyStoreTests: XCTestCase {
                 XCTAssertEqual(status, 500)
             }
         }
-        let attemptsBeforeQuarantinedRetry = paths.values.count
-        try await store.retryPendingDraftCommits()
-        XCTAssertEqual(paths.values.count, attemptsBeforeQuarantinedRetry)
-        let quarantined = try XCTUnwrap(
+        let retrying = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
         )
-        XCTAssertEqual(quarantined.attemptCount, 3)
-        XCTAssertNotNil(quarantined.lastError)
-        XCTAssertEqual(store.quarantinedMutationCount, 1)
+        XCTAssertEqual(retrying.attemptCount, 3)
+        XCTAssertNil(retrying.lastError)
+        XCTAssertEqual(store.quarantinedMutationCount, 0)
     }
 
     @MainActor

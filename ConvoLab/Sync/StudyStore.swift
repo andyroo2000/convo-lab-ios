@@ -1742,10 +1742,7 @@ final class StudyStore {
         } else {
             isPermanentRejection = false
         }
-        mutation.lastError =
-            isPermanentRejection || mutation.attemptCount >= 3
-            ? error.localizedDescription
-            : nil
+        mutation.lastError = isPermanentRejection ? error.localizedDescription : nil
     }
 
     private func replaceManualDraft(_ draft: StudyManualCardDraft) {
