@@ -137,6 +137,7 @@ struct CardLibraryView: View {
                 .foregroundStyle(draft.status == "error" ? .red : .secondary)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private func cardRow(_ card: StudyCard) -> some View {
@@ -228,43 +229,46 @@ private struct CardEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if card == nil {
-                    Section("Card type") {
-                        Picker("Card type", selection: $creationKind) {
-                            ForEach(StudyCardCreationKind.allCases) { kind in
-                                Text(kind.title).tag(kind)
+                Group {
+                    if card == nil {
+                        Section("Card type") {
+                            Picker("Card type", selection: $creationKind) {
+                                ForEach(StudyCardCreationKind.allCases) { kind in
+                                    Text(kind.title).tag(kind)
+                                }
+                            }
+                            .disabled(serverDraft != nil)
+                            .onChange(of: creationKind) { _, kind in
+                                applyCreationKind(kind)
+                            }
+                            if serverDraft == nil,
+                               [.audioRecognition, .productionImage].contains(creationKind)
+                            {
+                                Label(
+                                    "This mode uses learning-os to prepare generated media before you create the card.",
+                                    systemImage: "network"
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                             }
                         }
-                        .disabled(serverDraft != nil)
-                        .onChange(of: creationKind) { _, kind in
-                            applyCreationKind(kind)
-                        }
-                        if serverDraft == nil,
-                           [.audioRecognition, .productionImage].contains(creationKind)
-                        {
-                            Label(
-                                "This mode uses learning-os to prepare generated media before you create the card.",
-                                systemImage: "network"
-                            )
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
+                    }
+
+                    if draft.cardType == .cloze {
+                        clozeFields
+                    } else {
+                        standardFields
+                    }
+
+                    imageFields
+                    answerAudioFields
+
+                    Section("Notes") {
+                        TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
+                            .lineLimit(2...6)
                     }
                 }
-
-                if draft.cardType == .cloze {
-                    clozeFields
-                } else {
-                    standardFields
-                }
-
-                imageFields
-                answerAudioFields
-
-                Section("Notes") {
-                    TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
-                        .lineLimit(2...6)
-                }
+                .disabled(isDraftCommitPending)
 
                 if card?.mediaURLs.isEmpty == false {
                     Section {
@@ -310,7 +314,6 @@ private struct CardEditorView: View {
                     }
                 }
             }
-            .disabled(isDraftCommitPending)
             .navigationTitle(
                 card != nil ? "Edit Card" : serverDraft != nil ? "Review Draft" : "New Card"
             )
