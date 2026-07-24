@@ -139,6 +139,22 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.presentation.front.imageURL, URL(string: "/study/cloudy.png"))
     }
 
+    func testImageOnlyRecognitionPromptHidesPartOfSpeechHelper() {
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueImage": media(url: "/study/cat.png", kind: "image"),
+                "cueMeaning": .string("名詞"),
+            ]),
+            answer: .object([
+                "expression": .string("猫"),
+            ])
+        )
+
+        XCTAssertTrue(card.presentation.front.isMediaLed)
+        XCTAssertNil(card.presentation.front.supportingText)
+    }
+
     func testClozeOnlyBlanksFirstOrdinalAndRestoresAllAnswers() {
         let card = makeCard(
             cardType: "cloze",
@@ -207,6 +223,20 @@ final class StudyCardPresentationTests: XCTestCase {
 
         XCTAssertNil(card.presentation.front.heading)
         XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+    }
+
+    func testResolvedImageBackedClozeUsesNeutralLibraryPrompt() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeDisplayText": .string("私は学生です。"),
+                "cueImage": media(url: "/study/student.png", kind: "image"),
+            ]),
+            answer: .object([:])
+        )
+
+        XCTAssertEqual(card.promptText, "Study card")
+        XCTAssertEqual(card.answerText, "私は学生です。")
     }
 
     func testReviewIntervalLabelsMatchLearningOSIntervals() {

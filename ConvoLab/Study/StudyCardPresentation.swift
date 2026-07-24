@@ -94,6 +94,7 @@ extension StudyCard {
         let isMediaLed = (promptAudioURL != nil || promptImageURL != nil) && cueText == nil
         let visualLabels = Set(["名詞", "動詞", "形容詞", "副詞", "表現"])
         let mediaLabel: String? = if
+            cardType == "production",
             isMediaLed,
             promptImageURL != nil,
             promptAudioURL == nil,

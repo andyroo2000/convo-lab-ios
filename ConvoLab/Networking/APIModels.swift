@@ -92,6 +92,9 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
         if let heading = presentation.front.heading {
             return heading
         }
+        if cardType == "cloze" {
+            return "Study card"
+        }
         if presentation.front.audioURL != nil || presentation.front.imageURL != nil {
             return presentation.back.heading
                 ?? presentation.back.textBlocks.first { $0.role == .meaning }?.text
@@ -102,7 +105,8 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var answerText: String {
         if cardType == "cloze" {
-            return answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
+            return presentation.back.heading
+                ?? answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
                 ?? answer.preferredText
                 ?? "No answer text"
         }
