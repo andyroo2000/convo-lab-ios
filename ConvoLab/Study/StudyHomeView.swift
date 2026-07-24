@@ -114,7 +114,7 @@ struct StudyHomeView: View {
     }
 
     private func readinessDescription(target: Int) -> String {
-        "\(store.preparedCardCount) of \(target) planned cards have local media. The target uses five times your daily new-card limit."
+        "\(store.preparedCardCount) of \(target) planned cards are ready offline. Cards with audio or images count only after every file downloads."
     }
 
     private func metric(title: String, value: Int) -> some View {

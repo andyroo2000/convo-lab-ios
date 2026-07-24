@@ -132,8 +132,10 @@ final class StudyStore {
             method: "POST",
             body: ["time_zone": timeZone]
         )
+        var seenCardIDs: Set<String> = []
         let activeCards = try envelope.data.cards.filter { card in
             try !hasPendingDelete(for: card.id)
+                && seenCardIDs.insert(card.id).inserted
         }
         overview = envelope.data.overview
         cards = activeCards
@@ -546,9 +548,19 @@ final class StudyStore {
     }
 
     private func markPrepared(cards: [StudyCard]) {
-        let ids = Set(cards.map(\.id))
+        let cardsByID = Dictionary(
+            cards.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let cachedKeys = mediaCache.cachedKeys(for: cards.flatMap(\.mediaURLs))
         let records = (try? context.fetch(FetchDescriptor<LocalCardRecord>())) ?? []
-        records.filter { ids.contains($0.id) }.forEach { $0.mediaPreparedAt = .now }
+        for record in records {
+            guard let card = cardsByID[record.id] else { continue }
+            let isPrepared = card.mediaURLs.allSatisfy {
+                cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
+            }
+            record.mediaPreparedAt = isPrepared ? .now : nil
+        }
         try? context.save()
     }
 

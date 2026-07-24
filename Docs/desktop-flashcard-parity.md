@@ -66,4 +66,6 @@ review, and new counts separately.
 
 All media for the active queue and the five-day new-card reserve is downloaded.
 Card faces must prefer the validated local file and only stream when the media
-is not cached and the network is available.
+is not cached and the network is available. A card is counted as ready offline
+only when every audio and image URL declared by its payload resolves to a local
+file; text-only cards are ready without a download.
