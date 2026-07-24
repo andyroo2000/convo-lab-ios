@@ -101,11 +101,13 @@ struct CardLibraryView: View {
     }
 
     private func draftRow(_ draft: StudyManualCardDraft) -> some View {
-        let hasPendingCommit = store.hasPendingDraftCommit(for: draft.id)
+        let recoveryState = store.draftCommitRecoveryState(for: draft.id)
         return HStack(spacing: 12) {
             Image(
-                systemName: hasPendingCommit
+                systemName: recoveryState == .cleanupPending
                     ? "checkmark.circle"
+                    : recoveryState == .outcomeUnknown
+                    ? "arrow.clockwise.circle"
                     : draft.status == "generating"
                     ? "sparkles"
                     : draft.status == "error" ? "exclamationmark.triangle" : "doc.badge.gearshape"
@@ -117,8 +119,10 @@ struct CardLibraryView: View {
                     .font(.headline)
                     .foregroundStyle(ConvoLabTheme.navy)
                 Text(
-                    hasPendingCommit
+                    recoveryState == .cleanupPending
                         ? "Card created; tap to finish cleanup"
+                        : recoveryState == .outcomeUnknown
+                        ? "Commit outcome unknown; tap to retry"
                         : draft.status == "generating"
                         ? "Preparing fields and media…"
                         : draft.errorMessage ?? "Ready to review and create"
@@ -293,7 +297,9 @@ private struct CardEditorView: View {
                             store.hasPendingDraftCommit(for: $0.id)
                         }) == true {
                             Text(
-                                "This card may already exist. Retry Create Card or sync to finish cleanup."
+                                isDraftCleanupPending
+                                    ? "The card was created. Retry Create Card or sync to finish cleanup."
+                                    : "The commit outcome is unknown. Editing is locked; retry Create Card or sync."
                             )
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -301,6 +307,7 @@ private struct CardEditorView: View {
                     }
                 }
             }
+            .disabled(isDraftCommitPending)
             .navigationTitle(
                 card != nil ? "Edit Card" : serverDraft != nil ? "Review Draft" : "New Card"
             )
@@ -357,6 +364,18 @@ private struct CardEditorView: View {
 
     private var isBusy: Bool {
         isSaving || isRegeneratingAudio || isRegeneratingImage
+    }
+
+    private var isDraftCommitPending: Bool {
+        serverDraft.map {
+            store.draftCommitRecoveryState(for: $0.id) != .none
+        } == true
+    }
+
+    private var isDraftCleanupPending: Bool {
+        serverDraft.map {
+            store.draftCommitRecoveryState(for: $0.id) == .cleanupPending
+        } == true
     }
 
     private var saveButtonTitle: String {

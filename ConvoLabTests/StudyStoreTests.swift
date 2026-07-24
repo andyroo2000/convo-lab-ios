@@ -126,11 +126,11 @@ final class StudyStoreTests: XCTestCase {
                 return (
                     HTTPURLResponse(
                         url: request.url!,
-                        statusCode: 204,
+                        statusCode: 404,
                         httpVersion: nil,
-                        headerFields: nil
+                        headerFields: ["Content-Type": "application/json"]
                     )!,
-                    Data()
+                    Data(#"{"message":"draft already removed"}"#.utf8)
                 )
             }
             return (
@@ -210,6 +210,107 @@ final class StudyStoreTests: XCTestCase {
         let persisted = try persistedCard(in: container)
         XCTAssertEqual(persisted.prompt["cueAudio"], audio)
         XCTAssertEqual(persisted.answer["answerAudio"], audio)
+    }
+
+    @MainActor
+    func testDraftCommitRetryContinuesAfterAnUnrelatedFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let firstDraftID = "01J0000000000000000000000F1"
+        let secondDraftID = "01J0000000000000000000000F2"
+        let firstCardID = "01J0000000000000000000000C1"
+        let secondCardID = "01J0000000000000000000000C2"
+        let firstMutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: firstDraftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: firstCardID)
+            )
+        )
+        let secondMutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: secondDraftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: secondCardID)
+            )
+        )
+        secondMutation.createdAt = firstMutation.createdAt.addingTimeInterval(1)
+        container.mainContext.insert(firstMutation)
+        container.mainContext.insert(secondMutation)
+        try container.mainContext.save()
+
+        let committedCard = makeCard(
+            id: secondCardID.lowercased(),
+            expression: "二番目"
+        )
+        let committedData = try StorageCodec.encoder.encode(
+            CreateCardFromStudyManualDraftResponse(
+                card: committedCard,
+                draftId: secondDraftID
+            )
+        )
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path.contains(firstDraftID) {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 500,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"first draft failed"}"#.utf8)
+                )
+            }
+            if path.hasSuffix("/create-card") {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected the first draft failure to be reported")
+        } catch let APIClientError.rejected(status, message) {
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(message, "first draft failed")
+        }
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/card-drafts/\(firstDraftID)/create-card",
+                "/api/study/card-drafts/\(secondDraftID)/create-card",
+                "/api/study/card-drafts/\(secondDraftID)",
+            ]
+        )
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.resourceID), [firstDraftID])
+        XCTAssertEqual(pending.first?.attemptCount, 1)
+        XCTAssertNotNil(pending.first?.lastError)
     }
 
     @MainActor

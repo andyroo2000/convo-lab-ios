@@ -140,6 +140,12 @@ final class StudyStore {
         let localURL: URL
     }
 
+    enum DraftCommitRecoveryState: Equatable {
+        case none
+        case outcomeUnknown
+        case cleanupPending
+    }
+
     enum SyncStatus: Equatable {
         case idle
         case syncing
@@ -752,7 +758,26 @@ final class StudyStore {
     }
 
     func hasPendingDraftCommit(for draftID: String) -> Bool {
-        (try? pendingDraftCommit(for: draftID)) != nil
+        draftCommitRecoveryState(for: draftID) != .none
+    }
+
+    func draftCommitRecoveryState(for draftID: String) -> DraftCommitRecoveryState {
+        guard
+            let mutation = try? pendingDraftCommit(for: draftID),
+            let request = try? StorageCodec.decoder.decode(
+                CreateCardFromStudyManualDraftRequest.self,
+                from: mutation.payload
+            )
+        else {
+            return .none
+        }
+        let normalizedCardID = request.id.lowercased()
+        let hasConfirmedLocalCard = (
+            try? context.fetch(FetchDescriptor<LocalCardRecord>()).contains {
+                $0.id.lowercased() == normalizedCardID
+            }
+        ) ?? false
+        return hasConfirmedLocalCard ? .cleanupPending : .outcomeUnknown
     }
 
     func createCard(_ draft: StudyCardDraft) async throws {
@@ -1616,11 +1641,21 @@ final class StudyStore {
 
     func retryPendingDraftCommits() async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.kind == "draftCommit" },
+            predicate: #Predicate {
+                $0.kind == "draftCommit" && $0.attemptCount < 3
+            },
             sortBy: [SortDescriptor(\.createdAt)]
         )
+        var firstError: (any Error)?
         for mutation in try context.fetch(descriptor) {
-            try await performDraftCommit(mutation)
+            do {
+                try await performDraftCommit(mutation)
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError {
+            throw firstError
         }
     }
 
@@ -1667,6 +1702,8 @@ final class StudyStore {
                 "/api/study/card-drafts/\(response.draftId)",
                 method: "DELETE"
             )
+        } catch let APIClientError.rejected(status, _) where status == 404 {
+            // Cleanup is idempotent: an already-absent transient draft is done.
         } catch {
             recordDraftCommitFailure(error, on: mutation)
             try context.save()
