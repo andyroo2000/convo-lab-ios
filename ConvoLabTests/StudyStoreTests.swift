@@ -1018,6 +1018,60 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPermanentlyRejectedManualDraftCreateIsQuarantinedFromBackgroundRetry() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let attempts = LockedCounter()
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/study/card-drafts")
+            _ = attempts.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 422,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"The image prompt is too long."}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.answerExpression = "会社"
+        draft.answerMeaning = "company"
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = String(repeating: "a", count: 1_001)
+
+        do {
+            _ = try await store.queueManualDraft(
+                creationKind: .productionImage,
+                draft: draft
+            )
+            XCTFail("Expected the invalid draft to be rejected")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 422)
+        }
+
+        XCTAssertEqual(attempts.current, 1)
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
+        let pending = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "draftCreate" }
+            )
+        )
+        XCTAssertNotNil(pending.first?.lastError)
+
+        try await store.retryPendingDraftCreates()
+
+        XCTAssertEqual(attempts.current, 1)
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
+    }
+
+    @MainActor
     func testManualDraftCreateRetryUsesLatestEditedPayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientDraftID = ClientIdentifier.ulid()

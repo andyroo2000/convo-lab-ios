@@ -1730,7 +1730,9 @@ final class StudyStore {
 
     func retryPendingDraftCreates() async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.kind == "draftCreate" },
+            predicate: #Predicate {
+                $0.kind == "draftCreate" && $0.lastError == nil
+            },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         var firstError: (any Error)?
@@ -1782,7 +1784,16 @@ final class StudyStore {
                 body: request
             )
         } catch {
-            mutation.lastError = error.localizedDescription
+            if case let APIClientError.rejected(status, _) = error,
+               isPermanentDraftCreateRejection(status: status)
+            {
+                mutation.lastError = error.localizedDescription
+            } else {
+                // Keep transient failures eligible for background sync. A
+                // permanent rejection remains quarantined until the editor
+                // explicitly replaces its payload and retries it.
+                mutation.lastError = nil
+            }
             try? context.save()
             throw error
         }
@@ -1936,6 +1947,10 @@ final class StudyStore {
 
     private func isPermanentDraftCommitRejection(status: Int) -> Bool {
         return [400, 404, 410, 422].contains(status)
+    }
+
+    private func isPermanentDraftCreateRejection(status: Int) -> Bool {
+        return [400, 404, 409, 410, 422].contains(status)
     }
 
     private func recordDraftCleanupFailure(on mutation: PendingMutation) {
