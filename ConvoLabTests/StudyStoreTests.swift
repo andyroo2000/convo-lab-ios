@@ -143,6 +143,205 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRegenerateImagePersistsPlacementAndDownloadsForOfflineUse() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000IM",
+            expression: "会社"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        let generatedImage: JSONValue = .object([
+            "id": .string("01J00000000000000000000IMG"),
+            "filename": .string("company.webp"),
+            "url": .string("/api/study/media/company-image"),
+            "mediaKind": .string("image"),
+            "source": .string("generated"),
+        ])
+        let regenerated = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: nil,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues([
+                "answerImage": generatedImage,
+            ]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(regenerated)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path.hasSuffix("/regenerate-image") {
+                XCTAssertEqual(request.timeoutInterval, 180)
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                XCTAssertEqual(payload?["imagePrompt"] as? String, "A Tokyo office.")
+                XCTAssertEqual(payload?["imageRole"] as? String, "both")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/webp"]
+                )!,
+                Data("generated-image".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let result = try await store.regenerateImage(
+            for: card,
+            prompt: "  A Tokyo office.  ",
+            placement: .both
+        )
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/cards/\(card.id)/regenerate-image",
+                "/api/study/media/company-image",
+            ]
+        )
+        XCTAssertEqual(
+            try String(contentsOf: result.localURL, encoding: .utf8),
+            "generated-image"
+        )
+        XCTAssertEqual(result.card.prompt["cueImage"], generatedImage)
+        XCTAssertEqual(result.card.answer["answerImage"], generatedImage)
+        let stored = try persistedCard(in: container)
+        XCTAssertEqual(stored.prompt["cueImage"], generatedImage)
+        XCTAssertEqual(stored.answer["answerImage"], generatedImage)
+    }
+
+    @MainActor
+    func testSlowImageRegenerationPreservesNewerSyncedCardText() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000IR",
+            expression: "会社"
+        )
+        let record = LocalCardRecord(
+            card: card,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        let generatedImage: JSONValue = .object([
+            "url": .string("/api/study/media/race-image"),
+            "filename": .string("race.webp"),
+        ])
+        let regenerated = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: nil,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues([
+                "answerImage": generatedImage,
+            ]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(regenerated)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/regenerate-image") == true {
+                gate.markStarted()
+                gate.waitForRelease()
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/webp"]
+                )!,
+                Data("race-image".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        let regeneration = Task {
+            try await store.regenerateImage(
+                for: card,
+                prompt: "A company office.",
+                placement: .answer
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        let newerCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt.replacingObjectValues([
+                "cueText": .string("新しい会社"),
+            ]),
+            answer: card.answer.replacingObjectValues([
+                "meaning": .string("newer company"),
+            ]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(2)
+        )
+        record.payload = try StorageCodec.encoder.encode(newerCard)
+        record.serverUpdatedAt = newerCard.updatedAt
+        record.locallyUpdatedAt = nil
+        try container.mainContext.save()
+        gate.release()
+
+        let result = try await regeneration.value
+        XCTAssertEqual(result.card.prompt["cueText"], .string("新しい会社"))
+        XCTAssertEqual(result.card.answer["meaning"], .string("newer company"))
+        XCTAssertEqual(result.card.answer["answerImage"], generatedImage)
+        XCTAssertEqual(try persistedCard(in: container), result.card)
+    }
+
+    @MainActor
     func testCancelledRegenerationStillReconcilesCompletedServerAndCacheChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

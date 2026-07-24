@@ -267,6 +267,42 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testImagePlacementMovesOneImageBetweenCardFaces() {
+        let image = media("/media/company.webp")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("会社"),
+                "cueImage": image,
+            ]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+            ])
+        )
+        var draft = StudyCardDraft(card: card)
+
+        XCTAssertEqual(draft.imagePlacement, .prompt)
+        XCTAssertEqual(draft.currentImage, image)
+        XCTAssertEqual(
+            draft.imagePrompt,
+            "A clear natural real-world image representing 会社 (company)."
+        )
+
+        draft.imagePlacement = .both
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], image)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], image)
+
+        draft.imagePlacement = .answer
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], image)
+
+        draft.imagePlacement = .none
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], .null)
+    }
+
+    @MainActor
     private func makeCard(
         cardType: String,
         prompt: JSONValue,

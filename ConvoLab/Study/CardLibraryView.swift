@@ -95,8 +95,11 @@ private struct CardEditorView: View {
     @State private var draft: StudyCardDraft
     @State private var isSaving = false
     @State private var isRegeneratingAudio = false
-    @State private var regenerationTask: Task<Void, Never>?
+    @State private var isRegeneratingImage = false
+    @State private var audioRegenerationTask: Task<Void, Never>?
+    @State private var imageRegenerationTask: Task<Void, Never>?
     @State private var answerAudioLocalURL: URL?
+    @State private var imageLocalURL: URL?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -127,6 +130,7 @@ private struct CardEditorView: View {
                     standardFields
                 }
 
+                imageFields
                 answerAudioFields
 
                 Section("Notes") {
@@ -137,7 +141,7 @@ private struct CardEditorView: View {
                 if card?.mediaURLs.isEmpty == false {
                     Section {
                         Label(
-                            "Existing audio and images are preserved when you save.",
+                            "Existing media stays offline. Image placement controls which faces show the image.",
                             systemImage: "photo.on.rectangle.angled"
                         )
                         .font(.footnote)
@@ -154,7 +158,7 @@ private struct CardEditorView: View {
                         Button("Delete Card", role: .destructive) {
                             Task { await deleteCard() }
                         }
-                        .disabled(isSaving || isRegeneratingAudio)
+                        .disabled(isBusy)
                     }
                 }
             }
@@ -168,18 +172,95 @@ private struct CardEditorView: View {
                     Button("Save") {
                         Task { await save() }
                     }
-                    .disabled(!draft.isValid || isSaving || isRegeneratingAudio)
+                    .disabled(!draft.isValid || isBusy)
                 }
             }
             .task(id: card?.id) {
-                await loadCurrentAnswerAudio()
+                await loadCurrentMedia()
             }
             .onDisappear {
-                regenerationTask?.cancel()
-                regenerationTask = nil
+                audioRegenerationTask?.cancel()
+                audioRegenerationTask = nil
+                imageRegenerationTask?.cancel()
+                imageRegenerationTask = nil
                 if player.isCurrent(answerAudioTrackID) {
                     player.stop()
                 }
+            }
+        }
+    }
+
+    private var isBusy: Bool {
+        isSaving || isRegeneratingAudio || isRegeneratingImage
+    }
+
+    @ViewBuilder
+    private var imageFields: some View {
+        Section("Image") {
+            if let imageLocalURL,
+               let image = UIImage(contentsOfFile: imageLocalURL.path)
+            {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 220)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .accessibilityLabel("Current card image")
+            } else if card != nil {
+                Text("No current image")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Image prompt")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField(
+                    "Describe the image to generate",
+                    text: $draft.imagePrompt,
+                    axis: .vertical
+                )
+                .lineLimit(2...6)
+                .disabled(isRegeneratingImage)
+                Text("\(draft.imagePrompt.count)/1,000")
+                    .font(.caption)
+                    .foregroundStyle(
+                        draft.imagePrompt.count > 1_000 ? .red : .secondary
+                    )
+            }
+
+            Picker("Image placement", selection: $draft.imagePlacement) {
+                ForEach(StudyCardDraft.ImagePlacement.allCases) { placement in
+                    Text(placement.title).tag(placement)
+                }
+            }
+            .disabled(isRegeneratingImage)
+
+            if card != nil {
+                Button {
+                    imageRegenerationTask?.cancel()
+                    imageRegenerationTask = Task {
+                        await regenerateImage()
+                    }
+                } label: {
+                    if isRegeneratingImage {
+                        Label("Regenerating image…", systemImage: "photo.badge.arrow.down")
+                    } else {
+                        Label("Regenerate Image", systemImage: "arrow.clockwise")
+                    }
+                }
+                .disabled(
+                    isBusy
+                        || draft.imagePlacement == .none
+                        || draft.imagePrompt.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                        || draft.imagePrompt.count > 1_000
+                )
+            } else {
+                Text("An image can be generated after this card has synced.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -208,7 +289,7 @@ private struct CardEditorView: View {
                                 : "play.fill"
                         )
                     }
-                    .disabled(player.isBlockedByLongFormAudio || isRegeneratingAudio)
+                    .disabled(player.isBlockedByLongFormAudio || isBusy)
                 } else {
                     Text("No current audio")
                         .foregroundStyle(.secondary)
@@ -235,8 +316,8 @@ private struct CardEditorView: View {
 
             if card != nil {
                 Button {
-                    regenerationTask?.cancel()
-                    regenerationTask = Task {
+                    audioRegenerationTask?.cancel()
+                    audioRegenerationTask = Task {
                         await regenerateAnswerAudio()
                     }
                 } label: {
@@ -246,7 +327,7 @@ private struct CardEditorView: View {
                         Label("Regenerate Audio", systemImage: "arrow.clockwise")
                     }
                 }
-                .disabled(isSaving || isRegeneratingAudio)
+                .disabled(isBusy)
             } else {
                 Text("Audio can be generated after this card has synced.")
                     .font(.footnote)
@@ -349,6 +430,16 @@ private struct CardEditorView: View {
         answerAudioLocalURL = await store.playableMediaURL(for: remoteURL)
     }
 
+    private func loadCurrentMedia() async {
+        await loadCurrentAnswerAudio()
+        let remoteURL = card?.promptImageURL ?? card?.answerImageURL
+        guard let remoteURL else {
+            imageLocalURL = nil
+            return
+        }
+        imageLocalURL = await store.playableMediaURL(for: remoteURL)
+    }
+
     private func regenerateAnswerAudio() async {
         guard let card else { return }
         isRegeneratingAudio = true
@@ -367,6 +458,29 @@ private struct CardEditorView: View {
         } catch is CancellationError {
             // The store still reconciles completed server/cache side effects,
             // but a dismissed editor must not update UI or begin playback.
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func regenerateImage() async {
+        guard let card else { return }
+        isRegeneratingImage = true
+        errorMessage = nil
+        defer { isRegeneratingImage = false }
+        do {
+            let result = try await store.regenerateImage(
+                for: card,
+                prompt: draft.imagePrompt,
+                placement: draft.imagePlacement
+            )
+            try Task.checkCancellation()
+            draft.currentImage = result.card.prompt["cueImage"]?.mediaURLs.isEmpty == false
+                ? result.card.prompt["cueImage"]
+                : result.card.answer["answerImage"]
+            imageLocalURL = result.localURL
+        } catch is CancellationError {
+            // Completed server/cache work is reconciled by StudyStore.
         } catch {
             errorMessage = error.localizedDescription
         }
