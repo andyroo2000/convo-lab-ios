@@ -221,6 +221,114 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateReconciliationKeepsReviewedCanonicalDuplicateState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000RA"
+        let serverID = clientID.lowercased()
+        let staleClientCard = makeCard(
+            id: clientID,
+            expression: "同期",
+            queueState: "new"
+        )
+        let canonicalServerCard = StudyCard(
+            id: serverID,
+            syncId: serverID,
+            noteId: staleClientCard.noteId,
+            cardType: staleClientCard.cardType,
+            prompt: staleClientCard.prompt,
+            answer: staleClientCard.answer,
+            state: staleClientCard.state,
+            answerAudioSource: staleClientCard.answerAudioSource,
+            createdAt: staleClientCard.createdAt,
+            updatedAt: staleClientCard.updatedAt.addingTimeInterval(1)
+        )
+        let clientRecord = LocalCardRecord(
+            card: staleClientCard,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(staleClientCard)
+        )
+        clientRecord.locallyUpdatedAt = staleClientCard.updatedAt
+        let serverRecord = LocalCardRecord(
+            card: canonicalServerCard,
+            queueIndex: 1,
+            payload: try StorageCodec.encoder.encode(canonicalServerCard)
+        )
+        container.mainContext.insert(clientRecord)
+        container.mainContext.insert(serverRecord)
+        let createRequest = CreateStudyCardRequest(
+            id: clientID,
+            cardType: staleClientCard.cardType,
+            prompt: staleClientCard.prompt,
+            answer: staleClientCard.answer
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardCreate",
+                resourceID: clientID,
+                payload: try StorageCodec.encoder.encode(createRequest)
+            )
+        )
+        try container.mainContext.save()
+
+        let serverCardData = try StorageCodec.encoder.encode(canonicalServerCard)
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverCardData
+                )
+            case "/api/card-review-events/batch", "/api/study/session/start":
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        await store.recordReview(card: canonicalServerCard, rating: .good, duration: nil)
+        let reviewedCard = try XCTUnwrap(
+            store.libraryCards.first { $0.id == serverID }
+        )
+
+        await store.synchronize()
+
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, serverID)
+        let persisted = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: try XCTUnwrap(records.first?.payload)
+        )
+        XCTAssertEqual(persisted.state.queueState, reviewedCard.state.queueState)
+        XCTAssertEqual(persisted.state.scheduler, reviewedCard.state.scheduler)
+        XCTAssertEqual(
+            try XCTUnwrap(persisted.state.dueAt).timeIntervalSince1970,
+            try XCTUnwrap(reviewedCard.state.dueAt).timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(persisted.state.introducedAt).timeIntervalSince1970,
+            try XCTUnwrap(reviewedCard.state.introducedAt).timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertFalse(try XCTUnwrap(records.first).isInActiveSession)
+        XCTAssertTrue(store.cards.allSatisfy { $0.id != serverID })
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.kind), ["review"])
+        XCTAssertEqual(pending.first?.resourceID, serverID)
+    }
+
+    @MainActor
     func testPitchAccentResolutionPersistsServerEnrichmentWithoutChangingSchedule() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let original = makeCard(

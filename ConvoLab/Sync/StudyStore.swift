@@ -755,16 +755,8 @@ final class StudyStore {
                         markedDirty: false,
                         serverUpdatedAt: serverCard.updatedAt
                     )
-                    cards = replacingCardAliases(
-                        in: cards,
-                        clientID: clientResourceID,
-                        with: acknowledgedCard
-                    )
-                    libraryCards = replacingCardAliases(
-                        in: libraryCards,
-                        clientID: clientResourceID,
-                        with: acknowledgedCard
-                    )
+                    loadLocalCards()
+                    loadLibraryCards()
                 }
                 context.delete(mutation)
                 try context.save()
@@ -805,18 +797,41 @@ final class StudyStore {
         serverDescriptor.fetchLimit = 1
         let clientRecord = try context.fetch(clientDescriptor).first
         let serverRecord = try context.fetch(serverDescriptor).first
+        let mutationDescriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.resourceID == clientID || $0.resourceID == serverID
+            }
+        )
+        let aliasMutations = try context.fetch(mutationDescriptor)
         if let clientRecord {
             if let serverRecord, serverRecord !== clientRecord {
-                context.delete(serverRecord)
+                let clientHasPendingActivity = aliasMutations.contains {
+                    $0.resourceID == clientID && $0.kind != "cardCreate"
+                }
+                let serverHasPendingActivity = aliasMutations.contains {
+                    $0.resourceID == serverID && $0.kind != "cardCreate"
+                }
+                let preferServerRecord = if
+                    clientHasPendingActivity != serverHasPendingActivity
+                {
+                    serverHasPendingActivity
+                } else {
+                    localActivityDate(for: serverRecord) > localActivityDate(for: clientRecord)
+                }
+                if preferServerRecord {
+                    context.delete(clientRecord)
+                } else {
+                    context.delete(serverRecord)
+                    try context.save()
+                    clientRecord.id = serverID
+                }
                 try context.save()
+            } else {
+                clientRecord.id = serverID
             }
-            clientRecord.id = serverID
         }
 
-        let mutationDescriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.resourceID == clientID }
-        )
-        for pending in try context.fetch(mutationDescriptor) {
+        for pending in aliasMutations where pending.resourceID == clientID {
             pending.resourceID = serverID
             guard
                 pending.kind == "review",
@@ -848,19 +863,12 @@ final class StudyStore {
         }
     }
 
-    private func replacingCardAliases(
-        in source: [StudyCard],
-        clientID: String,
-        with acknowledgedCard: StudyCard
-    ) -> [StudyCard] {
-        var insertedAcknowledgement = false
-        return source.compactMap { card in
-            let isAlias = card.id == clientID || card.id == acknowledgedCard.id
-            guard isAlias else { return card }
-            guard !insertedAcknowledgement else { return nil }
-            insertedAcknowledgement = true
-            return acknowledgedCard
-        }
+    private func localActivityDate(for record: LocalCardRecord) -> Date {
+        let cardUpdatedAt = (try? StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: record.payload
+        ))?.updatedAt ?? .distantPast
+        return max(record.locallyUpdatedAt ?? .distantPast, cardUpdatedAt)
     }
 
     private func hasPendingDelete(for cardID: String) throws -> Bool {
