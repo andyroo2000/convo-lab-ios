@@ -332,6 +332,277 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRateLimitedDraftCommitKeepsItsClientCardID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000R1"
+        let clientCardID = "01J0000000000000000000000R2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("再試行")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "再試行"
+        )
+        let committedData = try StorageCodec.encoder.encode(
+            CreateCardFromStudyManualDraftResponse(
+                card: committedCard,
+                draftId: draftID
+            )
+        )
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let commitIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/create-card") == true {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                commitIDs.append(payload?["id"] as? String ?? "")
+                if createAttempts.next() == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 429,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"try later"}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "再試行"
+
+        do {
+            try await store.createCard(
+                from: serverDraft,
+                draft: draft,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil
+            )
+            XCTFail("Expected the first commit to be rate limited")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 429)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .outcomeUnknown)
+        XCTAssertNil(mutation.lastError)
+
+        try await store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+
+        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+    }
+
+    @MainActor
+    func testRejectedDraftCommitCanBeEditedAndRetriedWithSameID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000V1"
+        let clientCardID = "01J0000000000000000000000V2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("修正前")]),
+            imagePlacement: .prompt,
+            imagePrompt: "before",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let correctedDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("修正後")]),
+            imagePlacement: .prompt,
+            imagePrompt: "after",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "修正後"
+        )
+        let correctedData = try StorageCodec.encoder.encode(correctedDraft)
+        let committedData = try StorageCodec.encoder.encode(
+            CreateCardFromStudyManualDraftResponse(
+                card: committedCard,
+                draftId: draftID
+            )
+        )
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let commitIDs = LockedRequestPaths()
+        let patchedExpressions = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.httpMethod == "PATCH" {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                let answer = payload?["answer"] as? [String: Any]
+                patchedExpressions.append(answer?["expression"] as? String ?? "")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    correctedData
+                )
+            }
+            if request.url?.path.hasSuffix("/create-card") == true {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                commitIDs.append(payload?["id"] as? String ?? "")
+                if createAttempts.next() == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 422,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"fix the draft"}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.isMediaLedPrompt = true
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = "before"
+        draft.answerExpression = "修正前"
+
+        do {
+            try await store.createCard(
+                from: serverDraft,
+                draft: draft,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil
+            )
+            XCTFail("Expected validation rejection")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 422)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .rejected)
+        XCTAssertEqual(mutation.kind, "draftCommitRejected")
+        XCTAssertNotNil(mutation.lastError)
+
+        draft.imagePrompt = "after"
+        draft.answerExpression = "修正後"
+        try await store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+
+        XCTAssertEqual(patchedExpressions.values, ["修正後"])
+        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+    }
+
+    @MainActor
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }

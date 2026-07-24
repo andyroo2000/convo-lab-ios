@@ -106,6 +106,8 @@ struct CardLibraryView: View {
             Image(
                 systemName: recoveryState == .cleanupPending
                     ? "checkmark.circle"
+                    : recoveryState == .rejected
+                    ? "exclamationmark.circle"
                     : recoveryState == .outcomeUnknown
                     ? "arrow.clockwise.circle"
                     : draft.status == "generating"
@@ -121,6 +123,8 @@ struct CardLibraryView: View {
                 Text(
                     recoveryState == .cleanupPending
                         ? "Card created; tap to finish cleanup"
+                        : recoveryState == .rejected
+                        ? "Commit rejected; tap to edit and retry"
                         : recoveryState == .outcomeUnknown
                         ? "Commit outcome unknown; tap to retry"
                         : draft.status == "generating"
@@ -299,6 +303,8 @@ private struct CardEditorView: View {
                             Text(
                                 isDraftCleanupPending
                                     ? "The card was created. Retry Create Card or sync to finish cleanup."
+                                    : isDraftCommitRejected
+                                    ? "The previous commit was rejected. Edit the draft and retry Create Card with the same card ID."
                                     : "The commit outcome is unknown. Editing is locked; retry Create Card or sync."
                             )
                             .font(.footnote)
@@ -368,13 +374,20 @@ private struct CardEditorView: View {
 
     private var isDraftCommitPending: Bool {
         serverDraft.map {
-            store.draftCommitRecoveryState(for: $0.id) != .none
+            let state = store.draftCommitRecoveryState(for: $0.id)
+            return state == .outcomeUnknown || state == .cleanupPending
         } == true
     }
 
     private var isDraftCleanupPending: Bool {
         serverDraft.map {
             store.draftCommitRecoveryState(for: $0.id) == .cleanupPending
+        } == true
+    }
+
+    private var isDraftCommitRejected: Bool {
+        serverDraft.map {
+            store.draftCommitRecoveryState(for: $0.id) == .rejected
         } == true
     }
 

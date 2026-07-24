@@ -142,6 +142,7 @@ final class StudyStore {
 
     enum DraftCommitRecoveryState: Equatable {
         case none
+        case rejected
         case outcomeUnknown
         case cleanupPending
     }
@@ -717,7 +718,9 @@ final class StudyStore {
         previewImage: JSONValue?
     ) async throws {
         let existingCommit = try pendingDraftCommit(for: serverDraft.id)
-        let updated = if existingCommit == nil {
+        let shouldUpdateDraft = existingCommit == nil
+            || existingCommit?.kind == "draftCommitRejected"
+        let updated = if shouldUpdateDraft {
             try await updateManualDraft(
                 serverDraft,
                 draft: draft,
@@ -741,6 +744,13 @@ final class StudyStore {
                 payload: try StorageCodec.encoder.encode(request)
             )
             context.insert(commitMutation)
+            try context.save()
+        }
+        if commitMutation.kind == "draftCommitRejected" {
+            commitMutation.kind = "draftCommit"
+            commitMutation.attemptCount = 0
+            commitMutation.lastAttemptAt = nil
+            commitMutation.lastError = nil
             try context.save()
         }
         try await performDraftCommit(commitMutation)
@@ -770,6 +780,9 @@ final class StudyStore {
             )
         else {
             return .none
+        }
+        if mutation.kind == "draftCommitRejected" {
+            return .rejected
         }
         let originalCardID = request.id
         let normalizedCardID = request.id.lowercased()
@@ -1635,7 +1648,8 @@ final class StudyStore {
     private func pendingDraftCommit(for draftID: String) throws -> PendingMutation? {
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "draftCommit" && $0.resourceID == draftID
+                ($0.kind == "draftCommit" || $0.kind == "draftCommitRejected")
+                    && $0.resourceID == draftID
             }
         )
         descriptor.fetchLimit = 1
@@ -1675,13 +1689,12 @@ final class StudyStore {
                 body: request
             )
         } catch let rejection as APIClientError {
-            if case let .rejected(status, _) = rejection, 400..<500 ~= status {
-                // A definitive client rejection means the server did not accept
-                // this commit attempt. Let the user edit and start a fresh one.
-                context.delete(mutation)
-            } else {
-                recordDraftCommitFailure(rejection, on: mutation)
+            if case let .rejected(status, _) = rejection,
+               [400, 404, 409, 410, 422].contains(status)
+            {
+                mutation.kind = "draftCommitRejected"
             }
+            recordDraftCommitFailure(rejection, on: mutation)
             try context.save()
             throw rejection
         } catch {
