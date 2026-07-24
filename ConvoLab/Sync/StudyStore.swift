@@ -651,6 +651,9 @@ final class StudyStore {
         )
         let mutation: PendingMutation
         if let existing = try pendingDraftCreate(for: id) {
+            existing.payload = try StorageCodec.encoder.encode(request)
+            existing.lastError = nil
+            try context.save()
             mutation = existing
         } else {
             mutation = PendingMutation(
@@ -690,14 +693,19 @@ final class StudyStore {
                 answer = answer.replacingObjectValues(["answerImage": previewImage])
             }
         }
+        let resolvedPreviewAudio = previewAudio ?? serverDraft.previewAudio
+        let resolvedPreviewAudioRole = previewAudio == nil
+            ? serverDraft.previewAudioRole
+            : previewAudioRole
+        let resolvedPreviewImage = previewImage ?? serverDraft.previewImage
         let request = UpdateStudyManualCardDraftRequest(
             prompt: prompt,
             answer: answer,
             imagePlacement: draft.imagePlacement,
             imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty,
-            previewAudio: previewAudio ?? .null,
-            previewAudioRole: previewAudioRole.map(JSONValue.string) ?? .null,
-            previewImage: previewImage ?? .null
+            previewAudio: resolvedPreviewAudio ?? .null,
+            previewAudioRole: resolvedPreviewAudioRole.map(JSONValue.string) ?? .null,
+            previewImage: resolvedPreviewImage ?? .null
         )
         let updated: StudyManualCardDraft = try await api.request(
             "/api/study/card-drafts/\(serverDraft.id)",
