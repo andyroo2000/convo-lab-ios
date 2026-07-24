@@ -149,6 +149,7 @@ struct StudySessionView: View {
                     }
                     .font(font(for: block.role))
                     .foregroundStyle(color(for: block.role))
+                    .accessibilityElement(children: .combine)
                 }
             }
             .frame(maxWidth: .infinity)

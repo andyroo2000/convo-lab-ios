@@ -202,6 +202,25 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.presentation.back.heading, "彼は医者です。")
     }
 
+    func testLooseClozeBlanksEveryAnswerAndPreservesFurigana() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeDisplayText": .string("私[わたし]は[学生]で、彼[かれ]は[医者]です。"),
+            ]),
+            answer: .object([:])
+        )
+
+        XCTAssertEqual(
+            card.presentation.front.heading,
+            "私[わたし]は[...]で、彼[かれ]は[...]です。"
+        )
+        XCTAssertEqual(
+            card.presentation.back.heading,
+            "私[わたし]は学生で、彼[かれ]は医者です。"
+        )
+    }
+
     func testMalformedCardUsesHonestLibraryFallback() {
         let card = makeCard(
             cardType: "cloze",

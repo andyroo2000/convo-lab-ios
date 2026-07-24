@@ -236,20 +236,30 @@ private extension String {
     var normalizedLooseClozeText: String {
         guard !containsCanonicalClozeMarkup else { return self }
 
+        var normalized = ""
+        var cursor = startIndex
         var searchStart = startIndex
+        var foundCloze = false
         while
             let opening = self[searchStart...].firstIndex(of: "["),
             let closing = self[index(after: opening)...].firstIndex(of: "]")
         {
+            normalized += self[cursor..<opening]
             let hidden = self[index(after: opening)..<closing]
             let previousCharacter = opening == startIndex ? nil : self[index(before: opening)]
             let isFurigana = previousCharacter?.isKanji == true && hidden.isKanaReading
-            if !isFurigana {
-                return self[..<opening] + "{{c1::" + hidden + "}}" + self[index(after: closing)...]
+            if isFurigana {
+                normalized += self[opening...closing]
+            } else {
+                normalized += "{{c1::" + hidden + "}}"
+                foundCloze = true
             }
-            searchStart = index(after: closing)
+            cursor = index(after: closing)
+            searchStart = cursor
         }
-        return self
+        guard foundCloze else { return self }
+        normalized += self[cursor...]
+        return normalized
     }
 
     var studyDisplayText: String {
