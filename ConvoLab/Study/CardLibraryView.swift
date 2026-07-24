@@ -25,22 +25,24 @@ struct CardLibraryView: View {
                     }
                 }
 
-                Section("Cards") {
-                    ForEach(store.libraryCards) { card in
-                        Group {
-                            if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                                Button {
-                                    selectedCard = card
-                                } label: {
+                if !store.libraryCards.isEmpty {
+                    Section("Cards") {
+                        ForEach(store.libraryCards) { card in
+                            Group {
+                                if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                                    Button {
+                                        selectedCard = card
+                                    } label: {
+                                        cardRow(card)
+                                    }
+                                } else {
                                     cardRow(card)
                                 }
-                            } else {
-                                cardRow(card)
                             }
-                        }
-                        .swipeActions {
-                            Button("Delete", role: .destructive) {
-                                Task { await delete(card) }
+                            .swipeActions {
+                                Button("Delete", role: .destructive) {
+                                    Task { await delete(card) }
+                                }
                             }
                         }
                     }

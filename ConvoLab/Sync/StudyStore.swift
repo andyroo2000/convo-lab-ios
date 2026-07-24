@@ -1747,6 +1747,9 @@ final class StudyStore {
             if case let .rejected(status, _) = rejection,
                [400, 404, 409, 410, 422].contains(status)
             {
+                // learning-os returns 200 for a same-client-ID idempotent retry.
+                // A 409 here means the draft is still generating or was
+                // committed with a different card ID, so editing is required.
                 mutation.kind = "draftCommitRejected"
             }
             recordDraftCommitFailure(rejection, on: mutation)

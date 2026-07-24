@@ -710,6 +710,94 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testImageProductionDraftQueuesAndPlainDraftDeleteRemovesIt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000Q1",
+            status: "generating",
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+            ]),
+            imagePlacement: .prompt,
+            imagePrompt: "A Japanese company office",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            paths.append("\(request.httpMethod ?? "") \(request.url?.path ?? "")")
+            if request.httpMethod == "POST" {
+                let body = try requestBody(request)
+                let payload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(payload["creationKind"] as? String, "production-image")
+                XCTAssertEqual(payload["cardType"] as? String, "production")
+                XCTAssertEqual(payload["imagePlacement"] as? String, "prompt")
+                XCTAssertEqual(
+                    payload["imagePrompt"] as? String,
+                    "A Japanese company office"
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.answerExpression = "会社"
+        draft.answerMeaning = "company"
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = "A Japanese company office"
+
+        let queued = try await store.queueManualDraft(
+            creationKind: .productionImage,
+            draft: draft
+        )
+        XCTAssertEqual(store.manualDrafts.map(\.id), [serverDraft.id])
+
+        try await store.deleteManualDraft(queued)
+
+        XCTAssertTrue(store.manualDrafts.isEmpty)
+        XCTAssertEqual(
+            paths.values,
+            [
+                "POST /api/study/card-drafts",
+                "DELETE /api/study/card-drafts/\(serverDraft.id)",
+            ]
+        )
+    }
+
+    @MainActor
     func testManualDraftRefreshCoalescesAndDoesNotOverwriteANewerLocalDraft() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let now = Date.now
@@ -888,6 +976,40 @@ final class StudyStoreTests: XCTestCase {
             from: mutation.payload
         )
         XCTAssertEqual(request.cardType, "cloze")
+        XCTAssertEqual(request.prompt, card.prompt)
+        XCTAssertEqual(request.answer, card.answer)
+    }
+
+    @MainActor
+    func testOfflineTextProductionCreationQueuesTypeAwarePayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.cueText = "to learn"
+        draft.answerExpression = "学ぶ"
+        draft.answerReading = "学[まな]ぶ"
+        draft.answerMeaning = "to learn"
+
+        try await store.createCard(draft)
+
+        let card = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(card.cardType, "production")
+        XCTAssertEqual(card.prompt["cueText"]?.stringValue, "to learn")
+        XCTAssertEqual(card.answer["expression"]?.stringValue, "学ぶ")
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardCreate" })
+        )
+        let request = try StorageCodec.decoder.decode(
+            CreateStudyCardRequest.self,
+            from: mutation.payload
+        )
+        XCTAssertEqual(request.cardType, "production")
         XCTAssertEqual(request.prompt, card.prompt)
         XCTAssertEqual(request.answer, card.answer)
     }
