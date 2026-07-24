@@ -245,6 +245,8 @@ private func alignedRubyText(rubyText: String, plainText: String) -> String? {
             result += "\(base)[\(reading)]"
             plainIndex += baseCharacters.count
         case let .text(text):
+            // The authoritative plain string supplies whitespace so cosmetic
+            // spacing differences in imported ruby markup do not block alignment.
             for character in text where !character.isWhitespace {
                 appendPlainWhitespace()
                 guard

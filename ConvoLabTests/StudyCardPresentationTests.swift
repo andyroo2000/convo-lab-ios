@@ -43,10 +43,7 @@ final class StudyCardPresentationTests: XCTestCase {
             ])
         )
 
-        XCTAssertEqual(
-            card.promptText,
-            "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
-        )
+        XCTAssertEqual(card.promptText, "先生は知識が豊富ですか？")
         XCTAssertEqual(card.answerText, "Is the teacher knowledgeable?")
         XCTAssertNil(card.answerDetailText)
         XCTAssertEqual(
@@ -93,6 +90,8 @@ final class StudyCardPresentationTests: XCTestCase {
 
         XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]で[...]")
         XCTAssertEqual(card.presentation.back.heading, "会社[かいしゃ]で働[はたら]く")
+        XCTAssertEqual(card.promptText, "会社で[...]")
+        XCTAssertEqual(card.answerText, "会社で働く")
     }
 
     func testClozeFrontNeverRevealsMultipleSameOrdinalAnswersThroughRuby() {
