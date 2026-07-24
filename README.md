@@ -30,6 +30,15 @@ The checked-in debug configuration points at `http://127.0.0.1:8000`. To use ano
 copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set `API_BASE_URL`.
 Both checked-in configurations automatically include the ignored local override.
 
+Before signing in from the simulator, start the neighboring learning-os checkout:
+
+```bash
+cd ../learning-os
+composer run dev
+```
+
+The Laravel server should report that it is listening on `http://127.0.0.1:8000`.
+
 The release URL is deliberately an invalid placeholder until the production learning-os
 hostname is selected.
 
@@ -45,11 +54,10 @@ xcodebuild \
 
 ## Offline model
 
-The device stores cards, Daily Audio metadata, media-cache records, a sync checkpoint, and
-an ordered mutation outbox in SwiftData. Reviews use learning-os client event IDs and batch
-replay. Card mutations use client-generated ULIDs. Server feed entries are applied only
-after pending local writes have been pushed, avoiding a stale pull overwriting an offline
-edit.
+The device stores cards, Daily Audio metadata, media-cache records, and ordered mutation
+outboxes in SwiftData. Reviews use learning-os client event IDs and replay safely. Card
+mutations use client-generated ULIDs. Pending local writes are pushed before refreshing the
+study session, avoiding a stale pull overwriting an offline edit.
 
 The five-day preparation target is:
 
