@@ -203,6 +203,11 @@ private struct CardEditorView: View {
             Text("Use Anki-style markup, for example: 毎日{{c1::勉強する}}。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            if !draft.cueText.isEmpty, !draft.hasCanonicalClozeMarkup {
+                Text("Add a cloze marker such as {{c1::answer}} before saving.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
             TextField("Hint (optional)", text: $draft.cueMeaning, axis: .vertical)
         }
         Section("Answer") {

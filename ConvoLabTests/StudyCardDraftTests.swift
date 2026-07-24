@@ -39,6 +39,59 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testEditingResolvedClozeHintMakesNewHintVisible() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("毎日{{c1::勉強する}}。"),
+                "clozeHint": .string("old manual hint"),
+                "clozeResolvedHint": .string("old resolved hint"),
+            ]),
+            answer: .object([
+                "restoredText": .string("毎日勉強する。"),
+                "meaning": .string("I study every day."),
+            ])
+        )
+        var draft = StudyCardDraft(card: card)
+        XCTAssertEqual(draft.cueMeaning, "old resolved hint")
+        draft.cueMeaning = "new hint"
+        let prompt = draft.prompt(merging: card.prompt)
+        let updated = StudyCard(
+            id: card.id,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: prompt,
+            answer: card.answer,
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt
+        )
+
+        XCTAssertEqual(prompt["clozeHint"], .string("new hint"))
+        XCTAssertEqual(prompt["clozeResolvedHint"], .null)
+        XCTAssertEqual(updated.presentation.front.supportingText, "new hint")
+    }
+
+    @MainActor
+    func testClozeDraftRequiresCompleteCanonicalMarkup() {
+        var draft = StudyCardDraft(cardType: .cloze)
+        draft.answerExpression = "毎日勉強する。"
+
+        draft.cueText = "毎日勉強する。"
+        XCTAssertFalse(draft.hasCanonicalClozeMarkup)
+        XCTAssertFalse(draft.isValid)
+
+        draft.cueText = "毎日{{c1::勉強する"
+        XCTAssertFalse(draft.hasCanonicalClozeMarkup)
+        XCTAssertFalse(draft.isValid)
+
+        draft.cueText = "毎日{{c1::勉強する}}。"
+        XCTAssertTrue(draft.hasCanonicalClozeMarkup)
+        XCTAssertTrue(draft.isValid)
+    }
+
+    @MainActor
     func testProductionDraftPreservesServerManagedPayloadAndClearsOptionalText() {
         let card = makeCard(
             cardType: "production",

@@ -29,6 +29,7 @@ struct StudyCardDraft: Equatable, Sendable {
     var notes: String
     var isMediaLedPrompt: Bool
     var isAudioLedPrompt: Bool
+    private var originalClozeHint: String?
 
     init(cardType: CardType = .recognition) {
         self.cardType = cardType
@@ -43,6 +44,7 @@ struct StudyCardDraft: Equatable, Sendable {
         notes = ""
         isMediaLedPrompt = false
         isAudioLedPrompt = false
+        originalClozeHint = nil
     }
 
     init(card: StudyCard) {
@@ -58,14 +60,16 @@ struct StudyCardDraft: Equatable, Sendable {
             cueText = card.prompt.firstNonEmptyString(for: ["clozeText"]) ?? ""
             cueReading = ""
             cueMeaning = card.prompt.firstNonEmptyString(
-                for: ["clozeHint", "clozeResolvedHint"]
+                for: ["clozeResolvedHint", "clozeHint"]
             ) ?? ""
+            originalClozeHint = cueMeaning
             answerExpression = card.answer.firstNonEmptyString(for: ["restoredText"]) ?? ""
             answerReading = card.answer.firstNonEmptyString(for: ["restoredTextReading"]) ?? ""
             answerMeaning = card.answer.firstNonEmptyString(for: ["meaning"]) ?? ""
             sentenceJapanese = ""
             sentenceEnglish = ""
         } else {
+            originalClozeHint = nil
             cueText = card.prompt.firstNonEmptyString(for: ["cueText"]) ?? ""
             cueReading = card.prompt.firstNonEmptyString(for: ["cueReading"]) ?? ""
             cueMeaning = card.prompt.firstNonEmptyString(for: ["cueMeaning"]) ?? ""
@@ -81,24 +85,35 @@ struct StudyCardDraft: Equatable, Sendable {
     var isValid: Bool {
         switch cardType {
         case .cloze:
-            !cueText.trimmed.isEmpty && !answerExpression.trimmed.isEmpty
+            hasCanonicalClozeMarkup && !answerExpression.trimmed.isEmpty
         case .recognition, .production:
             (isMediaLedPrompt || !cueText.trimmed.isEmpty)
                 && !answerExpression.trimmed.isEmpty
         }
     }
 
+    var hasCanonicalClozeMarkup: Bool {
+        cueText.range(of: #"(?s)\{\{c\d+::.+?\}\}"#, options: .regularExpression) != nil
+    }
+
     func prompt(merging existing: JSONValue = .object([:])) -> JSONValue {
         switch cardType {
         case .cloze:
-            existing.replacingObjectValues([
+            var replacements: [String: JSONValue] = [
                 "clozeText": .string(cueText.trimmed),
                 "clozeHint": cueMeaning.optionalJSONText(
                     preservingNonString: existing["clozeHint"]
                 ),
-            ])
+            ]
+            if cueMeaning.trimmed != originalClozeHint?.trimmed {
+                // clozeResolvedHint wins during presentation. Once the user
+                // explicitly edits the displayed hint, clear that derived value
+                // so the new manual hint is visible immediately.
+                replacements["clozeResolvedHint"] = .null
+            }
+            return existing.replacingObjectValues(replacements)
         case .recognition, .production:
-            existing.replacingObjectValues([
+            return existing.replacingObjectValues([
                 "cueText": isAudioLedPrompt ? .null : .string(cueText.trimmed),
                 "cueReading": isAudioLedPrompt
                     ? .null
