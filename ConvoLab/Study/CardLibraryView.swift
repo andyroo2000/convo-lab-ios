@@ -101,6 +101,7 @@ private struct CardEditorView: View {
     @State private var answerAudioLocalURL: URL?
     @State private var promptImageLocalURL: URL?
     @State private var answerImageLocalURL: URL?
+    @State private var sharedImageLocalURL: URL?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -242,6 +243,9 @@ private struct CardEditorView: View {
                 }
             }
             .disabled(isRegeneratingImage)
+            .onChange(of: draft.imagePlacement) { _, placement in
+                applyImagePlacementPreview(placement)
+            }
 
             if card != nil {
                 Button {
@@ -262,7 +266,9 @@ private struct CardEditorView: View {
                         || draft.imagePrompt.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ).isEmpty
-                        || draft.imagePrompt.count > 1_000
+                        || draft.imagePrompt.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).count > 1_000
                 )
             } else {
                 Text("An image can be generated after this card has synced.")
@@ -466,6 +472,26 @@ private struct CardEditorView: View {
         } else {
             answerImageLocalURL = nil
         }
+        sharedImageLocalURL = promptImageLocalURL ?? answerImageLocalURL
+    }
+
+    private func applyImagePlacementPreview(
+        _ placement: StudyCardDraft.ImagePlacement
+    ) {
+        switch placement {
+        case .none:
+            promptImageLocalURL = nil
+            answerImageLocalURL = nil
+        case .prompt:
+            promptImageLocalURL = sharedImageLocalURL
+            answerImageLocalURL = nil
+        case .answer:
+            promptImageLocalURL = nil
+            answerImageLocalURL = sharedImageLocalURL
+        case .both:
+            promptImageLocalURL = sharedImageLocalURL
+            answerImageLocalURL = sharedImageLocalURL
+        }
     }
 
     private func regenerateAnswerAudio() async {
@@ -506,6 +532,7 @@ private struct CardEditorView: View {
             draft.currentImage = result.card.prompt["cueImage"]?.mediaURLs.isEmpty == false
                 ? result.card.prompt["cueImage"]
                 : result.card.answer["answerImage"]
+            sharedImageLocalURL = result.localURL
             promptImageLocalURL = draft.imagePlacement.includesPrompt
                 ? result.localURL
                 : nil
