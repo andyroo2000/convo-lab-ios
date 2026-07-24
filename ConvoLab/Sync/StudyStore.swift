@@ -32,6 +32,7 @@ final class StudyStore {
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var reviewedFailedCardIDs: Set<String> = []
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -63,6 +64,14 @@ final class StudyStore {
 
     var fiveDayNewCardTarget: Int {
         (overview?.newCardsPerDay ?? 0) * 5
+    }
+
+    var sessionCounts: StudySessionCounts {
+        StudySessionCounts.calculate(
+            cards: cards,
+            overview: overview,
+            reviewedFailedCardIDs: reviewedFailedCardIDs
+        )
     }
 
     func localMediaURL(for remoteURL: URL) -> URL? {
@@ -139,6 +148,7 @@ final class StudyStore {
         }
         overview = envelope.data.overview
         cards = activeCards
+        reviewedFailedCardIDs = []
         try persist(cards: activeCards)
         loadLibraryCards()
 
@@ -235,6 +245,9 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             try context.fetch(descriptor).first?.isInActiveSession = false
             try context.save()
+            if card.state.failedAt != nil, rating != .again {
+                reviewedFailedCardIDs.insert(card.id)
+            }
             cards.removeAll { $0.id == card.id }
             try await flushReviewOutbox()
         } catch {
@@ -667,6 +680,36 @@ final class StudyStore {
         } else {
             syncStatus = .failed(error.localizedDescription)
         }
+    }
+}
+
+struct StudySessionCounts: Equatable {
+    let failedDue: Int
+    let reviewRemaining: Int
+    let newRemaining: Int
+
+    static func calculate(
+        cards: [StudyCard],
+        overview: StudyOverview?,
+        reviewedFailedCardIDs: Set<String> = []
+    ) -> StudySessionCounts {
+        let loadedFailedCount = cards.count(where: { $0.state.failedAt != nil })
+        let authoritativeFailedCount = max(
+            0,
+            (overview?.failedCount ?? 0) - reviewedFailedCardIDs.count
+        )
+        let newRemaining = cards.count(where: {
+            $0.state.failedAt == nil && $0.state.queueState == "new"
+        })
+        let reviewRemaining = cards.count(where: {
+            $0.state.failedAt == nil && $0.state.queueState != "new"
+        })
+
+        return StudySessionCounts(
+            failedDue: max(authoritativeFailedCount, loadedFailedCount),
+            reviewRemaining: reviewRemaining,
+            newRemaining: newRemaining
+        )
     }
 }
 

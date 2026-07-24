@@ -5,6 +5,85 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let failedCard = StudyCard(
+            id: "01J00000000000000000000010",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("失敗")]),
+            answer: .object(["meaning": .string("failure")]),
+            state: .init(
+                dueAt: .now,
+                introducedAt: .now,
+                failedAt: .now,
+                queueState: "relearning",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                failedCount: 1
+            ),
+            cards: [failedCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            XCTAssertEqual(request.url?.path, "/api/card-review-events/batch")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"data":[]}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+
+        await store.recordReview(card: failedCard, rating: .good, duration: nil)
+
+        XCTAssertEqual(
+            store.sessionCounts,
+            StudySessionCounts(failedDue: 0, reviewRemaining: 0, newRemaining: 0)
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testRefreshDeDuplicatesRepeatedServerCardIDs() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "01J00000000000000000000009", expression: "重複")

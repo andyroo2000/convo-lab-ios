@@ -60,7 +60,9 @@ tokens are submitted to learning-os and are never stored on the device.
 
 The four grades are Again, Hard, Good, and Easy. Each grade displays the next
 scheduled interval above its label. The session header reports failed, queued
-review, and new counts separately.
+review, and new counts separately. Queued and new counts reflect the currently
+loaded session cards; failed count reconciles the loaded failures with the
+authoritative overview and decrements optimistically after an offline review.
 
 ## Offline behavior
 
