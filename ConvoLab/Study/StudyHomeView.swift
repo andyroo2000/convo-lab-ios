@@ -57,9 +57,9 @@ struct StudyHomeView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            metric(title: "Failed", value: store.sessionCounts.failedDue)
             metric(title: "Due", value: store.overview?.dueCount ?? store.cards.count)
             metric(title: "New", value: store.overview?.newCount ?? 0)
-            metric(title: "Daily", value: store.overview?.newCardsPerDay ?? 0)
         }
     }
 

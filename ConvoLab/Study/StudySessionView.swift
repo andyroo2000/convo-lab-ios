@@ -15,15 +15,27 @@ struct StudySessionView: View {
         VStack(spacing: 22) {
             if let card {
                 let presentation = card.presentation
-                HStack {
-                    Text(card.state.queueState.uppercased())
-                        .font(.caption.bold())
-                        .tracking(1.5)
-                    Spacer()
-                    Text("\(store.cards.count) remaining")
-                        .font(.caption)
+                HStack(spacing: 8) {
+                    sessionMetric(
+                        label: "Failed",
+                        value: store.sessionCounts.failedDue,
+                        color: ConvoLabTheme.coral
+                    )
+                    sessionMetric(
+                        label: "Queued",
+                        value: store.sessionCounts.reviewRemaining,
+                        color: .green
+                    )
+                    sessionMetric(
+                        label: "New",
+                        value: store.sessionCounts.newRemaining,
+                        color: .blue
+                    )
                 }
-                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(store.sessionCounts.failedDue) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
+                )
 
                 Spacer()
 
@@ -68,6 +80,19 @@ struct StudySessionView: View {
         .onDisappear {
             player.stop()
         }
+    }
+
+    private func sessionMetric(label: String, value: Int, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value, format: .number)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(color)
+            Text(label.uppercased())
+                .font(.caption2.bold())
+                .tracking(1)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

@@ -54,13 +54,31 @@ struct StudySession: Codable, Sendable {
 
 struct StudyOverview: Codable, Sendable {
     let dueCount: Int
+    let failedCount: Int?
     let newCount: Int
     let reviewCount: Int
     let newCardsPerDay: Int
     let newCardsAvailableToday: Int?
 
+    init(
+        dueCount: Int,
+        newCount: Int,
+        reviewCount: Int,
+        newCardsPerDay: Int,
+        newCardsAvailableToday: Int?,
+        failedCount: Int? = nil
+    ) {
+        self.dueCount = dueCount
+        self.failedCount = failedCount
+        self.newCount = newCount
+        self.reviewCount = reviewCount
+        self.newCardsPerDay = newCardsPerDay
+        self.newCardsAvailableToday = newCardsAvailableToday
+    }
+
     enum CodingKeys: String, CodingKey {
         case dueCount = "due_count"
+        case failedCount = "failed_count"
         case newCount = "new_count"
         case reviewCount = "review_count"
         case newCardsPerDay = "new_cards_per_day"

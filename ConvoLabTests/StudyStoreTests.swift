@@ -5,6 +5,209 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testFirstTimeOfflineFailureSurvivesRelaunchAndStaleServerRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "01J00000000000000000000011", expression: "再学習")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        await store.recordReview(card: card, rating: .again, duration: nil)
+
+        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertTrue(store.cards.isEmpty)
+
+        let relaunched = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+        XCTAssertTrue(relaunched.cards.isEmpty)
+
+        let staleSession = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                failedCount: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(staleSession)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/study/session/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+
+        try await relaunched.refreshSession()
+
+        XCTAssertTrue(relaunched.cards.isEmpty)
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+    }
+
+    @MainActor
+    func testCorruptedPendingReviewDoesNotBlockSessionRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewedCard = makeCard(
+            id: "01J00000000000000000000012",
+            expression: "破損"
+        )
+        let availableCard = makeCard(
+            id: "01J00000000000000000000013",
+            expression: "利用可能"
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "review",
+                resourceID: reviewedCard.id,
+                payload: Data("not-json".utf8)
+            )
+        )
+        try container.mainContext.save()
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 2,
+                newCount: 0,
+                reviewCount: 2,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [reviewedCard, availableCard]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/session/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.cards.map(\.id), [availableCard.id])
+        XCTAssertEqual(store.overview?.dueCount, 2)
+    }
+
+    @MainActor
+    func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let failedCard = StudyCard(
+            id: "01J00000000000000000000010",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("失敗")]),
+            answer: .object(["meaning": .string("failure")]),
+            state: .init(
+                dueAt: .now,
+                introducedAt: .now,
+                failedAt: .now,
+                queueState: "relearning",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                failedCount: 1
+            ),
+            cards: [failedCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            XCTAssertEqual(request.url?.path, "/api/card-review-events/batch")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"data":[]}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+
+        await store.recordReview(card: failedCard, rating: .good, duration: nil)
+
+        XCTAssertEqual(
+            store.sessionCounts,
+            StudySessionCounts(failedDue: 0, reviewRemaining: 0, newRemaining: 0)
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testRefreshDeDuplicatesRepeatedServerCardIDs() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "01J00000000000000000000009", expression: "重複")
@@ -401,13 +604,13 @@ final class StudyStoreTests: XCTestCase {
         let createdCardData = try StorageCodec.encoder.encode(createdCard)
         let session = StudySession(
             overview: StudyOverview(
-                dueCount: 0,
+                dueCount: 1,
                 newCount: 1,
-                reviewCount: 0,
+                reviewCount: 1,
                 newCardsPerDay: 10,
                 newCardsAvailableToday: 1
             ),
-            cards: [createdCard]
+            cards: [rejectedReviewCard, createdCard]
         )
         let sessionObject = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(session)
@@ -455,6 +658,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pending.filter { $0.kind == "review" }.count, 1)
         XCTAssertTrue(pending.filter { $0.kind.hasPrefix("card") }.isEmpty)
         XCTAssertEqual(store.overview?.newCount, 1)
+        XCTAssertEqual(Set(store.cards.map(\.id)), [rejectedReviewCard.id, createdCard.id])
         XCTAssertNotNil(store.lastSyncAt)
     }
 
