@@ -91,9 +91,15 @@ final class MediaCache {
         let destination = rootURL.appending(path: filename)
 
         if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+            _ = try FileManager.default.replaceItemAt(
+                destination,
+                withItemAt: temporaryURL,
+                backupItemName: nil,
+                options: .usingNewMetadataOnly
+            )
+        } else {
+            try FileManager.default.moveItem(at: temporaryURL, to: destination)
         }
-        try FileManager.default.moveItem(at: temporaryURL, to: destination)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
         let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0

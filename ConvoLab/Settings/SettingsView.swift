@@ -21,6 +21,10 @@ struct SettingsView: View {
                         )
                     )
                     LabeledContent("Study window", value: "5 days")
+                    LabeledContent(
+                        "Changes needing attention",
+                        value: model.study.quarantinedMutationCount.formatted()
+                    )
                     Text("Playback positions are stored only on this device.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -49,4 +53,3 @@ struct SettingsView: View {
         }
     }
 }
-

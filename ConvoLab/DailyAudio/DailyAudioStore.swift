@@ -29,9 +29,7 @@ final class DailyAudioStore {
             practices = response.sorted { $0.createdAt > $1.createdAt }
             try persist(practices)
         } catch {
-            if practices.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
     }
 

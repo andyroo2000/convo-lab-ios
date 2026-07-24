@@ -91,10 +91,10 @@ final class AuthStore {
 
     func logout() async {
         if api.accessToken != nil {
-            let _: IgnoredResponse? = try? await api.request(
+            let _: IgnoredResponse = (try? await api.request(
                 "/api/auth/tokens/current",
                 method: "DELETE"
-            )
+            )) ?? IgnoredResponse()
         }
         clearCredentials()
         state = .signedOut

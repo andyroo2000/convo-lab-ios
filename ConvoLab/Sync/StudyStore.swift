@@ -182,7 +182,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            syncStatus = .offline
+            handleSyncError(error)
         }
     }
 
@@ -216,7 +216,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            syncStatus = .offline
+            handleSyncError(error)
         }
     }
 
@@ -235,8 +235,15 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            syncStatus = .offline
+            handleSyncError(error)
         }
+    }
+
+    var quarantinedMutationCount: Int {
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate { $0.lastError != nil }
+        )
+        return (try? context.fetchCount(descriptor)) ?? 0
     }
 
     private func flushReviewOutbox() async throws {
