@@ -100,6 +100,183 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateAcknowledgementPreservesQueuedEditWhenUpdateIsRejected() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let createAttempts = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                guard createAttempts.next() > 1 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                let createRequest = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let canonicalID = try XCTUnwrap(
+                    createRequest["id"] as? String
+                ).lowercased()
+                let response: [String: Any] = [
+                    "id": canonicalID,
+                    "syncId": canonicalID,
+                    "noteId": NSNull(),
+                    "cardType": try XCTUnwrap(createRequest["cardType"]),
+                    "prompt": try XCTUnwrap(createRequest["prompt"]),
+                    "answer": try XCTUnwrap(createRequest["answer"]),
+                    "state": [
+                        "dueAt": NSNull(),
+                        "introducedAt": NSNull(),
+                        "failedAt": NSNull(),
+                        "queueState": "new",
+                        "scheduler": NSNull(),
+                        "source": [:],
+                    ],
+                    "answerAudioSource": "missing",
+                    "createdAt": "2026-07-24T11:00:00Z",
+                    "updatedAt": "2026-07-24T11:00:00Z",
+                ]
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: response)
+                )
+            default:
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 422,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Rejected update"}"#.utf8)
+                )
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.createCard(
+            expression: "最初",
+            reading: "さいしょ",
+            meaning: "original"
+        )
+        let created = try XCTUnwrap(store.libraryCards.first)
+        var editedDraft = StudyCardDraft(card: created)
+        editedDraft.cueText = "編集済み"
+        editedDraft.answerExpression = "編集済み"
+        editedDraft.answerMeaning = "edited"
+        try await store.updateCard(created, draft: editedDraft)
+
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(record.id, created.id.lowercased())
+        XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "編集済み")
+        XCTAssertEqual(persisted.answer["meaning"]?.stringValue, "edited")
+        XCTAssertNotNil(record.locallyUpdatedAt)
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.kind), ["cardUpdate"])
+        XCTAssertEqual(pending.first?.resourceID, created.id.lowercased())
+        XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testStaleEditorSnapshotSavesAgainstCanonicalLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000SE"
+        let canonicalID = clientID.lowercased()
+        let staleCard = makeCard(id: clientID, expression: "同期前")
+        let canonicalCard = StudyCard(
+            id: canonicalID,
+            syncId: canonicalID,
+            noteId: staleCard.noteId,
+            cardType: staleCard.cardType,
+            prompt: staleCard.prompt,
+            answer: staleCard.answer,
+            state: staleCard.state,
+            answerAudioSource: staleCard.answerAudioSource,
+            createdAt: staleCard.createdAt,
+            updatedAt: staleCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: canonicalCard,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(canonicalCard)
+            )
+        )
+        try container.mainContext.save()
+        let patchedPaths = LockedRequestPaths()
+        let canonicalCardType = canonicalCard.cardType
+        let canonicalAudioSource = canonicalCard.answerAudioSource
+        let client = makeClient { request in
+            patchedPaths.append(request.url?.path ?? "")
+            let body = try XCTUnwrap(
+                try JSONSerialization.jsonObject(
+                    with: requestBody(request)
+                ) as? [String: Any]
+            )
+            let response: [String: Any] = [
+                "id": canonicalID,
+                "syncId": canonicalID,
+                "noteId": NSNull(),
+                "cardType": canonicalCardType,
+                "prompt": try XCTUnwrap(body["prompt"]),
+                "answer": try XCTUnwrap(body["answer"]),
+                "state": [
+                    "dueAt": NSNull(),
+                    "introducedAt": NSNull(),
+                    "failedAt": NSNull(),
+                    "queueState": "new",
+                    "scheduler": NSNull(),
+                    "source": [:],
+                ],
+                "answerAudioSource": canonicalAudioSource,
+                "createdAt": "2026-07-24T11:00:00Z",
+                "updatedAt": "2026-07-24T11:01:00Z",
+            ]
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: response)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(card: staleCard)
+        draft.cueText = "同期後"
+        draft.answerExpression = "同期後"
+        draft.answerMeaning = "after sync"
+
+        try await store.updateCard(staleCard, draft: draft)
+
+        XCTAssertEqual(patchedPaths.values, ["/api/study/cards/\(canonicalID)"])
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, canonicalID)
+        XCTAssertEqual(store.libraryCards.first?.prompt["cueText"]?.stringValue, "同期後")
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testNormalizedCreateRewritesQueuedReviewToCanonicalCardID() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let createAttempts = LockedCounter()
