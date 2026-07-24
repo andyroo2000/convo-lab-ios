@@ -46,6 +46,16 @@ final class AppModel {
     func start() async {
         await auth.restore()
         guard case .signedIn = auth.state else { return }
+        await refreshAuthenticatedData()
+    }
+
+    func synchronize() async {
+        await auth.restore()
+        guard case .signedIn = auth.state else { return }
+        await refreshAuthenticatedData()
+    }
+
+    private func refreshAuthenticatedData() async {
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Void = dailyAudio.refresh()
         _ = await (studySync, audioRefresh)

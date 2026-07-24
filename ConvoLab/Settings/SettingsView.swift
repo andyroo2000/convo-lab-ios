@@ -40,8 +40,7 @@ struct SettingsView: View {
                 Section {
                     Button("Sync Now") {
                         Task {
-                            await model.study.synchronize()
-                            await model.dailyAudio.refresh()
+                            await model.synchronize()
                         }
                     }
                     Button("Sign Out", role: .destructive) {

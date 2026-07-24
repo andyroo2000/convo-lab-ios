@@ -10,8 +10,7 @@ struct RootView: View {
                 .paperBackground()
         case .signedOut:
             LoginView(auth: model.auth) {
-                await model.study.synchronize()
-                await model.dailyAudio.refresh()
+                await model.synchronize()
             }
         case let .signedIn(user):
             MainTabView(model: model, user: user)
@@ -41,4 +40,3 @@ private struct MainTabView: View {
         .tint(ConvoLabTheme.navy)
     }
 }
-
