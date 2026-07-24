@@ -26,6 +26,8 @@ struct StudyCardDraft: Equatable, Sendable {
     var answerMeaning: String
     var sentenceJapanese: String
     var sentenceEnglish: String
+    var answerAudioVoiceId: String
+    var answerAudioTextOverride: String
     var notes: String
     var isMediaLedPrompt: Bool
     var isAudioLedPrompt: Bool
@@ -41,6 +43,8 @@ struct StudyCardDraft: Equatable, Sendable {
         answerMeaning = ""
         sentenceJapanese = ""
         sentenceEnglish = ""
+        answerAudioVoiceId = StudyAnswerVoice.defaultVoice.id
+        answerAudioTextOverride = ""
         notes = ""
         isMediaLedPrompt = false
         isAudioLedPrompt = false
@@ -79,6 +83,12 @@ struct StudyCardDraft: Equatable, Sendable {
             sentenceJapanese = card.answer.firstNonEmptyString(for: ["sentenceJp"]) ?? ""
             sentenceEnglish = card.answer.firstNonEmptyString(for: ["sentenceEn"]) ?? ""
         }
+        answerAudioVoiceId = card.answer.firstNonEmptyString(
+            for: ["answerAudioVoiceId"]
+        ) ?? StudyAnswerVoice.defaultVoice.id
+        answerAudioTextOverride = card.answer.firstNonEmptyString(
+            for: ["answerAudioTextOverride"]
+        ) ?? ""
         notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
     }
 
@@ -144,6 +154,12 @@ struct StudyCardDraft: Equatable, Sendable {
                 "meaning": answerMeaning.optionalJSONText(
                     preservingNonString: existing["meaning"]
                 ),
+                "answerAudioVoiceId": answerAudioVoiceId.optionalJSONText(
+                    preservingNonString: existing["answerAudioVoiceId"]
+                ),
+                "answerAudioTextOverride": answerAudioTextOverride.optionalJSONText(
+                    preservingNonString: existing["answerAudioTextOverride"]
+                ),
                 "notes": notes.optionalJSONText(
                     preservingNonString: existing["notes"]
                 ),
@@ -162,6 +178,12 @@ struct StudyCardDraft: Equatable, Sendable {
                 ),
                 "sentenceEn": sentenceEnglish.optionalJSONText(
                     preservingNonString: existing["sentenceEn"]
+                ),
+                "answerAudioVoiceId": answerAudioVoiceId.optionalJSONText(
+                    preservingNonString: existing["answerAudioVoiceId"]
+                ),
+                "answerAudioTextOverride": answerAudioTextOverride.optionalJSONText(
+                    preservingNonString: existing["answerAudioTextOverride"]
                 ),
                 "notes": notes.optionalJSONText(
                     preservingNonString: existing["notes"]

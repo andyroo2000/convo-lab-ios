@@ -1,5 +1,11 @@
 import Foundation
 
+extension StudyCard {
+    var answerAudioURL: URL? {
+        answer.mediaURL(for: "answerAudio")
+    }
+}
+
 struct StudyCardPresentation: Equatable, Sendable {
     struct PitchAccent: Equatable, Sendable {
         let expression: String

@@ -47,6 +47,11 @@ struct PasswordResetRequest: Encodable {
     let email: String
 }
 
+struct RegenerateAnswerAudioRequest: Encodable, Equatable, Sendable {
+    let answerAudioVoiceId: String?
+    let answerAudioTextOverride: String?
+}
+
 struct StudySession: Codable, Sendable {
     let overview: StudyOverview
     let cards: [StudyCard]

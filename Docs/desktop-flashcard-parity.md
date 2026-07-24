@@ -81,8 +81,16 @@ preserved. A recognition card whose only prompt is audio keeps the desktop
 audio-led contract: prompt text fields stay hidden and only answer fields are
 edited. Image-led cards retain their image and expose any helper label while
 allowing cue text to remain empty. Creates and updates enter the same persisted
-sync outbox as reviews and remain visible after relaunch. Generated-media
-controls require learning-os and are specified separately.
+sync outbox as reviews and remain visible after relaunch.
+
+The editor shows current answer audio before its audio settings. It exposes the
+same nine Japanese Fish Audio voices as desktop, defaulting to Ren, plus an
+optional phonetic audio override. Saving preserves those settings for every
+supported card type. Existing cards can ask learning-os to regenerate answer
+audio; the returned card is persisted immediately, the new audio replaces any
+cached file for the same stable media URL, and playback starts from the
+downloaded file. Regeneration is unavailable for a new unsynced card and fails
+normally while offline without discarding local edits.
 
 ## Review tray
 

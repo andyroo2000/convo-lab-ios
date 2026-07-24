@@ -40,6 +40,166 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRegenerateAnswerAudioPersistsSettingsAndRefreshesOfflineMedia() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000AA",
+            expression: "会社"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        let regenerated = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: nil,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues([
+                "answerAudioVoiceId": .string(
+                    "fishaudio:875668667eb94c20b09856b971d9ca2f"
+                ),
+                "answerAudioTextOverride": .string("かいしゃ"),
+                "answerAudio": .object([
+                    "url": .string("/api/study/media/answer-audio"),
+                    "filename": .string("answer.mp3"),
+                ]),
+            ]),
+            state: card.state,
+            answerAudioSource: "generated",
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(regenerated)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path.hasSuffix("/regenerate-answer-audio") {
+                XCTAssertEqual(request.timeoutInterval, 180)
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                XCTAssertEqual(
+                    payload?["answerAudioVoiceId"] as? String,
+                    "fishaudio:875668667eb94c20b09856b971d9ca2f"
+                )
+                XCTAssertEqual(payload?["answerAudioTextOverride"] as? String, "かいしゃ")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("regenerated-audio".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let result = try await store.regenerateAnswerAudio(
+            for: card,
+            voiceID: " fishaudio:875668667eb94c20b09856b971d9ca2f ",
+            textOverride: " かいしゃ "
+        )
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/cards/\(card.id)/regenerate-answer-audio",
+                "/api/study/media/answer-audio",
+            ]
+        )
+        XCTAssertEqual(
+            try String(contentsOf: result.localURL, encoding: .utf8),
+            "regenerated-audio"
+        )
+        let stored = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(stored.answerAudioSource, "generated")
+        XCTAssertEqual(
+            stored.answer["answerAudioVoiceId"]?.stringValue,
+            "fishaudio:875668667eb94c20b09856b971d9ca2f"
+        )
+        XCTAssertEqual(stored.answer["answerAudioTextOverride"]?.stringValue, "かいしゃ")
+    }
+
+    @MainActor
+    func testRegenerateAnswerAudioDoesNotOverwriteQuarantinedLocalEdit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000AB",
+            expression: "教材"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        let update = PendingMutation(
+            kind: "cardUpdate",
+            resourceID: card.id,
+            payload: try StorageCodec.encoder.encode(
+                UpdateStudyCardRequest(prompt: card.prompt, answer: card.answer)
+            )
+        )
+        update.lastError = "HTTP 422: Rejected"
+        container.mainContext.insert(update)
+        try container.mainContext.save()
+        let requestCounter = LockedCounter()
+        let client = makeClient { _ in
+            _ = requestCounter.next()
+            throw URLError(.badServerResponse)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            _ = try await store.regenerateAnswerAudio(
+                for: card,
+                voiceID: StudyAnswerVoice.defaultVoice.id,
+                textOverride: ""
+            )
+            XCTFail("Expected unresolved local edit to block regeneration")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Sync this card’s pending changes before regenerating its audio."
+            )
+        }
+
+        XCTAssertEqual(requestCounter.current, 0)
+        let stored = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(stored.id, card.id)
+        XCTAssertEqual(stored.prompt, card.prompt)
+        XCTAssertEqual(stored.answer, card.answer)
+        XCTAssertEqual(stored.state, card.state)
+    }
+
+    @MainActor
     func testCreateReconcilesBackendNormalizedULIDWithoutDuplicate() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

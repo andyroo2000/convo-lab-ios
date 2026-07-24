@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CardLibraryView: View {
     let store: StudyStore
+    let player: StudyAudioPlayer
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
     @State private var showingDeletionError = false
@@ -49,10 +50,10 @@ struct CardLibraryView: View {
                 }
             }
             .sheet(isPresented: $showingCreate) {
-                CardEditorView(store: store, card: nil)
+                CardEditorView(store: store, player: player, card: nil)
             }
             .sheet(item: $selectedCard) { card in
-                CardEditorView(store: store, card: card)
+                CardEditorView(store: store, player: player, card: card)
             }
             .alert("Could not delete card", isPresented: $showingDeletionError) {
                 Button("OK", role: .cancel) {}
@@ -88,15 +89,19 @@ struct CardLibraryView: View {
 
 private struct CardEditorView: View {
     let store: StudyStore
+    let player: StudyAudioPlayer
     let card: StudyCard?
 
     @State private var draft: StudyCardDraft
     @State private var isSaving = false
+    @State private var isRegeneratingAudio = false
+    @State private var answerAudioLocalURL: URL?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(store: StudyStore, card: StudyCard?) {
+    init(store: StudyStore, player: StudyAudioPlayer, card: StudyCard?) {
         self.store = store
+        self.player = player
         self.card = card
         _draft = State(initialValue: card.map(StudyCardDraft.init(card:)) ?? StudyCardDraft())
     }
@@ -120,6 +125,8 @@ private struct CardEditorView: View {
                 } else {
                     standardFields
                 }
+
+                answerAudioFields
 
                 Section("Notes") {
                     TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
@@ -161,6 +168,82 @@ private struct CardEditorView: View {
                     }
                     .disabled(!draft.isValid || isSaving)
                 }
+            }
+            .task(id: card?.id) {
+                await loadCurrentAnswerAudio()
+            }
+            .onDisappear {
+                if player.isCurrent(answerAudioTrackID) {
+                    player.stop()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var answerAudioFields: some View {
+        Section("Answer audio") {
+            if card != nil {
+                if let answerAudioLocalURL {
+                    Button {
+                        if player.isCurrent(answerAudioTrackID), player.isPlaying {
+                            player.stop()
+                        } else {
+                            player.play(
+                                url: answerAudioLocalURL,
+                                trackID: answerAudioTrackID
+                            )
+                        }
+                    } label: {
+                        Label(
+                            player.isCurrent(answerAudioTrackID) && player.isPlaying
+                                ? "Stop current audio"
+                                : "Play current audio",
+                            systemImage: player.isCurrent(answerAudioTrackID) && player.isPlaying
+                                ? "stop.fill"
+                                : "play.fill"
+                        )
+                    }
+                    .disabled(player.isBlockedByLongFormAudio)
+                } else {
+                    Text("No current audio")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Picker("Voice", selection: $draft.answerAudioVoiceId) {
+                if !StudyAnswerVoice.japanese.contains(
+                    where: { $0.id == draft.answerAudioVoiceId }
+                ) {
+                    Text("Current voice").tag(draft.answerAudioVoiceId)
+                }
+                ForEach(StudyAnswerVoice.japanese) { voice in
+                    Text("\(voice.name) — \(voice.detail)").tag(voice.id)
+                }
+            }
+
+            TextField(
+                "Phonetic audio override (optional)",
+                text: $draft.answerAudioTextOverride,
+                axis: .vertical
+            )
+            .lineLimit(1...4)
+
+            if card != nil {
+                Button {
+                    Task { await regenerateAnswerAudio() }
+                } label: {
+                    if isRegeneratingAudio {
+                        Label("Regenerating audio…", systemImage: "waveform")
+                    } else {
+                        Label("Regenerate Audio", systemImage: "arrow.clockwise")
+                    }
+                }
+                .disabled(isSaving || isRegeneratingAudio)
+            } else {
+                Text("Audio can be generated after this card has synced.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -240,6 +323,39 @@ private struct CardEditorView: View {
         do {
             try await store.deleteCard(card)
             dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var answerAudioTrackID: String {
+        "card-editor-answer-\(card?.id ?? "new")"
+    }
+
+    private func loadCurrentAnswerAudio() async {
+        guard
+            let remoteURL = card?.answerAudioURL
+        else {
+            answerAudioLocalURL = nil
+            return
+        }
+        answerAudioLocalURL = await store.playableMediaURL(for: remoteURL)
+    }
+
+    private func regenerateAnswerAudio() async {
+        guard let card else { return }
+        isRegeneratingAudio = true
+        errorMessage = nil
+        defer { isRegeneratingAudio = false }
+        do {
+            let result = try await store.regenerateAnswerAudio(
+                for: card,
+                voiceID: draft.answerAudioVoiceId,
+                textOverride: draft.answerAudioTextOverride
+            )
+            answerAudioLocalURL = result.localURL
+            player.stop()
+            player.play(url: result.localURL, trackID: answerAudioTrackID)
         } catch {
             errorMessage = error.localizedDescription
         }
