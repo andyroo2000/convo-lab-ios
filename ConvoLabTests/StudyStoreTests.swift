@@ -18,6 +18,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: "01J0000000000000000000000DR",
             status: "ready",
+            committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
             prompt: .object([:]),
@@ -328,6 +329,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: draftID,
             status: "ready",
+            committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
             prompt: .object([:]),
@@ -345,6 +347,7 @@ final class StudyStoreTests: XCTestCase {
             id: clientCardID.lowercased(),
             expression: "再試行"
         )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
         let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
@@ -395,6 +398,17 @@ final class StudyStoreTests: XCTestCase {
                         headerFields: ["Content-Type": "application/json"]
                     )!,
                     committedData
+                )
+            }
+            if request.httpMethod == "GET" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
                 )
             }
             return (
@@ -457,6 +471,80 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testDifferentCommittedCardIDConflictIsPermanentlyRejectedFromDraftState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000K1"
+        let clientCardID = "01J0000000000000000000000K2"
+        let conflictingCardID = "01J0000000000000000000000K3"
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: conflictingCardID.lowercased(),
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("競合")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let client = makeClient { request in
+            if request.httpMethod == "GET" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"conflict"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected a different-card-ID conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .rejected)
+        XCTAssertEqual(mutation.kind, "draftCommitRejected")
+        XCTAssertNotNil(mutation.lastError)
+        XCTAssertEqual(store.manualDrafts.first?.committedCardId, conflictingCardID.lowercased())
+    }
+
+    @MainActor
     func testRejectedDraftCommitCanBeEditedAndRetriedWithSameID() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let draftID = "01J0000000000000000000000V1"
@@ -465,6 +553,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: draftID,
             status: "ready",
+            committedCardId: nil,
             creationKind: .productionImage,
             cardType: "production",
             prompt: .object([:]),
@@ -481,6 +570,7 @@ final class StudyStoreTests: XCTestCase {
         let correctedDraft = StudyManualCardDraft(
             id: draftID,
             status: "ready",
+            committedCardId: nil,
             creationKind: .productionImage,
             cardType: "production",
             prompt: .object([:]),
@@ -612,6 +702,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: draftID,
             status: "ready",
+            committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
             prompt: .object([:]),
@@ -673,6 +764,7 @@ final class StudyStoreTests: XCTestCase {
             StudyManualCardDraft(
                 id: id,
                 status: "ready",
+                committedCardId: nil,
                 creationKind: .audioRecognition,
                 cardType: "recognition",
                 prompt: .object([:]),
@@ -740,6 +832,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: "01J0000000000000000000000Q1",
             status: "generating",
+            committedCardId: nil,
             creationKind: .productionImage,
             cardType: "production",
             prompt: .object([:]),
@@ -828,6 +921,7 @@ final class StudyStoreTests: XCTestCase {
         let queuedDraft = StudyManualCardDraft(
             id: "01J0000000000000000000000R1",
             status: "generating",
+            committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
             prompt: .object([:]),
@@ -892,6 +986,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraft = StudyManualCardDraft(
             id: draftID,
             status: "ready",
+            committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
             prompt: .object([:]),

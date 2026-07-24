@@ -1744,15 +1744,28 @@ final class StudyStore {
                 body: request
             )
         } catch let rejection as APIClientError {
-            if case let .rejected(status, message) = rejection,
-               isPermanentDraftCommitRejection(status: status, message: message)
-            {
+            let isPermanentRejection: Bool
+            if case let .rejected(status, _) = rejection, status == 409 {
+                isPermanentRejection = await draftHasDifferentCommittedCardID(
+                    draftID: mutation.resourceID,
+                    clientCardID: request.id
+                )
+            } else if case let .rejected(status, _) = rejection {
+                isPermanentRejection = isPermanentDraftCommitRejection(status: status)
+            } else {
+                isPermanentRejection = false
+            }
+            if isPermanentRejection {
                 // learning-os returns 200 for a same-client-ID idempotent retry.
-                // Its "still generating" 409 remains transient; only a
-                // different-card-ID 409 is terminal.
+                // Resolve 409s from canonical draft state, not localized prose:
+                // generating remains transient; a different committed ID is terminal.
                 mutation.kind = "draftCommitRejected"
             }
-            recordDraftCommitFailure(rejection, on: mutation)
+            recordDraftCommitFailure(
+                rejection,
+                on: mutation,
+                isPermanentRejection: isPermanentRejection
+            )
             try context.save()
             throw rejection
         } catch {
@@ -1791,29 +1804,39 @@ final class StudyStore {
 
     private func recordDraftCommitFailure(
         _ error: any Error,
-        on mutation: PendingMutation
+        on mutation: PendingMutation,
+        isPermanentRejection override: Bool? = nil
     ) {
         mutation.attemptCount += 1
         mutation.lastAttemptAt = .now
         let isPermanentRejection: Bool
-        if case let APIClientError.rejected(status, message) = error {
-            isPermanentRejection = isPermanentDraftCommitRejection(
-                status: status,
-                message: message
-            )
+        if let override {
+            isPermanentRejection = override
+        } else if case let APIClientError.rejected(status, _) = error {
+            isPermanentRejection = isPermanentDraftCommitRejection(status: status)
         } else {
             isPermanentRejection = false
         }
         mutation.lastError = isPermanentRejection ? error.localizedDescription : nil
     }
 
-    private func isPermanentDraftCommitRejection(
-        status: Int,
-        message: String?
-    ) -> Bool {
-        if status == 409 {
-            return message == "Draft was already committed with a different card ID."
+    private func draftHasDifferentCommittedCardID(
+        draftID: String,
+        clientCardID: String
+    ) async -> Bool {
+        guard
+            let draft: StudyManualCardDraft = try? await api.request(
+                "/api/study/card-drafts/\(draftID)"
+            )
+        else {
+            return false
         }
+        replaceManualDraft(draft)
+        guard let committedCardID = draft.committedCardId else { return false }
+        return committedCardID.lowercased() != clientCardID.lowercased()
+    }
+
+    private func isPermanentDraftCommitRejection(status: Int) -> Bool {
         return [400, 404, 410, 422].contains(status)
     }
 

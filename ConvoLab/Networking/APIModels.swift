@@ -99,6 +99,7 @@ enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendabl
 struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let status: String
+    let committedCardId: String?
     let creationKind: StudyCardCreationKind
     let cardType: String
     let prompt: JSONValue
