@@ -51,6 +51,17 @@ final class StudyStore {
         (overview?.newCardsPerDay ?? 0) * 5
     }
 
+    func localMediaURL(for remoteURL: URL) -> URL? {
+        mediaCache.localURL(for: remoteURL)
+    }
+
+    func playableMediaURL(for remoteURL: URL) async -> URL? {
+        if let localURL = localMediaURL(for: remoteURL) {
+            return localURL
+        }
+        return try? await mediaCache.download(remoteURL, category: "active-study")
+    }
+
     var preparedCardCount: Int {
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate {

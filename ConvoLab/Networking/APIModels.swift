@@ -89,32 +89,24 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     let updatedAt: Date
 
     var promptText: String {
-        if cardType == "cloze" {
-            if let clozeText = prompt.firstNonEmptyString(for: ["clozeText"]),
-               clozeText.range(of: #"\{\{c\d+::.*?\}\}"#, options: .regularExpression) != nil
-            {
-                return clozeText.replacingOccurrences(
-                    of: #"\{\{c\d+::.*?\}\}"#,
-                    with: "[...]",
-                    options: .regularExpression
-                )
-            }
-            if let displayText = prompt.firstNonEmptyString(for: ["clozeDisplayText", "clozeText"]) {
-                return displayText
-            }
+        if let heading = presentation.front.heading {
+            return heading
         }
-        return prompt.firstNonEmptyString(
-            for: ["cueText", "text", "expression", "clozeDisplayText", "clozeText"]
-        ) ?? prompt.preferredText ?? "Study card"
-    }
-
-    var promptHint: String? {
-        prompt.firstNonEmptyString(for: ["clozeResolvedHint", "clozeHint", "cueMeaning"])
+        if cardType == "cloze" {
+            return "Study card"
+        }
+        if presentation.front.audioURL != nil || presentation.front.imageURL != nil {
+            return presentation.back.heading
+                ?? presentation.back.textBlocks.first { $0.role == .meaning }?.text
+                ?? "Media prompt"
+        }
+        return prompt.preferredText ?? answer.preferredText ?? "Study card"
     }
 
     var answerText: String {
         if cardType == "cloze" {
-            return answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
+            return presentation.back.heading
+                ?? answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
                 ?? answer.preferredText
                 ?? "No answer text"
         }

@@ -4,20 +4,26 @@ struct CardLibraryView: View {
     let store: StudyStore
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
+    @State private var showingDeletionError = false
+    @State private var deletionErrorMessage = ""
 
     var body: some View {
         NavigationStack {
             List(store.libraryCards) { card in
-                Button {
-                    selectedCard = card
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.promptText)
-                            .font(.headline)
-                            .foregroundStyle(ConvoLabTheme.navy)
-                        Text(card.answerText)
-                            .lineLimit(2)
-                            .foregroundStyle(.secondary)
+                Group {
+                    if card.isEditableInBasicForm {
+                        Button {
+                            selectedCard = card
+                        } label: {
+                            cardRow(card)
+                        }
+                    } else {
+                        cardRow(card)
+                    }
+                }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        Task { await delete(card) }
                     }
                 }
             }
@@ -48,6 +54,36 @@ struct CardLibraryView: View {
             .sheet(item: $selectedCard) { card in
                 CardEditorView(store: store, card: card)
             }
+            .alert("Could not delete card", isPresented: $showingDeletionError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deletionErrorMessage)
+            }
+        }
+    }
+
+    private func cardRow(_ card: StudyCard) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(card.promptText)
+                .font(.headline)
+                .foregroundStyle(ConvoLabTheme.navy)
+            Text(card.answerText)
+                .lineLimit(2)
+                .foregroundStyle(.secondary)
+            if !card.isEditableInBasicForm {
+                Text("\(card.cardType.capitalized) · type-aware editing coming next")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func delete(_ card: StudyCard) async {
+        do {
+            try await store.deleteCard(card)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+            showingDeletionError = true
         }
     }
 }
@@ -66,7 +102,9 @@ private struct CardEditorView: View {
     init(store: StudyStore, card: StudyCard?) {
         self.store = store
         self.card = card
-        _expression = State(initialValue: card?.promptText ?? "")
+        _expression = State(
+            initialValue: card?.prompt.firstNonEmptyString(for: ["cueText"]) ?? ""
+        )
         _reading = State(initialValue: card?.prompt.firstNonEmptyString(for: ["cueReading"]) ?? "")
         _meaning = State(initialValue: card?.answerText ?? "")
     }

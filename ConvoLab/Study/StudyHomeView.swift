@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StudyHomeView: View {
     let store: StudyStore
+    let player: StudyAudioPlayer
 
     var body: some View {
         NavigationStack {
@@ -19,7 +20,7 @@ struct StudyHomeView: View {
                         .padding(.vertical, 48)
                     } else {
                         NavigationLink {
-                            StudySessionView(store: store)
+                            StudySessionView(store: store, player: player)
                         } label: {
                             Label("Start \(store.cards.count)-card session", systemImage: "play.fill")
                                 .font(.headline)

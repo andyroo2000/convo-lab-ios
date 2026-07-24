@@ -25,7 +25,10 @@ private struct MainTabView: View {
     var body: some View {
         TabView {
             Tab("Study", systemImage: "rectangle.stack.fill") {
-                StudyHomeView(store: model.study)
+                StudyHomeView(
+                    store: model.study,
+                    player: model.studyAudioPlayer
+                )
             }
             Tab("Cards", systemImage: "square.and.pencil") {
                 CardLibraryView(store: model.study)
