@@ -49,13 +49,26 @@ struct StudyCardDraft: Equatable, Sendable {
     var sentenceEnglish: String
     var answerAudioVoiceId: String
     var answerAudioTextOverride: String
-    var imagePlacement: ImagePlacement
+    var imagePlacement: ImagePlacement {
+        didSet {
+            if imagePlacement != oldValue {
+                preservesIndependentFaceImages = false
+            }
+        }
+    }
     var imagePrompt: String
-    var currentImage: JSONValue?
+    var currentImage: JSONValue? {
+        didSet {
+            if currentImage != oldValue {
+                preservesIndependentFaceImages = false
+            }
+        }
+    }
     var notes: String
     var isMediaLedPrompt: Bool
     var isAudioLedPrompt: Bool
     private var originalClozeHint: String?
+    private var preservesIndependentFaceImages: Bool
 
     init(cardType: CardType = .recognition) {
         self.cardType = cardType
@@ -69,6 +82,7 @@ struct StudyCardDraft: Equatable, Sendable {
         sentenceEnglish = ""
         answerAudioVoiceId = StudyAnswerVoice.defaultVoice.id
         answerAudioTextOverride = ""
+        preservesIndependentFaceImages = false
         imagePlacement = .none
         imagePrompt = ""
         currentImage = nil
@@ -116,6 +130,7 @@ struct StudyCardDraft: Equatable, Sendable {
         answerAudioTextOverride = card.answer.firstNonEmptyString(
             for: ["answerAudioTextOverride"]
         ) ?? ""
+        preservesIndependentFaceImages = false
         let promptImage = card.prompt["cueImage"]
         let answerImage = card.answer["answerImage"]
         currentImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : answerImage
@@ -132,6 +147,10 @@ struct StudyCardDraft: Equatable, Sendable {
             // Match the desktop editor's default role for cards without an image.
             .answer
         }
+        preservesIndependentFaceImages =
+            promptImage?.mediaURLs.isEmpty == false
+            && answerImage?.mediaURLs.isEmpty == false
+            && promptImage != answerImage
         let imageSubject = card.answer.firstNonEmptyString(
             for: ["expression", "restoredText"]
         ) ?? card.prompt.firstNonEmptyString(for: ["cueText"])
@@ -193,9 +212,10 @@ struct StudyCardDraft: Equatable, Sendable {
                     ),
             ])
         }
-        return textPayload.replacingObjectValues([
-            "cueImage": imagePlacement.includesPrompt ? currentImage ?? .null : .null,
-        ])
+        let cueImage = preservesIndependentFaceImages
+            ? existing["cueImage"] ?? .null
+            : imagePlacement.includesPrompt ? currentImage ?? .null : .null
+        return textPayload.replacingObjectValues(["cueImage": cueImage])
     }
 
     func answer(merging existing: JSONValue = .object([:])) -> JSONValue {
@@ -245,9 +265,10 @@ struct StudyCardDraft: Equatable, Sendable {
                 ),
             ])
         }
-        return textPayload.replacingObjectValues([
-            "answerImage": imagePlacement.includesAnswer ? currentImage ?? .null : .null,
-        ])
+        let answerImage = preservesIndependentFaceImages
+            ? existing["answerImage"] ?? .null
+            : imagePlacement.includesAnswer ? currentImage ?? .null : .null
+        return textPayload.replacingObjectValues(["answerImage": answerImage])
     }
 }
 

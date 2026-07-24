@@ -99,7 +99,8 @@ private struct CardEditorView: View {
     @State private var audioRegenerationTask: Task<Void, Never>?
     @State private var imageRegenerationTask: Task<Void, Never>?
     @State private var answerAudioLocalURL: URL?
-    @State private var imageLocalURL: URL?
+    @State private var promptImageLocalURL: URL?
+    @State private var answerImageLocalURL: URL?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -197,18 +198,24 @@ private struct CardEditorView: View {
     @ViewBuilder
     private var imageFields: some View {
         Section("Image") {
-            if let imageLocalURL,
-               let image = UIImage(contentsOfFile: imageLocalURL.path)
+            if let promptImageLocalURL {
+                imagePreview(
+                    at: promptImageLocalURL,
+                    label: answerImageLocalURL == promptImageLocalURL
+                        ? "Current card image"
+                        : "Front image"
+                )
+            }
+            if
+                let answerImageLocalURL,
+                answerImageLocalURL != promptImageLocalURL
             {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 220)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .accessibilityLabel("Current card image")
+                imagePreview(at: answerImageLocalURL, label: "Back image")
             } else if card != nil {
-                Text("No current image")
-                    .foregroundStyle(.secondary)
+                if promptImageLocalURL == nil {
+                    Text("No current image")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -261,6 +268,23 @@ private struct CardEditorView: View {
                 Text("An image can be generated after this card has synced.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func imagePreview(at localURL: URL, label: String) -> some View {
+        if let image = UIImage(contentsOfFile: localURL.path) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 220)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .accessibilityLabel(label)
             }
         }
     }
@@ -432,12 +456,16 @@ private struct CardEditorView: View {
 
     private func loadCurrentMedia() async {
         await loadCurrentAnswerAudio()
-        let remoteURL = card?.promptImageURL ?? card?.answerImageURL
-        guard let remoteURL else {
-            imageLocalURL = nil
-            return
+        if let promptURL = card?.promptImageURL {
+            promptImageLocalURL = await store.playableMediaURL(for: promptURL)
+        } else {
+            promptImageLocalURL = nil
         }
-        imageLocalURL = await store.playableMediaURL(for: remoteURL)
+        if let answerURL = card?.answerImageURL {
+            answerImageLocalURL = await store.playableMediaURL(for: answerURL)
+        } else {
+            answerImageLocalURL = nil
+        }
     }
 
     private func regenerateAnswerAudio() async {
@@ -478,7 +506,12 @@ private struct CardEditorView: View {
             draft.currentImage = result.card.prompt["cueImage"]?.mediaURLs.isEmpty == false
                 ? result.card.prompt["cueImage"]
                 : result.card.answer["answerImage"]
-            imageLocalURL = result.localURL
+            promptImageLocalURL = draft.imagePlacement.includesPrompt
+                ? result.localURL
+                : nil
+            answerImageLocalURL = draft.imagePlacement.includesAnswer
+                ? result.localURL
+                : nil
         } catch is CancellationError {
             // Completed server/cache work is reconciled by StudyStore.
         } catch {

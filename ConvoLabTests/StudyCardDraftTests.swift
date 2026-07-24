@@ -303,6 +303,35 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testUntouchedSavePreservesIndependentFrontAndBackImages() {
+        let frontImage = media("/media/front.webp")
+        let backImage = media("/media/back.webp")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("会社"),
+                "cueImage": frontImage,
+            ]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+                "answerImage": backImage,
+            ])
+        )
+        var draft = StudyCardDraft(card: card)
+        draft.answerMeaning = "a business"
+
+        XCTAssertEqual(draft.imagePlacement, .both)
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
+
+        // An explicit placement change opts into the desktop single-image model.
+        draft.imagePlacement = .prompt
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], .null)
+    }
+
+    @MainActor
     private func makeCard(
         cardType: String,
         prompt: JSONValue,

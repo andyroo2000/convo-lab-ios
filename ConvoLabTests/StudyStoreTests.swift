@@ -277,6 +277,9 @@ final class StudyStoreTests: XCTestCase {
         let gate = LockedRequestGate()
         let client = makeClient { request in
             if request.url?.path.hasSuffix("/regenerate-image") == true {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                XCTAssertEqual(payload?["imageRole"] as? String, "answer")
                 gate.markStarted()
                 gate.waitForRelease()
                 return (
