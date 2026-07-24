@@ -66,6 +66,10 @@ final class AppModel {
         await refreshAuthenticatedData()
     }
 
+    func applicationDidBecomeActive() {
+        study.activateOfflineDueCards()
+    }
+
     private func refreshAuthenticatedData() async {
         guard case let .signedIn(user) = auth.state else { return }
         study.activate(userID: user.id)

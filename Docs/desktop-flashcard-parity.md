@@ -71,3 +71,13 @@ Card faces must prefer the validated local file and only stream when the media
 is not cached and the network is available. A card is counted as ready offline
 only when every audio and image URL declared by its payload resolves to a local
 file; text-only cards are ready without a download.
+
+Review results are also applied to the local card snapshot before they enter the
+sync outbox. The native schedule mirrors learning-os starter intervals and state
+transitions: Again returns as relearning after ten minutes, Hard returns after
+one day, Good after three days, and Easy after seven days. Locally due cards are
+restored in review-before-new order on launch and while a study screen remains
+open, so an Again card can return without a network connection. A card becoming
+due during an active session is appended between reviews instead of replacing
+the card currently on screen. Repeated offline reviews of the same card are
+replayed in review-time order when reconstructing failed counts.

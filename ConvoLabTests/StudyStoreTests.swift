@@ -5,6 +5,151 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testCardBecomingDueDoesNotReplaceVisibleCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let visibleCard = makeCard(
+            id: "01J00000000000000000000015",
+            expression: "新しい",
+            queueState: "new"
+        )
+        let dueAt = Date.now.addingTimeInterval(60)
+        let futureReview = makeCard(
+            id: "01J00000000000000000000016",
+            expression: "復習",
+            dueAt: dueAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: visibleCard,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(visibleCard)
+            )
+        )
+        let futureRecord = LocalCardRecord(
+            card: futureReview,
+            queueIndex: 1,
+            payload: try StorageCodec.encoder.encode(futureReview)
+        )
+        futureRecord.isInActiveSession = false
+        container.mainContext.insert(futureRecord)
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        store.activateOfflineDueCards(at: dueAt)
+
+        XCTAssertEqual(store.cards.map(\.id), [visibleCard.id, futureReview.id])
+    }
+
+    @MainActor
+    func testDueActivationTimerReactivatesCardWhileStoreRemainsOpen() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dueAt = Date.now.addingTimeInterval(1.5)
+        let card = makeCard(
+            id: "01J00000000000000000000017",
+            expression: "時間",
+            dueAt: dueAt
+        )
+        let record = LocalCardRecord(
+            card: card,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.isInActiveSession = false
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        XCTAssertTrue(store.cards.isEmpty)
+        for _ in 0..<30 where store.cards.isEmpty {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+    }
+
+    @MainActor
+    func testAgainReturnsWhenDueOfflineAndLaterGoodClearsFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000014",
+            expression: "繰り返す"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        let firstReviewAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        await store.recordReview(
+            card: card,
+            rating: .again,
+            duration: nil,
+            reviewedAt: firstReviewAt
+        )
+
+        let againDueAt = try XCTUnwrap(store.libraryCards.first?.state.dueAt)
+        XCTAssertEqual(againDueAt, firstReviewAt.addingTimeInterval(10 * 60))
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+
+        store.activateOfflineDueCards(at: againDueAt.addingTimeInterval(-1))
+        XCTAssertTrue(store.cards.isEmpty)
+
+        store.activateOfflineDueCards(at: againDueAt)
+        let relearningCard = try XCTUnwrap(store.cards.first)
+        XCTAssertEqual(relearningCard.state.queueState, "relearning")
+        XCTAssertNotNil(relearningCard.state.failedAt)
+
+        await store.recordReview(
+            card: relearningCard,
+            rating: .good,
+            duration: nil,
+            reviewedAt: againDueAt
+        )
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.sessionCounts.failedDue, 0)
+
+        let relaunched = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        XCTAssertTrue(relaunched.cards.isEmpty)
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
+
+        let goodDueAt = try XCTUnwrap(relaunched.libraryCards.first?.state.dueAt)
+        XCTAssertEqual(goodDueAt, againDueAt.addingTimeInterval(3 * 24 * 60 * 60))
+        relaunched.activateOfflineDueCards(at: goodDueAt)
+        XCTAssertEqual(relaunched.cards.map(\.id), [card.id])
+        XCTAssertEqual(relaunched.cards.first?.state.queueState, "review")
+        XCTAssertNil(relaunched.cards.first?.state.failedAt)
+    }
+
+    @MainActor
     func testFirstTimeOfflineFailureSurvivesRelaunchAndStaleServerRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "01J00000000000000000000011", expression: "再学習")
@@ -765,9 +910,14 @@ final class StudyStoreTests: XCTestCase {
             container.mainContext.fetch(FetchDescriptor<PendingMutation>())
                 .first(where: { $0.kind == "review" })
         )
+        let storedReview = try JSONSerialization.jsonObject(
+            with: reviewMutation.payload
+        ) as? [String: Any]
+        let event = try XCTUnwrap(storedReview?["event"])
+        let eventData = try JSONSerialization.data(withJSONObject: event)
         let review = try StorageCodec.decoder.decode(
             ReviewBatchRequest.Event.self,
-            from: reviewMutation.payload
+            from: eventData
         )
         XCTAssertEqual(review.durationMilliseconds, 750)
     }
@@ -787,7 +937,9 @@ final class StudyStoreTests: XCTestCase {
     private func makeCard(
         id: String,
         expression: String,
-        mediaURL: String? = nil
+        mediaURL: String? = nil,
+        queueState: String = "review",
+        dueAt: Date? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -800,10 +952,10 @@ final class StudyStoreTests: XCTestCase {
             prompt: .object(prompt),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
-                dueAt: nil,
+                dueAt: dueAt,
                 introducedAt: nil,
                 failedAt: nil,
-                queueState: "review",
+                queueState: queueState,
                 scheduler: nil,
                 source: .object([:])
             ),

@@ -3,21 +3,48 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private struct PendingReviewCardState: Codable {
+        let id: String
+        let failedAt: Date?
+
+        init(card: StudyCard) {
+            id = card.id
+            failedAt = card.state.failedAt
+        }
+    }
+
+    private struct PendingReviewPayload: Codable {
+        let event: ReviewBatchRequest.Event
+        let cardBefore: PendingReviewCardState
+    }
+
+    private struct LegacyPendingReviewPayload: Codable {
+        let event: ReviewBatchRequest.Event
+        let cardBefore: StudyCard
+    }
+
     private struct PendingReviewState {
         var cardIDs: Set<String> = []
         var newlyFailedCardIDs: Set<String> = []
         var retainedFailedCardIDs: Set<String> = []
         var resolvedFailedCardIDs: Set<String> = []
 
-        mutating func record(card: StudyCard, rating: ReviewRating) {
+        mutating func record(card: PendingReviewCardState, rating: ReviewRating) {
             if rating == .again {
-                if card.state.failedAt == nil {
-                    newlyFailedCardIDs.insert(card.id)
-                } else {
+                let wasResolved = resolvedFailedCardIDs.remove(card.id) != nil
+                if newlyFailedCardIDs.contains(card.id) {
+                    retainedFailedCardIDs.remove(card.id)
+                } else if wasResolved || card.failedAt != nil {
                     retainedFailedCardIDs.insert(card.id)
+                } else {
+                    newlyFailedCardIDs.insert(card.id)
                 }
-            } else if card.state.failedAt != nil {
-                resolvedFailedCardIDs.insert(card.id)
+            } else {
+                let wasNewlyFailed = newlyFailedCardIDs.remove(card.id) != nil
+                retainedFailedCardIDs.remove(card.id)
+                if card.failedAt != nil, !wasNewlyFailed {
+                    resolvedFailedCardIDs.insert(card.id)
+                }
             }
         }
     }
@@ -54,6 +81,7 @@ final class StudyStore {
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
+    @ObservationIgnored private var offlineDueActivationTimer: Timer?
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -76,6 +104,7 @@ final class StudyStore {
         loadLocalCards()
         loadLibraryCards()
         restorePendingReviewState()
+        activateOfflineDueCards(preservingCurrentOrder: false)
     }
 
     func activate(userID: Int) {
@@ -96,6 +125,19 @@ final class StudyStore {
             retainedFailedCardIDs: retainedFailedCardIDs,
             resolvedFailedCardIDs: resolvedFailedCardIDs
         )
+    }
+
+    private var nextOfflineDueAt: Date? {
+        let activeCardIDs = Set(cards.map(\.id))
+        return libraryCards.compactMap { card in
+            guard !activeCardIDs.contains(card.id) else { return nil }
+            guard ["learning", "review", "relearning"].contains(card.state.queueState) else {
+                return nil
+            }
+            return card.state.dueAt
+        }
+        .filter { $0 > .now }
+        .min()
     }
 
     func localMediaURL(for remoteURL: URL) -> URL? {
@@ -167,16 +209,17 @@ final class StudyStore {
         )
         let pendingReviewState = try pendingReviewState()
         var seenCardIDs: Set<String> = []
-        let activeCards = try envelope.data.cards.filter { card in
+        let activeCards = Self.orderSessionCards(try envelope.data.cards.filter { card in
             try !hasPendingDelete(for: card.id)
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
-        }
+        })
         overview = envelope.data.overview
         cards = activeCards
         apply(pendingReviewState)
         try persist(cards: activeCards)
         loadLibraryCards()
+        scheduleNextOfflineActivation()
 
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
@@ -187,6 +230,61 @@ final class StudyStore {
         guard let activeUserID else { return }
         let snapshot: KnownKanjiSnapshot = try await api.request("/api/study/known-kanji")
         try apply(snapshot, userID: activeUserID)
+    }
+
+    func activateOfflineDueCards(
+        at date: Date = .now,
+        preservingCurrentOrder: Bool = true
+    ) {
+        let records = (try? context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { !$0.isInActiveSession }
+            )
+        )) ?? []
+        let pendingDeleteIDs = Set(
+            ((try? context.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "cardDelete" }
+                )
+            )) ?? []).map(\.resourceID)
+        )
+        var activeCardIDs = Set(cards.map(\.id))
+        var newlyDueCards: [StudyCard] = []
+        var changed = false
+
+        for record in records {
+            guard !pendingDeleteIDs.contains(record.id) else { continue }
+            guard
+                let card = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                ),
+                card.isEligibleForOfflineStudy(at: date)
+            else {
+                continue
+            }
+            if activeCardIDs.insert(card.id).inserted {
+                newlyDueCards.append(card)
+                changed = true
+            }
+            if !record.isInActiveSession {
+                record.isInActiveSession = true
+                changed = true
+            }
+        }
+
+        if changed {
+            let orderedNewCards = Self.orderSessionCards(newlyDueCards)
+            cards = preservingCurrentOrder
+                ? cards + orderedNewCards
+                : Self.orderSessionCards(cards + orderedNewCards)
+            do {
+                try context.save()
+            } catch {
+                handleSyncError(error)
+            }
+        }
+        scheduleNextOfflineActivation()
     }
 
     func connectWaniKani(apiToken: String) async {
@@ -242,9 +340,10 @@ final class StudyStore {
     func recordReview(
         card: StudyCard,
         rating: ReviewRating,
-        duration: Duration?
+        duration: Duration?,
+        reviewedAt: Date = .now
     ) async {
-        let now = Date.now
+        let now = reviewedAt
         let event = ReviewBatchRequest.Event(
             id: ClientIdentifier.ulid(date: now),
             cardID: card.id,
@@ -262,23 +361,50 @@ final class StudyStore {
             clientCreatedAt: now
         )
         do {
-            let payload = try StorageCodec.encoder.encode(event)
+            let payload = try StorageCodec.encoder.encode(
+                PendingReviewPayload(
+                    event: event,
+                    cardBefore: PendingReviewCardState(card: card)
+                )
+            )
             context.insert(PendingMutation(kind: "review", resourceID: card.id, payload: payload))
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.id == cardID }
             )
             descriptor.fetchLimit = 1
-            try context.fetch(descriptor).first?.isInActiveSession = false
+            let updatedCard = card.applyingReview(rating, at: now)
+            let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
+            if let record = try context.fetch(descriptor).first {
+                record.payload = updatedPayload
+                record.isInActiveSession = false
+            } else {
+                let record = LocalCardRecord(
+                    card: updatedCard,
+                    queueIndex: cards.count,
+                    payload: updatedPayload
+                )
+                record.isInActiveSession = false
+                context.insert(record)
+            }
             try context.save()
             var pendingState = PendingReviewState(
                 newlyFailedCardIDs: newlyFailedCardIDs,
                 retainedFailedCardIDs: retainedFailedCardIDs,
                 resolvedFailedCardIDs: resolvedFailedCardIDs
             )
-            pendingState.record(card: card, rating: rating)
+            pendingState.record(
+                card: PendingReviewCardState(card: card),
+                rating: rating
+            )
             apply(pendingState)
             cards.removeAll { $0.id == card.id }
+            if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
+                libraryCards[index] = updatedCard
+            } else {
+                libraryCards.append(updatedCard)
+            }
+            scheduleNextOfflineActivation()
             try await flushReviewOutbox()
         } catch {
             handleSyncError(error)
@@ -419,10 +545,7 @@ final class StudyStore {
 
         var quarantinedCount = 0
         for mutation in pending {
-            let event = try StorageCodec.decoder.decode(
-                ReviewBatchRequest.Event.self,
-                from: mutation.payload
-            )
+            let event = try decodePendingReview(mutation.payload).event
             do {
                 let _: IgnoredResponse = try await api.request(
                     "/api/card-review-events/batch",
@@ -586,7 +709,8 @@ final class StudyStore {
             FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
                     $0.kind == "review" && $0.lastError == nil
-                }
+                },
+                sortBy: [SortDescriptor(\.createdAt)]
             )
         )
         let pendingCardIDs = pending.map(\.resourceID)
@@ -606,14 +730,47 @@ final class StudyStore {
 
         for mutation in pending {
             state.cardIDs.insert(mutation.resourceID)
-            guard let event = try? StorageCodec.decoder.decode(
-                ReviewBatchRequest.Event.self,
-                from: mutation.payload
-            ) else { continue }
-            guard let card = cardsByID[mutation.resourceID] else { continue }
-            state.record(card: card, rating: event.rating)
+        }
+        let decodedPending = pending.compactMap { mutation in
+            (try? decodePendingReview(mutation.payload)).map { (mutation, $0) }
+        }
+        .sorted { left, right in
+            if left.1.event.reviewedAt != right.1.event.reviewedAt {
+                return left.1.event.reviewedAt < right.1.event.reviewedAt
+            }
+            return left.1.event.id < right.1.event.id
+        }
+
+        for (mutation, decoded) in decodedPending {
+            guard let card = decoded.cardBefore
+                ?? cardsByID[mutation.resourceID].map(PendingReviewCardState.init)
+            else {
+                continue
+            }
+            state.record(card: card, rating: decoded.event.rating)
         }
         return state
+    }
+
+    private func decodePendingReview(
+        _ payload: Data
+    ) throws -> (event: ReviewBatchRequest.Event, cardBefore: PendingReviewCardState?) {
+        if let legacy = try? StorageCodec.decoder.decode(
+            LegacyPendingReviewPayload.self,
+            from: payload
+        ) {
+            return (legacy.event, PendingReviewCardState(card: legacy.cardBefore))
+        }
+        if let wrapped = try? StorageCodec.decoder.decode(
+            PendingReviewPayload.self,
+            from: payload
+        ) {
+            return (wrapped.event, wrapped.cardBefore)
+        }
+        return (
+            try StorageCodec.decoder.decode(ReviewBatchRequest.Event.self, from: payload),
+            nil
+        )
     }
 
     private func persist(cards: [StudyCard]) throws {
@@ -679,6 +836,7 @@ final class StudyStore {
         cards = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
         }
+        cards = Self.orderSessionCards(cards)
     }
 
     private func loadLibraryCards() {
@@ -688,6 +846,22 @@ final class StudyStore {
         libraryCards = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
         }
+    }
+
+    private func scheduleNextOfflineActivation() {
+        offlineDueActivationTimer?.invalidate()
+        guard let dueAt = nextOfflineDueAt else {
+            offlineDueActivationTimer = nil
+            return
+        }
+        let timer = Timer(timeInterval: max(0, dueAt.timeIntervalSinceNow), repeats: false) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.activateOfflineDueCards()
+            }
+        }
+        offlineDueActivationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func synchronizeWaniKani(userID: Int) async throws {
@@ -757,6 +931,31 @@ final class StudyStore {
             syncStatus = .failed(error.localizedDescription)
         }
     }
+
+    private static func orderSessionCards(_ cards: [StudyCard]) -> [StudyCard] {
+        cards.enumerated().sorted { leftEntry, rightEntry in
+            let left = leftEntry.element
+            let right = rightEntry.element
+            let leftIsNew = left.state.queueState == "new"
+            let rightIsNew = right.state.queueState == "new"
+            if leftIsNew != rightIsNew {
+                return !leftIsNew
+            }
+            if leftIsNew {
+                return leftEntry.offset < rightEntry.offset
+            }
+            let leftDueAt = left.state.dueAt ?? .distantFuture
+            let rightDueAt = right.state.dueAt ?? .distantFuture
+            if leftDueAt != rightDueAt {
+                return leftDueAt < rightDueAt
+            }
+            if left.id != right.id {
+                return left.id < right.id
+            }
+            return leftEntry.offset < rightEntry.offset
+        }
+        .map(\.element)
+    }
 }
 
 struct StudySessionCounts: Equatable {
@@ -771,12 +970,15 @@ struct StudySessionCounts: Equatable {
         retainedFailedCardIDs: Set<String> = [],
         resolvedFailedCardIDs: Set<String> = []
     ) -> StudySessionCounts {
-        let loadedFailedCount = cards.count(where: { $0.state.failedAt != nil })
+        let loadedFailedCardIDs = Set(
+            cards.lazy.filter { $0.state.failedAt != nil }.map(\.id)
+        )
         let authoritativeFailedCount = max(
             0,
             (overview?.failedCount ?? 0) - resolvedFailedCardIDs.count
         )
-        let pendingFailedCount = retainedFailedCardIDs.count + newlyFailedCardIDs.count
+        let pendingFailedCardIDs = retainedFailedCardIDs.union(newlyFailedCardIDs)
+        let localFailedCount = loadedFailedCardIDs.union(pendingFailedCardIDs).count
         let newRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
@@ -787,7 +989,7 @@ struct StudySessionCounts: Equatable {
         return StudySessionCounts(
             failedDue: max(
                 authoritativeFailedCount + newlyFailedCardIDs.count,
-                loadedFailedCount + pendingFailedCount
+                localFailedCount
             ),
             reviewRemaining: reviewRemaining,
             newRemaining: newRemaining
