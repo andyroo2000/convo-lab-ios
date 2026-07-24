@@ -242,7 +242,10 @@ private struct StudyCardAudioButton: View {
         )
         .task(id: remoteURL) {
             didAttemptLoad = false
-            localURL = await store.playableMediaURL(for: remoteURL)
+            localURL = nil
+            let resolvedURL = await store.playableMediaURL(for: remoteURL)
+            guard !Task.isCancelled else { return }
+            localURL = resolvedURL
             didAttemptLoad = true
         }
     }
@@ -276,7 +279,9 @@ private struct StudyCardImage: View {
         }
         .task(id: remoteURL) {
             didAttemptLoad = false
+            image = nil
             let localURL = await store.playableMediaURL(for: remoteURL)
+            guard !Task.isCancelled else { return }
             image = localURL.flatMap {
                 UIImage(contentsOfFile: $0.path)
             }
