@@ -86,6 +86,17 @@ final class StudyRubyTextTests: XCTestCase {
         XCTAssertFalse(document.hasRuby)
     }
 
+    func testClozeBlankAfterKanjiIsNotParsedAsRuby() {
+        let document = StudyRubyDocument.parse(
+            "日本[...]を勉強する",
+            knownKanji: []
+        )
+
+        XCTAssertEqual(document.segments, [.text("日本[...]を勉強する")])
+        XCTAssertEqual(document.plainText, "日本[...]を勉強する")
+        XCTAssertFalse(document.hasRuby)
+    }
+
     func testIterationMarkDoesNotPreventKnownWordFromHidingItsReading() {
         let document = StudyRubyDocument.parse(
             "時々[ときどき]",

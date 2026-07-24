@@ -55,9 +55,7 @@ struct StudyRubyDocument: Equatable {
             let reading = bracketReading ?? parentheticalReading ?? ""
             let base = String(value[baseRange])
 
-            if !base.containsKanjiOrIterationMark
-                || (parentheticalReading != nil && !reading.isKanaReading)
-            {
+            if !base.containsKanjiOrIterationMark || !reading.isKanaReading {
                 continue
             }
 

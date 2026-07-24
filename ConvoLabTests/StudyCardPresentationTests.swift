@@ -112,6 +112,56 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertFalse(card.presentation.front.heading?.contains("さ") == true)
     }
 
+    func testClozeFrontPreservesKanjiAdjacentBlankMarker() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("日本{{c1::語}}を勉強する"),
+            ]),
+            answer: .object([
+                "restoredText": .string("日本語を勉強する"),
+                "restoredTextReading": .string("日本語[にほんご]を勉強[べんきょう]する"),
+            ])
+        )
+
+        let heading = card.presentation.front.heading
+        XCTAssertEqual(heading, "日本[...]を勉強[べんきょう]する")
+        XCTAssertEqual(
+            StudyRubyDocument.parse(heading ?? "", knownKanji: []).plainText,
+            "日本[...]を勉強する"
+        )
+    }
+
+    func testClozeFrontFallsBackWhenReadingDoesNotAlign() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("会社で{{c1::働く}}"),
+            ]),
+            answer: .object([
+                "restoredText": .string("会社で働く"),
+                "restoredTextReading": .string("学生[がくせい]"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "会社で[...]")
+    }
+
+    func testClozeFrontFallsBackWhenPrefixAndSuffixWouldOverlap() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("AB{{c1::X}}B"),
+            ]),
+            answer: .object([
+                "restoredText": .string("AB"),
+                "restoredTextReading": .string("AB"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "AB[...]B")
+    }
+
     func testAnswerDetailsFollowDesktopOrderAndDecodePlainText() {
         let card = makeCard(
             cardType: "recognition",

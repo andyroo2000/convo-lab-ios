@@ -199,7 +199,11 @@ private func maskedRubyText(
 
     let prefix = String(displayText[..<markerRange.lowerBound])
     let suffix = String(displayText[markerRange.upperBound...])
-    guard restoredText.hasPrefix(prefix), restoredText.hasSuffix(suffix) else {
+    guard
+        prefix.count + suffix.count <= restoredText.count,
+        restoredText.hasPrefix(prefix),
+        restoredText.hasSuffix(suffix)
+    else {
         return displayText
     }
 
