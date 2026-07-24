@@ -10,6 +10,7 @@ final class MediaCache {
 
     private(set) var activeDownloads = 0
     @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
+    @ObservationIgnored private var inFlightRefreshes: [String: Task<URL, Error>] = [:]
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -51,24 +52,11 @@ final class MediaCache {
         category: String,
         cacheKey explicitCacheKey: String? = nil
     ) async throws -> URL {
-        try await download(
-            remoteURL,
-            category: category,
-            cacheKey: explicitCacheKey,
-            replacingExisting: false
-        )
-    }
-
-    private func download(
-        _ remoteURL: URL,
-        category: String,
-        cacheKey explicitCacheKey: String?,
-        replacingExisting: Bool
-    ) async throws -> URL {
         let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
-        if !replacingExisting,
-           let existing = localURL(for: remoteURL, cacheKey: cacheKey)
-        {
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
+        }
+        if let existing = localURL(for: remoteURL, cacheKey: cacheKey) {
             return existing
         }
 
@@ -157,18 +145,25 @@ final class MediaCache {
     @discardableResult
     func refresh(_ remoteURL: URL, category: String) async throws -> URL {
         let cacheKey = Self.stableCacheKey(for: remoteURL)
-        if let inFlightDownload = inFlightDownloads[cacheKey] {
-            _ = try? await inFlightDownload.value
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
         }
-        // A completed prefetch may still contain the pre-regeneration bytes.
-        // Force a second fetch because the stable URL alone cannot identify
-        // which server-side media generation that task downloaded.
-        return try await download(
-            remoteURL,
-            category: category,
-            cacheKey: cacheKey,
-            replacingExisting: true
-        )
+        while let ordinaryDownload = inFlightDownloads[cacheKey] {
+            _ = try? await ordinaryDownload.value
+        }
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
+        }
+        let refresh = Task { @MainActor [self] in
+            try await performDownload(
+                remoteURL,
+                category: category,
+                cacheKey: cacheKey
+            )
+        }
+        inFlightRefreshes[cacheKey] = refresh
+        defer { inFlightRefreshes[cacheKey] = nil }
+        return try await refresh.value
     }
 
     func cachedKeys(for remoteURLs: [URL]) -> Set<String> {

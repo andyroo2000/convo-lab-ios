@@ -127,6 +127,74 @@ final class MediaCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testOrdinaryDownloadJoinsForcedRefreshInsteadOfReturningStaleFile() async throws {
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("old-audio".utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(api: client, context: container.mainContext)
+        let remoteURL = URL(string: "/api/study/media/answer")!
+        _ = try await cache.download(remoteURL, category: "active-study")
+
+        let gate = LockedRequestGate()
+        let refreshRequests = LockedCounter()
+        MockURLProtocol.handler = { request in
+            _ = refreshRequests.next()
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("fresh-audio".utf8)
+            )
+        }
+        let refresh = Task {
+            try await cache.refresh(remoteURL, category: "active-study")
+        }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let completion = MediaDownloadCompletion()
+        let ordinaryDownload = Task {
+            let url = try await cache.download(remoteURL, category: "active-study")
+            await completion.markCompleted()
+            return url
+        }
+        try await Task.sleep(for: .milliseconds(25))
+
+        let completedBeforeRefresh = await completion.isCompleted
+        XCTAssertFalse(completedBeforeRefresh)
+        gate.release()
+        let refreshedURL = try await refresh.value
+        let ordinaryURL = try await ordinaryDownload.value
+
+        XCTAssertEqual(ordinaryURL, refreshedURL)
+        XCTAssertEqual(refreshRequests.current, 1)
+        XCTAssertEqual(
+            try String(contentsOf: ordinaryURL, encoding: .utf8),
+            "fresh-audio"
+        )
+    }
+
+    @MainActor
     func testReadinessSnapshotDoesNotUpdateMediaAccessTime() async throws {
         MockURLProtocol.handler = { request in
             (
@@ -160,5 +228,13 @@ final class MediaCacheTests: XCTestCase {
 
         XCTAssertEqual(available, [MediaCache.stableCacheKey(for: remoteURL)])
         XCTAssertEqual(record.lastAccessedAt, previousAccess)
+    }
+}
+
+private actor MediaDownloadCompletion {
+    private(set) var isCompleted = false
+
+    func markCompleted() {
+        isCompleted = true
     }
 }
