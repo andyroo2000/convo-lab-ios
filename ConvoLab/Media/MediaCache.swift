@@ -158,7 +158,7 @@ final class MediaCache {
     func refresh(_ remoteURL: URL, category: String) async throws -> URL {
         let cacheKey = Self.stableCacheKey(for: remoteURL)
         if let inFlightDownload = inFlightDownloads[cacheKey] {
-            _ = try await inFlightDownload.value
+            _ = try? await inFlightDownload.value
         }
         return try await download(
             remoteURL,

@@ -143,6 +143,89 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSlowAnswerAudioResponsePreservesNewerSyncedCardText() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000AC",
+            expression: "会社"
+        )
+        let record = LocalCardRecord(
+            card: card,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        let regenerated = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: nil,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues([
+                "answerAudio": .object([
+                    "url": .string("/api/study/media/race-answer"),
+                ]),
+            ]),
+            state: card.state,
+            answerAudioSource: "generated",
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let gate = LockedRequestGate()
+        let client = makeDelayedAnswerAudioClient(
+            responseData: try StorageCodec.encoder.encode(regenerated),
+            gate: gate
+        )
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let regeneration = Task {
+            try await store.regenerateAnswerAudio(
+                for: card,
+                voiceID: StudyAnswerVoice.defaultVoice.id,
+                textOverride: ""
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        let newerCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt.replacingObjectValues([
+                "cueText": .string("新しい会社"),
+            ]),
+            answer: card.answer.replacingObjectValues([
+                "meaning": .string("newer company"),
+            ]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(2)
+        )
+        record.payload = try StorageCodec.encoder.encode(newerCard)
+        record.serverUpdatedAt = newerCard.updatedAt
+        record.locallyUpdatedAt = nil
+        try container.mainContext.save()
+        gate.release()
+
+        let result = try await regeneration.value
+
+        XCTAssertEqual(result.card.prompt["cueText"]?.stringValue, "新しい会社")
+        XCTAssertEqual(result.card.answer["meaning"]?.stringValue, "newer company")
+        XCTAssertEqual(
+            result.card.answer["answerAudio"]?["url"]?.stringValue,
+            "/api/study/media/race-answer"
+        )
+        XCTAssertEqual(store.libraryCards.first, result.card)
+    }
+
+    @MainActor
     func testRegenerateAnswerAudioDoesNotOverwriteQuarantinedLocalEdit() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
@@ -2251,6 +2334,21 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    private func makeDelayedAnswerAudioClient(
+        responseData: Data,
+        gate: LockedRequestGate
+    ) -> APIClient {
+        DelayedAnswerAudioURLProtocol.responseData = responseData
+        DelayedAnswerAudioURLProtocol.gate = gate
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedAnswerAudioURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
     private func makeCard(
         id: String,
         expression: String,
@@ -2420,6 +2518,52 @@ final class DelayedPitchURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
+        let responseData = Self.responseData
+        let gate = Self.gate
+        gate?.markStarted()
+        DispatchQueue.global().async { [self] in
+            gate?.waitForRelease()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: responseData)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+final class DelayedAnswerAudioURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var responseData = Data()
+    nonisolated(unsafe) static var gate: LockedRequestGate?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard request.url?.path.hasSuffix("/regenerate-answer-audio") == true else {
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "audio/mpeg"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("regenerated-audio".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+
         let responseData = Self.responseData
         let gate = Self.gate
         gate?.markStarted()

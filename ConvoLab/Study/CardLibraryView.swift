@@ -95,6 +95,7 @@ private struct CardEditorView: View {
     @State private var draft: StudyCardDraft
     @State private var isSaving = false
     @State private var isRegeneratingAudio = false
+    @State private var regenerationTask: Task<Void, Never>?
     @State private var answerAudioLocalURL: URL?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
@@ -153,6 +154,7 @@ private struct CardEditorView: View {
                         Button("Delete Card", role: .destructive) {
                             Task { await deleteCard() }
                         }
+                        .disabled(isSaving || isRegeneratingAudio)
                     }
                 }
             }
@@ -166,13 +168,15 @@ private struct CardEditorView: View {
                     Button("Save") {
                         Task { await save() }
                     }
-                    .disabled(!draft.isValid || isSaving)
+                    .disabled(!draft.isValid || isSaving || isRegeneratingAudio)
                 }
             }
             .task(id: card?.id) {
                 await loadCurrentAnswerAudio()
             }
             .onDisappear {
+                regenerationTask?.cancel()
+                regenerationTask = nil
                 if player.isCurrent(answerAudioTrackID) {
                     player.stop()
                 }
@@ -231,7 +235,10 @@ private struct CardEditorView: View {
 
             if card != nil {
                 Button {
-                    Task { await regenerateAnswerAudio() }
+                    regenerationTask?.cancel()
+                    regenerationTask = Task {
+                        await regenerateAnswerAudio()
+                    }
                 } label: {
                     if isRegeneratingAudio {
                         Label("Regenerating audio…", systemImage: "waveform")

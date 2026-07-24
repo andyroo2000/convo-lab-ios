@@ -662,18 +662,36 @@ final class StudyStore {
             body: request,
             timeout: 180
         )
-        let updatedCard = try acknowledgedCard(
-            serverCard,
-            preservingPendingReview: hasPendingReview(for: currentCard.id),
-            preservingPendingEdit: false
+        try Task.checkCancellation()
+        let latestCard = try currentLocalCard(for: currentCard)
+        let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let updatedCard = StudyCard(
+            id: latestCard.id,
+            syncId: serverCard.syncId ?? latestCard.syncId,
+            noteId: serverCard.noteId ?? latestCard.noteId,
+            cardType: latestCard.cardType,
+            prompt: latestCard.prompt,
+            answer: latestCard.answer.replacingObjectValues([
+                "answerAudio": serverCard.answer["answerAudio"] ?? .null,
+                "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
+                    ?? request.answerAudioVoiceId.map(JSONValue.string)
+                    ?? .null,
+                "answerAudioTextOverride": serverCard.answer["answerAudioTextOverride"]
+                    ?? request.answerAudioTextOverride.map(JSONValue.string)
+                    ?? .null,
+            ]),
+            state: latestCard.state,
+            answerAudioSource: serverCard.answerAudioSource,
+            createdAt: latestCard.createdAt,
+            updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
         )
         try updateLocalCard(
             updatedCard,
-            markedDirty: false,
-            serverUpdatedAt: serverCard.updatedAt
+            markedDirty: pendingCardWrite,
+            serverUpdatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
         )
-        cards = cards.map { $0.id == currentCard.id ? updatedCard : $0 }
-        libraryCards = libraryCards.map { $0.id == currentCard.id ? updatedCard : $0 }
+        cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
 
         guard let remoteURL = updatedCard.answerAudioURL else {
