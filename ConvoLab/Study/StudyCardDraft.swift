@@ -1,6 +1,27 @@
 import Foundation
 
 struct StudyCardDraft: Equatable, Sendable {
+    enum ImagePlacement: String, CaseIterable, Identifiable, Sendable {
+        case none
+        case prompt
+        case answer
+        case both
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .none: "No image"
+            case .prompt: "Front"
+            case .answer: "Back"
+            case .both: "Front and back"
+            }
+        }
+
+        var includesPrompt: Bool { self == .prompt || self == .both }
+        var includesAnswer: Bool { self == .answer || self == .both }
+    }
+
     enum CardType: String, CaseIterable, Identifiable, Sendable {
         case recognition
         case production
@@ -28,10 +49,36 @@ struct StudyCardDraft: Equatable, Sendable {
     var sentenceEnglish: String
     var answerAudioVoiceId: String
     var answerAudioTextOverride: String
+    var imagePlacement: ImagePlacement {
+        didSet {
+            if imagePlacement != oldValue {
+                if hasIndependentFaceImages {
+                    currentImage = switch imagePlacement {
+                    case .answer:
+                        originalAnswerImage ?? originalPromptImage
+                    case .none, .prompt, .both:
+                        originalPromptImage ?? originalAnswerImage
+                    }
+                }
+                preservesIndependentFaceImages = false
+            }
+        }
+    }
+    var imagePrompt: String
+    var currentImage: JSONValue? {
+        didSet {
+            if currentImage != oldValue {
+                preservesIndependentFaceImages = false
+            }
+        }
+    }
     var notes: String
     var isMediaLedPrompt: Bool
     var isAudioLedPrompt: Bool
     private var originalClozeHint: String?
+    private var preservesIndependentFaceImages: Bool
+    private var originalPromptImage: JSONValue?
+    private var originalAnswerImage: JSONValue?
 
     init(cardType: CardType = .recognition) {
         self.cardType = cardType
@@ -45,6 +92,12 @@ struct StudyCardDraft: Equatable, Sendable {
         sentenceEnglish = ""
         answerAudioVoiceId = StudyAnswerVoice.defaultVoice.id
         answerAudioTextOverride = ""
+        preservesIndependentFaceImages = false
+        originalPromptImage = nil
+        originalAnswerImage = nil
+        imagePlacement = .none
+        imagePrompt = ""
+        currentImage = nil
         notes = ""
         isMediaLedPrompt = false
         isAudioLedPrompt = false
@@ -89,7 +142,79 @@ struct StudyCardDraft: Equatable, Sendable {
         answerAudioTextOverride = card.answer.firstNonEmptyString(
             for: ["answerAudioTextOverride"]
         ) ?? ""
+        preservesIndependentFaceImages = false
+        let promptImage = card.prompt["cueImage"]
+        let answerImage = card.answer["answerImage"]
+        originalPromptImage = promptImage
+        originalAnswerImage = answerImage
+        currentImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : answerImage
+        imagePlacement = if
+            promptImage?.mediaURLs.isEmpty == false,
+            answerImage?.mediaURLs.isEmpty == false
+        {
+            .both
+        } else if promptImage?.mediaURLs.isEmpty == false {
+            .prompt
+        } else if answerImage?.mediaURLs.isEmpty == false {
+            .answer
+        } else {
+            // Match the desktop editor's default role for cards without an image.
+            .answer
+        }
+        preservesIndependentFaceImages =
+            promptImage?.mediaURLs.isEmpty == false
+            && answerImage?.mediaURLs.isEmpty == false
+            && promptImage != answerImage
+        let imageSubject = card.answer.firstNonEmptyString(
+            for: ["expression", "restoredText"]
+        ) ?? card.prompt.firstNonEmptyString(for: ["cueText"])
+            ?? card.answer.firstNonEmptyString(for: ["meaning"])
+            ?? "this study card"
+        let imageMeaning = card.answer.firstNonEmptyString(for: ["meaning"])
+            .map { " (\($0))" } ?? ""
+        imagePrompt = "A clear natural real-world image representing \(imageSubject)\(imageMeaning)."
         notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
+    }
+
+    var hasIndependentFaceImages: Bool {
+        guard
+            let originalPromptImage,
+            let originalAnswerImage,
+            !originalPromptImage.mediaURLs.isEmpty,
+            !originalAnswerImage.mediaURLs.isEmpty
+        else {
+            return false
+        }
+        return originalPromptImage != originalAnswerImage
+    }
+
+    var isReplacingIndependentFaceImages: Bool {
+        hasIndependentFaceImages && !preservesIndependentFaceImages
+    }
+
+    mutating func reconcileImages(
+        promptImage: JSONValue?,
+        answerImage: JSONValue?
+    ) {
+        let nextPromptImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : nil
+        let nextAnswerImage = answerImage?.mediaURLs.isEmpty == false ? answerImage : nil
+        preservesIndependentFaceImages = false
+        originalPromptImage = nextPromptImage
+        originalAnswerImage = nextAnswerImage
+        currentImage = nextPromptImage ?? nextAnswerImage
+        imagePlacement = if nextPromptImage != nil, nextAnswerImage != nil {
+            .both
+        } else if nextPromptImage != nil {
+            .prompt
+        } else if nextAnswerImage != nil {
+            .answer
+        } else {
+            .none
+        }
+        preservesIndependentFaceImages =
+            nextPromptImage != nil
+            && nextAnswerImage != nil
+            && nextPromptImage != nextAnswerImage
     }
 
     var isValid: Bool {
@@ -107,6 +232,7 @@ struct StudyCardDraft: Equatable, Sendable {
     }
 
     func prompt(merging existing: JSONValue = .object([:])) -> JSONValue {
+        let textPayload: JSONValue
         switch cardType {
         case .cloze:
             var replacements: [String: JSONValue] = [
@@ -125,9 +251,9 @@ struct StudyCardDraft: Equatable, Sendable {
             } else if !cueMeaning.trimmed.isEmpty {
                 replacements["clozeHint"] = .string(cueMeaning.trimmed)
             }
-            return existing.replacingObjectValues(replacements)
+            textPayload = existing.replacingObjectValues(replacements)
         case .recognition, .production:
-            return existing.replacingObjectValues([
+            textPayload = existing.replacingObjectValues([
                 "cueText": isAudioLedPrompt ? .null : .string(cueText.trimmed),
                 "cueReading": isAudioLedPrompt
                     ? .null
@@ -141,10 +267,14 @@ struct StudyCardDraft: Equatable, Sendable {
                     ),
             ])
         }
+        let cueImage = preservesIndependentFaceImages
+            ? existing["cueImage"] ?? .null
+            : imagePlacement.includesPrompt ? currentImage ?? .null : .null
+        return textPayload.replacingObjectValues(["cueImage": cueImage])
     }
 
     func answer(merging existing: JSONValue = .object([:])) -> JSONValue {
-        switch cardType {
+        let textPayload = switch cardType {
         case .cloze:
             existing.replacingObjectValues([
                 "restoredText": .string(answerExpression.trimmed),
@@ -190,6 +320,10 @@ struct StudyCardDraft: Equatable, Sendable {
                 ),
             ])
         }
+        let answerImage = preservesIndependentFaceImages
+            ? existing["answerImage"] ?? .null
+            : imagePlacement.includesAnswer ? currentImage ?? .null : .null
+        return textPayload.replacingObjectValues(["answerImage": answerImage])
     }
 }
 

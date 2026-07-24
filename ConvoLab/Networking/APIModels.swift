@@ -52,6 +52,11 @@ struct RegenerateAnswerAudioRequest: Encodable, Equatable, Sendable {
     let answerAudioTextOverride: String?
 }
 
+struct RegenerateImageRequest: Encodable, Equatable, Sendable {
+    let imagePrompt: String
+    let imageRole: String
+}
+
 struct StudySession: Codable, Sendable {
     let overview: StudyOverview
     let cards: [StudyCard]

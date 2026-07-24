@@ -82,13 +82,44 @@ final class StudyStore {
         }
     }
 
-    private struct PendingCardChangesError: LocalizedError {
+    private struct MissingGeneratedImageError: LocalizedError {
         var errorDescription: String? {
-            "Sync this card’s pending changes before regenerating its audio."
+            "The server regenerated this card without returning a usable image."
+        }
+    }
+
+    private struct MismatchedGeneratedImagesError: LocalizedError {
+        var errorDescription: String? {
+            "The server returned different front and back images for a shared-image request."
+        }
+    }
+
+    private struct InvalidImagePromptError: LocalizedError {
+        var errorDescription: String? {
+            "Enter a non-empty image prompt no longer than 1,000 characters."
+        }
+    }
+
+    private struct InvalidImagePlacementError: LocalizedError {
+        var errorDescription: String? {
+            "Choose Front, Back, or Front and back before regenerating an image."
+        }
+    }
+
+    private struct PendingCardChangesError: LocalizedError {
+        let medium: String
+
+        var errorDescription: String? {
+            "Sync this card’s pending changes before regenerating its \(medium)."
         }
     }
 
     struct AnswerAudioRegenerationResult {
+        let card: StudyCard
+        let localURL: URL
+    }
+
+    struct ImageRegenerationResult {
         let card: StudyCard
         let localURL: URL
     }
@@ -656,7 +687,7 @@ final class StudyStore {
         }
         let currentCard = try currentLocalCard(for: card)
         guard try !hasPendingCardWrite(for: currentCard.id) else {
-            throw PendingCardChangesError()
+            throw PendingCardChangesError(medium: "audio")
         }
         let request = RegenerateAnswerAudioRequest(
             answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
@@ -714,6 +745,115 @@ final class StudyStore {
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
         return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
+    }
+
+    func regenerateImage(
+        for card: StudyCard,
+        prompt: String,
+        placement: StudyCardDraft.ImagePlacement
+    ) async throws -> ImageRegenerationResult {
+        let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !imagePrompt.isEmpty,
+            imagePrompt.count <= 1_000
+        else {
+            throw InvalidImagePromptError()
+        }
+        guard placement != .none else {
+            throw InvalidImagePlacementError()
+        }
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardError {
+            // Rejected writes for other cards do not block this card's media.
+        }
+        let currentCard = try currentLocalCard(for: card)
+        guard try !hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError(medium: "image")
+        }
+        let request = RegenerateImageRequest(
+            imagePrompt: imagePrompt,
+            imageRole: placement.rawValue
+        )
+        // learning-os compatibility endpoint returns the card directly.
+        let serverCard: StudyCard = try await api.request(
+            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-image",
+            method: "POST",
+            body: request,
+            timeout: 180
+        )
+        if
+            placement == .both,
+            let promptImage = serverCard.prompt["cueImage"],
+            let answerImage = serverCard.answer["answerImage"],
+            !promptImage.mediaURLs.isEmpty,
+            !answerImage.mediaURLs.isEmpty,
+            Set(promptImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
+                != Set(answerImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
+        {
+            throw MismatchedGeneratedImagesError()
+        }
+        let generatedImageCandidates = placement == .answer
+            ? [serverCard.answer["answerImage"], serverCard.prompt["cueImage"]]
+            : [serverCard.prompt["cueImage"], serverCard.answer["answerImage"]]
+        let generatedImage = generatedImageCandidates
+            .compactMap(\.self)
+            .first { !$0.mediaURLs.isEmpty }
+        guard let generatedImage, let remoteURL = generatedImage.mediaURLs.first else {
+            throw MissingGeneratedImageError()
+        }
+        let localURL = try await mediaCache.refresh(
+            remoteURL,
+            category: "active-study"
+        )
+
+        // As with audio, complete reconciliation after server/cache side effects
+        // even if the editor has since been dismissed.
+        let latestCard = try currentLocalCard(for: currentCard)
+        let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let latestPromptImage = latestCard.prompt["cueImage"]
+        let latestAnswerImage = latestCard.answer["answerImage"]
+        let promptImage: JSONValue = if placement.includesPrompt {
+            generatedImage
+        } else if latestPromptImage != currentCard.prompt["cueImage"] {
+            latestPromptImage ?? .null
+        } else {
+            .null
+        }
+        let answerImage: JSONValue = if placement.includesAnswer {
+            generatedImage
+        } else if latestAnswerImage != currentCard.answer["answerImage"] {
+            latestAnswerImage ?? .null
+        } else {
+            .null
+        }
+        let updatedCard = StudyCard(
+            id: latestCard.id,
+            syncId: serverCard.syncId ?? latestCard.syncId,
+            noteId: serverCard.noteId ?? latestCard.noteId,
+            cardType: latestCard.cardType,
+            prompt: latestCard.prompt.replacingObjectValues([
+                "cueImage": promptImage,
+            ]),
+            answer: latestCard.answer.replacingObjectValues([
+                "answerImage": answerImage,
+            ]),
+            state: latestCard.state,
+            // Image generation does not mutate answer audio. Preserve the
+            // freshest local value rather than trusting a lean/stale projection.
+            answerAudioSource: latestCard.answerAudioSource,
+            createdAt: latestCard.createdAt,
+            updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
+        )
+        try updateLocalCard(
+            updatedCard,
+            markedDirty: pendingCardWrite,
+            serverUpdatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
+        )
+        cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        try context.save()
+        return ImageRegenerationResult(card: updatedCard, localURL: localURL)
     }
 
     var quarantinedMutationCount: Int {

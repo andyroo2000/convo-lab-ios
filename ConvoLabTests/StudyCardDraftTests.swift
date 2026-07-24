@@ -267,6 +267,89 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testImagePlacementMovesOneImageBetweenCardFaces() {
+        let image = media("/media/company.webp")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("会社"),
+                "cueImage": image,
+            ]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+            ])
+        )
+        var draft = StudyCardDraft(card: card)
+
+        XCTAssertEqual(draft.imagePlacement, .prompt)
+        XCTAssertEqual(draft.currentImage, image)
+        XCTAssertEqual(
+            draft.imagePrompt,
+            "A clear natural real-world image representing 会社 (company)."
+        )
+
+        draft.imagePlacement = .both
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], image)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], image)
+
+        draft.imagePlacement = .answer
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], image)
+
+        draft.imagePlacement = .none
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], .null)
+    }
+
+    @MainActor
+    func testUntouchedSavePreservesIndependentFrontAndBackImages() {
+        let frontImage = media("/media/front.webp")
+        let backImage = media("/media/back.webp")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("会社"),
+                "cueImage": frontImage,
+            ]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+                "answerImage": backImage,
+            ])
+        )
+        var draft = StudyCardDraft(card: card)
+        draft.answerMeaning = "a business"
+
+        XCTAssertEqual(draft.imagePlacement, .both)
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
+
+        // An explicit placement change opts into the desktop single-image model.
+        draft.imagePlacement = .prompt
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], .null)
+
+        // Choosing the back face keeps the image that was already on that face.
+        draft = StudyCardDraft(card: card)
+        draft.imagePlacement = .answer
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
+        XCTAssertTrue(draft.isReplacingIndependentFaceImages)
+
+        draft.imagePlacement = .both
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], frontImage)
+
+        draft.reconcileImages(promptImage: frontImage, answerImage: backImage)
+        XCTAssertEqual(draft.imagePlacement, .both)
+        XCTAssertTrue(draft.hasIndependentFaceImages)
+        XCTAssertFalse(draft.isReplacingIndependentFaceImages)
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
+    }
+
+    @MainActor
     private func makeCard(
         cardType: String,
         prompt: JSONValue,

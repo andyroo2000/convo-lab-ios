@@ -4,6 +4,14 @@ extension StudyCard {
     var answerAudioURL: URL? {
         answer.mediaURL(for: "answerAudio")
     }
+
+    var promptImageURL: URL? {
+        prompt.mediaURL(for: "cueImage")
+    }
+
+    var answerImageURL: URL? {
+        answer.mediaURL(for: "answerImage")
+    }
 }
 
 struct StudyCardPresentation: Equatable, Sendable {

@@ -92,6 +92,17 @@ cached file for the same stable media URL, and playback starts from the
 downloaded file. Regeneration is unavailable for a new unsynced card and fails
 normally while offline without discarding local edits.
 
+The editor previews current front and back images, derives the same natural
+real-world prompt as desktop, and supports no image, front, back, and
+front-and-back placement. The generated-image workflow uses one current image
+reference, moving or duplicating it onto the selected faces and explicitly
+clearing the other face. Legacy cards with genuinely different front and back
+images retain both on unrelated saves until the user changes image placement or
+regenerates. Existing synced cards can ask learning-os to regenerate the image
+from a non-empty prompt of at most 1,000 characters. The returned image
+reference is persisted immediately and its bytes are downloaded before the
+operation succeeds, so the regenerated card remains usable offline.
+
 ## Review tray
 
 The four grades are Again, Hard, Good, and Easy. Each grade displays the next
