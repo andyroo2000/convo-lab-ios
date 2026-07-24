@@ -65,10 +65,13 @@ tokens are submitted to learning-os and are never stored on the device.
 ## Review tray
 
 The four grades are Again, Hard, Good, and Easy. Each grade displays the next
-scheduled interval above its label. The session header reports failed, queued
-review, and new counts separately. Queued and new counts reflect the currently
-loaded session cards; failed count reconciles the loaded failures with the
-authoritative overview and decrements optimistically after an offline review.
+scheduled interval above its label. A compact replay control precedes the
+grades and replays the same locally resolved answer-audio file as the answer
+face; it remains disabled when the card has no offline-playable answer audio.
+The session header reports failed, queued review, and new counts separately.
+Queued and new counts reflect the currently loaded session cards; failed count
+reconciles the loaded failures with the authoritative overview and decrements
+optimistically after an offline review.
 
 ## Offline behavior
 
