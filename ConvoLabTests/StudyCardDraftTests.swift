@@ -340,6 +340,13 @@ final class StudyCardDraftTests: XCTestCase {
         draft.imagePlacement = .both
         XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
         XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], frontImage)
+
+        draft.reconcileImages(promptImage: frontImage, answerImage: backImage)
+        XCTAssertEqual(draft.imagePlacement, .both)
+        XCTAssertTrue(draft.hasIndependentFaceImages)
+        XCTAssertFalse(draft.isReplacingIndependentFaceImages)
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
     }
 
     @MainActor

@@ -569,6 +569,10 @@ final class StudyStoreTests: XCTestCase {
             )
         }
         await waitUntil { gate.hasStarted }
+        let concurrentlySyncedPromptImage: JSONValue = .object([
+            "url": .string("/api/study/media/newer-front"),
+            "filename": .string("newer-front.webp"),
+        ])
         let newerCard = StudyCard(
             id: card.id,
             syncId: card.syncId,
@@ -576,6 +580,7 @@ final class StudyStoreTests: XCTestCase {
             cardType: card.cardType,
             prompt: card.prompt.replacingObjectValues([
                 "cueText": .string("新しい会社"),
+                "cueImage": concurrentlySyncedPromptImage,
             ]),
             answer: card.answer.replacingObjectValues([
                 "meaning": .string("newer company"),
@@ -593,6 +598,7 @@ final class StudyStoreTests: XCTestCase {
 
         let result = try await regeneration.value
         XCTAssertEqual(result.card.prompt["cueText"], .string("新しい会社"))
+        XCTAssertEqual(result.card.prompt["cueImage"], concurrentlySyncedPromptImage)
         XCTAssertEqual(result.card.answer["meaning"], .string("newer company"))
         XCTAssertEqual(result.card.answer["answerImage"], generatedImage)
         XCTAssertEqual(try persistedCard(in: container), result.card)

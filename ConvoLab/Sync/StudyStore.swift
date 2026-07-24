@@ -794,20 +794,37 @@ final class StudyStore {
         // even if the editor has since been dismissed.
         let latestCard = try currentLocalCard(for: currentCard)
         let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let latestPromptImage = latestCard.prompt["cueImage"]
+        let latestAnswerImage = latestCard.answer["answerImage"]
+        let promptImage: JSONValue = if placement.includesPrompt {
+            generatedImage
+        } else if latestPromptImage != currentCard.prompt["cueImage"] {
+            latestPromptImage ?? .null
+        } else {
+            .null
+        }
+        let answerImage: JSONValue = if placement.includesAnswer {
+            generatedImage
+        } else if latestAnswerImage != currentCard.answer["answerImage"] {
+            latestAnswerImage ?? .null
+        } else {
+            .null
+        }
         let updatedCard = StudyCard(
             id: latestCard.id,
             syncId: serverCard.syncId ?? latestCard.syncId,
             noteId: serverCard.noteId ?? latestCard.noteId,
             cardType: latestCard.cardType,
             prompt: latestCard.prompt.replacingObjectValues([
-                "cueImage": placement.includesPrompt ? generatedImage : .null,
+                "cueImage": promptImage,
             ]),
             answer: latestCard.answer.replacingObjectValues([
-                "answerImage": placement.includesAnswer ? generatedImage : .null,
+                "answerImage": answerImage,
             ]),
             state: latestCard.state,
-            answerAudioSource: serverCard.answerAudioSource
-                ?? latestCard.answerAudioSource,
+            // Image generation does not mutate answer audio. Preserve the
+            // freshest local value rather than trusting a lean/stale projection.
+            answerAudioSource: latestCard.answerAudioSource,
             createdAt: latestCard.createdAt,
             updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
         )

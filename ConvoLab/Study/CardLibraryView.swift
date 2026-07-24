@@ -614,24 +614,44 @@ private struct CardEditorView: View {
                 placement: draft.imagePlacement
             )
             try Task.checkCancellation()
-            draft.currentImage = result.card.prompt["cueImage"]?.mediaURLs.isEmpty == false
-                ? result.card.prompt["cueImage"]
-                : result.card.answer["answerImage"]
-            draft.acceptIndependentFaceImageReplacement()
+            let requestedPlacement = draft.imagePlacement
+            let nextPromptImageLocalURL: URL?
+            if let promptURL = result.card.promptImageURL {
+                nextPromptImageLocalURL = requestedPlacement.includesPrompt
+                    ? result.localURL
+                    : await store.playableMediaURL(for: promptURL)
+            } else {
+                nextPromptImageLocalURL = nil
+            }
+            let nextAnswerImageLocalURL: URL?
+            if let answerURL = result.card.answerImageURL {
+                nextAnswerImageLocalURL = requestedPlacement.includesAnswer
+                    ? result.localURL
+                    : await store.playableMediaURL(for: answerURL)
+            } else {
+                nextAnswerImageLocalURL = nil
+            }
+            try Task.checkCancellation()
+            let nextPromptImagePreview = nextPromptImageLocalURL.flatMap {
+                UIImage(contentsOfFile: $0.path)
+            }
+            let nextAnswerImagePreview = nextAnswerImageLocalURL.flatMap {
+                UIImage(contentsOfFile: $0.path)
+            }
+            draft.reconcileImages(
+                promptImage: result.card.prompt["cueImage"],
+                answerImage: result.card.answer["answerImage"]
+            )
             sharedImageLocalURL = result.localURL
             sharedImagePreview = UIImage(contentsOfFile: result.localURL.path)
-            promptImageLocalURL = draft.imagePlacement.includesPrompt
-                ? result.localURL
-                : nil
-            answerImageLocalURL = draft.imagePlacement.includesAnswer
-                ? result.localURL
-                : nil
-            promptImagePreview = draft.imagePlacement.includesPrompt
-                ? sharedImagePreview
-                : nil
-            answerImagePreview = draft.imagePlacement.includesAnswer
-                ? sharedImagePreview
-                : nil
+            promptImageLocalURL = nextPromptImageLocalURL
+            promptImagePreview = nextPromptImagePreview
+            answerImageLocalURL = nextAnswerImageLocalURL
+            answerImagePreview = nextAnswerImagePreview
+            originalPromptImageLocalURL = promptImageLocalURL
+            originalPromptImagePreview = promptImagePreview
+            originalAnswerImageLocalURL = answerImageLocalURL
+            originalAnswerImagePreview = answerImagePreview
         } catch is CancellationError {
             // Completed server/cache work is reconciled by StudyStore.
         } catch {

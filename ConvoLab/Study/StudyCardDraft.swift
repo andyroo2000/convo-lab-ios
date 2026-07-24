@@ -192,10 +192,29 @@ struct StudyCardDraft: Equatable, Sendable {
         hasIndependentFaceImages && !preservesIndependentFaceImages
     }
 
-    mutating func acceptIndependentFaceImageReplacement() {
-        originalPromptImage = imagePlacement.includesPrompt ? currentImage : nil
-        originalAnswerImage = imagePlacement.includesAnswer ? currentImage : nil
+    mutating func reconcileImages(
+        promptImage: JSONValue?,
+        answerImage: JSONValue?
+    ) {
+        let nextPromptImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : nil
+        let nextAnswerImage = answerImage?.mediaURLs.isEmpty == false ? answerImage : nil
         preservesIndependentFaceImages = false
+        originalPromptImage = nextPromptImage
+        originalAnswerImage = nextAnswerImage
+        currentImage = nextPromptImage ?? nextAnswerImage
+        imagePlacement = if nextPromptImage != nil, nextAnswerImage != nil {
+            .both
+        } else if nextPromptImage != nil {
+            .prompt
+        } else if nextAnswerImage != nil {
+            .answer
+        } else {
+            .none
+        }
+        preservesIndependentFaceImages =
+            nextPromptImage != nil
+            && nextAnswerImage != nil
+            && nextPromptImage != nextAnswerImage
     }
 
     var isValid: Bool {
