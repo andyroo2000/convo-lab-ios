@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig. This file is ignored by Git.
+API_BASE_URL = https:/$()/your-learning-os-host.example
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+
