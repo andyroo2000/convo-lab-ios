@@ -53,26 +53,16 @@ final class AudioPlayer {
         }
     }
 
-    func play(
-        url: URL,
-        trackID: String,
-        title: String,
-        resumesFromSavedPosition: Bool = true
-    ) {
+    func play(url: URL, trackID: String, title: String) {
         activateAudioSession()
         if currentTrackID != trackID {
             currentTrackID = trackID
             currentTitle = title
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
-            let saved = resumesFromSavedPosition
-                ? UserDefaults.standard.double(forKey: positionKey(trackID))
-                : 0
+            let saved = UserDefaults.standard.double(forKey: positionKey(trackID))
             if saved > 0 {
                 player.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
             }
-        } else if !resumesFromSavedPosition {
-            player.seek(to: .zero)
-            elapsed = 0
         }
         player.play()
         isPlaying = true
@@ -86,12 +76,6 @@ final class AudioPlayer {
         } else {
             resumePlayback()
         }
-        updateNowPlaying()
-    }
-
-    func stop() {
-        player.pause()
-        isPlaying = false
         updateNowPlaying()
     }
 

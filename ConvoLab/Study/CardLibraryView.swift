@@ -8,17 +8,14 @@ struct CardLibraryView: View {
     var body: some View {
         NavigationStack {
             List(store.libraryCards) { card in
-                Button {
-                    selectedCard = card
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.promptText)
-                            .font(.headline)
-                            .foregroundStyle(ConvoLabTheme.navy)
-                        Text(card.answerText)
-                            .lineLimit(2)
-                            .foregroundStyle(.secondary)
+                if card.isEditableInBasicForm {
+                    Button {
+                        selectedCard = card
+                    } label: {
+                        cardRow(card)
                     }
+                } else {
+                    cardRow(card)
                 }
             }
             .overlay {
@@ -50,6 +47,22 @@ struct CardLibraryView: View {
             }
         }
     }
+
+    private func cardRow(_ card: StudyCard) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(card.promptText)
+                .font(.headline)
+                .foregroundStyle(ConvoLabTheme.navy)
+            Text(card.answerText)
+                .lineLimit(2)
+                .foregroundStyle(.secondary)
+            if !card.isEditableInBasicForm {
+                Text("\(card.cardType.capitalized) · type-aware editing coming next")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
 }
 
 private struct CardEditorView: View {
@@ -66,7 +79,9 @@ private struct CardEditorView: View {
     init(store: StudyStore, card: StudyCard?) {
         self.store = store
         self.card = card
-        _expression = State(initialValue: card?.promptText ?? "")
+        _expression = State(
+            initialValue: card?.prompt.firstNonEmptyString(for: ["cueText"]) ?? ""
+        )
         _reading = State(initialValue: card?.prompt.firstNonEmptyString(for: ["cueReading"]) ?? "")
         _meaning = State(initialValue: card?.answerText ?? "")
     }

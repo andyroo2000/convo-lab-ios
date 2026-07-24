@@ -29,6 +29,13 @@ struct StudyCardPresentation: Equatable, Sendable {
 }
 
 extension StudyCard {
+    var isEditableInBasicForm: Bool {
+        cardType == "recognition"
+            && prompt.firstNonEmptyString(for: ["cueText"]) != nil
+            && prompt.mediaURL(for: "cueAudio") == nil
+            && prompt.mediaURL(for: "cueImage") == nil
+    }
+
     var presentation: StudyCardPresentation {
         let promptAudioURL = prompt.mediaURL(for: "cueAudio")
         let promptImageURL = prompt.mediaURL(for: "cueImage")

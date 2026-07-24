@@ -2,7 +2,7 @@ import SwiftUI
 
 struct StudyHomeView: View {
     let store: StudyStore
-    let player: AudioPlayer
+    @State private var player = StudyAudioPlayer()
 
     var body: some View {
         NavigationStack {

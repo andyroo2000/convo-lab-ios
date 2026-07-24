@@ -3,7 +3,7 @@ import UIKit
 
 struct StudySessionView: View {
     let store: StudyStore
-    let player: AudioPlayer
+    let player: StudyAudioPlayer
 
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
@@ -74,7 +74,11 @@ struct StudySessionView: View {
     private func promptFace(_ face: StudyCardPresentation.Face, cardID: String) -> some View {
         VStack(spacing: 18) {
             if let imageURL = face.imageURL {
-                StudyCardImage(remoteURL: imageURL, store: store)
+                StudyCardImage(
+                    remoteURL: imageURL,
+                    accessibilityLabel: face.supportingText ?? "Study prompt image",
+                    store: store
+                )
             }
             if let audioURL = face.audioURL {
                 StudyCardAudioButton(
@@ -125,7 +129,13 @@ struct StudySessionView: View {
                 Divider()
 
                 if let imageURL = face.imageURL {
-                    StudyCardImage(remoteURL: imageURL, store: store)
+                    StudyCardImage(
+                        remoteURL: imageURL,
+                        accessibilityLabel: face.textBlocks.first {
+                            $0.role == .meaning
+                        }?.text ?? "Answer image",
+                        store: store
+                    )
                 }
 
                 ForEach(face.textBlocks) { block in
@@ -208,7 +218,7 @@ private struct StudyCardAudioButton: View {
     let trackID: String
     let label: String
     let store: StudyStore
-    let player: AudioPlayer
+    let player: StudyAudioPlayer
 
     @State private var localURL: URL?
     @State private var didAttemptLoad = false
@@ -216,12 +226,7 @@ private struct StudyCardAudioButton: View {
     var body: some View {
         Button {
             guard let localURL else { return }
-            player.play(
-                url: localURL,
-                trackID: trackID,
-                title: label,
-                resumesFromSavedPosition: false
-            )
+            player.play(url: localURL, trackID: trackID)
         } label: {
             Label(label, systemImage: "play.circle.fill")
         }
@@ -243,6 +248,7 @@ private struct StudyCardAudioButton: View {
 
 private struct StudyCardImage: View {
     let remoteURL: URL
+    let accessibilityLabel: String
     let store: StudyStore
 
     @State private var image: UIImage?
@@ -256,6 +262,7 @@ private struct StudyCardImage: View {
                     .scaledToFit()
                     .frame(maxHeight: 280)
                     .clipShape(.rect(cornerRadius: 12))
+                    .accessibilityLabel(accessibilityLabel)
             } else if !didAttemptLoad {
                 ProgressView()
                     .accessibilityLabel("Loading study image")
