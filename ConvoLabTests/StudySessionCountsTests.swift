@@ -123,6 +123,20 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.failedDue, 1)
     }
 
+    func testRelearningFailureAddsToOtherLoadedFailuresWhileOffline() {
+        let cards = [
+            makeCard(id: "failed-2", queueState: "relearning", failedAt: .now),
+        ]
+
+        let counts = StudySessionCounts.calculate(
+            cards: cards,
+            overview: nil,
+            retainedFailedCardIDs: ["failed-1"]
+        )
+
+        XCTAssertEqual(counts.failedDue, 2)
+    }
+
     private func makeCard(
         id: String,
         queueState: String,

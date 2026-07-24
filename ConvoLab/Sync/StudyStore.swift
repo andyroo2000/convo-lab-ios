@@ -780,7 +780,7 @@ struct StudySessionCounts: Equatable {
         return StudySessionCounts(
             failedDue: max(
                 authoritativeFailedCount + newlyFailedCardIDs.count,
-                max(loadedFailedCount, pendingFailedCount)
+                loadedFailedCount + pendingFailedCount
             ),
             reviewRemaining: reviewRemaining,
             newRemaining: newRemaining
