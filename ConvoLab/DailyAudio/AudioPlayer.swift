@@ -19,7 +19,6 @@ final class AudioPlayer {
     private(set) var duration: Double = 0
 
     init() {
-        configureAudioSession()
         configureRemoteCommands()
         configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
@@ -55,6 +54,7 @@ final class AudioPlayer {
     }
 
     func play(url: URL, trackID: String, title: String) {
+        activateAudioSession()
         if currentTrackID != trackID {
             currentTrackID = trackID
             currentTitle = title
@@ -87,7 +87,7 @@ final class AudioPlayer {
         currentTrackID == trackID
     }
 
-    private func configureAudioSession() {
+    private func activateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(
                 .playback,
@@ -155,9 +155,20 @@ final class AudioPlayer {
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            guard let completedItem = notification.object as? AVPlayerItem else {
+                return
+            }
+            let completedItemID = ObjectIdentifier(completedItem)
             MainActor.assumeIsolated {
-                self?.handlePlaybackCompletion()
+                guard
+                    let self,
+                    let currentItem = self.player.currentItem,
+                    ObjectIdentifier(currentItem) == completedItemID
+                else {
+                    return
+                }
+                self.handlePlaybackCompletion()
             }
         }
     }
@@ -210,6 +221,7 @@ final class AudioPlayer {
     }
 
     private func resumePlayback() {
+        activateAudioSession()
         if duration > 0, elapsed >= duration - 0.25 {
             player.seek(to: .zero)
             elapsed = 0

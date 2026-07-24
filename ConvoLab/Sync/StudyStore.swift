@@ -63,14 +63,33 @@ final class StudyStore {
     func synchronize() async {
         guard syncStatus != .syncing else { return }
         syncStatus = .syncing
+        var firstError: (any Error)?
+        var refreshed = false
+
         do {
             try await flushReviewOutbox()
-            try await flushCardOutbox()
-            try await refreshSession()
-            lastSyncAt = .now
-            syncStatus = .idle
         } catch {
-            handleSyncError(error)
+            firstError = error
+        }
+        do {
+            try await flushCardOutbox()
+        } catch {
+            firstError = firstError ?? error
+        }
+        do {
+            try await refreshSession()
+            refreshed = true
+        } catch {
+            firstError = firstError ?? error
+        }
+
+        if refreshed {
+            lastSyncAt = .now
+        }
+        if let firstError {
+            handleSyncError(firstError)
+        } else {
+            syncStatus = .idle
         }
     }
 
@@ -81,14 +100,17 @@ final class StudyStore {
             method: "POST",
             body: ["time_zone": timeZone]
         )
+        let activeCards = try envelope.data.cards.filter { card in
+            try !hasPendingDelete(for: card.id)
+        }
         overview = envelope.data.overview
-        cards = envelope.data.cards
-        try persist(cards: cards)
+        cards = activeCards
+        try persist(cards: activeCards)
         loadLibraryCards()
 
-        let mediaURLs = cards.flatMap(\.mediaURLs)
+        let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
-        markPrepared(cards: cards)
+        markPrepared(cards: activeCards)
     }
 
     func recordReview(
@@ -186,9 +208,17 @@ final class StudyStore {
         }
     }
 
-    func updateCard(_ card: StudyCard, prompt: String, answer: String) async throws {
-        let promptPayload: JSONValue = .object(["cueText": .string(prompt)])
-        let answerPayload: JSONValue = .object([
+    func updateCard(
+        _ card: StudyCard,
+        prompt: String,
+        reading: String,
+        answer: String
+    ) async throws {
+        let promptPayload = card.prompt.replacingObjectValues([
+            "cueText": .string(prompt),
+            "cueReading": reading.isEmpty ? .null : .string(reading),
+        ])
+        let answerPayload = card.answer.replacingObjectValues([
             "expression": .string(prompt),
             "meaning": .string(answer),
         ])

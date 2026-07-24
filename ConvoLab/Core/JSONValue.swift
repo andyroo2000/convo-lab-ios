@@ -59,6 +59,13 @@ enum JSONValue: Codable, Hashable, Sendable {
         return nil
     }
 
+    func replacingObjectValues(_ updates: [String: JSONValue]) -> JSONValue {
+        guard case let .object(object) = self else {
+            return .object(updates)
+        }
+        return .object(object.merging(updates) { _, replacement in replacement })
+    }
+
     var mediaURLs: [URL] {
         switch self {
         case let .object(object):

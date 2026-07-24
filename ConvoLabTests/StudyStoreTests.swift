@@ -54,6 +54,127 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshDoesNotResurrectCardWithQuarantinedDelete() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "01J00000000000000000000003", expression: "削除")
+        let delete = PendingMutation(kind: "cardDelete", resourceID: card.id, payload: Data())
+        delete.lastError = "HTTP 409: Delete conflict"
+        container.mainContext.insert(delete)
+        try container.mainContext.save()
+
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let envelopeData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                envelopeData
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+    }
+
+    @MainActor
+    func testCardUpdatePreservesReadingAndServerManagedPayloadFields() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = StudyCard(
+            id: "01J00000000000000000000004",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("古い文"),
+                "cueReading": .string("古[ふる]い文[ぶん]"),
+                "cueAudio": .object(["url": .string("/api/media/prompt")]),
+            ]),
+            answer: .object([
+                "expression": .string("古い文"),
+                "meaning": .string("old sentence"),
+                "answerAudio": .object(["url": .string("/api/media/answer")]),
+                "notes": .string("Keep this note"),
+            ]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "review",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "generated",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.updateCard(
+            card,
+            prompt: "新しい文",
+            reading: "新[あたら]しい文[ぶん]",
+            answer: "new sentence"
+        )
+
+        let updated = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(updated.prompt["cueText"]?.stringValue, "新しい文")
+        XCTAssertEqual(updated.prompt["cueReading"]?.stringValue, "新[あたら]しい文[ぶん]")
+        XCTAssertEqual(updated.prompt["cueAudio"], card.prompt["cueAudio"])
+        XCTAssertEqual(updated.answer["meaning"]?.stringValue, "new sentence")
+        XCTAssertEqual(updated.answer["answerAudio"], card.answer["answerAudio"])
+        XCTAssertEqual(updated.answer["notes"]?.stringValue, "Keep this note")
+
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardUpdate" })
+        )
+        let request = try StorageCodec.decoder.decode(
+            UpdateStudyCardRequest.self,
+            from: mutation.payload
+        )
+        XCTAssertEqual(request.prompt["cueAudio"], card.prompt["cueAudio"])
+        XCTAssertEqual(request.answer["answerAudio"], card.answer["answerAudio"])
+    }
+
+    @MainActor
     func testRefreshKeepsLocallyDirtyCardInActiveQueue() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in
@@ -134,6 +255,82 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pending.first?.resourceID, rejectedCard.id)
         XCTAssertEqual(pending.first?.attemptCount, 1)
         XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testQuarantinedReviewDoesNotBlockCardSyncOrSessionRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        let rejectedReviewCard = makeCard(
+            id: "01J00000000000000000000005",
+            expression: "失敗"
+        )
+        await store.recordReview(card: rejectedReviewCard, rating: .good, duration: nil)
+        try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
+        let createdCard = try XCTUnwrap(store.libraryCards.last)
+        let createdCardData = try StorageCodec.encoder.encode(createdCard)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 1,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 1
+            ),
+            cards: [createdCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path
+            if path == "/api/card-review-events/batch" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 422,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Invalid review"}"#.utf8)
+                )
+            }
+            if path == "/api/study/cards" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    createdCardData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                sessionData
+            )
+        }
+
+        await store.synchronize()
+
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.filter { $0.kind == "review" }.count, 1)
+        XCTAssertTrue(pending.filter { $0.kind.hasPrefix("card") }.isEmpty)
+        XCTAssertEqual(store.overview?.newCount, 1)
+        XCTAssertNotNil(store.lastSyncAt)
     }
 
     @MainActor

@@ -67,7 +67,7 @@ private struct CardEditorView: View {
         self.store = store
         self.card = card
         _expression = State(initialValue: card?.promptText ?? "")
-        _reading = State(initialValue: "")
+        _reading = State(initialValue: card?.prompt.firstNonEmptyString(for: ["cueReading"]) ?? "")
         _meaning = State(initialValue: card?.answerText ?? "")
     }
 
@@ -115,7 +115,12 @@ private struct CardEditorView: View {
         defer { isSaving = false }
         do {
             if let card {
-                try await store.updateCard(card, prompt: expression, answer: meaning)
+                try await store.updateCard(
+                    card,
+                    prompt: expression,
+                    reading: reading,
+                    answer: meaning
+                )
             } else {
                 try await store.createCard(
                     expression: expression,

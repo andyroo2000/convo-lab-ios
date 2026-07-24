@@ -23,6 +23,8 @@ final class DailyAudioStore {
         errorMessage = nil
         defer { isLoading = false }
         do {
+            // learning-os deliberately resolves the resource collection directly for
+            // ConvoLab compatibility; this endpoint does not use Laravel's data envelope.
             let response: [DailyAudioPractice] = try await api.request(
                 "/api/daily-audio-practice"
             )
@@ -38,6 +40,7 @@ final class DailyAudioStore {
         errorMessage = nil
         defer { isLoading = false }
         do {
+            // The create endpoint shares the direct compatibility payload used by list/show.
             let response: DailyAudioPractice = try await api.request(
                 "/api/daily-audio-practice",
                 method: "POST",

@@ -5,6 +5,7 @@ struct StudySessionView: View {
 
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
+    @State private var submittingReviewCardIDs: Set<String> = []
 
     private var card: StudyCard? { store.cards.first }
 
@@ -99,6 +100,7 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
+            guard submittingReviewCardIDs.insert(card.id).inserted else { return }
             let duration = Date.now.timeIntervalSince(cardStartedAt)
             Task {
                 await store.recordReview(
@@ -106,6 +108,7 @@ struct StudySessionView: View {
                     rating: rating,
                     duration: .milliseconds(Int64(duration * 1_000))
                 )
+                submittingReviewCardIDs.remove(card.id)
             }
         } label: {
             VStack(spacing: 2) {
@@ -118,5 +121,6 @@ struct StudySessionView: View {
         .buttonStyle(.borderedProminent)
         .tint(color)
         .frame(maxWidth: .infinity)
+        .disabled(submittingReviewCardIDs.contains(card.id))
     }
 }
