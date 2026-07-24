@@ -46,7 +46,10 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.promptText, "先生は知識が豊富ですか？")
         XCTAssertEqual(card.answerText, "Is the teacher knowledgeable?")
         XCTAssertNil(card.answerDetailText)
-        XCTAssertEqual(card.presentation.front.heading, "先生は知識が豊富ですか？")
+        XCTAssertEqual(
+            card.presentation.front.heading,
+            "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
+        )
         XCTAssertEqual(
             card.presentation.back.heading,
             "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
@@ -56,6 +59,106 @@ final class StudyCardPresentationTests: XCTestCase {
             [.meaning]
         )
         XCTAssertTrue(card.isEditableInBasicForm)
+    }
+
+    func testRecognitionFrontIgnoresReadingForDifferentCueText() {
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("先生"),
+                "cueReading": .string("学生[がくせい]"),
+            ]),
+            answer: .object([
+                "expressionReading": .string("会社[かいしゃ]"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "先生")
+    }
+
+    func testClozeFrontPreservesRubyOutsideMaskedAnswer() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("会社で{{c1::働く}}"),
+            ]),
+            answer: .object([
+                "restoredText": .string("会社で働く"),
+                "restoredTextReading": .string("会社[かいしゃ]で働[はたら]く"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]で[...]")
+        XCTAssertEqual(card.presentation.back.heading, "会社[かいしゃ]で働[はたら]く")
+        XCTAssertEqual(card.promptText, "会社で[...]")
+        XCTAssertEqual(card.answerText, "会社で働く")
+    }
+
+    func testClozeFrontNeverRevealsMultipleSameOrdinalAnswersThroughRuby() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("{{c1::春}}に花が{{c1::咲く}}。"),
+            ]),
+            answer: .object([
+                "restoredText": .string("春に花が咲く。"),
+                "restoredTextReading": .string("春[はる]に花[はな]が咲[さ]く。"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "[...]に花が[...]。")
+        XCTAssertFalse(card.presentation.front.heading?.contains("はる") == true)
+        XCTAssertFalse(card.presentation.front.heading?.contains("さ") == true)
+    }
+
+    func testClozeFrontPreservesKanjiAdjacentBlankMarker() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("日本{{c1::語}}を勉強する"),
+            ]),
+            answer: .object([
+                "restoredText": .string("日本語を勉強する"),
+                "restoredTextReading": .string("日本語[にほんご]を勉強[べんきょう]する"),
+            ])
+        )
+
+        let heading = card.presentation.front.heading
+        XCTAssertEqual(heading, "日本[...]を勉強[べんきょう]する")
+        XCTAssertEqual(
+            StudyRubyDocument.parse(heading ?? "", knownKanji: []).plainText,
+            "日本[...]を勉強する"
+        )
+    }
+
+    func testClozeFrontFallsBackWhenReadingDoesNotAlign() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("会社で{{c1::働く}}"),
+            ]),
+            answer: .object([
+                "restoredText": .string("会社で働く"),
+                "restoredTextReading": .string("学生[がくせい]"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "会社で[...]")
+    }
+
+    func testClozeFrontFallsBackWhenPrefixAndSuffixWouldOverlap() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("AB{{c1::X}}B"),
+            ]),
+            answer: .object([
+                "restoredText": .string("AB"),
+                "restoredTextReading": .string("AB"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "AB[...]B")
     }
 
     func testAnswerDetailsFollowDesktopOrderAndDecodePlainText() {

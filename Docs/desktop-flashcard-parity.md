@@ -19,6 +19,9 @@ are not separate API card types.
 3. An image-only production prompt may show one of the Japanese part-of-speech
    labels: `名詞`, `動詞`, `形容詞`, `副詞`, or `表現`.
 4. Otherwise, show prompt image, prompt audio, cue text, then cue meaning.
+5. When `cueReading` or `expressionReading` resolves to the same plain text as
+   `cueText`, use that annotated value so front-side furigana renders. Ignore a
+   reading that belongs to different text.
 
 ### Cloze fronts
 
@@ -26,6 +29,8 @@ are not separate API card types.
    `clozeDisplayText` still contains the markup.
 2. Show the prompt image first when one exists.
 3. Show `clozeResolvedHint` beneath the sentence.
+4. When `restoredTextReading` aligns with `restoredText`, preserve its ruby
+   annotations outside the active blank without revealing the blanked answer.
 
 ### Recognition and production backs
 
@@ -47,8 +52,9 @@ are not separate API card types.
 ## Furigana
 
 Bracket readings (`会社[かいしゃ]`) and Anki-style parenthetical readings
-(`会社(かいしゃ)`) render as ruby text on answer headings and Japanese detail
-text. Particles and okurigana remain outside the ruby annotation.
+(`会社(かいしゃ)`) render as ruby text on matching front prompts, answer
+headings, and Japanese detail text. Particles and okurigana remain outside the
+ruby annotation.
 
 Readings are visible by default. The native client downloads the effective
 known-kanji set from learning-os and stores it per user for offline study. A

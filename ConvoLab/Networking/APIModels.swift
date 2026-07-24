@@ -135,7 +135,7 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var promptText: String {
         if let heading = presentation.front.heading {
-            return heading
+            return StudyRubyDocument.parse(heading, knownKanji: []).plainText
         }
         if cardType == "cloze" {
             return "Study card"
@@ -150,7 +150,9 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var answerText: String {
         if cardType == "cloze" {
-            return presentation.back.heading
+            return presentation.back.heading.map {
+                StudyRubyDocument.parse($0, knownKanji: []).plainText
+            }
                 ?? answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
                 ?? answer.preferredText
                 ?? "No answer text"
