@@ -93,6 +93,9 @@ enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendabl
     }
 }
 
+// learning-os resolves these ConvoLab compatibility resources directly, so
+// card-draft list, detail, mutation, and preview responses are intentionally
+// decoded without APIEnvelope.
 struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let status: String
@@ -149,11 +152,6 @@ struct StudyCardDraftImageResponse: Codable, Sendable {
 
 struct CreateCardFromStudyManualDraftRequest: Codable, Equatable, Sendable {
     let id: String
-}
-
-struct CreateCardFromStudyManualDraftResponse: Codable, Sendable {
-    let card: StudyCard
-    let draftId: String
 }
 
 struct StudySession: Codable, Sendable {

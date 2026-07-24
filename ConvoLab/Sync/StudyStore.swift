@@ -160,6 +160,8 @@ final class StudyStore {
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
+    @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
+    @ObservationIgnored private var manualDraftRevision = 0
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -586,6 +588,22 @@ final class StudyStore {
     }
 
     func refreshManualDrafts() async throws {
+        if let manualDraftRefreshTask {
+            return try await manualDraftRefreshTask.value
+        }
+        let startingRevision = manualDraftRevision
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let drafts = try await fetchAllManualDrafts()
+            guard manualDraftRevision == startingRevision else { return }
+            manualDrafts = drafts
+        }
+        manualDraftRefreshTask = task
+        defer { manualDraftRefreshTask = nil }
+        try await task.value
+    }
+
+    private func fetchAllManualDrafts() async throws -> [StudyManualCardDraft] {
         var drafts: [StudyManualCardDraft] = []
         var cursor: String?
         var seenCursors: Set<String> = []
@@ -604,7 +622,7 @@ final class StudyStore {
                 cursor = nil
             }
         } while cursor != nil
-        manualDrafts = drafts
+        return drafts
     }
 
     @discardableResult
@@ -785,6 +803,7 @@ final class StudyStore {
             try context.save()
         }
         manualDrafts.removeAll { $0.id == serverDraft.id }
+        manualDraftRevision += 1
     }
 
     func hasPendingDraftCommit(for draftID: String) -> Bool {
@@ -1715,9 +1734,11 @@ final class StudyStore {
             CreateCardFromStudyManualDraftRequest.self,
             from: mutation.payload
         )
-        let response: CreateCardFromStudyManualDraftResponse
+        let card: StudyCard
         do {
-            response = try await api.request(
+            // learning-os deliberately exposes the unwrapped ConvoLab
+            // compatibility payload for manual draft creation and commit.
+            card = try await api.request(
                 "/api/study/card-drafts/\(mutation.resourceID)/create-card",
                 method: "POST",
                 body: request
@@ -1739,28 +1760,29 @@ final class StudyStore {
 
         // Reconcile the confirmed server card before cleaning up the transient
         // draft so an interrupted cleanup cannot lose the canonical card.
-        try updateLocalCard(response.card, markedDirty: false)
-        cards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
-        cards.append(response.card)
+        try updateLocalCard(card, markedDirty: false)
+        cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+        cards.append(card)
         cards = Self.orderSessionCards(cards)
-        libraryCards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
-        libraryCards.append(response.card)
+        libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+        libraryCards.append(card)
         try context.save()
-        await mediaCache.prepare(urls: response.card.mediaURLs, category: "active-study")
+        await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
         do {
             let _: IgnoredResponse = try await api.request(
-                "/api/study/card-drafts/\(response.draftId)",
+                "/api/study/card-drafts/\(mutation.resourceID)",
                 method: "DELETE"
             )
         } catch let APIClientError.rejected(status, _) where [404, 410].contains(status) {
             // Cleanup is idempotent: an already-absent transient draft is done.
         } catch {
-            recordDraftCommitFailure(error, on: mutation)
+            recordDraftCleanupFailure(on: mutation)
             try context.save()
             throw error
         }
         context.delete(mutation)
-        manualDrafts.removeAll { $0.id == response.draftId }
+        manualDrafts.removeAll { $0.id == mutation.resourceID }
+        manualDraftRevision += 1
         try context.save()
     }
 
@@ -1779,10 +1801,21 @@ final class StudyStore {
         mutation.lastError = isPermanentRejection ? error.localizedDescription : nil
     }
 
-    private func replaceManualDraft(_ draft: StudyManualCardDraft) {
+    private func recordDraftCleanupFailure(on mutation: PendingMutation) {
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        // The card is already canonical at this point. Every cleanup failure
+        // remains eligible for background retry, regardless of HTTP status.
+        mutation.lastError = nil
+    }
+
+    // Internal so concurrency tests can model a completed local mutation while
+    // an older list request is still in flight.
+    func replaceManualDraft(_ draft: StudyManualCardDraft) {
         manualDrafts.removeAll { $0.id == draft.id }
         manualDrafts.append(draft)
         manualDrafts.sort { $0.createdAt > $1.createdAt }
+        manualDraftRevision += 1
     }
 
     private func loadLocalCards() {

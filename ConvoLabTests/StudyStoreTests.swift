@@ -53,12 +53,8 @@ final class StudyStoreTests: XCTestCase {
             createdAt: now,
             updatedAt: now
         )
-        let committed = CreateCardFromStudyManualDraftResponse(
-            card: card,
-            draftId: serverDraft.id
-        )
         let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
-        let committedData = try StorageCodec.encoder.encode(committed)
+        let committedData = try StorageCodec.encoder.encode(card)
         let paths = LockedRequestPaths()
         let commitIDs = LockedRequestPaths()
         let deleteAttempts = LockedCounter()
@@ -116,7 +112,7 @@ final class StudyStoreTests: XCTestCase {
                     return (
                         HTTPURLResponse(
                             url: request.url!,
-                            statusCode: 500,
+                            statusCode: 409,
                             httpVersion: nil,
                             headerFields: ["Content-Type": "application/json"]
                         )!,
@@ -168,7 +164,7 @@ final class StudyStoreTests: XCTestCase {
             )
             XCTFail("Expected the first draft cleanup to fail")
         } catch let APIClientError.rejected(status, message) {
-            XCTAssertEqual(status, 500)
+            XCTAssertEqual(status, 409)
             XCTAssertEqual(message, "cleanup failed")
         }
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
@@ -242,12 +238,7 @@ final class StudyStoreTests: XCTestCase {
             id: secondCardID.lowercased(),
             expression: "二番目"
         )
-        let committedData = try StorageCodec.encoder.encode(
-            CreateCardFromStudyManualDraftResponse(
-                card: committedCard,
-                draftId: secondDraftID
-            )
-        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
         let paths = LockedRequestPaths()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
@@ -354,12 +345,7 @@ final class StudyStoreTests: XCTestCase {
             id: clientCardID.lowercased(),
             expression: "再試行"
         )
-        let committedData = try StorageCodec.encoder.encode(
-            CreateCardFromStudyManualDraftResponse(
-                card: committedCard,
-                draftId: draftID
-            )
-        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
             resourceID: draftID,
@@ -489,12 +475,7 @@ final class StudyStoreTests: XCTestCase {
             expression: "修正後"
         )
         let correctedData = try StorageCodec.encoder.encode(correctedDraft)
-        let committedData = try StorageCodec.encoder.encode(
-            CreateCardFromStudyManualDraftResponse(
-                card: committedCard,
-                draftId: draftID
-            )
-        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
             resourceID: draftID,
@@ -729,6 +710,68 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testManualDraftRefreshCoalescesAndDoesNotOverwriteANewerLocalDraft() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        let queuedDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000R1",
+            status: "generating",
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("新しい下書き")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let emptyPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [],
+                total: 0,
+                limit: 200,
+                nextCursor: nil
+            )
+        )
+        let listGate = LockedRequestGate()
+        let listRequests = LockedCounter()
+        let client = makeClient { request in
+            _ = listRequests.next()
+            listGate.markStarted()
+            listGate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                emptyPage
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let firstRefresh = Task { try await store.refreshManualDrafts() }
+        await waitUntil { listGate.hasStarted }
+        let secondRefresh = Task { try await store.refreshManualDrafts() }
+        store.replaceManualDraft(queuedDraft)
+        listGate.release()
+        try await firstRefresh.value
+        try await secondRefresh.value
+
+        XCTAssertEqual(listRequests.current, 1)
+        XCTAssertEqual(store.manualDrafts.map(\.id), [queuedDraft.id])
+    }
+
+    @MainActor
     func testManualAndBackgroundDraftCommitShareOneInFlightRequest() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let draftID = "01J0000000000000000000000S1"
@@ -754,12 +797,7 @@ final class StudyStoreTests: XCTestCase {
             id: clientCardID.lowercased(),
             expression: "一回"
         )
-        let committedData = try StorageCodec.encoder.encode(
-            CreateCardFromStudyManualDraftResponse(
-                card: committedCard,
-                draftId: draftID
-            )
-        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
             resourceID: draftID,
