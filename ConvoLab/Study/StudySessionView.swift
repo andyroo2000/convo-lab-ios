@@ -8,6 +8,8 @@ struct StudySessionView: View {
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
     @State private var submittingReviewCardIDs: Set<String> = []
+    @State private var answerAudioLocalURL: URL?
+    @State private var didAttemptAnswerAudioLoad = false
 
     private var card: StudyCard? { store.cards.first }
 
@@ -77,6 +79,15 @@ struct StudySessionView: View {
             showingAnswer = false
             cardStartedAt = .now
         }
+        .task(id: card?.presentation.back.audioURL) {
+            answerAudioLocalURL = nil
+            didAttemptAnswerAudioLoad = false
+            guard let remoteURL = card?.presentation.back.audioURL else { return }
+            let resolvedURL = await store.playableMediaURL(for: remoteURL)
+            guard !Task.isCancelled else { return }
+            answerAudioLocalURL = resolvedURL
+            didAttemptAnswerAudioLoad = true
+        }
         .onDisappear {
             player.stop()
         }
@@ -144,14 +155,19 @@ struct StudySessionView: View {
                     )
                 }
 
-                if let audioURL = face.audioURL {
-                    StudyCardAudioButton(
-                        remoteURL: audioURL,
-                        trackID: "study-answer-\(cardID)",
-                        label: "Play answer audio",
-                        store: store,
-                        player: player
+                if face.audioURL != nil {
+                    Button {
+                        playAnswerAudio(cardID: cardID)
+                    } label: {
+                        Label("Play answer audio", systemImage: "play.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(ConvoLabTheme.navy)
+                    .disabled(
+                        answerAudioLocalURL == nil || player.isBlockedByLongFormAudio
                     )
+                    .accessibilityHint(answerAudioAccessibilityHint)
+                    .accessibilityIdentifier("StudyAnswerAudioButton")
                 }
 
                 Divider()
@@ -228,6 +244,23 @@ struct StudySessionView: View {
 
     private func gradeButtons(card: StudyCard) -> some View {
         HStack(spacing: 8) {
+            Button {
+                playAnswerAudio(cardID: card.id)
+            } label: {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(.bordered)
+            .tint(ConvoLabTheme.navy)
+            .frame(width: 44, height: 64)
+            .accessibilityLabel("Replay answer audio")
+            .accessibilityHint(answerAudioAccessibilityHint)
+            .accessibilityIdentifier("StudyGradeTrayAnswerAudioButton")
+            .disabled(
+                answerAudioLocalURL == nil
+                    || player.isBlockedByLongFormAudio
+                    || submittingReviewCardIDs.contains(card.id)
+            )
+
             gradeButton("Again", rating: .again, color: ConvoLabTheme.coral, card: card)
             gradeButton("Hard", rating: .hard, color: .orange, card: card)
             gradeButton("Good", rating: .good, color: ConvoLabTheme.cyan, card: card)
@@ -264,6 +297,21 @@ struct StudySessionView: View {
         .tint(color)
         .frame(maxWidth: .infinity)
         .disabled(submittingReviewCardIDs.contains(card.id))
+    }
+
+    private func playAnswerAudio(cardID: String) {
+        guard let answerAudioLocalURL else { return }
+        player.play(url: answerAudioLocalURL, trackID: "study-answer-\(cardID)")
+    }
+
+    private var answerAudioAccessibilityHint: String {
+        if player.isBlockedByLongFormAudio {
+            return "Pause Daily Audio before playing a study card."
+        }
+        if didAttemptAnswerAudioLoad, answerAudioLocalURL == nil {
+            return "Audio is not available offline."
+        }
+        return "Plays downloaded study audio."
     }
 }
 
