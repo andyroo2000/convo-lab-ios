@@ -924,7 +924,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testManualDraftCreateRetainsItsClientIDAcrossALostResponseRetry() async throws {
+    func testManualDraftCreateRetainsItsClientIDAcrossALostResponseAndRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientDraftID = ClientIdentifier.ulid()
         let now = Date.now
@@ -996,13 +996,13 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pendingAfterFailure.map(\.resourceID), [clientDraftID])
         XCTAssertEqual(pendingAfterFailure.first?.attemptCount, 1)
 
-        let queued = try await store.queueManualDraft(
-            creationKind: .audioRecognition,
-            draft: draft,
-            id: clientDraftID
+        let relaunchedStore = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
         )
+        try await relaunchedStore.retryPendingDraftCreates()
 
-        XCTAssertEqual(queued.id, clientDraftID.lowercased())
         XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
         XCTAssertTrue(
             try container.mainContext.fetch(
@@ -1011,7 +1011,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             ).isEmpty
         )
-        XCTAssertEqual(store.manualDrafts.map(\.id), [clientDraftID.lowercased()])
+        XCTAssertEqual(
+            relaunchedStore.manualDrafts.map(\.id),
+            [clientDraftID.lowercased()]
+        )
     }
 
     @MainActor
