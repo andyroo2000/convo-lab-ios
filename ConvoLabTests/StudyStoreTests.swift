@@ -547,13 +547,13 @@ final class StudyStoreTests: XCTestCase {
         let createdCardData = try StorageCodec.encoder.encode(createdCard)
         let session = StudySession(
             overview: StudyOverview(
-                dueCount: 0,
+                dueCount: 1,
                 newCount: 1,
-                reviewCount: 0,
+                reviewCount: 1,
                 newCardsPerDay: 10,
                 newCardsAvailableToday: 1
             ),
-            cards: [createdCard]
+            cards: [rejectedReviewCard, createdCard]
         )
         let sessionObject = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(session)
@@ -601,6 +601,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pending.filter { $0.kind == "review" }.count, 1)
         XCTAssertTrue(pending.filter { $0.kind.hasPrefix("card") }.isEmpty)
         XCTAssertEqual(store.overview?.newCount, 1)
+        XCTAssertEqual(Set(store.cards.map(\.id)), [rejectedReviewCard.id, createdCard.id])
         XCTAssertNotNil(store.lastSyncAt)
     }
 

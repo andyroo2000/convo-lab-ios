@@ -574,7 +574,9 @@ final class StudyStore {
     private func pendingReviewState() throws -> PendingReviewState {
         let pending = try context.fetch(
             FetchDescriptor<PendingMutation>(
-                predicate: #Predicate { $0.kind == "review" }
+                predicate: #Predicate {
+                    $0.kind == "review" && $0.lastError == nil
+                }
             )
         )
         let records = try context.fetch(FetchDescriptor<LocalCardRecord>())
