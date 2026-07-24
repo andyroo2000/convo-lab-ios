@@ -67,6 +67,8 @@ final class AppModel {
     }
 
     private func refreshAuthenticatedData() async {
+        guard case let .signedIn(user) = auth.state else { return }
+        study.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Void = dailyAudio.refresh()
         _ = await (studySync, audioRefresh)

@@ -205,3 +205,25 @@ struct UpdateStudyCardRequest: Codable {
     let prompt: JSONValue
     let answer: JSONValue
 }
+
+struct KnownKanjiSnapshot: Codable, Equatable, Sendable {
+    struct WaniKaniStatus: Codable, Equatable, Sendable {
+        let connected: Bool
+        let lastSyncedAt: Date?
+    }
+
+    let version: Int
+    let kanji: [String]
+    let manualKanji: [String]
+    let wanikani: WaniKaniStatus
+}
+
+struct ConnectWaniKaniRequest: Encodable {
+    let apiToken: String
+}
+
+struct WaniKaniSyncResult: Decodable, Equatable, Sendable {
+    let added: Int
+    let effectiveTotal: Int
+    let version: Int
+}

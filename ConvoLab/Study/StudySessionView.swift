@@ -90,10 +90,12 @@ struct StudySessionView: View {
                 )
             }
             if let heading = face.heading {
-                Text(heading)
-                    .font(.system(size: 38, weight: .semibold, design: .rounded))
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
+                StudyRubyText(
+                    heading,
+                    knownKanji: store.knownKanji,
+                    pointSize: 38,
+                    weight: .semibold
+                )
             }
             if let supportingText = face.supportingText {
                 Text(supportingText)
@@ -109,11 +111,12 @@ struct StudySessionView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if let heading = face.heading {
-                    Text(heading)
-                        .font(.system(size: 34, weight: .semibold, design: .rounded))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
+                    StudyRubyText(
+                        heading,
+                        knownKanji: store.knownKanji,
+                        pointSize: 34,
+                        weight: .semibold
+                    )
                 }
 
                 if let audioURL = face.audioURL {
@@ -143,9 +146,18 @@ struct StudySessionView: View {
                         if block.role == .note {
                             Text("•")
                         }
-                        Text(block.text)
-                            .multilineTextAlignment(.center)
-                            .textSelection(.enabled)
+                        if block.role.supportsRuby {
+                            StudyRubyText(
+                                block.text,
+                                knownKanji: store.knownKanji,
+                                pointSize: pointSize(for: block.role),
+                                color: uiColor(for: block.role)
+                            )
+                        } else {
+                            Text(block.text)
+                                .multilineTextAlignment(.center)
+                                .textSelection(.enabled)
+                        }
                     }
                     .font(font(for: block.role))
                     .foregroundStyle(color(for: block.role))
@@ -165,11 +177,27 @@ struct StudySessionView: View {
         }
     }
 
+    private func pointSize(for role: StudyCardPresentation.TextRole) -> CGFloat {
+        switch role {
+        case .restoredText, .meaning: 22
+        case .sentenceJapanese: 20
+        case .sentenceEnglish, .note: 17
+        }
+    }
+
     private func color(for role: StudyCardPresentation.TextRole) -> Color {
         switch role {
         case .restoredText, .sentenceJapanese: .primary
         case .meaning: ConvoLabTheme.navy
         case .sentenceEnglish, .note: .secondary
+        }
+    }
+
+    private func uiColor(for role: StudyCardPresentation.TextRole) -> UIColor {
+        switch role {
+        case .restoredText, .sentenceJapanese: .label
+        case .meaning: UIColor(ConvoLabTheme.navy)
+        case .sentenceEnglish, .note: .secondaryLabel
         }
     }
 
@@ -211,6 +239,15 @@ struct StudySessionView: View {
         .tint(color)
         .frame(maxWidth: .infinity)
         .disabled(submittingReviewCardIDs.contains(card.id))
+    }
+}
+
+private extension StudyCardPresentation.TextRole {
+    var supportsRuby: Bool {
+        switch self {
+        case .restoredText, .sentenceJapanese, .note: true
+        case .meaning, .sentenceEnglish: false
+        }
     }
 }
 

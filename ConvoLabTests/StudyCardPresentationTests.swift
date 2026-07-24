@@ -49,7 +49,7 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.presentation.front.heading, "先生は知識が豊富ですか？")
         XCTAssertEqual(
             card.presentation.back.heading,
-            "先生は知識が豊富ですか？"
+            "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
         )
         XCTAssertEqual(
             card.presentation.back.textBlocks.map(\.role),

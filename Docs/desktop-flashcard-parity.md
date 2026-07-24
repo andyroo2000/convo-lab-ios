@@ -29,8 +29,8 @@ are not separate API card types.
 
 ### Recognition and production backs
 
-1. Heading: `expressionReading`, then `expression`; `cueReading` is the imported
-   fallback.
+1. Heading: `expressionReading`, then the imported `cueReading` fallback, then
+   plain `expression`.
 2. Answer audio and pitch accent appear below the heading.
 3. Answer image wins over the prompt image; the prompt image is reused when
    there is no answer image.
@@ -43,6 +43,18 @@ are not separate API card types.
 2. Answer audio and pitch accent appear below the heading.
 3. Reuse the same answer-image fallback as other cards.
 4. Show meaning, then notes.
+
+## Furigana
+
+Bracket readings (`会社[かいしゃ]`) and Anki-style parenthetical readings
+(`会社(かいしゃ)`) render as ruby text on answer headings and Japanese detail
+text. Particles and okurigana remain outside the ruby annotation.
+
+Readings are visible by default. The native client downloads the effective
+known-kanji set from learning-os and stores it per user for offline study. A
+reading is hidden only when every kanji in its annotated word is known; an
+iteration mark does not require its own knowledge entry. WaniKani connection
+tokens are submitted to learning-os and are never stored on the device.
 
 ## Review tray
 

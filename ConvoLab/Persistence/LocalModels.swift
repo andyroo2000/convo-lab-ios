@@ -75,6 +75,19 @@ final class LocalDailyAudioPractice {
     }
 }
 
+@Model
+final class LocalKnownKanjiSnapshot {
+    @Attribute(.unique) var userID: Int
+    var payload: Data
+    var updatedAt: Date
+
+    init(userID: Int, payload: Data, updatedAt: Date = .now) {
+        self.userID = userID
+        self.payload = payload
+        self.updatedAt = updatedAt
+    }
+}
+
 enum Persistence {
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         let schema = Schema([
@@ -82,6 +95,7 @@ enum Persistence {
             PendingMutation.self,
             CachedMediaRecord.self,
             LocalDailyAudioPractice.self,
+            LocalKnownKanjiSnapshot.self,
         ])
         let configuration = ModelConfiguration(
             "ConvoLab",
