@@ -161,7 +161,14 @@ final class StudyStoreTests: XCTestCase {
         let generatedImage: JSONValue = .object([
             "id": .string("01J00000000000000000000IMG"),
             "filename": .string("company.webp"),
-            "url": .string("/api/study/media/company-image"),
+            "url": .string("/api/study/media/company-image?signature=front"),
+            "mediaKind": .string("image"),
+            "source": .string("generated"),
+        ])
+        let signedAnswerImage: JSONValue = .object([
+            "id": .string("01J00000000000000000000IMG"),
+            "filename": .string("company.webp"),
+            "url": .string("/api/study/media/company-image?signature=back"),
             "mediaKind": .string("image"),
             "source": .string("generated"),
         ])
@@ -170,9 +177,11 @@ final class StudyStoreTests: XCTestCase {
             syncId: card.id,
             noteId: nil,
             cardType: card.cardType,
-            prompt: card.prompt,
+            prompt: card.prompt.replacingObjectValues([
+                "cueImage": generatedImage,
+            ]),
             answer: card.answer.replacingObjectValues([
-                "answerImage": generatedImage,
+                "answerImage": signedAnswerImage,
             ]),
             state: card.state,
             answerAudioSource: card.answerAudioSource,

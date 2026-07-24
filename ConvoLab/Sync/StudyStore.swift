@@ -788,7 +788,8 @@ final class StudyStore {
             let answerImage = serverCard.answer["answerImage"],
             !promptImage.mediaURLs.isEmpty,
             !answerImage.mediaURLs.isEmpty,
-            promptImage.mediaURLs != answerImage.mediaURLs
+            Set(promptImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
+                != Set(answerImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
         {
             throw MismatchedGeneratedImagesError()
         }
