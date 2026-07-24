@@ -757,13 +757,18 @@ final class StudyStore {
     }
 
     func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
-        guard try pendingDraftCommit(for: serverDraft.id) == nil else {
+        let pendingCommit = try pendingDraftCommit(for: serverDraft.id)
+        if let pendingCommit, pendingCommit.kind != "draftCommitRejected" {
             throw PendingDraftCommitError()
         }
         let _: IgnoredResponse = try await api.request(
             "/api/study/card-drafts/\(serverDraft.id)",
             method: "DELETE"
         )
+        if let pendingCommit {
+            context.delete(pendingCommit)
+            try context.save()
+        }
         manualDrafts.removeAll { $0.id == serverDraft.id }
     }
 

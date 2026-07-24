@@ -291,12 +291,7 @@ private struct CardEditorView: View {
                         Button("Delete Draft", role: .destructive) {
                             Task { await deleteServerDraft() }
                         }
-                        .disabled(
-                            isBusy
-                                || serverDraft.map {
-                                    store.hasPendingDraftCommit(for: $0.id)
-                                } == true
-                        )
+                        .disabled(isBusy || isDraftCommitPending)
                         if serverDraft.map({
                             store.hasPendingDraftCommit(for: $0.id)
                         }) == true {
@@ -304,7 +299,7 @@ private struct CardEditorView: View {
                                 isDraftCleanupPending
                                     ? "The card was created. Retry Create Card or sync to finish cleanup."
                                     : isDraftCommitRejected
-                                    ? "The previous commit was rejected. Edit the draft and retry Create Card with the same card ID."
+                                    ? "The previous commit was rejected. Edit and retry with the same card ID, or delete this draft."
                                     : "The commit outcome is unknown. Editing is locked; retry Create Card or sync."
                             )
                             .font(.footnote)
@@ -335,6 +330,14 @@ private struct CardEditorView: View {
             }
             .task(id: card?.id) {
                 await loadCurrentMedia()
+            }
+            .onChange(of: store.manualDrafts.map(\.id)) { _, draftIDs in
+                guard let serverDraft else { return }
+                if !draftIDs.contains(serverDraft.id),
+                   !store.hasPendingDraftCommit(for: serverDraft.id)
+                {
+                    dismiss()
+                }
             }
             .onDisappear {
                 audioRegenerationTask?.cancel()

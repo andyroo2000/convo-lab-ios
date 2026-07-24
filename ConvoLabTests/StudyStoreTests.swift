@@ -600,6 +600,66 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRejectedDraftCommitCanBeDeletedSafely() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000D1"
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("削除")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let mutation = PendingMutation(
+            kind: "draftCommitRejected",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(
+                    id: "01J0000000000000000000000D2"
+                )
+            )
+        )
+        mutation.lastError = "HTTP 422: rejected"
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            paths.append(request.url?.path ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.deleteManualDraft(serverDraft)
+
+        XCTAssertEqual(paths.values, ["/api/study/card-drafts/\(draftID)"])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
