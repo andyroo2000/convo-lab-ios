@@ -241,6 +241,166 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCancelledImageRegenerationStillReconcilesCompletedChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000IC",
+            expression: "会社"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let generatedImage: JSONValue = .object([
+            "url": .string("/api/study/media/cancelled-image"),
+            "filename": .string("cancelled.webp"),
+        ])
+        let regenerated = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues(["answerImage": generatedImage]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(regenerated)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/regenerate-image") == true {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/webp"]
+                )!,
+                Data("cancelled-image".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let regeneration = Task {
+            try await store.regenerateImage(
+                for: card,
+                prompt: "A company office.",
+                placement: .answer
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        regeneration.cancel()
+        gate.release()
+        let result = try await regeneration.value
+
+        XCTAssertEqual(result.card.answer["answerImage"], generatedImage)
+        XCTAssertEqual(try persistedCard(in: container), result.card)
+        XCTAssertEqual(
+            try String(contentsOf: result.localURL, encoding: .utf8),
+            "cancelled-image"
+        )
+    }
+
+    @MainActor
+    func testImageRegenerationValidatesInputAndBlocksPendingCardWrite() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000IV",
+            expression: "会社"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        let pendingUpdate = PendingMutation(
+            kind: "cardUpdate",
+            resourceID: card.id,
+            payload: try StorageCodec.encoder.encode(
+                UpdateStudyCardRequest(prompt: card.prompt, answer: card.answer)
+            )
+        )
+        pendingUpdate.lastError = "HTTP 422: Rejected"
+        container.mainContext.insert(pendingUpdate)
+        try container.mainContext.save()
+        let requestCounter = LockedCounter()
+        let client = makeClient { _ in
+            _ = requestCounter.next()
+            throw URLError(.badServerResponse)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            _ = try await store.regenerateImage(
+                for: card,
+                prompt: "   ",
+                placement: .answer
+            )
+            XCTFail("Expected an empty image prompt to fail")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Enter a non-empty image prompt no longer than 1,000 characters."
+            )
+        }
+        do {
+            _ = try await store.regenerateImage(
+                for: card,
+                prompt: "A company office.",
+                placement: .none
+            )
+            XCTFail("Expected no-image placement to fail")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Choose Front, Back, or Front and back before regenerating an image."
+            )
+        }
+        do {
+            _ = try await store.regenerateImage(
+                for: card,
+                prompt: "A company office.",
+                placement: .answer
+            )
+            XCTFail("Expected an unresolved card edit to block regeneration")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Sync this card’s pending changes before regenerating its image."
+            )
+        }
+        XCTAssertEqual(requestCounter.current, 0)
+    }
+
+    @MainActor
     func testSlowImageRegenerationPreservesNewerSyncedCardText() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

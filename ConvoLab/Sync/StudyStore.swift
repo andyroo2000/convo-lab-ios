@@ -90,7 +90,13 @@ final class StudyStore {
 
     private struct InvalidImagePromptError: LocalizedError {
         var errorDescription: String? {
-            "Enter an image prompt no longer than 1,000 characters."
+            "Enter a non-empty image prompt no longer than 1,000 characters."
+        }
+    }
+
+    private struct InvalidImagePlacementError: LocalizedError {
+        var errorDescription: String? {
+            "Choose Front, Back, or Front and back before regenerating an image."
         }
     }
 
@@ -743,10 +749,12 @@ final class StudyStore {
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             !imagePrompt.isEmpty,
-            imagePrompt.count <= 1_000,
-            placement != .none
+            imagePrompt.count <= 1_000
         else {
             throw InvalidImagePromptError()
+        }
+        guard placement != .none else {
+            throw InvalidImagePlacementError()
         }
         do {
             try await flushCardOutbox()

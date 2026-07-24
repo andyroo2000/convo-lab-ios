@@ -102,6 +102,9 @@ private struct CardEditorView: View {
     @State private var promptImageLocalURL: URL?
     @State private var answerImageLocalURL: URL?
     @State private var sharedImageLocalURL: URL?
+    @State private var promptImagePreview: UIImage?
+    @State private var answerImagePreview: UIImage?
+    @State private var sharedImagePreview: UIImage?
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -199,21 +202,21 @@ private struct CardEditorView: View {
     @ViewBuilder
     private var imageFields: some View {
         Section("Image") {
-            if let promptImageLocalURL {
+            if let promptImagePreview {
                 imagePreview(
-                    at: promptImageLocalURL,
+                    promptImagePreview,
                     label: answerImageLocalURL == promptImageLocalURL
                         ? "Current card image"
                         : "Front image"
                 )
             }
             if
-                let answerImageLocalURL,
+                let answerImagePreview,
                 answerImageLocalURL != promptImageLocalURL
             {
-                imagePreview(at: answerImageLocalURL, label: "Back image")
+                imagePreview(answerImagePreview, label: "Back image")
             } else if card != nil {
-                if promptImageLocalURL == nil {
+                if promptImagePreview == nil {
                     Text("No current image")
                         .foregroundStyle(.secondary)
                 }
@@ -230,10 +233,14 @@ private struct CardEditorView: View {
                 )
                 .lineLimit(2...6)
                 .disabled(isRegeneratingImage)
-                Text("\(draft.imagePrompt.count)/1,000")
+                Text(
+                    "\(draft.imagePrompt.trimmingCharacters(in: .whitespacesAndNewlines).count)/1,000"
+                )
                     .font(.caption)
                     .foregroundStyle(
-                        draft.imagePrompt.count > 1_000 ? .red : .secondary
+                        draft.imagePrompt.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).count > 1_000 ? .red : .secondary
                     )
             }
 
@@ -279,19 +286,17 @@ private struct CardEditorView: View {
     }
 
     @ViewBuilder
-    private func imagePreview(at localURL: URL, label: String) -> some View {
-        if let image = UIImage(contentsOfFile: localURL.path) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 220)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .accessibilityLabel(label)
-            }
+    private func imagePreview(_ image: UIImage, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 220)
+                .clipShape(.rect(cornerRadius: 12))
+                .accessibilityLabel(label)
         }
     }
 
@@ -464,15 +469,24 @@ private struct CardEditorView: View {
         await loadCurrentAnswerAudio()
         if let promptURL = card?.promptImageURL {
             promptImageLocalURL = await store.playableMediaURL(for: promptURL)
+            promptImagePreview = promptImageLocalURL.flatMap {
+                UIImage(contentsOfFile: $0.path)
+            }
         } else {
             promptImageLocalURL = nil
+            promptImagePreview = nil
         }
         if let answerURL = card?.answerImageURL {
             answerImageLocalURL = await store.playableMediaURL(for: answerURL)
+            answerImagePreview = answerImageLocalURL.flatMap {
+                UIImage(contentsOfFile: $0.path)
+            }
         } else {
             answerImageLocalURL = nil
+            answerImagePreview = nil
         }
         sharedImageLocalURL = promptImageLocalURL ?? answerImageLocalURL
+        sharedImagePreview = promptImagePreview ?? answerImagePreview
     }
 
     private func applyImagePlacementPreview(
@@ -482,15 +496,23 @@ private struct CardEditorView: View {
         case .none:
             promptImageLocalURL = nil
             answerImageLocalURL = nil
+            promptImagePreview = nil
+            answerImagePreview = nil
         case .prompt:
             promptImageLocalURL = sharedImageLocalURL
             answerImageLocalURL = nil
+            promptImagePreview = sharedImagePreview
+            answerImagePreview = nil
         case .answer:
             promptImageLocalURL = nil
             answerImageLocalURL = sharedImageLocalURL
+            promptImagePreview = nil
+            answerImagePreview = sharedImagePreview
         case .both:
             promptImageLocalURL = sharedImageLocalURL
             answerImageLocalURL = sharedImageLocalURL
+            promptImagePreview = sharedImagePreview
+            answerImagePreview = sharedImagePreview
         }
     }
 
@@ -533,11 +555,18 @@ private struct CardEditorView: View {
                 ? result.card.prompt["cueImage"]
                 : result.card.answer["answerImage"]
             sharedImageLocalURL = result.localURL
+            sharedImagePreview = UIImage(contentsOfFile: result.localURL.path)
             promptImageLocalURL = draft.imagePlacement.includesPrompt
                 ? result.localURL
                 : nil
             answerImageLocalURL = draft.imagePlacement.includesAnswer
                 ? result.localURL
+                : nil
+            promptImagePreview = draft.imagePlacement.includesPrompt
+                ? sharedImagePreview
+                : nil
+            answerImagePreview = draft.imagePlacement.includesAnswer
+                ? sharedImagePreview
                 : nil
         } catch is CancellationError {
             // Completed server/cache work is reconciled by StudyStore.
