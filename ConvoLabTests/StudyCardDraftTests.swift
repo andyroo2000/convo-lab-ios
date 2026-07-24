@@ -54,6 +54,10 @@ final class StudyCardDraftTests: XCTestCase {
         )
         var draft = StudyCardDraft(card: card)
         XCTAssertEqual(draft.cueMeaning, "old resolved hint")
+        let untouchedPrompt = draft.prompt(merging: card.prompt)
+        XCTAssertEqual(untouchedPrompt["clozeHint"], .string("old manual hint"))
+        XCTAssertEqual(untouchedPrompt["clozeResolvedHint"], .string("old resolved hint"))
+
         draft.cueMeaning = "new hint"
         let prompt = draft.prompt(merging: card.prompt)
         let updated = StudyCard(

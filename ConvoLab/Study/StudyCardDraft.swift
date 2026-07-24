@@ -101,18 +101,19 @@ struct StudyCardDraft: Equatable, Sendable {
         case .cloze:
             var replacements: [String: JSONValue] = [
                 "clozeText": .string(cueText.trimmed),
-                "clozeHint": cueMeaning.optionalJSONText(
-                    preservingNonString: existing["clozeHint"]
-                ),
             ]
-            if
-                let originalClozeHint,
-                cueMeaning.trimmed != originalClozeHint.trimmed
-            {
-                // clozeResolvedHint wins during presentation. Once the user
-                // explicitly edits the displayed hint, clear that derived value
-                // so the new manual hint is visible immediately.
-                replacements["clozeResolvedHint"] = .null
+            if let originalClozeHint {
+                if cueMeaning.trimmed != originalClozeHint.trimmed {
+                    replacements["clozeHint"] = cueMeaning.optionalJSONText(
+                        preservingNonString: existing["clozeHint"]
+                    )
+                    // clozeResolvedHint wins during presentation. Once the user
+                    // explicitly edits the displayed hint, clear that derived value
+                    // so the new manual hint is visible immediately.
+                    replacements["clozeResolvedHint"] = .null
+                }
+            } else if !cueMeaning.trimmed.isEmpty {
+                replacements["clozeHint"] = .string(cueMeaning.trimmed)
             }
             return existing.replacingObjectValues(replacements)
         case .recognition, .production:
