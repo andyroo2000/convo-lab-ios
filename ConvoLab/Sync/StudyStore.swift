@@ -173,23 +173,42 @@ final class StudyStore {
                 "/api/study/cards/\(currentCard.reviewCardID)/pitch-accent",
                 method: "POST"
             )
+            guard
+                try !hasPendingDelete(for: card.id),
+                let pitchAccent = serverCard.answer["pitchAccent"]
+            else {
+                return
+            }
+            let cardID = card.id
+            var descriptor = FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.id == cardID }
+            )
+            descriptor.fetchLimit = 1
+            guard
+                let record = try context.fetch(descriptor).first,
+                let latestCard = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                )
+            else {
+                return
+            }
             let updatedCard = StudyCard(
-                id: currentCard.id,
-                syncId: serverCard.syncId ?? currentCard.syncId,
-                noteId: serverCard.noteId,
-                cardType: serverCard.cardType,
-                prompt: serverCard.prompt,
-                answer: serverCard.answer,
-                state: currentCard.state,
-                answerAudioSource: serverCard.answerAudioSource,
-                createdAt: serverCard.createdAt,
-                updatedAt: serverCard.updatedAt
+                id: latestCard.id,
+                syncId: latestCard.syncId,
+                noteId: latestCard.noteId,
+                cardType: latestCard.cardType,
+                prompt: latestCard.prompt,
+                answer: latestCard.answer.replacingObjectValues([
+                    "pitchAccent": pitchAccent,
+                ]),
+                state: latestCard.state,
+                answerAudioSource: latestCard.answerAudioSource,
+                createdAt: latestCard.createdAt,
+                updatedAt: latestCard.updatedAt
             )
-            try updateLocalCard(
-                updatedCard,
-                markedDirty: false,
-                serverUpdatedAt: serverCard.updatedAt
-            )
+            record.payload = try StorageCodec.encoder.encode(updatedCard)
+            record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
             cards = cards.map { $0.id == card.id ? updatedCard : $0 }
             libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
             try context.save()
