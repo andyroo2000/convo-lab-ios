@@ -55,6 +55,7 @@ final class AudioPlayer {
     }
 
     func play(url: URL, trackID: String, title: String) {
+        isPlaying = true
         onWillStartPlayback()
         activateAudioSession()
         if currentTrackID != trackID {
@@ -67,7 +68,6 @@ final class AudioPlayer {
             }
         }
         player.play()
-        isPlaying = true
         updateNowPlaying()
     }
 
@@ -227,6 +227,7 @@ final class AudioPlayer {
     }
 
     private func resumePlayback() {
+        isPlaying = true
         onWillStartPlayback()
         activateAudioSession()
         if duration > 0, elapsed >= duration - 0.25 {
@@ -234,7 +235,6 @@ final class AudioPlayer {
             elapsed = 0
         }
         player.play()
-        isPlaying = true
         updateNowPlaying()
     }
 

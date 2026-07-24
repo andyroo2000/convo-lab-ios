@@ -4,18 +4,27 @@ struct CardLibraryView: View {
     let store: StudyStore
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
+    @State private var showingDeletionError = false
+    @State private var deletionErrorMessage = ""
 
     var body: some View {
         NavigationStack {
             List(store.libraryCards) { card in
-                if card.isEditableInBasicForm {
-                    Button {
-                        selectedCard = card
-                    } label: {
+                Group {
+                    if card.isEditableInBasicForm {
+                        Button {
+                            selectedCard = card
+                        } label: {
+                            cardRow(card)
+                        }
+                    } else {
                         cardRow(card)
                     }
-                } else {
-                    cardRow(card)
+                }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        Task { await delete(card) }
+                    }
                 }
             }
             .overlay {
@@ -45,6 +54,11 @@ struct CardLibraryView: View {
             .sheet(item: $selectedCard) { card in
                 CardEditorView(store: store, card: card)
             }
+            .alert("Could not delete card", isPresented: $showingDeletionError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deletionErrorMessage)
+            }
         }
     }
 
@@ -61,6 +75,15 @@ struct CardLibraryView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    private func delete(_ card: StudyCard) async {
+        do {
+            try await store.deleteCard(card)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+            showingDeletionError = true
         }
     }
 }
