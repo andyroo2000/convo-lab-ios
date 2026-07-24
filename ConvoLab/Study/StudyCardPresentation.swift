@@ -186,6 +186,17 @@ private func maskedRubyText(
         return displayText
     }
 
+    guard
+        displayText.range(
+            of: "[...]",
+            range: markerRange.upperBound..<displayText.endIndex
+        ) == nil
+    else {
+        // Multiple same-ordinal cloze spans are all active. Preserve the
+        // already-masked display instead of reconstructing only one blank.
+        return displayText
+    }
+
     let prefix = String(displayText[..<markerRange.lowerBound])
     let suffix = String(displayText[markerRange.upperBound...])
     guard restoredText.hasPrefix(prefix), restoredText.hasSuffix(suffix) else {

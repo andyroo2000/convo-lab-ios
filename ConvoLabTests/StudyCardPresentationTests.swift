@@ -95,6 +95,23 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.presentation.back.heading, "会社[かいしゃ]で働[はたら]く")
     }
 
+    func testClozeFrontNeverRevealsMultipleSameOrdinalAnswersThroughRuby() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("{{c1::春}}に花が{{c1::咲く}}。"),
+            ]),
+            answer: .object([
+                "restoredText": .string("春に花が咲く。"),
+                "restoredTextReading": .string("春[はる]に花[はな]が咲[さ]く。"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "[...]に花が[...]。")
+        XCTAssertFalse(card.presentation.front.heading?.contains("はる") == true)
+        XCTAssertFalse(card.presentation.front.heading?.contains("さ") == true)
+    }
+
     func testAnswerDetailsFollowDesktopOrderAndDecodePlainText() {
         let card = makeCard(
             cardType: "recognition",
