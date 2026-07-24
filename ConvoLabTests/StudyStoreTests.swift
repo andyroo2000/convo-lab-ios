@@ -100,6 +100,56 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPersistedUnresolvedPitchAccentDoesNotRetryOnEveryReveal() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let original = makeCard(
+            id: "01J000000000000000000000PU",
+            expression: "固有名詞"
+        )
+        let card = StudyCard(
+            id: original.id,
+            syncId: original.syncId,
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer.replacingObjectValues([
+                "pitchAccent": .object([
+                    "status": .string("unresolved"),
+                    "reason": .string("not-found"),
+                ]),
+            ]),
+            state: original.state,
+            answerAudioSource: original.answerAudioSource,
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let requestCount = LockedCounter()
+        let client = makeClient { _ in
+            _ = requestCount.next()
+            throw URLError(.badServerResponse)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        await store.resolvePitchAccent(for: card)
+        await store.resolvePitchAccent(for: card)
+
+        XCTAssertEqual(requestCount.current, 0)
+        XCTAssertNil(store.cards.first?.presentation.back.pitchAccent)
+    }
+
+    @MainActor
     func testPitchAccentResolutionPreservesReviewThatFinishesDuringRequest() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

@@ -154,7 +154,7 @@ final class StudyStore {
 
     func resolvePitchAccent(for card: StudyCard) async {
         guard
-            card.presentation.back.pitchAccent == nil,
+            card.answer["pitchAccent"]?["status"]?.stringValue == nil,
             resolvingPitchAccentCardIDs.insert(card.id).inserted
         else {
             return
@@ -165,10 +165,12 @@ final class StudyStore {
             try await flushCardOutbox()
             guard
                 let currentCard = cards.first(where: { $0.id == card.id }),
-                currentCard.presentation.back.pitchAccent == nil
+                currentCard.answer["pitchAccent"]?["status"]?.stringValue == nil
             else {
                 return
             }
+            // The ConvoLab-compatible pitch endpoint returns StudyCard directly,
+            // matching the direct card create/update compatibility responses.
             let serverCard: StudyCard = try await api.request(
                 "/api/study/cards/\(currentCard.reviewCardID)/pitch-accent",
                 method: "POST"
