@@ -94,6 +94,31 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testAudioLedProductionRoundTripMatchesDesktopEditorContract() {
+        let card = makeCard(
+            cardType: "production",
+            prompt: .object([
+                "cueAudio": media("/media/production-prompt.mp3"),
+            ]),
+            answer: .object([
+                "expression": .string("続けています"),
+                "meaning": .string("I keep doing it."),
+            ])
+        )
+
+        let draft = StudyCardDraft(card: card)
+        let prompt = draft.prompt(merging: card.prompt)
+
+        XCTAssertTrue(draft.isMediaLedPrompt)
+        XCTAssertFalse(draft.isAudioLedPrompt)
+        XCTAssertTrue(draft.isValid)
+        XCTAssertEqual(prompt["cueText"], .string(""))
+        XCTAssertEqual(prompt["cueReading"], .null)
+        XCTAssertEqual(prompt["cueMeaning"], .null)
+        XCTAssertEqual(prompt["cueAudio"], card.prompt["cueAudio"])
+    }
+
+    @MainActor
     func testImageLedProductionKeepsVisibleLabelAndAllowsEmptyCueText() {
         let card = makeCard(
             cardType: "production",

@@ -753,12 +753,10 @@ final class StudyStore {
                     )
                 }
                 if let serverCard, try !hasPendingDelete(for: serverCard.id) {
-                    let preservesPendingEdit: Bool
-                    if mutation.kind == "cardCreate" {
-                        preservesPendingEdit = try hasPendingUpdate(for: serverCard.id)
-                    } else {
-                        preservesPendingEdit = false
-                    }
+                    let preservesPendingEdit = try hasPendingUpdate(
+                        for: serverCard.id,
+                        excluding: mutation.id
+                    )
                     let acknowledgedCard = try acknowledgedCard(
                         serverCard,
                         preservingPendingReview: hasPendingReview(for: serverCard.id),
@@ -920,11 +918,15 @@ final class StudyStore {
         return try !context.fetch(descriptor).isEmpty
     }
 
-    private func hasPendingUpdate(for cardID: String) throws -> Bool {
+    private func hasPendingUpdate(
+        for cardID: String,
+        excluding mutationID: String
+    ) throws -> Bool {
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.kind == "cardUpdate"
                     && $0.resourceID == cardID
+                    && $0.id != mutationID
                     && $0.lastError == nil
             }
         )
