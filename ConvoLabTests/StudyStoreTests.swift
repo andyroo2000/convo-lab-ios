@@ -5,6 +5,87 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testRefreshOnlyMarksCardsPreparedWhenEveryDeclaredMediaFileExists() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let missingMediaCard = makeCard(
+            id: "01J00000000000000000000006",
+            expression: "未取得",
+            mediaURL: "/api/study/media/missing"
+        )
+        let downloadedMediaCard = makeCard(
+            id: "01J00000000000000000000007",
+            expression: "取得済み",
+            mediaURL: "/api/study/media/available"
+        )
+        let textOnlyCard = makeCard(
+            id: "01J00000000000000000000008",
+            expression: "文字のみ"
+        )
+        let staleRecord = LocalCardRecord(
+            card: missingMediaCard,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(missingMediaCard)
+        )
+        staleRecord.mediaPreparedAt = .now
+        container.mainContext.insert(staleRecord)
+        try container.mainContext.save()
+
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 3,
+                newCount: 0,
+                reviewCount: 3,
+                newCardsPerDay: 0,
+                newCardsAvailableToday: 0
+            ),
+            cards: [missingMediaCard, downloadedMediaCard, textOnlyCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            let path = request.url?.path
+            if path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            let available = path == "/api/study/media/available"
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: available ? 200 : 404,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                available ? Data("audio".utf8) : Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.preparedCardCount, 2)
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertNil(records.first(where: { $0.id == missingMediaCard.id })?.mediaPreparedAt)
+        XCTAssertNotNil(
+            records.first(where: { $0.id == downloadedMediaCard.id })?.mediaPreparedAt
+        )
+        XCTAssertNotNil(records.first(where: { $0.id == textOnlyCard.id })?.mediaPreparedAt)
+    }
+
+    @MainActor
     func testDeletingOfflineCreatedCardDoesNotResurrectIt() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in
@@ -455,12 +536,20 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    private func makeCard(id: String, expression: String) -> StudyCard {
-        StudyCard(
+    private func makeCard(
+        id: String,
+        expression: String,
+        mediaURL: String? = nil
+    ) -> StudyCard {
+        var prompt: [String: JSONValue] = ["cueText": .string(expression)]
+        if let mediaURL {
+            prompt["cueAudio"] = .object(["url": .string(mediaURL)])
+        }
+        return StudyCard(
             id: id,
             noteId: nil,
             cardType: "recognition",
-            prompt: .object(["cueText": .string(expression)]),
+            prompt: .object(prompt),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
                 dueAt: nil,
