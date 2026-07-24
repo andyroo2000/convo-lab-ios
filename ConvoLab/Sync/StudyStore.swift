@@ -692,6 +692,13 @@ final class StudyStore {
 
     private func drainCardOutbox() async throws {
         var quarantinedCount = 0
+        defer {
+            // Reconciliation can rename or remove records. Refresh once after
+            // the drain instead of decoding the entire library after every
+            // queued mutation in a large offline backlog.
+            loadLocalCards()
+            loadLibraryCards()
+        }
         while true {
             var descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
@@ -767,8 +774,6 @@ final class StudyStore {
                         markedDirty: preservesPendingEdit,
                         serverUpdatedAt: serverCard.updatedAt
                     )
-                    loadLocalCards()
-                    loadLibraryCards()
                 }
                 context.delete(mutation)
                 try context.save()

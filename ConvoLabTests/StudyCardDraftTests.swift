@@ -128,6 +128,9 @@ final class StudyCardDraftTests: XCTestCase {
             cardType: "recognition",
             prompt: .object([
                 "cueAudio": media("/media/prompt.mp3"),
+                // Desktop treats a reading without cue text as orphaned prompt
+                // metadata and clears all hidden text fields on save.
+                "cueReading": .string("続[つづ]けています"),
             ]),
             answer: .object([
                 "expression": .string("続けています"),
@@ -142,6 +145,7 @@ final class StudyCardDraftTests: XCTestCase {
         XCTAssertTrue(draft.isAudioLedPrompt)
         XCTAssertTrue(draft.isValid)
         XCTAssertEqual(prompt["cueText"], .null)
+        XCTAssertEqual(prompt["cueReading"], .null)
         XCTAssertEqual(prompt["cueMeaning"], .null)
         XCTAssertEqual(prompt["cueAudio"], card.prompt["cueAudio"])
     }
