@@ -153,6 +153,22 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertFalse(card.isEditableInBasicForm)
     }
 
+    func testLooseDisplayOnlyClozeDoesNotExposeAnswer() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeDisplayText": .string("私は[学生]です。"),
+            ]),
+            answer: .object([
+                "restoredText": .string("私は学生です。"),
+                "meaning": .string("I am a student."),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "私は[...]です。")
+        XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+    }
+
     func testReviewIntervalLabelsMatchLearningOSIntervals() {
         XCTAssertEqual(ReviewRating.again.nextIntervalLabel, "<10m")
         XCTAssertEqual(ReviewRating.hard.nextIntervalLabel, "1d")

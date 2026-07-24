@@ -47,15 +47,7 @@ extension StudyCard {
             let cloze = ClozePresentation(
                 rawText: rawClozeText ?? prompt.firstNonEmptyString(for: ["clozeDisplayText"])
             )
-            let rawDisplayText = prompt.firstNonEmptyString(for: ["clozeDisplayText"])
-            let frontHeading: String?
-            if rawClozeText?.containsCanonicalClozeMarkup == true {
-                frontHeading = cloze.displayText?.studyDisplayText
-            } else if let rawDisplayText, !rawDisplayText.containsCanonicalClozeMarkup {
-                frontHeading = rawDisplayText.studyDisplayText
-            } else {
-                frontHeading = cloze.displayText?.studyDisplayText
-            }
+            let frontHeading = cloze.displayText?.studyDisplayText
 
             let notes = answer.studyNotes.map { note in
                 StudyCardPresentation.TextBlock(
