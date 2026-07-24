@@ -5,31 +5,49 @@ struct CardLibraryView: View {
     let player: StudyAudioPlayer
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
+    @State private var selectedDraft: StudyManualCardDraft?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
 
     var body: some View {
         NavigationStack {
-            List(store.libraryCards) { card in
-                Group {
-                    if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                        Button {
-                            selectedCard = card
-                        } label: {
-                            cardRow(card)
+            List {
+                if !store.manualDrafts.isEmpty {
+                    Section("Creation drafts") {
+                        ForEach(store.manualDrafts) { draft in
+                            Button {
+                                selectedDraft = draft
+                            } label: {
+                                draftRow(draft)
+                            }
+                            .disabled(draft.status == "generating")
                         }
-                    } else {
-                        cardRow(card)
                     }
                 }
-                .swipeActions {
-                    Button("Delete", role: .destructive) {
-                        Task { await delete(card) }
+
+                Section("Cards") {
+                    ForEach(store.libraryCards) { card in
+                        Group {
+                            if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                                Button {
+                                    selectedCard = card
+                                } label: {
+                                    cardRow(card)
+                                }
+                            } else {
+                                cardRow(card)
+                            }
+                        }
+                        .swipeActions {
+                            Button("Delete", role: .destructive) {
+                                Task { await delete(card) }
+                            }
+                        }
                     }
                 }
             }
             .overlay {
-                if store.libraryCards.isEmpty {
+                if store.libraryCards.isEmpty && store.manualDrafts.isEmpty {
                     ContentUnavailableView(
                         "No local cards",
                         systemImage: "rectangle.stack",
@@ -50,15 +68,57 @@ struct CardLibraryView: View {
                 }
             }
             .sheet(isPresented: $showingCreate) {
-                CardEditorView(store: store, player: player, card: nil)
+                CardEditorView(store: store, player: player, card: nil, serverDraft: nil)
             }
             .sheet(item: $selectedCard) { card in
-                CardEditorView(store: store, player: player, card: card)
+                CardEditorView(store: store, player: player, card: card, serverDraft: nil)
+            }
+            .sheet(item: $selectedDraft) { draft in
+                CardEditorView(store: store, player: player, card: nil, serverDraft: draft)
             }
             .alert("Could not delete card", isPresented: $showingDeletionError) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(deletionErrorMessage)
+            }
+            .task {
+                try? await store.refreshManualDrafts()
+            }
+            .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
+                while !Task.isCancelled,
+                      store.manualDrafts.contains(where: { $0.status == "generating" })
+                {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    try? await store.refreshManualDrafts()
+                }
+            }
+            .refreshable {
+                try? await store.refreshManualDrafts()
+                await store.synchronize()
+            }
+        }
+    }
+
+    private func draftRow(_ draft: StudyManualCardDraft) -> some View {
+        HStack(spacing: 12) {
+            Image(
+                systemName: draft.status == "generating"
+                    ? "sparkles"
+                    : draft.status == "error" ? "exclamationmark.triangle" : "doc.badge.gearshape"
+            )
+            .foregroundStyle(draft.status == "error" ? .red : ConvoLabTheme.navy)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(draft.creationKind.title)
+                    .font(.headline)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                Text(
+                    draft.status == "generating"
+                        ? "Preparing fields and media…"
+                        : draft.errorMessage ?? "Ready to review and create"
+                )
+                .font(.caption)
+                .foregroundStyle(draft.status == "error" ? .red : .secondary)
             }
         }
     }
@@ -98,8 +158,13 @@ private struct CardEditorView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let card: StudyCard?
+    let serverDraft: StudyManualCardDraft?
 
     @State private var draft: StudyCardDraft
+    @State private var creationKind: StudyCardCreationKind
+    @State private var previewAudio: JSONValue?
+    @State private var previewAudioRole: String?
+    @State private var previewImage: JSONValue?
     @State private var isSaving = false
     @State private var isRegeneratingAudio = false
     @State private var isRegeneratingImage = false
@@ -120,11 +185,28 @@ private struct CardEditorView: View {
     @State private var independentImageAction: IndependentImageAction?
     @Environment(\.dismiss) private var dismiss
 
-    init(store: StudyStore, player: StudyAudioPlayer, card: StudyCard?) {
+    init(
+        store: StudyStore,
+        player: StudyAudioPlayer,
+        card: StudyCard?,
+        serverDraft: StudyManualCardDraft?
+    ) {
         self.store = store
         self.player = player
         self.card = card
-        _draft = State(initialValue: card.map(StudyCardDraft.init(card:)) ?? StudyCardDraft())
+        self.serverDraft = serverDraft
+        let initialDraft = if let card {
+            StudyCardDraft(card: card)
+        } else if let serverDraft {
+            StudyCardDraft(manualDraft: serverDraft)
+        } else {
+            StudyCardDraft()
+        }
+        _draft = State(initialValue: initialDraft)
+        _creationKind = State(initialValue: serverDraft?.creationKind ?? .textRecognition)
+        _previewAudio = State(initialValue: serverDraft?.previewAudio)
+        _previewAudioRole = State(initialValue: serverDraft?.previewAudioRole)
+        _previewImage = State(initialValue: serverDraft?.previewImage)
     }
 
     var body: some View {
@@ -132,12 +214,25 @@ private struct CardEditorView: View {
             Form {
                 if card == nil {
                     Section("Card type") {
-                        Picker("Card type", selection: $draft.cardType) {
-                            ForEach(StudyCardDraft.CardType.allCases) { type in
-                                Text(type.title).tag(type)
+                        Picker("Card type", selection: $creationKind) {
+                            ForEach(StudyCardCreationKind.allCases) { kind in
+                                Text(kind.title).tag(kind)
                             }
                         }
-                        .pickerStyle(.segmented)
+                        .disabled(serverDraft != nil)
+                        .onChange(of: creationKind) { _, kind in
+                            applyCreationKind(kind)
+                        }
+                        if serverDraft == nil,
+                           [.audioRecognition, .productionImage].contains(creationKind)
+                        {
+                            Label(
+                                "This mode uses learning-os to prepare generated media before you create the card.",
+                                systemImage: "network"
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -177,16 +272,25 @@ private struct CardEditorView: View {
                         }
                         .disabled(isBusy)
                     }
+                } else if serverDraft != nil {
+                    Section {
+                        Button("Delete Draft", role: .destructive) {
+                            Task { await deleteServerDraft() }
+                        }
+                        .disabled(isBusy)
+                    }
                 }
             }
-            .navigationTitle(card == nil ? "New Card" : "Edit Card")
+            .navigationTitle(
+                card != nil ? "Edit Card" : serverDraft != nil ? "Review Draft" : "New Card"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(saveButtonTitle) {
                         if draft.isReplacingIndependentFaceImages {
                             independentImageAction = .save
                         } else {
@@ -233,6 +337,35 @@ private struct CardEditorView: View {
 
     private var isBusy: Bool {
         isSaving || isRegeneratingAudio || isRegeneratingImage
+    }
+
+    private var saveButtonTitle: String {
+        if serverDraft != nil {
+            return "Create Card"
+        }
+        if [.audioRecognition, .productionImage].contains(creationKind) {
+            return "Prepare"
+        }
+        return "Save"
+    }
+
+    private func applyCreationKind(_ kind: StudyCardCreationKind) {
+        draft.cardType = kind.cardType
+        draft.isAudioLedPrompt = kind == .audioRecognition
+        draft.isMediaLedPrompt = kind == .audioRecognition || kind == .productionImage
+        draft.imagePlacement = kind.defaultImagePlacement
+        if kind.defaultImagePlacement == .none {
+            draft.imagePrompt = ""
+            draft.currentImage = nil
+        }
+        previewAudio = nil
+        previewAudioRole = nil
+        previewImage = nil
+        answerAudioLocalURL = nil
+        promptImageLocalURL = nil
+        answerImageLocalURL = nil
+        promptImagePreview = nil
+        answerImagePreview = nil
     }
 
     @ViewBuilder
@@ -290,7 +423,7 @@ private struct CardEditorView: View {
                 applyImagePlacementPreview(placement)
             }
 
-            if card != nil {
+            if card != nil || serverDraft != nil {
                 Button {
                     if draft.hasIndependentFaceImages {
                         independentImageAction = .regenerate
@@ -315,7 +448,11 @@ private struct CardEditorView: View {
                         ).count > 1_000
                 )
             } else {
-                Text("An image can be generated after this card has synced.")
+                Text(
+                    creationKind == .productionImage
+                        ? "Tap Prepare to let learning-os fill the draft before generating its image."
+                        : "An image can be generated after this card has synced."
+                )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -341,7 +478,7 @@ private struct CardEditorView: View {
     @ViewBuilder
     private var answerAudioFields: some View {
         Section("Answer audio") {
-            if card != nil {
+            if card != nil || serverDraft != nil {
                 if let answerAudioLocalURL {
                     Button {
                         if player.isCurrent(answerAudioTrackID), player.isPlaying {
@@ -387,7 +524,7 @@ private struct CardEditorView: View {
             )
             .lineLimit(1...4)
 
-            if card != nil {
+            if card != nil || serverDraft != nil {
                 Button {
                     audioRegenerationTask?.cancel()
                     audioRegenerationTask = Task {
@@ -402,7 +539,11 @@ private struct CardEditorView: View {
                 }
                 .disabled(isBusy)
             } else {
-                Text("Audio can be generated after this card has synced.")
+                Text(
+                    creationKind == .audioRecognition
+                        ? "Tap Prepare to let learning-os fill the draft before generating its prompt audio."
+                        : "Audio can be generated after this card has synced."
+                )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -414,7 +555,9 @@ private struct CardEditorView: View {
         if draft.isAudioLedPrompt {
             Section("Prompt") {
                 Label(
-                    "This card uses its existing audio or image as the prompt.",
+                    creationKind == .audioRecognition && card == nil
+                        ? "This card uses generated audio as the prompt."
+                        : "This card uses its existing audio or image as the prompt.",
                     systemImage: "play.rectangle"
                 )
                 .font(.footnote)
@@ -470,6 +613,16 @@ private struct CardEditorView: View {
         do {
             if let card {
                 try await store.updateCard(card, draft: draft)
+            } else if let serverDraft {
+                try await store.createCard(
+                    from: serverDraft,
+                    draft: draft,
+                    previewAudio: previewAudio,
+                    previewAudioRole: previewAudioRole,
+                    previewImage: previewImage
+                )
+            } else if [.audioRecognition, .productionImage].contains(creationKind) {
+                try await store.queueManualDraft(creationKind: creationKind, draft: draft)
             } else {
                 try await store.createCard(draft)
             }
@@ -489,14 +642,23 @@ private struct CardEditorView: View {
         }
     }
 
+    private func deleteServerDraft() async {
+        guard let serverDraft else { return }
+        do {
+            try await store.deleteManualDraft(serverDraft)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private var answerAudioTrackID: String {
-        "card-editor-answer-\(card?.id ?? "new")"
+        "card-editor-answer-\(card?.id ?? serverDraft?.id ?? "new")"
     }
 
     private func loadCurrentAnswerAudio() async {
-        guard
-            let remoteURL = card?.answerAudioURL
-        else {
+        let remoteURL = card?.answerAudioURL ?? previewAudio?.mediaURLs.first
+        guard let remoteURL else {
             answerAudioLocalURL = nil
             return
         }
@@ -505,7 +667,12 @@ private struct CardEditorView: View {
 
     private func loadCurrentMedia() async {
         await loadCurrentAnswerAudio()
-        if let promptURL = card?.promptImageURL {
+        let draftImageURL = previewImage?.mediaURLs.first
+        let promptURL = card?.promptImageURL
+            ?? (draft.imagePlacement.includesPrompt ? draftImageURL : nil)
+        let answerURL = card?.answerImageURL
+            ?? (draft.imagePlacement.includesAnswer ? draftImageURL : nil)
+        if let promptURL {
             promptImageLocalURL = await store.playableMediaURL(for: promptURL)
             promptImagePreview = promptImageLocalURL.flatMap {
                 UIImage(contentsOfFile: $0.path)
@@ -516,7 +683,7 @@ private struct CardEditorView: View {
         }
         originalPromptImageLocalURL = promptImageLocalURL
         originalPromptImagePreview = promptImagePreview
-        if let answerURL = card?.answerImageURL {
+        if let answerURL {
             answerImageLocalURL = await store.playableMediaURL(for: answerURL)
             answerImagePreview = if answerImageLocalURL == promptImageLocalURL {
                 promptImagePreview
@@ -584,11 +751,27 @@ private struct CardEditorView: View {
     }
 
     private func regenerateAnswerAudio() async {
-        guard let card else { return }
         isRegeneratingAudio = true
         errorMessage = nil
         defer { isRegeneratingAudio = false }
         do {
+            if let serverDraft {
+                let result = try await store.generateManualDraftPreviewAudio(
+                    serverDraft,
+                    draft: draft,
+                    previewImage: previewImage
+                )
+                try Task.checkCancellation()
+                previewAudio = result.draft.previewAudio
+                previewAudioRole = result.draft.previewAudioRole
+                if let localURL = result.localURL {
+                    answerAudioLocalURL = localURL
+                    player.stop()
+                    player.play(url: localURL, trackID: answerAudioTrackID)
+                }
+                return
+            }
+            guard let card else { return }
             let result = try await store.regenerateAnswerAudio(
                 for: card,
                 voiceID: draft.answerAudioVoiceId,
@@ -607,11 +790,37 @@ private struct CardEditorView: View {
     }
 
     private func regenerateImage() async {
-        guard let card else { return }
         isRegeneratingImage = true
         errorMessage = nil
         defer { isRegeneratingImage = false }
         do {
+            if let serverDraft {
+                let result = try await store.generateManualDraftPreviewImage(
+                    serverDraft,
+                    draft: draft,
+                    previewAudio: previewAudio,
+                    previewAudioRole: previewAudioRole
+                )
+                try Task.checkCancellation()
+                previewImage = result.draft.previewImage
+                draft.imagePrompt = result.draft.imagePrompt ?? draft.imagePrompt
+                draft.reconcileImages(
+                    promptImage: result.draft.imagePlacement.includesPrompt
+                        ? result.draft.previewImage : nil,
+                    answerImage: result.draft.imagePlacement.includesAnswer
+                        ? result.draft.previewImage : nil
+                )
+                let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
+                sharedImageLocalURL = result.localURL
+                sharedImagePreview = generatedImagePreview
+                applyImagePlacementPreview(result.draft.imagePlacement)
+                originalPromptImageLocalURL = promptImageLocalURL
+                originalPromptImagePreview = promptImagePreview
+                originalAnswerImageLocalURL = answerImageLocalURL
+                originalAnswerImagePreview = answerImagePreview
+                return
+            }
+            guard let card else { return }
             let result = try await store.regenerateImage(
                 for: card,
                 prompt: draft.imagePrompt,

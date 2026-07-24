@@ -57,6 +57,105 @@ struct RegenerateImageRequest: Encodable, Equatable, Sendable {
     let imageRole: String
 }
 
+enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case textRecognition = "text-recognition"
+    case audioRecognition = "audio-recognition"
+    case productionText = "production-text"
+    case productionImage = "production-image"
+    case cloze
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .textRecognition: "Text recognition"
+        case .audioRecognition: "Audio recognition"
+        case .productionText: "Text production"
+        case .productionImage: "Image production"
+        case .cloze: "Cloze"
+        }
+    }
+
+    var cardType: StudyCardDraft.CardType {
+        switch self {
+        case .textRecognition, .audioRecognition: .recognition
+        case .productionText, .productionImage: .production
+        case .cloze: .cloze
+        }
+    }
+
+    var defaultImagePlacement: StudyCardDraft.ImagePlacement {
+        switch self {
+        case .productionImage: .prompt
+        case .cloze: .both
+        case .textRecognition, .audioRecognition, .productionText: .none
+        }
+    }
+}
+
+struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let status: String
+    let creationKind: StudyCardCreationKind
+    let cardType: String
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+    let previewAudio: JSONValue?
+    let previewAudioRole: String?
+    let previewImage: JSONValue?
+    let errorMessage: String?
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct StudyManualCardDraftListResponse: Decodable, Sendable {
+    let drafts: [StudyManualCardDraft]
+    let total: Int?
+    let limit: Int
+    let nextCursor: String?
+}
+
+struct CreateStudyManualCardDraftRequest: Encodable, Equatable, Sendable {
+    let creationKind: StudyCardCreationKind
+    let cardType: String
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+}
+
+struct UpdateStudyManualCardDraftRequest: Encodable, Equatable, Sendable {
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+    let previewAudio: JSONValue
+    let previewAudioRole: JSONValue
+    let previewImage: JSONValue
+}
+
+struct StudyCardDraftPreviewAudioResponse: Codable, Sendable {
+    let previewAudio: JSONValue?
+    let previewAudioRole: String?
+}
+
+struct StudyCardDraftImageResponse: Codable, Sendable {
+    let previewImage: JSONValue
+    let imagePrompt: String
+    let imagePlacement: StudyCardDraft.ImagePlacement
+}
+
+struct CreateCardFromStudyManualDraftRequest: Codable, Equatable, Sendable {
+    let id: String
+}
+
+struct CreateCardFromStudyManualDraftResponse: Codable, Sendable {
+    let card: StudyCard
+    let draftId: String
+}
+
 struct StudySession: Codable, Sendable {
     let overview: StudyOverview
     let cards: [StudyCard]

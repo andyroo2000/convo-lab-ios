@@ -75,6 +75,15 @@ text, reading, meaning, examples, and notes. Cloze cards use canonical
 `{{c1::answer}}` prompt markup plus restored text, restored-text reading,
 meaning, and notes. Existing card types cannot be changed.
 
+New-card creation distinguishes the desktop modes: text recognition, audio
+recognition, text production, image production, and cloze. Text recognition,
+text production, and cloze remain offline-first direct creates. Audio
+recognition and image production enter the learning-os manual draft queue,
+poll until ready, and expose preview media regeneration before committing the
+canonical card. Draft commits retain one client-generated card ULID across
+retries, reconcile the committed card locally, and then delete the transient
+server draft.
+
 Saving an existing card merges the edited fields into its full payload so
 server-managed scheduling data, generated audio, images, and pitch accent are
 preserved. A recognition card whose only prompt is audio keeps the desktop

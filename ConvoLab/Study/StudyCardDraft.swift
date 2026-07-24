@@ -1,7 +1,7 @@
 import Foundation
 
 struct StudyCardDraft: Equatable, Sendable {
-    enum ImagePlacement: String, CaseIterable, Identifiable, Sendable {
+    enum ImagePlacement: String, Codable, CaseIterable, Identifiable, Sendable {
         case none
         case prompt
         case answer
@@ -22,7 +22,7 @@ struct StudyCardDraft: Equatable, Sendable {
         var includesAnswer: Bool { self == .answer || self == .both }
     }
 
-    enum CardType: String, CaseIterable, Identifiable, Sendable {
+    enum CardType: String, Codable, CaseIterable, Identifiable, Sendable {
         case recognition
         case production
         case cloze
@@ -174,6 +174,55 @@ struct StudyCardDraft: Equatable, Sendable {
             .map { " (\($0))" } ?? ""
         imagePrompt = "A clear natural real-world image representing \(imageSubject)\(imageMeaning)."
         notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
+    }
+
+    init(manualDraft: StudyManualCardDraft) {
+        var prompt = manualDraft.prompt
+        var answer = manualDraft.answer
+        if let previewAudio = manualDraft.previewAudio {
+            if manualDraft.previewAudioRole == "prompt" {
+                prompt = prompt.replacingObjectValues(["cueAudio": previewAudio])
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            } else if manualDraft.previewAudioRole == "answer" {
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            }
+        }
+        if let previewImage = manualDraft.previewImage {
+            prompt = prompt.replacingObjectValues([
+                "cueImage": manualDraft.imagePlacement.includesPrompt ? previewImage : .null,
+            ])
+            answer = answer.replacingObjectValues([
+                "answerImage": manualDraft.imagePlacement.includesAnswer ? previewImage : .null,
+            ])
+        }
+        self.init(
+            card: StudyCard(
+                id: manualDraft.id,
+                noteId: nil,
+                cardType: manualDraft.cardType,
+                prompt: prompt,
+                answer: answer,
+                state: .init(
+                    dueAt: nil,
+                    introducedAt: nil,
+                    failedAt: nil,
+                    queueState: "new",
+                    scheduler: nil,
+                    source: .object([:])
+                ),
+                answerAudioSource: manualDraft.previewAudio == nil ? "missing" : "generated",
+                createdAt: manualDraft.createdAt,
+                updatedAt: manualDraft.updatedAt
+            )
+        )
+        imagePrompt = manualDraft.imagePrompt ?? ""
+        imagePlacement = manualDraft.imagePlacement
+        if manualDraft.creationKind == .audioRecognition {
+            isAudioLedPrompt = true
+            isMediaLedPrompt = true
+        } else if manualDraft.creationKind == .productionImage {
+            isMediaLedPrompt = true
+        }
     }
 
     var hasIndependentFaceImages: Bool {

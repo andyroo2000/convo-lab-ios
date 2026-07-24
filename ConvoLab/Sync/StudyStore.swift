@@ -124,6 +124,16 @@ final class StudyStore {
         let localURL: URL
     }
 
+    struct DraftPreviewAudioResult {
+        let draft: StudyManualCardDraft
+        let localURL: URL?
+    }
+
+    struct DraftPreviewImageResult {
+        let draft: StudyManualCardDraft
+        let localURL: URL
+    }
+
     enum SyncStatus: Equatable {
         case idle
         case syncing
@@ -144,6 +154,7 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
     private(set) var knownKanji: Set<Character> = []
     private(set) var manualKnownKanji: Set<Character> = []
@@ -553,6 +564,218 @@ final class StudyStore {
         draft.answerExpression = expression
         draft.answerMeaning = meaning
         try await createCard(draft)
+    }
+
+    func refreshManualDrafts() async throws {
+        let response: StudyManualCardDraftListResponse = try await api.request(
+            "/api/study/card-drafts",
+            query: [URLQueryItem(name: "limit", value: "50")]
+        )
+        manualDrafts = response.drafts
+    }
+
+    @discardableResult
+    func queueManualDraft(
+        creationKind: StudyCardCreationKind,
+        draft: StudyCardDraft
+    ) async throws -> StudyManualCardDraft {
+        let request = CreateStudyManualCardDraftRequest(
+            creationKind: creationKind,
+            cardType: creationKind.cardType.rawValue,
+            prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),
+            answer: draft.answer(),
+            imagePlacement: draft.imagePlacement,
+            imagePrompt: draft.imagePrompt.trimmedOrNil
+        )
+        let serverDraft: StudyManualCardDraft = try await api.request(
+            "/api/study/card-drafts",
+            method: "POST",
+            body: request
+        )
+        replaceManualDraft(serverDraft)
+        return serverDraft
+    }
+
+    @discardableResult
+    func updateManualDraft(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue? = nil,
+        previewAudioRole: String? = nil,
+        previewImage: JSONValue? = nil
+    ) async throws -> StudyManualCardDraft {
+        var prompt = serverDraft.creationKind == .audioRecognition
+            ? JSONValue.object([:])
+            : draft.prompt()
+        var answer = draft.answer()
+        if let previewAudio {
+            if previewAudioRole == "prompt" {
+                prompt = prompt.replacingObjectValues(["cueAudio": previewAudio])
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            } else if previewAudioRole == "answer" {
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            }
+        }
+        if let previewImage {
+            if draft.imagePlacement.includesPrompt {
+                prompt = prompt.replacingObjectValues(["cueImage": previewImage])
+            }
+            if draft.imagePlacement.includesAnswer {
+                answer = answer.replacingObjectValues(["answerImage": previewImage])
+            }
+        }
+        let request = UpdateStudyManualCardDraftRequest(
+            prompt: prompt,
+            answer: answer,
+            imagePlacement: draft.imagePlacement,
+            imagePrompt: draft.imagePrompt.trimmedOrNil,
+            previewAudio: previewAudio ?? .null,
+            previewAudioRole: previewAudioRole.map(JSONValue.string) ?? .null,
+            previewImage: previewImage ?? .null
+        )
+        let updated: StudyManualCardDraft = try await api.request(
+            "/api/study/card-drafts/\(serverDraft.id)",
+            method: "PATCH",
+            body: request
+        )
+        replaceManualDraft(updated)
+        return updated
+    }
+
+    func generateManualDraftPreviewAudio(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewImage: JSONValue?
+    ) async throws -> DraftPreviewAudioResult {
+        let updated = try await updateManualDraft(
+            serverDraft,
+            draft: draft,
+            previewImage: previewImage
+        )
+        let response: StudyCardDraftPreviewAudioResponse = try await api.request(
+            "/api/study/card-drafts/\(updated.id)/preview-audio",
+            method: "POST",
+            timeout: 180
+        )
+        let refreshed = try await fetchManualDraft(id: updated.id)
+        let localURL: URL?
+        if let remoteURL = response.previewAudio?.mediaURLs.first {
+            localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+        } else {
+            localURL = nil
+        }
+        return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
+    }
+
+    func generateManualDraftPreviewImage(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue?,
+        previewAudioRole: String?
+    ) async throws -> DraftPreviewImageResult {
+        let updated = try await updateManualDraft(
+            serverDraft,
+            draft: draft,
+            previewAudio: previewAudio,
+            previewAudioRole: previewAudioRole
+        )
+        let response: StudyCardDraftImageResponse = try await api.request(
+            "/api/study/card-drafts/\(updated.id)/preview-image",
+            method: "POST",
+            timeout: 180
+        )
+        guard let remoteURL = response.previewImage.mediaURLs.first else {
+            throw MissingGeneratedImageError()
+        }
+        let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+        let refreshed = try await fetchManualDraft(id: updated.id)
+        return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
+    }
+
+    func createCard(
+        from serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue?,
+        previewAudioRole: String?,
+        previewImage: JSONValue?
+    ) async throws {
+        let existingCommit = try pendingDraftCommit(for: serverDraft.id)
+        let updated = if existingCommit == nil {
+            try await updateManualDraft(
+                serverDraft,
+                draft: draft,
+                previewAudio: previewAudio,
+                previewAudioRole: previewAudioRole,
+                previewImage: previewImage
+            )
+        } else {
+            serverDraft
+        }
+        let commitMutation: PendingMutation
+        if let existingCommit {
+            commitMutation = existingCommit
+        } else if let pending = try pendingDraftCommit(for: updated.id) {
+            commitMutation = pending
+        } else {
+            let request = CreateCardFromStudyManualDraftRequest(id: ClientIdentifier.ulid())
+            commitMutation = PendingMutation(
+                kind: "draftCommit",
+                resourceID: updated.id,
+                payload: try StorageCodec.encoder.encode(request)
+            )
+            context.insert(commitMutation)
+            try context.save()
+        }
+        let request = try StorageCodec.decoder.decode(
+            CreateCardFromStudyManualDraftRequest.self,
+            from: commitMutation.payload
+        )
+        let response: CreateCardFromStudyManualDraftResponse
+        do {
+            response = try await api.request(
+                "/api/study/card-drafts/\(updated.id)/create-card",
+                method: "POST",
+                body: request
+            )
+        } catch let rejection as APIClientError {
+            if case let .rejected(status, _) = rejection, 400..<500 ~= status {
+                // A definitive client rejection means the server did not accept
+                // this commit attempt. Let the user edit and start a fresh one.
+                context.delete(commitMutation)
+                try context.save()
+            }
+            throw rejection
+        }
+
+        // The server mutation has completed. Reconcile locally even if the
+        // editor is dismissed while media preparation is still in progress.
+        try updateLocalCard(response.card, markedDirty: false)
+        cards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
+        cards.append(response.card)
+        cards = Self.orderSessionCards(cards)
+        libraryCards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
+        libraryCards.append(response.card)
+        try context.save()
+        await mediaCache.prepare(urls: response.card.mediaURLs, category: "active-study")
+        let _: IgnoredResponse = try await api.request(
+            "/api/study/card-drafts/\(response.draftId)",
+            method: "DELETE"
+        )
+        context.delete(commitMutation)
+        manualDrafts.removeAll { $0.id == response.draftId }
+        try context.save()
+    }
+
+    func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
+        let _: IgnoredResponse = try await api.request(
+            "/api/study/card-drafts/\(serverDraft.id)",
+            method: "DELETE"
+        )
+        if let pending = try pendingDraftCommit(for: serverDraft.id) {
+            context.delete(pending)
+            try context.save()
+        }
+        manualDrafts.removeAll { $0.id == serverDraft.id }
     }
 
     func createCard(_ draft: StudyCardDraft) async throws {
@@ -1396,6 +1619,30 @@ final class StudyStore {
         }
     }
 
+    private func fetchManualDraft(id: String) async throws -> StudyManualCardDraft {
+        let draft: StudyManualCardDraft = try await api.request(
+            "/api/study/card-drafts/\(id)"
+        )
+        replaceManualDraft(draft)
+        return draft
+    }
+
+    private func pendingDraftCommit(for draftID: String) throws -> PendingMutation? {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "draftCommit" && $0.resourceID == draftID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    private func replaceManualDraft(_ draft: StudyManualCardDraft) {
+        manualDrafts.removeAll { $0.id == draft.id }
+        manualDrafts.append(draft)
+        manualDrafts.sort { $0.createdAt > $1.createdAt }
+    }
+
     private func loadLocalCards() {
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.isInActiveSession },
@@ -1538,6 +1785,13 @@ final class StudyStore {
             return leftEntry.offset < rightEntry.offset
         }
         .map(\.element)
+    }
+}
+
+private extension String {
+    var trimmedOrNil: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 

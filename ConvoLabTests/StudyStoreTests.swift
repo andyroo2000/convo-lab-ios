@@ -5,6 +5,209 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let audio: JSONValue = .object([
+            "id": .string("audio-1"),
+            "filename": .string("audio-1.mp3"),
+            "url": .string("/api/study/media/audio-1"),
+            "mediaKind": .string("audio"),
+            "source": .string("generated"),
+        ])
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000DR",
+            status: "ready",
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object([
+                "expression": .string("営業の仕事は楽しいです。"),
+                "meaning": .string("Sales work is fun."),
+            ]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: audio,
+            previewAudioRole: "prompt",
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let card = StudyCard(
+            id: "01j0000000000000000000000cd",
+            syncId: "01j0000000000000000000000cd",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueAudio": audio]),
+            answer: serverDraft.answer.replacingObjectValues(["answerAudio": audio]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "generated",
+            createdAt: now,
+            updatedAt: now
+        )
+        let committed = CreateCardFromStudyManualDraftResponse(
+            card: card,
+            draftId: serverDraft.id
+        )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
+        let committedData = try StorageCodec.encoder.encode(committed)
+        let paths = LockedRequestPaths()
+        let commitIDs = LockedRequestPaths()
+        let deleteAttempts = LockedCounter()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/study/card-drafts" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            if request.httpMethod == "PATCH" {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                let prompt = payload?["prompt"] as? [String: Any]
+                let answer = payload?["answer"] as? [String: Any]
+                XCTAssertEqual((prompt?["cueAudio"] as? [String: Any])?["id"] as? String, "audio-1")
+                XCTAssertEqual(
+                    (answer?["answerAudio"] as? [String: Any])?["id"] as? String,
+                    "audio-1"
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            if path.hasSuffix("/create-card") {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                XCTAssertEqual((payload?["id"] as? String)?.count, 26)
+                commitIDs.append(payload?["id"] as? String ?? "")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            if request.httpMethod == "DELETE" {
+                if deleteAttempts.next() == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 500,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"cleanup failed"}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 204,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    Data()
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("draft-audio".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "営業の仕事は楽しいです。"
+        draft.answerMeaning = "Sales work is fun."
+
+        let queued = try await store.queueManualDraft(
+            creationKind: .audioRecognition,
+            draft: draft
+        )
+        do {
+            try await store.createCard(
+                from: queued,
+                draft: draft,
+                previewAudio: audio,
+                previewAudioRole: "prompt",
+                previewImage: nil
+            )
+            XCTFail("Expected the first draft cleanup to fail")
+        } catch let APIClientError.rejected(status, message) {
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(message, "cleanup failed")
+        }
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertFalse(store.manualDrafts.isEmpty)
+
+        try await store.createCard(
+            from: queued,
+            draft: draft,
+            previewAudio: audio,
+            previewAudioRole: "prompt",
+            previewImage: nil
+        )
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/card-drafts",
+                "/api/study/card-drafts/\(serverDraft.id)",
+                "/api/study/card-drafts/\(serverDraft.id)/create-card",
+                "/api/study/media/audio-1",
+                "/api/study/card-drafts/\(serverDraft.id)",
+                "/api/study/card-drafts/\(serverDraft.id)/create-card",
+                "/api/study/card-drafts/\(serverDraft.id)",
+            ]
+        )
+        XCTAssertEqual(commitIDs.values.count, 2)
+        XCTAssertEqual(commitIDs.values[0], commitIDs.values[1])
+        XCTAssertTrue(store.manualDrafts.isEmpty)
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .allSatisfy { $0.kind != "draftCommit" }
+        )
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.prompt["cueAudio"], audio)
+        XCTAssertEqual(persisted.answer["answerAudio"], audio)
+    }
+
+    @MainActor
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
