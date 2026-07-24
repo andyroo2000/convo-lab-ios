@@ -25,10 +25,10 @@ final class MediaCache {
         )
     }
 
-    func localURL(for remoteURL: URL) -> URL? {
-        let remote = remoteURL.absoluteString
+    func localURL(for remoteURL: URL, cacheKey explicitCacheKey: String? = nil) -> URL? {
+        let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
         var descriptor = FetchDescriptor<CachedMediaRecord>(
-            predicate: #Predicate { $0.remoteURL == remote }
+            predicate: #Predicate { $0.remoteURL == cacheKey }
         )
         descriptor.fetchLimit = 1
         guard let record = try? context.fetch(descriptor).first else {
@@ -46,25 +46,37 @@ final class MediaCache {
     }
 
     @discardableResult
-    func download(_ remoteURL: URL, category: String) async throws -> URL {
-        if let existing = localURL(for: remoteURL) {
+    func download(
+        _ remoteURL: URL,
+        category: String,
+        cacheKey explicitCacheKey: String? = nil
+    ) async throws -> URL {
+        let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
+        if let existing = localURL(for: remoteURL, cacheKey: cacheKey) {
             return existing
         }
 
-        let key = remoteURL.absoluteString
-        if let existingDownload = inFlightDownloads[key] {
+        if let existingDownload = inFlightDownloads[cacheKey] {
             return try await existingDownload.value
         }
 
         let download = Task { @MainActor [self] in
-            try await performDownload(remoteURL, category: category)
+            try await performDownload(
+                remoteURL,
+                category: category,
+                cacheKey: cacheKey
+            )
         }
-        inFlightDownloads[key] = download
-        defer { inFlightDownloads[key] = nil }
+        inFlightDownloads[cacheKey] = download
+        defer { inFlightDownloads[cacheKey] = nil }
         return try await download.value
     }
 
-    private func performDownload(_ remoteURL: URL, category: String) async throws -> URL {
+    private func performDownload(
+        _ remoteURL: URL,
+        category: String,
+        cacheKey: String
+    ) async throws -> URL {
         activeDownloads += 1
         defer { activeDownloads -= 1 }
 
@@ -72,7 +84,7 @@ final class MediaCache {
         let mimeExtension = response.mimeType.flatMap(Self.fileExtension(for:))
         let remoteExtension = remoteURL.pathExtension.isEmpty ? nil : remoteURL.pathExtension
         let fileExtension = mimeExtension ?? remoteExtension ?? "bin"
-        let digest = SHA256.hash(data: Data(remoteURL.absoluteString.utf8))
+        let digest = SHA256.hash(data: Data(cacheKey.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
         let filename = "\(digest).\(fileExtension)"
@@ -86,7 +98,7 @@ final class MediaCache {
         let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
         let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         context.insert(CachedMediaRecord(
-            remoteURL: remoteURL.absoluteString,
+            remoteURL: cacheKey,
             relativePath: filename,
             byteCount: bytes,
             category: category
@@ -108,6 +120,15 @@ final class MediaCache {
     var totalByteCount: Int64 {
         let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
         return records.reduce(0) { $0 + $1.byteCount }
+    }
+
+    private static func stableCacheKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? url.path
     }
 
     private static func fileExtension(for mimeType: String) -> String? {

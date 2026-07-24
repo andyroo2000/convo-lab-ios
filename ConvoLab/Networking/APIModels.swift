@@ -4,8 +4,6 @@ struct APIEnvelope<Value: Decodable>: Decodable {
     let data: Value
 }
 
-struct EmptyResponse: Decodable {}
-
 struct CurrentUser: Codable, Sendable {
     let id: String
     let name: String

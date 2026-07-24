@@ -33,6 +33,7 @@ final class StudyStore {
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
 
     private(set) var cards: [StudyCard] = []
+    private(set) var libraryCards: [StudyCard] = []
     private(set) var overview: StudyOverview?
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
@@ -43,6 +44,7 @@ final class StudyStore {
         self.mediaCache = mediaCache
         deviceID = ClientIdentifier.deviceID()
         loadLocalCards()
+        loadLibraryCards()
     }
 
     var fiveDayNewCardTarget: Int {
@@ -51,7 +53,9 @@ final class StudyStore {
 
     var preparedCardCount: Int {
         let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.mediaPreparedAt != nil }
+            predicate: #Predicate {
+                $0.isInActiveSession && $0.mediaPreparedAt != nil
+            }
         )
         return (try? context.fetchCount(descriptor)) ?? 0
     }
@@ -80,6 +84,7 @@ final class StudyStore {
         overview = envelope.data.overview
         cards = envelope.data.cards
         try persist(cards: cards)
+        loadLibraryCards()
 
         let mediaURLs = cards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
@@ -97,7 +102,13 @@ final class StudyStore {
             cardID: card.id,
             rating: rating,
             reviewedAt: now,
-            durationMilliseconds: duration.map { Int($0.components.seconds * 1_000) },
+            durationMilliseconds: duration.map {
+                let components = $0.components
+                return Int(
+                    components.seconds * 1_000
+                        + components.attoseconds / 1_000_000_000_000_000
+                )
+            },
             clientEventID: UUID().uuidString.lowercased(),
             deviceID: deviceID,
             clientCreatedAt: now
@@ -165,6 +176,7 @@ final class StudyStore {
         context.insert(record)
         context.insert(PendingMutation(kind: "cardCreate", resourceID: id, payload: mutationData))
         cards.append(optimistic)
+        libraryCards.append(optimistic)
         try context.save()
 
         do {
@@ -199,6 +211,7 @@ final class StudyStore {
             payload: try StorageCodec.encoder.encode(request)
         ))
         cards = cards.map { $0.id == card.id ? updated : $0 }
+        libraryCards = libraryCards.map { $0.id == card.id ? updated : $0 }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -217,6 +230,7 @@ final class StudyStore {
             context.delete(record)
         }
         cards.removeAll { $0.id == card.id }
+        libraryCards.removeAll { $0.id == card.id }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -346,6 +360,9 @@ final class StudyStore {
                 if let serverCard, try !hasPendingDelete(for: serverCard.id) {
                     try updateLocalCard(serverCard, markedDirty: false)
                     cards = cards.map { $0.id == serverCard.id ? serverCard : $0 }
+                    libraryCards = libraryCards.map {
+                        $0.id == serverCard.id ? serverCard : $0
+                    }
                 }
                 context.delete(mutation)
                 try context.save()
@@ -434,6 +451,15 @@ final class StudyStore {
             sortBy: [SortDescriptor(\.queueIndex)]
         )
         cards = ((try? context.fetch(descriptor)) ?? []).compactMap {
+            try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
+        }
+    }
+
+    private func loadLibraryCards() {
+        let descriptor = FetchDescriptor<LocalCardRecord>(
+            sortBy: [SortDescriptor(\.serverUpdatedAt, order: .reverse)]
+        )
+        libraryCards = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
         }
     }

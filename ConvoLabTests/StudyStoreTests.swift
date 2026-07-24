@@ -218,7 +218,7 @@ final class StudyStoreTests: XCTestCase {
         try await store.createCard(expression: "鳥", reading: "とり", meaning: "bird")
         let card = try XCTUnwrap(store.cards.first)
 
-        await store.recordReview(card: card, rating: .good, duration: nil)
+        await store.recordReview(card: card, rating: .good, duration: .milliseconds(750))
         let relaunchedStore = StudyStore(
             api: client,
             context: container.mainContext,
@@ -227,10 +227,21 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertTrue(relaunchedStore.cards.isEmpty)
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertEqual(relaunchedStore.libraryCards.map(\.id), [card.id])
         let record = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
         )
         XCTAssertFalse(record.isInActiveSession)
+        let reviewMutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "review" })
+        )
+        let review = try StorageCodec.decoder.decode(
+            ReviewBatchRequest.Event.self,
+            from: reviewMutation.payload
+        )
+        XCTAssertEqual(review.durationMilliseconds, 750)
     }
 
     @MainActor
@@ -267,9 +278,15 @@ final class StudyStoreTests: XCTestCase {
     }
 }
 
-private final class LockedCounter: @unchecked Sendable {
+final class LockedCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
+
+    var current: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
 
     func next() -> Int {
         lock.lock()

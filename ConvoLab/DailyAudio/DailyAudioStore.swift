@@ -57,17 +57,32 @@ final class DailyAudioStore {
     }
 
     func download(_ practice: DailyAudioPractice) async {
-        let urls = practice.tracks.compactMap(\.audioUrl).compactMap(URL.init(string:))
-        await mediaCache.prepare(urls: urls, category: "daily-audio")
+        for track in practice.tracks {
+            guard let raw = track.audioUrl, let remote = URL(string: raw) else { continue }
+            do {
+                _ = try await mediaCache.download(
+                    remote,
+                    category: "daily-audio",
+                    cacheKey: "daily-audio:\(track.id)"
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     func playableURL(for track: DailyAudioTrack) async -> URL? {
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
-        if let local = mediaCache.localURL(for: remote) {
+        let cacheKey = "daily-audio:\(track.id)"
+        if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
             return local
         }
         do {
-            return try await mediaCache.download(remote, category: "daily-audio")
+            return try await mediaCache.download(
+                remote,
+                category: "daily-audio",
+                cacheKey: cacheKey
+            )
         } catch {
             errorMessage = error.localizedDescription
             return nil

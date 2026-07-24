@@ -7,7 +7,7 @@ struct CardLibraryView: View {
 
     var body: some View {
         NavigationStack {
-            List(store.cards) { card in
+            List(store.libraryCards) { card in
                 Button {
                     selectedCard = card
                 } label: {
@@ -22,7 +22,7 @@ struct CardLibraryView: View {
                 }
             }
             .overlay {
-                if store.cards.isEmpty {
+                if store.libraryCards.isEmpty {
                     ContentUnavailableView(
                         "No local cards",
                         systemImage: "rectangle.stack",
@@ -139,4 +139,3 @@ private struct CardEditorView: View {
         }
     }
 }
-
