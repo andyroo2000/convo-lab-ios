@@ -11,6 +11,11 @@ final class StudyStore {
             id = card.id
             failedAt = card.state.failedAt
         }
+
+        init(id: String, failedAt: Date?) {
+            self.id = id
+            self.failedAt = failedAt
+        }
     }
 
     private struct PendingReviewPayload: Codable {
@@ -488,18 +493,21 @@ final class StudyStore {
         reading: String,
         meaning: String
     ) async throws {
+        var draft = StudyCardDraft()
+        draft.cueText = expression
+        draft.cueReading = reading
+        draft.answerExpression = expression
+        draft.answerMeaning = meaning
+        try await createCard(draft)
+    }
+
+    func createCard(_ draft: StudyCardDraft) async throws {
         let id = ClientIdentifier.ulid()
-        let prompt: JSONValue = .object([
-            "cueText": .string(expression),
-            "cueReading": reading.isEmpty ? .null : .string(reading),
-        ])
-        let answer: JSONValue = .object([
-            "expression": .string(expression),
-            "meaning": .string(meaning),
-        ])
+        let prompt = draft.prompt()
+        let answer = draft.answer()
         let request = CreateStudyCardRequest(
             id: id,
-            cardType: "recognition",
+            cardType: draft.cardType.rawValue,
             prompt: prompt,
             answer: answer
         )
@@ -508,7 +516,7 @@ final class StudyStore {
             id: id,
             syncId: id,
             noteId: nil,
-            cardType: "recognition",
+            cardType: draft.cardType.rawValue,
             prompt: prompt,
             answer: answer,
             state: .init(
@@ -546,14 +554,17 @@ final class StudyStore {
         reading: String,
         answer: String
     ) async throws {
-        let promptPayload = card.prompt.replacingObjectValues([
-            "cueText": .string(prompt),
-            "cueReading": reading.isEmpty ? .null : .string(reading),
-        ])
-        let answerPayload = card.answer.replacingObjectValues([
-            "expression": .string(prompt),
-            "meaning": .string(answer),
-        ])
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = prompt
+        draft.cueReading = reading
+        draft.answerExpression = prompt
+        draft.answerMeaning = answer
+        try await updateCard(card, draft: draft)
+    }
+
+    func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
+        let promptPayload = draft.prompt(merging: card.prompt)
+        let answerPayload = draft.answer(merging: card.answer)
         let request = UpdateStudyCardRequest(prompt: promptPayload, answer: answerPayload)
         let updated = StudyCard(
             id: card.id,
@@ -693,6 +704,7 @@ final class StudyStore {
             }
 
             do {
+                let clientResourceID = mutation.resourceID
                 let serverCard: StudyCard?
                 switch mutation.kind {
                 case "cardCreate":
@@ -727,6 +739,12 @@ final class StudyStore {
                     return
                 }
 
+                if mutation.kind == "cardCreate", let serverCard {
+                    try reconcileCreatedCardID(
+                        from: clientResourceID,
+                        to: serverCard.id
+                    )
+                }
                 if let serverCard, try !hasPendingDelete(for: serverCard.id) {
                     let acknowledgedCard = try acknowledgedCard(
                         serverCard,
@@ -737,12 +755,16 @@ final class StudyStore {
                         markedDirty: false,
                         serverUpdatedAt: serverCard.updatedAt
                     )
-                    cards = cards.map {
-                        $0.id == serverCard.id ? acknowledgedCard : $0
-                    }
-                    libraryCards = libraryCards.map {
-                        $0.id == serverCard.id ? acknowledgedCard : $0
-                    }
+                    cards = replacingCardAliases(
+                        in: cards,
+                        clientID: clientResourceID,
+                        with: acknowledgedCard
+                    )
+                    libraryCards = replacingCardAliases(
+                        in: libraryCards,
+                        clientID: clientResourceID,
+                        with: acknowledgedCard
+                    )
                 }
                 context.delete(mutation)
                 try context.save()
@@ -767,6 +789,68 @@ final class StudyStore {
                 try context.save()
                 throw error
             }
+        }
+    }
+
+    private func reconcileCreatedCardID(from clientID: String, to serverID: String) throws {
+        guard clientID != serverID else { return }
+
+        let localRecords = try context.fetch(FetchDescriptor<LocalCardRecord>())
+        let clientRecord = localRecords.first { $0.id == clientID }
+        let serverRecord = localRecords.first { $0.id == serverID }
+        if let clientRecord {
+            if let serverRecord, serverRecord !== clientRecord {
+                context.delete(serverRecord)
+                try context.save()
+            }
+            clientRecord.id = serverID
+        }
+
+        let mutations = try context.fetch(FetchDescriptor<PendingMutation>())
+        for pending in mutations where pending.resourceID == clientID {
+            pending.resourceID = serverID
+            guard
+                pending.kind == "review",
+                let decoded = try? decodePendingReview(pending.payload),
+                let cardBefore = decoded.cardBefore
+            else {
+                continue
+            }
+            let event = decoded.event
+            let canonicalEvent = ReviewBatchRequest.Event(
+                id: event.id,
+                cardID: serverID,
+                rating: event.rating,
+                reviewedAt: event.reviewedAt,
+                durationMilliseconds: event.durationMilliseconds,
+                clientEventID: event.clientEventID,
+                deviceID: event.deviceID,
+                clientCreatedAt: event.clientCreatedAt
+            )
+            pending.payload = try StorageCodec.encoder.encode(
+                PendingReviewPayload(
+                    event: canonicalEvent,
+                    cardBefore: PendingReviewCardState(
+                        id: serverID,
+                        failedAt: cardBefore.failedAt
+                    )
+                )
+            )
+        }
+    }
+
+    private func replacingCardAliases(
+        in source: [StudyCard],
+        clientID: String,
+        with acknowledgedCard: StudyCard
+    ) -> [StudyCard] {
+        var insertedAcknowledgement = false
+        return source.compactMap { card in
+            let isAlias = card.id == clientID || card.id == acknowledgedCard.id
+            guard isAlias else { return card }
+            guard !insertedAcknowledgement else { return nil }
+            insertedAcknowledgement = true
+            return acknowledgedCard
         }
     }
 

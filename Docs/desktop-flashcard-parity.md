@@ -67,6 +67,21 @@ with the local card for offline review. When a card has no resolved payload,
 revealing the answer may ask learning-os to resolve it; failure or lack of a
 network never blocks the card or grading.
 
+## Card library and editor
+
+The library creates and edits recognition, production, and cloze cards while
+offline. Recognition and production cards expose separate prompt and answer
+text, reading, meaning, examples, and notes. Cloze cards use canonical
+`{{c1::answer}}` prompt markup plus restored text, restored-text reading,
+meaning, and notes. Existing card types cannot be changed.
+
+Saving an existing card merges the edited fields into its full payload so
+server-managed scheduling data, generated audio, images, and pitch accent are
+preserved. For an audio- or image-led prompt without cue text, the editor keeps
+the media prompt and edits only the answer fields. Creates and updates enter the
+same persisted sync outbox as reviews and remain visible after relaunch.
+Generated-media controls require learning-os and are specified separately.
+
 ## Review tray
 
 The four grades are Again, Hard, Good, and Easy. Each grade displays the next
