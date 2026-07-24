@@ -368,6 +368,69 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(ReviewRating.easy.nextIntervalLabel, "7d")
     }
 
+    func testResolvedPitchAccentAppearsOnlyOnAnswerFace() {
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("会社")]),
+            answer: .object([
+                "expression": .string("会社"),
+                "pitchAccent": .object([
+                    "status": .string("resolved"),
+                    "expression": .string("会社"),
+                    "reading": .string("かいしゃ"),
+                    "pitchNum": .number(0),
+                    "morae": .array([.string("か"), .string("い"), .string("しゃ")]),
+                    "pattern": .array([.number(0), .number(1), .number(1)]),
+                    "patternName": .string("平板"),
+                    "source": .string("kanjium"),
+                    "resolvedBy": .string("local-reading"),
+                ]),
+            ])
+        )
+
+        XCTAssertNil(card.presentation.front.pitchAccent)
+        XCTAssertEqual(
+            card.presentation.back.pitchAccent,
+            .init(
+                expression: "会社",
+                reading: "かいしゃ",
+                morae: ["か", "い", "しゃ"],
+                pattern: [0, 1, 1],
+                patternName: "平板"
+            )
+        )
+    }
+
+    func testMalformedAndUnresolvedPitchAccentStayHidden() {
+        let unresolved = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("会社")]),
+            answer: .object([
+                "pitchAccent": .object([
+                    "status": .string("unresolved"),
+                    "expression": .string("会社"),
+                ]),
+            ])
+        )
+        let malformed = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("会社")]),
+            answer: .object([
+                "pitchAccent": .object([
+                    "status": .string("resolved"),
+                    "expression": .string("会社"),
+                    "reading": .string("かいしゃ"),
+                    "morae": .array([.string("か"), .string("い")]),
+                    "pattern": .array([.number(0)]),
+                    "patternName": .string("平板"),
+                ]),
+            ])
+        )
+
+        XCTAssertNil(unresolved.presentation.back.pitchAccent)
+        XCTAssertNil(malformed.presentation.back.pitchAccent)
+    }
+
     private func makeCard(
         cardType: String,
         prompt: JSONValue,

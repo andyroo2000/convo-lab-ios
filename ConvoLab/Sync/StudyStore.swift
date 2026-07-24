@@ -93,6 +93,7 @@ final class StudyStore {
     private(set) var wanikaniLastSyncedAt: Date?
     private(set) var isWaniKaniWorking = false
     private(set) var wanikaniErrorMessage: String?
+    private(set) var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
 
@@ -149,6 +150,74 @@ final class StudyStore {
             return localURL
         }
         return try? await mediaCache.download(remoteURL, category: "active-study")
+    }
+
+    func resolvePitchAccent(for card: StudyCard) async {
+        guard
+            card.answer["pitchAccent"]?["status"]?.stringValue == nil,
+            resolvingPitchAccentCardIDs.insert(card.id).inserted
+        else {
+            return
+        }
+        defer { resolvingPitchAccentCardIDs.remove(card.id) }
+
+        do {
+            try await flushCardOutbox()
+            guard
+                let currentCard = cards.first(where: { $0.id == card.id }),
+                currentCard.answer["pitchAccent"]?["status"]?.stringValue == nil
+            else {
+                return
+            }
+            // The ConvoLab-compatible pitch endpoint returns StudyCard directly,
+            // matching the direct card create/update compatibility responses.
+            let serverCard: StudyCard = try await api.request(
+                "/api/study/cards/\(currentCard.reviewCardID)/pitch-accent",
+                method: "POST"
+            )
+            guard
+                try !hasPendingDelete(for: card.id),
+                let pitchAccent = serverCard.answer["pitchAccent"]
+            else {
+                return
+            }
+            let cardID = card.id
+            var descriptor = FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.id == cardID }
+            )
+            descriptor.fetchLimit = 1
+            guard
+                let record = try context.fetch(descriptor).first,
+                let latestCard = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                )
+            else {
+                return
+            }
+            let updatedCard = StudyCard(
+                id: latestCard.id,
+                syncId: latestCard.syncId,
+                noteId: latestCard.noteId,
+                cardType: latestCard.cardType,
+                prompt: latestCard.prompt,
+                answer: latestCard.answer.replacingObjectValues([
+                    "pitchAccent": pitchAccent,
+                ]),
+                state: latestCard.state,
+                answerAudioSource: latestCard.answerAudioSource,
+                createdAt: latestCard.createdAt,
+                updatedAt: latestCard.updatedAt
+            )
+            record.payload = try StorageCodec.encoder.encode(updatedCard)
+            record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
+            cards = cards.map { $0.id == card.id ? updatedCard : $0 }
+            libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
+            try context.save()
+        } catch {
+            // Pitch accent is optional enrichment. Offline and unresolved cards
+            // remain fully studyable and can retry on a later reveal.
+        }
     }
 
     var preparedCardCount: Int {
