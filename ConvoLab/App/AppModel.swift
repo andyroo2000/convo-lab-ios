@@ -10,6 +10,7 @@ final class AppModel {
     let study: StudyStore
     let dailyAudio: DailyAudioStore
     let audioPlayer: AudioPlayer
+    let studyAudioPlayer: StudyAudioPlayer
     let isUsingEphemeralStorage: Bool
 
     init(configuration: AppConfiguration = .load()) {
@@ -40,7 +41,17 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        audioPlayer = AudioPlayer()
+        let audioPlayer = AudioPlayer()
+        let studyAudioPlayer = StudyAudioPlayer(
+            isLongFormAudioPlaying: { [weak audioPlayer] in
+                audioPlayer?.isPlaying == true
+            }
+        )
+        audioPlayer.setPlaybackStartHandler { [weak studyAudioPlayer] in
+            studyAudioPlayer?.stop()
+        }
+        self.audioPlayer = audioPlayer
+        self.studyAudioPlayer = studyAudioPlayer
     }
 
     func start() async {

@@ -100,10 +100,6 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
         return prompt.preferredText ?? answer.preferredText ?? "Study card"
     }
 
-    var promptHint: String? {
-        prompt.firstNonEmptyString(for: ["clozeResolvedHint", "clozeHint", "cueMeaning"])
-    }
-
     var answerText: String {
         if cardType == "cloze" {
             return answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])

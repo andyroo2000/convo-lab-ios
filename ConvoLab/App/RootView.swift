@@ -27,7 +27,7 @@ private struct MainTabView: View {
             Tab("Study", systemImage: "rectangle.stack.fill") {
                 StudyHomeView(
                     store: model.study,
-                    isLongFormAudioPlaying: { model.audioPlayer.isPlaying }
+                    player: model.studyAudioPlayer
                 )
             }
             Tab("Cards", systemImage: "square.and.pencil") {

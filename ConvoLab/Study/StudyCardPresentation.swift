@@ -70,8 +70,9 @@ extension StudyCard {
             return StudyCardPresentation(
                 front: .init(
                     heading: frontHeading,
-                    supportingText: prompt.firstNonEmptyString(for: ["clozeResolvedHint"])?
-                        .studyDisplayText,
+                    supportingText: prompt.firstNonEmptyString(
+                        for: ["clozeResolvedHint", "clozeHint"]
+                    )?.studyDisplayText,
                     textBlocks: [],
                     audioURL: nil,
                     imageURL: promptImageURL,
@@ -230,13 +231,21 @@ private extension String {
 
     var normalizedLooseClozeText: String {
         guard !containsCanonicalClozeMarkup else { return self }
-        guard let opening = firstIndex(of: "["),
-              let closing = self[index(after: opening)...].firstIndex(of: "]")
-        else {
-            return self
+
+        var searchStart = startIndex
+        while
+            let opening = self[searchStart...].firstIndex(of: "["),
+            let closing = self[index(after: opening)...].firstIndex(of: "]")
+        {
+            let hidden = self[index(after: opening)..<closing]
+            let previousCharacter = opening == startIndex ? nil : self[index(before: opening)]
+            let isFurigana = previousCharacter?.isKanji == true && hidden.isKanaReading
+            if !isFurigana {
+                return self[..<opening] + "{{c1::" + hidden + "}}" + self[index(after: closing)...]
+            }
+            searchStart = index(after: closing)
         }
-        let hidden = self[index(after: opening)..<closing]
-        return self[..<opening] + "{{c1::" + hidden + "}}" + self[index(after: closing)...]
+        return self
     }
 
     var studyDisplayText: String {
@@ -265,4 +274,26 @@ private extension String {
     }
 
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+private extension Character {
+    var isKanji: Bool {
+        unicodeScalars.contains { scalar in
+            (0x3400 ... 0x4DBF).contains(scalar.value)
+                || (0x4E00 ... 0x9FFF).contains(scalar.value)
+                || (0xF900 ... 0xFAFF).contains(scalar.value)
+                || scalar.value == 0x3005
+        }
+    }
+}
+
+private extension Substring {
+    var isKanaReading: Bool {
+        !isEmpty && unicodeScalars.allSatisfy { scalar in
+            (0x3040 ... 0x309F).contains(scalar.value)
+                || (0x30A0 ... 0x30FF).contains(scalar.value)
+                || scalar.value == 0x30FC
+                || scalar.value == 0x30FB
+        }
+    }
 }

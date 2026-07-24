@@ -10,6 +10,7 @@ final class AudioPlayer {
     private var currentTrackID: String?
     private var currentTitle = ""
     private var wasPlayingBeforeInterruption = false
+    private var onWillStartPlayback: @MainActor () -> Void = {}
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var completionObserver: NSObjectProtocol?
@@ -54,6 +55,7 @@ final class AudioPlayer {
     }
 
     func play(url: URL, trackID: String, title: String) {
+        onWillStartPlayback()
         activateAudioSession()
         if currentTrackID != trackID {
             currentTrackID = trackID
@@ -85,6 +87,10 @@ final class AudioPlayer {
 
     func isCurrent(_ trackID: String) -> Bool {
         currentTrackID == trackID
+    }
+
+    func setPlaybackStartHandler(_ handler: @escaping @MainActor () -> Void) {
+        onWillStartPlayback = handler
     }
 
     private func activateAudioSession() {
@@ -221,6 +227,7 @@ final class AudioPlayer {
     }
 
     private func resumePlayback() {
+        onWillStartPlayback()
         activateAudioSession()
         if duration > 0, elapsed >= duration - 0.25 {
             player.seek(to: .zero)

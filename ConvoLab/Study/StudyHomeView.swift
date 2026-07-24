@@ -2,19 +2,7 @@ import SwiftUI
 
 struct StudyHomeView: View {
     let store: StudyStore
-    @State private var player: StudyAudioPlayer
-
-    init(
-        store: StudyStore,
-        isLongFormAudioPlaying: @escaping @MainActor () -> Bool
-    ) {
-        self.store = store
-        _player = State(
-            initialValue: StudyAudioPlayer(
-                isLongFormAudioPlaying: isLongFormAudioPlaying
-            )
-        )
-    }
+    let player: StudyAudioPlayer
 
     var body: some View {
         NavigationStack {

@@ -19,7 +19,6 @@ final class StudyCardPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(card.promptText, "毎日運動を[...]。")
-        XCTAssertEqual(card.promptHint, "continuously (indicates ongoing action)")
         XCTAssertEqual(card.answerText, "毎日運動を続けています。")
         XCTAssertEqual(card.answerDetailText, "I exercise every day.")
         XCTAssertEqual(card.presentation.front.heading, "毎日運動を[...]。")
@@ -168,6 +167,23 @@ final class StudyCardPresentationTests: XCTestCase {
 
         XCTAssertEqual(card.presentation.front.heading, "私は[...]です。")
         XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+    }
+
+    func testLooseClozeSkipsFuriganaBracketsBeforeAnswer() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeDisplayText": .string("彼[かれ]は[医者]です。"),
+                "clozeHint": .string("occupation"),
+            ]),
+            answer: .object([
+                "restoredText": .string("彼は医者です。"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "彼[かれ]は[...]です。")
+        XCTAssertEqual(card.presentation.front.supportingText, "occupation")
+        XCTAssertEqual(card.presentation.back.heading, "彼は医者です。")
     }
 
     func testMalformedCardUsesHonestLibraryFallback() {

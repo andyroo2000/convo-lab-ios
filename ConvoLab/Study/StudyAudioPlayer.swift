@@ -2,58 +2,78 @@ import AVFAudio
 import AVFoundation
 import Foundation
 
+private nonisolated final class StudyAudioNotificationToken: @unchecked Sendable {
+    private let observer: NSObjectProtocol
+
+    init(_ observer: NSObjectProtocol) {
+        self.observer = observer
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(observer)
+    }
+}
+
 @Observable
 final class StudyAudioPlayer {
-    private let player = AVPlayer()
+    @ObservationIgnored private var player: AVPlayer?
     private let isLongFormAudioPlaying: @MainActor () -> Bool
     private var currentTrackID: String?
     private var ownsAudioSession = false
-    @ObservationIgnored private var completionObserver: NSObjectProtocol?
-    @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
-    @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var completionObserver: StudyAudioNotificationToken?
+    @ObservationIgnored private var interruptionObserver: StudyAudioNotificationToken?
+    @ObservationIgnored private var routeChangeObserver: StudyAudioNotificationToken?
 
     private(set) var isPlaying = false
     var isBlockedByLongFormAudio: Bool { isLongFormAudioPlaying() }
 
-    init(isLongFormAudioPlaying: @escaping @MainActor () -> Bool) {
-        self.isLongFormAudioPlaying = isLongFormAudioPlaying
-        completionObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let completedItem = notification.object as? AVPlayerItem else { return }
-            let completedItemID = ObjectIdentifier(completedItem)
-            MainActor.assumeIsolated {
-                guard
-                    let self,
-                    let currentItem = self.player.currentItem,
-                    ObjectIdentifier(currentItem) == completedItemID
-                else {
-                    return
-                }
-                self.isPlaying = false
-                self.deactivateAudioSessionIfOwned()
-            }
-        }
-        configureAudioNotifications()
+    static func allowsPlayback(whileLongFormAudioIsPlaying isPlaying: Bool) -> Bool {
+        !isPlaying
     }
 
-    isolated deinit {
-        if let completionObserver {
-            NotificationCenter.default.removeObserver(completionObserver)
+    init(isLongFormAudioPlaying: @escaping @MainActor () -> Bool) {
+        self.isLongFormAudioPlaying = isLongFormAudioPlaying
+    }
+
+    private func preparePlayerIfNeeded() -> AVPlayer {
+        if let player {
+            return player
         }
-        if let interruptionObserver {
-            NotificationCenter.default.removeObserver(interruptionObserver)
-        }
-        if let routeChangeObserver {
-            NotificationCenter.default.removeObserver(routeChangeObserver)
-        }
+        let player = AVPlayer()
+        self.player = player
+        completionObserver = StudyAudioNotificationToken(
+            NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.didPlayToEndTimeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let completedItem = notification.object as? AVPlayerItem else { return }
+                let completedItemID = ObjectIdentifier(completedItem)
+                MainActor.assumeIsolated {
+                    guard
+                        let self,
+                        let currentItem = self.player?.currentItem,
+                        ObjectIdentifier(currentItem) == completedItemID
+                    else {
+                        return
+                    }
+                    self.isPlaying = false
+                    self.deactivateAudioSessionIfOwned()
+                }
+            }
+        )
+        configureAudioNotifications()
+        return player
     }
 
     func play(url: URL, trackID: String) {
-        guard !isBlockedByLongFormAudio else { return }
+        guard Self.allowsPlayback(
+            whileLongFormAudioIsPlaying: isBlockedByLongFormAudio
+        ) else {
+            return
+        }
         activateAudioSession()
+        let player = preparePlayerIfNeeded()
         currentTrackID = trackID
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         player.seek(to: .zero)
@@ -62,7 +82,7 @@ final class StudyAudioPlayer {
     }
 
     func stop() {
-        player.pause()
+        player?.pause()
         isPlaying = false
         deactivateAudioSessionIfOwned()
     }
@@ -98,48 +118,52 @@ final class StudyAudioPlayer {
 
     private func configureAudioNotifications() {
         let center = NotificationCenter.default
-        interruptionObserver = center.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] notification in
-            let typeValue = (notification.userInfo?[
-                AVAudioSessionInterruptionTypeKey
-            ] as? NSNumber)?.uintValue
-            MainActor.assumeIsolated {
-                guard
-                    let self,
-                    let typeValue,
-                    AVAudioSession.InterruptionType(rawValue: typeValue) == .began
-                else {
-                    return
+        interruptionObserver = StudyAudioNotificationToken(
+            center.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                let typeValue = (notification.userInfo?[
+                    AVAudioSessionInterruptionTypeKey
+                ] as? NSNumber)?.uintValue
+                MainActor.assumeIsolated {
+                    guard
+                        let self,
+                        let typeValue,
+                        AVAudioSession.InterruptionType(rawValue: typeValue) == .began
+                    else {
+                        return
+                    }
+                    self.player?.pause()
+                    self.isPlaying = false
+                    self.deactivateAudioSessionIfOwned()
                 }
-                self.player.pause()
-                self.isPlaying = false
-                self.deactivateAudioSessionIfOwned()
             }
-        }
-        routeChangeObserver = center.addObserver(
-            forName: AVAudioSession.routeChangeNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] notification in
-            let reasonValue = (notification.userInfo?[
-                AVAudioSessionRouteChangeReasonKey
-            ] as? NSNumber)?.uintValue
-            MainActor.assumeIsolated {
-                guard
-                    let self,
-                    let reasonValue,
-                    AVAudioSession.RouteChangeReason(rawValue: reasonValue)
-                        == .oldDeviceUnavailable
-                else {
-                    return
+        )
+        routeChangeObserver = StudyAudioNotificationToken(
+            center.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                let reasonValue = (notification.userInfo?[
+                    AVAudioSessionRouteChangeReasonKey
+                ] as? NSNumber)?.uintValue
+                MainActor.assumeIsolated {
+                    guard
+                        let self,
+                        let reasonValue,
+                        AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+                            == .oldDeviceUnavailable
+                    else {
+                        return
+                    }
+                    self.player?.pause()
+                    self.isPlaying = false
+                    self.deactivateAudioSessionIfOwned()
                 }
-                self.player.pause()
-                self.isPlaying = false
-                self.deactivateAudioSessionIfOwned()
             }
-        }
+        )
     }
 }
