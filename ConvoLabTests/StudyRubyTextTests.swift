@@ -76,6 +76,16 @@ final class StudyRubyTextTests: XCTestCase {
         )
     }
 
+    func testKanaOnlyBracketTextIsPreservedInsteadOfRenderedAsRuby() {
+        let document = StudyRubyDocument.parse(
+            "かな[かな]",
+            knownKanji: []
+        )
+
+        XCTAssertEqual(document.segments, [.text("かな[かな]")])
+        XCTAssertFalse(document.hasRuby)
+    }
+
     func testIterationMarkDoesNotPreventKnownWordFromHidingItsReading() {
         let document = StudyRubyDocument.parse(
             "時々[ときどき]",

@@ -3,6 +3,11 @@ import SwiftUI
 import UIKit
 
 struct StudyRubyDocument: Equatable {
+    private static let annotationExpression = try? NSRegularExpression(
+        pattern:
+            #"([\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}々\x{3040}-\x{309F}\x{30A0}-\x{30FF}]+)(?:\[([^\]]+)\]|\(([^)]+)\))"#
+    )
+
     enum Segment: Equatable {
         case text(String)
         case ruby(base: String, reading: String)
@@ -28,9 +33,7 @@ struct StudyRubyDocument: Equatable {
     }
 
     static func parse(_ value: String, knownKanji: Set<Character>) -> StudyRubyDocument {
-        let pattern =
-            #"([\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}々\x{3040}-\x{309F}\x{30A0}-\x{30FF}]+)(?:\[([^\]]+)\]|\(([^)]+)\))"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+        guard let expression = annotationExpression else {
             return StudyRubyDocument(segments: [.text(value)])
         }
 
@@ -52,8 +55,8 @@ struct StudyRubyDocument: Equatable {
             let reading = bracketReading ?? parentheticalReading ?? ""
             let base = String(value[baseRange])
 
-            if parentheticalReading != nil,
-               (!reading.isKanaReading || !base.containsKanjiOrIterationMark)
+            if !base.containsKanjiOrIterationMark
+                || (parentheticalReading != nil && !reading.isKanaReading)
             {
                 continue
             }

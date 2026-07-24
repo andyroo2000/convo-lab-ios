@@ -146,6 +146,62 @@ final class KnownKanjiStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderKnownKanjiSnapshotCannotRegressCurrentState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let requestCounter = LockedCounter()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/known-kanji")
+            let version: Int
+            let kanji: String
+            if requestCounter.next() == 1 {
+                version = 5
+                kanji = #"["会","社"]"#
+            } else {
+                version = 4
+                kanji = #"["会"]"#
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "version": \(version),
+                      "kanji": \(kanji),
+                      "manualKanji": [],
+                      "wanikani": {"connected": true, "lastSyncedAt": null}
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        store.activate(userID: 7)
+
+        try await store.refreshKnownKanji()
+        try await store.refreshKnownKanji()
+
+        XCTAssertEqual(store.knownKanjiVersion, 5)
+        XCTAssertEqual(store.knownKanji, ["会", "社"])
+        let persisted = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalKnownKanjiSnapshot>()).first
+        )
+        let snapshot = try StorageCodec.decoder.decode(
+            KnownKanjiSnapshot.self,
+            from: persisted.payload
+        )
+        XCTAssertEqual(snapshot.version, 5)
+    }
+
+    @MainActor
     func testDisconnectRetainsServerEffectiveKnowledgeSnapshot() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

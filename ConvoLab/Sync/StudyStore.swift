@@ -38,6 +38,7 @@ final class StudyStore {
     private(set) var overview: StudyOverview?
     private(set) var knownKanji: Set<Character> = []
     private(set) var manualKnownKanji: Set<Character> = []
+    private(set) var knownKanjiVersion = -1
     private(set) var wanikaniConnected = false
     private(set) var wanikaniLastSyncedAt: Date?
     private(set) var isWaniKaniWorking = false
@@ -600,6 +601,7 @@ final class StudyStore {
 
     private func apply(_ snapshot: KnownKanjiSnapshot, userID: Int) throws {
         guard activeUserID == userID else { return }
+        guard snapshot.version >= knownKanjiVersion else { return }
         let payload = try StorageCodec.encoder.encode(snapshot)
         var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
             predicate: #Predicate { $0.userID == userID }
@@ -636,6 +638,7 @@ final class StudyStore {
     private func present(_ snapshot: KnownKanjiSnapshot?) {
         knownKanji = Set(snapshot?.kanji.compactMap(\.singleCharacter) ?? [])
         manualKnownKanji = Set(snapshot?.manualKanji.compactMap(\.singleCharacter) ?? [])
+        knownKanjiVersion = snapshot?.version ?? -1
         wanikaniConnected = snapshot?.wanikani.connected ?? false
         wanikaniLastSyncedAt = snapshot?.wanikani.lastSyncedAt
     }
