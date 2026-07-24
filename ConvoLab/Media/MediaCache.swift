@@ -160,6 +160,9 @@ final class MediaCache {
         if let inFlightDownload = inFlightDownloads[cacheKey] {
             _ = try? await inFlightDownload.value
         }
+        // A completed prefetch may still contain the pre-regeneration bytes.
+        // Force a second fetch because the stable URL alone cannot identify
+        // which server-side media generation that task downloaded.
         return try await download(
             remoteURL,
             category: category,

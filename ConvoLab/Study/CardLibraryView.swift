@@ -208,7 +208,7 @@ private struct CardEditorView: View {
                                 : "play.fill"
                         )
                     }
-                    .disabled(player.isBlockedByLongFormAudio)
+                    .disabled(player.isBlockedByLongFormAudio || isRegeneratingAudio)
                 } else {
                     Text("No current audio")
                         .foregroundStyle(.secondary)

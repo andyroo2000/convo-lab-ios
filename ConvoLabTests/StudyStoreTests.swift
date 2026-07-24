@@ -283,6 +283,123 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUnrelatedRejectedCardEditDoesNotBlockAnswerAudioRegeneration() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let target = makeCard(
+            id: "01J0000000000000000000000AD",
+            expression: "健康"
+        )
+        let rejected = makeCard(
+            id: "01J0000000000000000000000AE",
+            expression: "拒否"
+        )
+        for (index, card) in [target, rejected].enumerated() {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardUpdate",
+                resourceID: rejected.id,
+                payload: try StorageCodec.encoder.encode(
+                    UpdateStudyCardRequest(
+                        prompt: rejected.prompt,
+                        answer: rejected.answer
+                    )
+                )
+            )
+        )
+        try container.mainContext.save()
+
+        let regenerated = StudyCard(
+            id: target.id,
+            syncId: target.id,
+            noteId: nil,
+            cardType: target.cardType,
+            prompt: target.prompt,
+            answer: target.answer.replacingObjectValues([
+                "answerAudio": .object([
+                    "url": .string("/api/study/media/healthy-answer"),
+                ]),
+            ]),
+            state: target.state,
+            answerAudioSource: "generated",
+            createdAt: target.createdAt,
+            updatedAt: target.updatedAt.addingTimeInterval(1)
+        )
+        let regeneratedData = try StorageCodec.encoder.encode(regenerated)
+        let paths = LockedRequestPaths()
+        let targetID = target.id
+        let rejectedID = rejected.id
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/study/cards/\(rejectedID)" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 422,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Rejected edit"}"#.utf8)
+                )
+            }
+            if path.hasSuffix("/regenerate-answer-audio") {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    regeneratedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("healthy-audio".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let result = try await store.regenerateAnswerAudio(
+            for: target,
+            voiceID: StudyAnswerVoice.defaultVoice.id,
+            textOverride: ""
+        )
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/cards/\(rejected.id)",
+                "/api/study/cards/\(targetID)/regenerate-answer-audio",
+                "/api/study/media/healthy-answer",
+            ]
+        )
+        XCTAssertEqual(result.card.answerAudioSource, "generated")
+        let rejectedMutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        XCTAssertEqual(rejectedMutation.resourceID, rejected.id)
+        XCTAssertNotNil(rejectedMutation.lastError)
+    }
+
+    @MainActor
     func testCreateReconcilesBackendNormalizedULIDWithoutDuplicate() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

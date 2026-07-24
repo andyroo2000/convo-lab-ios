@@ -647,7 +647,13 @@ final class StudyStore {
         voiceID: String,
         textOverride: String
     ) async throws -> AnswerAudioRegenerationResult {
-        try await flushCardOutbox()
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardError {
+            // A rejected write for another card should not block this generated
+            // media action. The per-card guard below still blocks when this
+            // card itself owns the unresolved write.
+        }
         let currentCard = try currentLocalCard(for: card)
         guard try !hasPendingCardWrite(for: currentCard.id) else {
             throw PendingCardChangesError()
@@ -691,7 +697,8 @@ final class StudyStore {
                     ?? .null,
             ]),
             state: latestCard.state,
-            answerAudioSource: serverCard.answerAudioSource,
+            answerAudioSource: serverCard.answerAudioSource
+                ?? latestCard.answerAudioSource,
             createdAt: latestCard.createdAt,
             updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
         )
