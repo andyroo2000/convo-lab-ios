@@ -771,12 +771,15 @@ final class StudyStore {
         else {
             return .none
         }
+        let originalCardID = request.id
         let normalizedCardID = request.id.lowercased()
-        let hasConfirmedLocalCard = (
-            try? context.fetch(FetchDescriptor<LocalCardRecord>()).contains {
-                $0.id.lowercased() == normalizedCardID
+        var descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate {
+                $0.id == normalizedCardID || $0.id == originalCardID
             }
-        ) ?? false
+        )
+        descriptor.fetchLimit = 1
+        let hasConfirmedLocalCard = ((try? context.fetch(descriptor)) ?? []).isEmpty == false
         return hasConfirmedLocalCard ? .cleanupPending : .outcomeUnknown
     }
 
@@ -1642,7 +1645,7 @@ final class StudyStore {
     func retryPendingDraftCommits() async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "draftCommit" && $0.attemptCount < 3
+                $0.kind == "draftCommit" && $0.lastError == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
@@ -1720,7 +1723,16 @@ final class StudyStore {
     ) {
         mutation.attemptCount += 1
         mutation.lastAttemptAt = .now
-        mutation.lastError = error.localizedDescription
+        let isPermanentRejection: Bool
+        if case let APIClientError.rejected(status, _) = error {
+            isPermanentRejection = [400, 404, 409, 410, 422].contains(status)
+        } else {
+            isPermanentRejection = false
+        }
+        mutation.lastError =
+            isPermanentRejection || mutation.attemptCount >= 3
+            ? error.localizedDescription
+            : nil
     }
 
     private func replaceManualDraft(_ draft: StudyManualCardDraft) {

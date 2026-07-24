@@ -174,7 +174,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
         XCTAssertFalse(store.manualDrafts.isEmpty)
         XCTAssertTrue(store.hasPendingDraftCommit(for: serverDraft.id))
-        XCTAssertEqual(store.quarantinedMutationCount, 1)
+        XCTAssertEqual(store.quarantinedMutationCount, 0)
         do {
             try await store.deleteManualDraft(queued)
             XCTFail("Expected ambiguous draft commits to block deletion")
@@ -310,7 +310,25 @@ final class StudyStoreTests: XCTestCase {
         let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
         XCTAssertEqual(pending.map(\.resourceID), [firstDraftID])
         XCTAssertEqual(pending.first?.attemptCount, 1)
-        XCTAssertNotNil(pending.first?.lastError)
+        XCTAssertNil(pending.first?.lastError)
+
+        for _ in 0..<2 {
+            do {
+                try await store.retryPendingDraftCommits()
+                XCTFail("Expected the remaining draft retry to fail")
+            } catch let APIClientError.rejected(status, _) {
+                XCTAssertEqual(status, 500)
+            }
+        }
+        let attemptsBeforeQuarantinedRetry = paths.values.count
+        try await store.retryPendingDraftCommits()
+        XCTAssertEqual(paths.values.count, attemptsBeforeQuarantinedRetry)
+        let quarantined = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        XCTAssertEqual(quarantined.attemptCount, 3)
+        XCTAssertNotNil(quarantined.lastError)
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
     }
 
     @MainActor
