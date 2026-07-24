@@ -47,7 +47,17 @@ extension StudyCard {
             let cloze = ClozePresentation(
                 rawText: rawClozeText ?? prompt.firstNonEmptyString(for: ["clozeDisplayText"])
             )
-            let frontHeading = cloze.displayText?.studyDisplayText
+            let restoredPlainText = answer.firstNonEmptyString(for: ["restoredText"])
+                ?? cloze.restoredText
+            let frontHeading = cloze.displayText.map { displayText in
+                maskedRubyText(
+                    displayText: displayText.studyDisplayText,
+                    restoredText: restoredPlainText?.studyDisplayText,
+                    restoredTextReading: answer.firstNonEmptyString(
+                        for: ["restoredTextReading"]
+                    )?.studyDisplayText
+                )
+            }
 
             let notes = answer.studyNotes.map { note in
                 StudyCardPresentation.TextBlock(
@@ -121,7 +131,16 @@ extension StudyCard {
 
         return StudyCardPresentation(
             front: .init(
-                heading: isMediaLed ? nil : cueText?.studyDisplayText,
+                heading: isMediaLed ? nil : cueText.map { cueText in
+                    let displayText = cueText.studyDisplayText
+                    return matchingRubyText(
+                        plainText: displayText,
+                        candidates: [
+                            prompt.firstNonEmptyString(for: ["cueReading"]),
+                            answer.firstNonEmptyString(for: ["expressionReading"]),
+                        ]
+                    ) ?? displayText
+                },
                 supportingText: isMediaLed ? mediaLabel : cueMeaning?.studyDisplayText,
                 textBlocks: [],
                 audioURL: promptAudioURL,
@@ -140,6 +159,125 @@ extension StudyCard {
             )
         )
     }
+}
+
+private func matchingRubyText(plainText: String, candidates: [String?]) -> String? {
+    let matchText = plainText.removingStudyWhitespace
+    return candidates.lazy.compactMap { $0?.studyDisplayText }.first { candidate in
+        let document = StudyRubyDocument.parse(candidate, knownKanji: [])
+        return document.hasRuby && document.plainText.removingStudyWhitespace == matchText
+    }
+}
+
+private func maskedRubyText(
+    displayText: String,
+    restoredText: String?,
+    restoredTextReading: String?
+) -> String {
+    guard
+        let restoredText,
+        let restoredTextReading,
+        let alignedReading = alignedRubyText(
+            rubyText: restoredTextReading,
+            plainText: restoredText
+        ),
+        let markerRange = displayText.range(of: "[...]")
+    else {
+        return displayText
+    }
+
+    let prefix = String(displayText[..<markerRange.lowerBound])
+    let suffix = String(displayText[markerRange.upperBound...])
+    guard restoredText.hasPrefix(prefix), restoredText.hasSuffix(suffix) else {
+        return displayText
+    }
+
+    return slicedRubyText(
+        alignedReading,
+        start: 0,
+        end: prefix.count
+    ) + "[...]" + slicedRubyText(
+        alignedReading,
+        start: restoredText.count - suffix.count,
+        end: restoredText.count
+    )
+}
+
+private func alignedRubyText(rubyText: String, plainText: String) -> String? {
+    let plainCharacters = Array(plainText)
+    var plainIndex = 0
+    var result = ""
+
+    func appendPlainWhitespace() {
+        while plainIndex < plainCharacters.count, plainCharacters[plainIndex].isWhitespace {
+            result.append(plainCharacters[plainIndex])
+            plainIndex += 1
+        }
+    }
+
+    for segment in StudyRubyDocument.parse(rubyText, knownKanji: []).segments {
+        switch segment {
+        case let .ruby(base, reading):
+            appendPlainWhitespace()
+            let baseCharacters = Array(base)
+            guard
+                plainIndex + baseCharacters.count <= plainCharacters.count,
+                Array(plainCharacters[plainIndex..<(plainIndex + baseCharacters.count)])
+                    == baseCharacters
+            else {
+                return nil
+            }
+            result += "\(base)[\(reading)]"
+            plainIndex += baseCharacters.count
+        case let .text(text):
+            for character in text where !character.isWhitespace {
+                appendPlainWhitespace()
+                guard
+                    plainIndex < plainCharacters.count,
+                    plainCharacters[plainIndex] == character
+                else {
+                    return nil
+                }
+                result.append(character)
+                plainIndex += 1
+            }
+        }
+    }
+
+    appendPlainWhitespace()
+    return plainIndex == plainCharacters.count ? result : nil
+}
+
+private func slicedRubyText(_ value: String, start: Int, end: Int) -> String {
+    var offset = 0
+    var result = ""
+
+    for segment in StudyRubyDocument.parse(value, knownKanji: []).segments {
+        let plain = segment.baseText
+        let segmentStart = offset
+        let segmentEnd = offset + plain.count
+        offset = segmentEnd
+
+        let sliceStart = max(start, segmentStart)
+        let sliceEnd = min(end, segmentEnd)
+        guard sliceStart < sliceEnd else { continue }
+
+        let characters = Array(plain)
+        let visible = String(
+            characters[(sliceStart - segmentStart)..<(sliceEnd - segmentStart)]
+        )
+        if
+            case let .ruby(_, reading) = segment,
+            sliceStart == segmentStart,
+            sliceEnd == segmentEnd
+        {
+            result += "\(visible)[\(reading)]"
+        } else {
+            result += visible
+        }
+    }
+
+    return result
 }
 
 private extension JSONValue {
@@ -228,6 +366,10 @@ private struct ClozePresentation {
 }
 
 private extension String {
+    var removingStudyWhitespace: String {
+        filter { !$0.isWhitespace }
+    }
+
     var containsCanonicalClozeMarkup: Bool {
         range(of: #"\{\{c\d+::"#, options: .regularExpression) != nil
     }

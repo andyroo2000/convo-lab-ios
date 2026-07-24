@@ -43,10 +43,16 @@ final class StudyCardPresentationTests: XCTestCase {
             ])
         )
 
-        XCTAssertEqual(card.promptText, "先生は知識が豊富ですか？")
+        XCTAssertEqual(
+            card.promptText,
+            "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
+        )
         XCTAssertEqual(card.answerText, "Is the teacher knowledgeable?")
         XCTAssertNil(card.answerDetailText)
-        XCTAssertEqual(card.presentation.front.heading, "先生は知識が豊富ですか？")
+        XCTAssertEqual(
+            card.presentation.front.heading,
+            "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
+        )
         XCTAssertEqual(
             card.presentation.back.heading,
             "先生[せんせい]は知識[ちしき]が豊富[ほうふ]ですか？"
@@ -56,6 +62,37 @@ final class StudyCardPresentationTests: XCTestCase {
             [.meaning]
         )
         XCTAssertTrue(card.isEditableInBasicForm)
+    }
+
+    func testRecognitionFrontIgnoresReadingForDifferentCueText() {
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("先生"),
+                "cueReading": .string("学生[がくせい]"),
+            ]),
+            answer: .object([
+                "expressionReading": .string("会社[かいしゃ]"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "先生")
+    }
+
+    func testClozeFrontPreservesRubyOutsideMaskedAnswer() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeText": .string("会社で{{c1::働く}}"),
+            ]),
+            answer: .object([
+                "restoredText": .string("会社で働く"),
+                "restoredTextReading": .string("会社[かいしゃ]で働[はたら]く"),
+            ])
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]で[...]")
+        XCTAssertEqual(card.presentation.back.heading, "会社[かいしゃ]で働[はたら]く")
     }
 
     func testAnswerDetailsFollowDesktopOrderAndDecodePlainText() {
