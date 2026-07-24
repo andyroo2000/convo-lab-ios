@@ -129,10 +129,9 @@ extension StudyCard {
                 isMediaLed: isMediaLed
             ),
             back: .init(
-                heading: answer.firstNonEmptyString(
-                    for: ["expressionReading", "expression"]
-                )?.studyDisplayText
-                    ?? prompt.firstNonEmptyString(for: ["cueReading"])?.studyDisplayText,
+                heading: answer.firstNonEmptyString(for: ["expressionReading"])?.studyDisplayText
+                    ?? prompt.firstNonEmptyString(for: ["cueReading"])?.studyDisplayText
+                    ?? answer.firstNonEmptyString(for: ["expression"])?.studyDisplayText,
                 supportingText: nil,
                 textBlocks: details,
                 audioURL: answerAudioURL,

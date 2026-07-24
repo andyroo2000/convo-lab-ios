@@ -31,10 +31,17 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
+    @ObservationIgnored private var activeUserID: Int?
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
     private(set) var overview: StudyOverview?
+    private(set) var knownKanji: Set<Character> = []
+    private(set) var manualKnownKanji: Set<Character> = []
+    private(set) var wanikaniConnected = false
+    private(set) var wanikaniLastSyncedAt: Date?
+    private(set) var isWaniKaniWorking = false
+    private(set) var wanikaniErrorMessage: String?
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
 
@@ -45,6 +52,12 @@ final class StudyStore {
         deviceID = ClientIdentifier.deviceID()
         loadLocalCards()
         loadLibraryCards()
+    }
+
+    func activate(userID: Int) {
+        guard activeUserID != userID else { return }
+        activeUserID = userID
+        loadKnownKanji(userID: userID)
     }
 
     var fiveDayNewCardTarget: Int {
@@ -93,6 +106,13 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
+        if activeUserID != nil {
+            do {
+                try await refreshKnownKanji()
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
 
         if refreshed {
             lastSyncAt = .now
@@ -122,6 +142,62 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    func refreshKnownKanji() async throws {
+        guard let activeUserID else { return }
+        let snapshot: KnownKanjiSnapshot = try await api.request("/api/study/known-kanji")
+        try apply(snapshot, userID: activeUserID)
+    }
+
+    func connectWaniKani(apiToken: String) async {
+        guard let userID = activeUserID, !isWaniKaniWorking else { return }
+        isWaniKaniWorking = true
+        wanikaniErrorMessage = nil
+        defer { isWaniKaniWorking = false }
+
+        do {
+            let snapshot: KnownKanjiSnapshot = try await api.request(
+                "/api/study/wanikani",
+                method: "PUT",
+                body: ConnectWaniKaniRequest(apiToken: apiToken)
+            )
+            try apply(snapshot, userID: userID)
+            try await synchronizeWaniKani(userID: userID)
+        } catch {
+            wanikaniErrorMessage = error.localizedDescription
+        }
+    }
+
+    func syncWaniKani() async {
+        guard let userID = activeUserID, !isWaniKaniWorking else { return }
+        isWaniKaniWorking = true
+        wanikaniErrorMessage = nil
+        defer { isWaniKaniWorking = false }
+
+        do {
+            try await synchronizeWaniKani(userID: userID)
+        } catch {
+            wanikaniErrorMessage = error.localizedDescription
+        }
+    }
+
+    func disconnectWaniKani() async {
+        guard let userID = activeUserID, !isWaniKaniWorking else { return }
+        isWaniKaniWorking = true
+        wanikaniErrorMessage = nil
+        defer { isWaniKaniWorking = false }
+
+        do {
+            let _: IgnoredResponse = try await api.request(
+                "/api/study/wanikani",
+                method: "DELETE"
+            )
+            guard activeUserID == userID else { return }
+            try await refreshKnownKanji()
+        } catch {
+            wanikaniErrorMessage = error.localizedDescription
+        }
     }
 
     func recordReview(
@@ -512,6 +588,58 @@ final class StudyStore {
         }
     }
 
+    private func synchronizeWaniKani(userID: Int) async throws {
+        guard activeUserID == userID else { return }
+        let _: WaniKaniSyncResult = try await api.request(
+            "/api/study/wanikani/sync",
+            method: "POST"
+        )
+        guard activeUserID == userID else { return }
+        try await refreshKnownKanji()
+    }
+
+    private func apply(_ snapshot: KnownKanjiSnapshot, userID: Int) throws {
+        guard activeUserID == userID else { return }
+        let payload = try StorageCodec.encoder.encode(snapshot)
+        var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
+            predicate: #Predicate { $0.userID == userID }
+        )
+        descriptor.fetchLimit = 1
+        if let record = try context.fetch(descriptor).first {
+            record.payload = payload
+            record.updatedAt = .now
+        } else {
+            context.insert(LocalKnownKanjiSnapshot(userID: userID, payload: payload))
+        }
+        try context.save()
+        present(snapshot)
+    }
+
+    private func loadKnownKanji(userID: Int) {
+        var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
+            predicate: #Predicate { $0.userID == userID }
+        )
+        descriptor.fetchLimit = 1
+        guard
+            let record = try? context.fetch(descriptor).first,
+            let snapshot = try? StorageCodec.decoder.decode(
+                KnownKanjiSnapshot.self,
+                from: record.payload
+            )
+        else {
+            present(nil)
+            return
+        }
+        present(snapshot)
+    }
+
+    private func present(_ snapshot: KnownKanjiSnapshot?) {
+        knownKanji = Set(snapshot?.kanji.compactMap(\.singleCharacter) ?? [])
+        manualKnownKanji = Set(snapshot?.manualKanji.compactMap(\.singleCharacter) ?? [])
+        wanikaniConnected = snapshot?.wanikani.connected ?? false
+        wanikaniLastSyncedAt = snapshot?.wanikani.lastSyncedAt
+    }
+
     private func handleSyncError(_ error: any Error) {
         if let urlError = error as? URLError, [
             .notConnectedToInternet,
@@ -524,5 +652,11 @@ final class StudyStore {
         } else {
             syncStatus = .failed(error.localizedDescription)
         }
+    }
+}
+
+private extension String {
+    var singleCharacter: Character? {
+        count == 1 ? first : nil
     }
 }
