@@ -76,6 +76,23 @@ final class StudyStore {
         }
     }
 
+    private struct MissingGeneratedAudioError: LocalizedError {
+        var errorDescription: String? {
+            "The server regenerated this card without returning playable audio."
+        }
+    }
+
+    private struct PendingCardChangesError: LocalizedError {
+        var errorDescription: String? {
+            "Sync this card’s pending changes before regenerating its audio."
+        }
+    }
+
+    struct AnswerAudioRegenerationResult {
+        let card: StudyCard
+        let localURL: URL
+    }
+
     enum SyncStatus: Equatable {
         case idle
         case syncing
@@ -625,6 +642,80 @@ final class StudyStore {
         }
     }
 
+    func regenerateAnswerAudio(
+        for card: StudyCard,
+        voiceID: String,
+        textOverride: String
+    ) async throws -> AnswerAudioRegenerationResult {
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardError {
+            // A rejected write for another card should not block this generated
+            // media action. The per-card guard below still blocks when this
+            // card itself owns the unresolved write.
+        }
+        let currentCard = try currentLocalCard(for: card)
+        guard try !hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError()
+        }
+        let request = RegenerateAnswerAudioRequest(
+            answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
+            answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
+        )
+        // learning-os compatibility endpoint returns the card directly, without
+        // the data envelope used by newer API endpoints.
+        let serverCard: StudyCard = try await api.request(
+            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-answer-audio",
+            method: "POST",
+            body: request,
+            timeout: 180
+        )
+        guard
+            let generatedAudio = serverCard.answer["answerAudio"],
+            let remoteURL = serverCard.answerAudioURL
+        else {
+            throw MissingGeneratedAudioError()
+        }
+        let localURL = try await mediaCache.refresh(
+            remoteURL,
+            category: "active-study"
+        )
+        // Once the server and cache have changed, always reconcile local card
+        // metadata even if the editor that initiated the request was dismissed.
+        let latestCard = try currentLocalCard(for: currentCard)
+        let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let updatedCard = StudyCard(
+            id: latestCard.id,
+            syncId: serverCard.syncId ?? latestCard.syncId,
+            noteId: serverCard.noteId ?? latestCard.noteId,
+            cardType: latestCard.cardType,
+            prompt: latestCard.prompt,
+            answer: latestCard.answer.replacingObjectValues([
+                "answerAudio": generatedAudio,
+                "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
+                    ?? request.answerAudioVoiceId.map(JSONValue.string)
+                    ?? .null,
+                "answerAudioTextOverride": serverCard.answer["answerAudioTextOverride"]
+                    ?? request.answerAudioTextOverride.map(JSONValue.string)
+                    ?? .null,
+            ]),
+            state: latestCard.state,
+            answerAudioSource: serverCard.answerAudioSource
+                ?? latestCard.answerAudioSource,
+            createdAt: latestCard.createdAt,
+            updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
+        )
+        try updateLocalCard(
+            updatedCard,
+            markedDirty: pendingCardWrite,
+            serverUpdatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
+        )
+        cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        try context.save()
+        return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
+    }
+
     var quarantinedMutationCount: Int {
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate { $0.lastError != nil }
@@ -913,6 +1004,17 @@ final class StudyStore {
                 $0.kind == "cardCreate"
                     && $0.resourceID == cardID
                     && $0.lastError == nil
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !context.fetch(descriptor).isEmpty
+    }
+
+    private func hasPendingCardWrite(for cardID: String) throws -> Bool {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
+                    && $0.resourceID == cardID
             }
         )
         descriptor.fetchLimit = 1
@@ -1296,6 +1398,13 @@ final class StudyStore {
             return leftEntry.offset < rightEntry.offset
         }
         .map(\.element)
+    }
+}
+
+private extension String {
+    var nilIfTrimmedEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

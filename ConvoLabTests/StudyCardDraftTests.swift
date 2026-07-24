@@ -232,6 +232,41 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testAnswerAudioSettingsRoundTripAndDefaultToDesktopVoice() {
+        let existing = makeCard(
+            cardType: "cloze",
+            prompt: .object(["clozeText": .string("{{c1::会社}}です。")]),
+            answer: .object([
+                "restoredText": .string("会社です。"),
+                "answerAudioVoiceId": .string(
+                    "fishaudio:875668667eb94c20b09856b971d9ca2f"
+                ),
+                "answerAudioTextOverride": .string("かいしゃ"),
+            ])
+        )
+        var draft = StudyCardDraft(card: existing)
+
+        XCTAssertEqual(
+            draft.answerAudioVoiceId,
+            "fishaudio:875668667eb94c20b09856b971d9ca2f"
+        )
+        XCTAssertEqual(draft.answerAudioTextOverride, "かいしゃ")
+
+        draft.answerAudioTextOverride = ""
+        let answer = draft.answer(merging: existing.answer)
+        XCTAssertEqual(
+            answer["answerAudioVoiceId"],
+            .string("fishaudio:875668667eb94c20b09856b971d9ca2f")
+        )
+        XCTAssertEqual(answer["answerAudioTextOverride"], .null)
+
+        XCTAssertEqual(
+            StudyCardDraft().answerAudioVoiceId,
+            StudyAnswerVoice.defaultVoice.id
+        )
+    }
+
+    @MainActor
     private func makeCard(
         cardType: String,
         prompt: JSONValue,

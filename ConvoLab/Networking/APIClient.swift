@@ -34,6 +34,7 @@ final class APIClient {
         method: String = "GET",
         query: [URLQueryItem] = [],
         body: (any Encodable)? = nil,
+        timeout: TimeInterval = 45,
         response: Response.Type = Response.self
     ) async throws -> Response {
         var components = URLComponents(
@@ -49,7 +50,7 @@ final class APIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 45
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")

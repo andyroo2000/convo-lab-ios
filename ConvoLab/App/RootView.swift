@@ -31,7 +31,10 @@ private struct MainTabView: View {
                 )
             }
             Tab("Cards", systemImage: "square.and.pencil") {
-                CardLibraryView(store: model.study)
+                CardLibraryView(
+                    store: model.study,
+                    player: model.studyAudioPlayer
+                )
             }
             Tab("Daily Audio", systemImage: "headphones") {
                 DailyAudioView(store: model.dailyAudio, player: model.audioPlayer)

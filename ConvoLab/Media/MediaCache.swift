@@ -10,6 +10,7 @@ final class MediaCache {
 
     private(set) var activeDownloads = 0
     @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
+    @ObservationIgnored private var inFlightRefreshes: [String: Task<URL, Error>] = [:]
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -52,6 +53,9 @@ final class MediaCache {
         cacheKey explicitCacheKey: String? = nil
     ) async throws -> URL {
         let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
+        }
         if let existing = localURL(for: remoteURL, cacheKey: cacheKey) {
             return existing
         }
@@ -103,12 +107,27 @@ final class MediaCache {
 
         let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
         let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        context.insert(CachedMediaRecord(
-            remoteURL: cacheKey,
-            relativePath: filename,
-            byteCount: bytes,
-            category: category
-        ))
+        var descriptor = FetchDescriptor<CachedMediaRecord>(
+            predicate: #Predicate { $0.remoteURL == cacheKey }
+        )
+        descriptor.fetchLimit = 1
+        if let record = try context.fetch(descriptor).first {
+            let previousURL = rootURL.appending(path: record.relativePath)
+            record.relativePath = filename
+            record.byteCount = bytes
+            record.category = category
+            record.lastAccessedAt = .now
+            if previousURL != destination {
+                try? FileManager.default.removeItem(at: previousURL)
+            }
+        } else {
+            context.insert(CachedMediaRecord(
+                remoteURL: cacheKey,
+                relativePath: filename,
+                byteCount: bytes,
+                category: category
+            ))
+        }
         try context.save()
         return destination
     }
@@ -121,6 +140,30 @@ final class MediaCache {
                 // Preparation is best effort. The owning screen can still stream while online.
             }
         }
+    }
+
+    @discardableResult
+    func refresh(_ remoteURL: URL, category: String) async throws -> URL {
+        let cacheKey = Self.stableCacheKey(for: remoteURL)
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
+        }
+        while let ordinaryDownload = inFlightDownloads[cacheKey] {
+            _ = try? await ordinaryDownload.value
+        }
+        if let refresh = inFlightRefreshes[cacheKey] {
+            return try await refresh.value
+        }
+        let refresh = Task { @MainActor [self] in
+            try await performDownload(
+                remoteURL,
+                category: category,
+                cacheKey: cacheKey
+            )
+        }
+        inFlightRefreshes[cacheKey] = refresh
+        defer { inFlightRefreshes[cacheKey] = nil }
+        return try await refresh.value
     }
 
     func cachedKeys(for remoteURLs: [URL]) -> Set<String> {
