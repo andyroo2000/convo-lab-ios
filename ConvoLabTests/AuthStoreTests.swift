@@ -6,7 +6,7 @@ final class AuthStoreTests: XCTestCase {
     @MainActor
     func testOfflineRestoreKeepsTokenAndUsesCachedUser() async throws {
         let user = CurrentUser(
-            id: "01J00000000000000000000000",
+            id: 1,
             name: "Andrew",
             email: "andrew@example.com",
             emailVerifiedAt: nil

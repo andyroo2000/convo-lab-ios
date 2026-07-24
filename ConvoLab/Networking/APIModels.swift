@@ -5,7 +5,7 @@ struct APIEnvelope<Value: Decodable>: Decodable {
 }
 
 struct CurrentUser: Codable, Sendable {
-    let id: String
+    let id: Int
     let name: String
     let email: String
     let emailVerifiedAt: Date?

@@ -110,6 +110,37 @@ final class APIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testCurrentUserDecodesIntegerBackendID() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"""
+                    {
+                      "data": {
+                        "id": 1,
+                        "name": "Andrew Landry",
+                        "email": "andrewlandry@gmail.com",
+                        "email_verified_at": "2026-07-24T02:20:00.000000Z"
+                      }
+                    }
+                    """#.utf8
+                )
+            )
+        }
+
+        let response: APIEnvelope<CurrentUser> = try await client.request("/api/me")
+
+        XCTAssertEqual(response.data.id, 1)
+        XCTAssertEqual(response.data.email, "andrewlandry@gmail.com")
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
