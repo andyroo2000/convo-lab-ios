@@ -114,6 +114,12 @@ final class StudyStore {
         }
     }
 
+    private struct PendingDraftCommitError: LocalizedError {
+        var errorDescription: String? {
+            "This draft may already have created a card. Retry Create Card or sync before deleting it."
+        }
+    }
+
     struct AnswerAudioRegenerationResult {
         let card: StudyCard
         let localURL: URL
@@ -122,6 +128,23 @@ final class StudyStore {
     struct ImageRegenerationResult {
         let card: StudyCard
         let localURL: URL
+    }
+
+    struct DraftPreviewAudioResult {
+        let draft: StudyManualCardDraft
+        let localURL: URL?
+    }
+
+    struct DraftPreviewImageResult {
+        let draft: StudyManualCardDraft
+        let localURL: URL
+    }
+
+    enum DraftCommitRecoveryState: Equatable {
+        case none
+        case rejected
+        case outcomeUnknown
+        case cleanupPending
     }
 
     enum SyncStatus: Equatable {
@@ -136,6 +159,10 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
+    @ObservationIgnored private var draftCreateTasks: [String: Task<StudyManualCardDraft, Error>] = [:]
+    @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
+    @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
+    @ObservationIgnored private var manualDraftRevision = 0
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -144,6 +171,7 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
     private(set) var knownKanji: Set<Character> = []
     private(set) var manualKnownKanji: Set<Character> = []
@@ -300,22 +328,34 @@ final class StudyStore {
             firstError = error
         }
         do {
-            try await flushReviewOutbox()
+            try await retryPendingDraftCreates()
         } catch {
             firstError = firstError ?? error
         }
         do {
-            try await refreshSession()
-            refreshed = true
+            try await retryPendingDraftCommits()
         } catch {
             firstError = firstError ?? error
         }
+        do {
+            try await flushReviewOutbox()
+        } catch {
+            firstError = firstError ?? error
+        }
+        // Fetch small, user-visible metadata before session media preparation
+        // consumes the shared production request bucket.
         if activeUserID != nil {
             do {
                 try await refreshKnownKanji()
             } catch {
                 firstError = firstError ?? error
             }
+        }
+        do {
+            try await refreshSession()
+            refreshed = true
+        } catch {
+            firstError = firstError ?? error
         }
 
         if refreshed {
@@ -330,19 +370,20 @@ final class StudyStore {
 
     func refreshSession() async throws {
         let timeZone = TimeZone.current.identifier
-        let envelope: APIEnvelope<StudySession> = try await api.request(
+        let response: StudySessionResponse = try await api.request(
             "/api/study/session/start",
             method: "POST",
             body: ["time_zone": timeZone]
         )
+        let session = response.session
         let pendingReviewState = try pendingReviewState()
         var seenCardIDs: Set<String> = []
-        let activeCards = Self.orderSessionCards(try envelope.data.cards.filter { card in
+        let activeCards = Self.orderSessionCards(try session.cards.filter { card in
             try !hasPendingDelete(for: card.id)
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
-        overview = envelope.data.overview
+        overview = session.overview
         cards = activeCards
         apply(pendingReviewState)
         try persist(cards: activeCards)
@@ -553,6 +594,268 @@ final class StudyStore {
         draft.answerExpression = expression
         draft.answerMeaning = meaning
         try await createCard(draft)
+    }
+
+    func refreshManualDrafts() async throws {
+        if let manualDraftRefreshTask {
+            return try await manualDraftRefreshTask.value
+        }
+        let startingRevision = manualDraftRevision
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let drafts = try await fetchAllManualDrafts()
+            guard manualDraftRevision == startingRevision else { return }
+            manualDrafts = drafts
+        }
+        manualDraftRefreshTask = task
+        defer { manualDraftRefreshTask = nil }
+        try await task.value
+    }
+
+    private func fetchAllManualDrafts() async throws -> [StudyManualCardDraft] {
+        var drafts: [StudyManualCardDraft] = []
+        var cursor: String?
+        var seenCursors: Set<String> = []
+        repeat {
+            var query = [URLQueryItem(name: "limit", value: "200")]
+            if let cursor {
+                query.append(URLQueryItem(name: "cursor", value: cursor))
+            }
+            let response: StudyManualCardDraftListResponse = try await api.request(
+                "/api/study/card-drafts",
+                query: query
+            )
+            drafts.append(contentsOf: response.drafts)
+            cursor = response.nextCursor
+            if let nextCursor = cursor, !seenCursors.insert(nextCursor).inserted {
+                cursor = nil
+            }
+        } while cursor != nil
+        return drafts
+    }
+
+    @discardableResult
+    func queueManualDraft(
+        creationKind: StudyCardCreationKind,
+        draft: StudyCardDraft,
+        id: String = ClientIdentifier.ulid()
+    ) async throws -> StudyManualCardDraft {
+        let request = CreateStudyManualCardDraftRequest(
+            id: id,
+            creationKind: creationKind,
+            cardType: creationKind.cardType.rawValue,
+            prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),
+            answer: draft.answer(),
+            imagePlacement: draft.imagePlacement,
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty
+        )
+        let mutation: PendingMutation
+        if let existing = try pendingDraftCreate(for: id) {
+            existing.payload = try StorageCodec.encoder.encode(request)
+            existing.lastError = nil
+            try context.save()
+            mutation = existing
+        } else {
+            mutation = PendingMutation(
+                kind: "draftCreate",
+                resourceID: id,
+                payload: try StorageCodec.encoder.encode(request)
+            )
+            context.insert(mutation)
+            try context.save()
+        }
+        return try await runDraftCreate(mutation)
+    }
+
+    @discardableResult
+    func updateManualDraft(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue? = nil,
+        previewAudioRole: String? = nil,
+        previewImage: JSONValue? = nil
+    ) async throws -> StudyManualCardDraft {
+        var prompt = draft.prompt(merging: serverDraft.prompt)
+        var answer = draft.answer(merging: serverDraft.answer)
+        if let previewAudio {
+            if previewAudioRole == "prompt" {
+                prompt = prompt.replacingObjectValues(["cueAudio": previewAudio])
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            } else if previewAudioRole == "answer" {
+                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
+            }
+        }
+        if let previewImage {
+            if draft.imagePlacement.includesPrompt {
+                prompt = prompt.replacingObjectValues(["cueImage": previewImage])
+            }
+            if draft.imagePlacement.includesAnswer {
+                answer = answer.replacingObjectValues(["answerImage": previewImage])
+            }
+        }
+        let resolvedPreviewAudio = previewAudio ?? serverDraft.previewAudio
+        let resolvedPreviewAudioRole = previewAudio == nil
+            ? serverDraft.previewAudioRole
+            : previewAudioRole
+        let resolvedPreviewImage = previewImage ?? serverDraft.previewImage
+        let request = UpdateStudyManualCardDraftRequest(
+            prompt: prompt,
+            answer: answer,
+            imagePlacement: draft.imagePlacement,
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty,
+            previewAudio: resolvedPreviewAudio ?? .null,
+            previewAudioRole: resolvedPreviewAudioRole.map(JSONValue.string) ?? .null,
+            previewImage: resolvedPreviewImage ?? .null
+        )
+        let updated: StudyManualCardDraft = try await api.request(
+            "/api/study/card-drafts/\(serverDraft.id)",
+            method: "PATCH",
+            body: request
+        )
+        replaceManualDraft(updated)
+        return updated
+    }
+
+    func generateManualDraftPreviewAudio(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewImage: JSONValue?
+    ) async throws -> DraftPreviewAudioResult {
+        let updated = try await updateManualDraft(
+            serverDraft,
+            draft: draft,
+            previewImage: previewImage
+        )
+        let response: StudyCardDraftPreviewAudioResponse = try await api.request(
+            "/api/study/card-drafts/\(updated.id)/preview-audio",
+            method: "POST",
+            timeout: 180
+        )
+        let refreshed = try await fetchManualDraft(id: updated.id)
+        let localURL: URL?
+        if let remoteURL = response.previewAudio?.mediaURLs.first {
+            localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+        } else {
+            localURL = nil
+        }
+        return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
+    }
+
+    func generateManualDraftPreviewImage(
+        _ serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue?,
+        previewAudioRole: String?
+    ) async throws -> DraftPreviewImageResult {
+        let updated = try await updateManualDraft(
+            serverDraft,
+            draft: draft,
+            previewAudio: previewAudio,
+            previewAudioRole: previewAudioRole
+        )
+        let response: StudyCardDraftImageResponse = try await api.request(
+            "/api/study/card-drafts/\(updated.id)/preview-image",
+            method: "POST",
+            timeout: 180
+        )
+        guard let remoteURL = response.previewImage.mediaURLs.first else {
+            throw MissingGeneratedImageError()
+        }
+        let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+        let refreshed = try await fetchManualDraft(id: updated.id)
+        return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
+    }
+
+    func createCard(
+        from serverDraft: StudyManualCardDraft,
+        draft: StudyCardDraft,
+        previewAudio: JSONValue?,
+        previewAudioRole: String?,
+        previewImage: JSONValue?
+    ) async throws {
+        let existingCommit = try pendingDraftCommit(for: serverDraft.id)
+        let shouldUpdateDraft = existingCommit == nil
+            || existingCommit?.kind == "draftCommitRejected"
+        let updated = if shouldUpdateDraft {
+            try await updateManualDraft(
+                serverDraft,
+                draft: draft,
+                previewAudio: previewAudio,
+                previewAudioRole: previewAudioRole,
+                previewImage: previewImage
+            )
+        } else {
+            serverDraft
+        }
+        let commitMutation: PendingMutation
+        if let existingCommit {
+            commitMutation = existingCommit
+        } else if let pending = try pendingDraftCommit(for: updated.id) {
+            commitMutation = pending
+        } else {
+            let request = CreateCardFromStudyManualDraftRequest(id: ClientIdentifier.ulid())
+            commitMutation = PendingMutation(
+                kind: "draftCommit",
+                resourceID: updated.id,
+                payload: try StorageCodec.encoder.encode(request)
+            )
+            context.insert(commitMutation)
+            try context.save()
+        }
+        if commitMutation.kind == "draftCommitRejected" {
+            commitMutation.kind = "draftCommit"
+            commitMutation.attemptCount = 0
+            commitMutation.lastAttemptAt = nil
+            commitMutation.lastError = nil
+            try context.save()
+        }
+        try await runDraftCommit(commitMutation)
+    }
+
+    func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
+        let pendingCommit = try pendingDraftCommit(for: serverDraft.id)
+        if let pendingCommit, pendingCommit.kind != "draftCommitRejected" {
+            throw PendingDraftCommitError()
+        }
+        let _: IgnoredResponse = try await api.request(
+            "/api/study/card-drafts/\(serverDraft.id)",
+            method: "DELETE"
+        )
+        if let pendingCommit {
+            context.delete(pendingCommit)
+            try context.save()
+        }
+        manualDrafts.removeAll { $0.id == serverDraft.id }
+        manualDraftRevision += 1
+    }
+
+    func hasPendingDraftCommit(for draftID: String) -> Bool {
+        draftCommitRecoveryState(for: draftID) != .none
+    }
+
+    func draftCommitRecoveryState(for draftID: String) -> DraftCommitRecoveryState {
+        guard
+            let mutation = try? pendingDraftCommit(for: draftID),
+            let request = try? StorageCodec.decoder.decode(
+                CreateCardFromStudyManualDraftRequest.self,
+                from: mutation.payload
+            )
+        else {
+            return .none
+        }
+        if mutation.kind == "draftCommitRejected" {
+            return .rejected
+        }
+        let originalCardID = request.id
+        let normalizedCardID = request.id.lowercased()
+        var descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate {
+                $0.id == normalizedCardID || $0.id == originalCardID
+            }
+        )
+        descriptor.fetchLimit = 1
+        let hasConfirmedLocalCard = ((try? context.fetch(descriptor)) ?? []).isEmpty == false
+        return hasConfirmedLocalCard ? .cleanupPending : .outcomeUnknown
     }
 
     func createCard(_ draft: StudyCardDraft) async throws {
@@ -1394,6 +1697,277 @@ final class StudyStore {
             record.locallyUpdatedAt = markedDirty ? .now : nil
             context.insert(record)
         }
+    }
+
+    private func fetchManualDraft(id: String) async throws -> StudyManualCardDraft {
+        let draft: StudyManualCardDraft = try await api.request(
+            "/api/study/card-drafts/\(id)"
+        )
+        replaceManualDraft(draft)
+        return draft
+    }
+
+    private func pendingDraftCommit(for draftID: String) throws -> PendingMutation? {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                ($0.kind == "draftCommit" || $0.kind == "draftCommitRejected")
+                    && $0.resourceID == draftID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    private func pendingDraftCreate(for draftID: String) throws -> PendingMutation? {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "draftCreate" && $0.resourceID == draftID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    func retryPendingDraftCreates() async throws {
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "draftCreate" && $0.lastError == nil
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        var firstError: (any Error)?
+        for mutation in try context.fetch(descriptor) {
+            do {
+                _ = try await runDraftCreate(mutation)
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    private func runDraftCreate(
+        _ mutation: PendingMutation
+    ) async throws -> StudyManualCardDraft {
+        let mutationID = mutation.id
+        if let task = draftCreateTasks[mutationID] {
+            return try await task.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await performDraftCreate(mutation)
+        }
+        draftCreateTasks[mutationID] = task
+        defer { draftCreateTasks[mutationID] = nil }
+        return try await task.value
+    }
+
+    private func performDraftCreate(
+        _ mutation: PendingMutation
+    ) async throws -> StudyManualCardDraft {
+        let request = try StorageCodec.decoder.decode(
+            CreateStudyManualCardDraftRequest.self,
+            from: mutation.payload
+        )
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        mutation.lastError = nil
+        try context.save()
+
+        let serverDraft: StudyManualCardDraft
+        do {
+            serverDraft = try await api.request(
+                "/api/study/card-drafts",
+                method: "POST",
+                body: request
+            )
+        } catch {
+            if case let APIClientError.rejected(status, _) = error,
+               isPermanentDraftCreateRejection(status: status)
+            {
+                mutation.lastError = error.localizedDescription
+            } else {
+                // Keep transient failures eligible for background sync. A
+                // permanent rejection remains quarantined until the editor
+                // explicitly replaces its payload and retries it.
+                mutation.lastError = nil
+            }
+            try? context.save()
+            throw error
+        }
+
+        context.delete(mutation)
+        try context.save()
+        replaceManualDraft(serverDraft)
+        return serverDraft
+    }
+
+    func retryPendingDraftCommits() async throws {
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "draftCommit" && $0.lastError == nil
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        var firstError: (any Error)?
+        for mutation in try context.fetch(descriptor) {
+            do {
+                try await runDraftCommit(mutation)
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    private func runDraftCommit(_ mutation: PendingMutation) async throws {
+        let mutationID = mutation.id
+        if let task = draftCommitTasks[mutationID] {
+            return try await task.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await performDraftCommit(mutation)
+        }
+        draftCommitTasks[mutationID] = task
+        defer { draftCommitTasks[mutationID] = nil }
+        try await task.value
+    }
+
+    private func performDraftCommit(_ mutation: PendingMutation) async throws {
+        let request = try StorageCodec.decoder.decode(
+            CreateCardFromStudyManualDraftRequest.self,
+            from: mutation.payload
+        )
+        let card: StudyCard
+        do {
+            // learning-os deliberately exposes the unwrapped ConvoLab
+            // compatibility payload for manual draft creation and commit.
+            card = try await api.request(
+                "/api/study/card-drafts/\(mutation.resourceID)/create-card",
+                method: "POST",
+                body: request
+            )
+        } catch let rejection as APIClientError {
+            let isPermanentRejection: Bool
+            if case let .rejected(status, _) = rejection, status == 409 {
+                isPermanentRejection = await draftHasDifferentCommittedCardID(
+                    draftID: mutation.resourceID,
+                    clientCardID: request.id
+                )
+            } else if case let .rejected(status, _) = rejection {
+                isPermanentRejection = isPermanentDraftCommitRejection(status: status)
+            } else {
+                isPermanentRejection = false
+            }
+            if isPermanentRejection {
+                // learning-os returns 200 for a same-client-ID idempotent retry.
+                // Resolve 409s from canonical draft state, not localized prose:
+                // generating remains transient; a different committed ID is terminal.
+                mutation.kind = "draftCommitRejected"
+            }
+            recordDraftCommitFailure(
+                rejection,
+                on: mutation,
+                isPermanentRejection: isPermanentRejection
+            )
+            try context.save()
+            throw rejection
+        } catch {
+            recordDraftCommitFailure(error, on: mutation)
+            try context.save()
+            throw error
+        }
+
+        // Reconcile the confirmed server card before cleaning up the transient
+        // draft so an interrupted cleanup cannot lose the canonical card.
+        try updateLocalCard(card, markedDirty: false)
+        cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+        cards.append(card)
+        cards = Self.orderSessionCards(cards)
+        libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+        libraryCards.append(card)
+        try context.save()
+        await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
+        do {
+            let _: IgnoredResponse = try await api.request(
+                "/api/study/card-drafts/\(mutation.resourceID)",
+                method: "DELETE"
+            )
+        } catch let APIClientError.rejected(status, _) where [404, 410].contains(status) {
+            // Cleanup is idempotent: an already-absent transient draft is done.
+        } catch {
+            recordDraftCleanupFailure(on: mutation)
+            try context.save()
+            throw error
+        }
+        context.delete(mutation)
+        manualDrafts.removeAll { $0.id == mutation.resourceID }
+        manualDraftRevision += 1
+        try context.save()
+    }
+
+    private func recordDraftCommitFailure(
+        _ error: any Error,
+        on mutation: PendingMutation,
+        isPermanentRejection override: Bool? = nil
+    ) {
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        let isPermanentRejection: Bool
+        if let override {
+            isPermanentRejection = override
+        } else if case let APIClientError.rejected(status, _) = error {
+            isPermanentRejection = isPermanentDraftCommitRejection(status: status)
+        } else {
+            isPermanentRejection = false
+        }
+        mutation.lastError = isPermanentRejection ? error.localizedDescription : nil
+    }
+
+    private func draftHasDifferentCommittedCardID(
+        draftID: String,
+        clientCardID: String
+    ) async -> Bool {
+        guard
+            let draft: StudyManualCardDraft = try? await api.request(
+                "/api/study/card-drafts/\(draftID)"
+            )
+        else {
+            return false
+        }
+        replaceManualDraft(draft)
+        guard let committedCardID = draft.committedCardId else { return false }
+        return committedCardID.lowercased() != clientCardID.lowercased()
+    }
+
+    private func isPermanentDraftCommitRejection(status: Int) -> Bool {
+        return [400, 404, 410, 422].contains(status)
+    }
+
+    private func isPermanentDraftCreateRejection(status: Int) -> Bool {
+        return [400, 404, 409, 410, 422].contains(status)
+    }
+
+    private func recordDraftCleanupFailure(on mutation: PendingMutation) {
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        // The card is already canonical at this point. Every cleanup failure
+        // remains eligible for background retry, regardless of HTTP status.
+        mutation.lastError = nil
+    }
+
+    // Internal so concurrency tests can model a completed local mutation while
+    // an older list request is still in flight.
+    func replaceManualDraft(_ draft: StudyManualCardDraft) {
+        manualDrafts.removeAll { $0.id == draft.id }
+        manualDrafts.append(draft)
+        manualDrafts.sort { $0.createdAt > $1.createdAt }
+        manualDraftRevision += 1
     }
 
     private func loadLocalCards() {

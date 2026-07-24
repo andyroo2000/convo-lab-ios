@@ -57,9 +57,127 @@ struct RegenerateImageRequest: Encodable, Equatable, Sendable {
     let imageRole: String
 }
 
+enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case textRecognition = "text-recognition"
+    case audioRecognition = "audio-recognition"
+    case productionText = "production-text"
+    case productionImage = "production-image"
+    case cloze
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .textRecognition: "Text recognition"
+        case .audioRecognition: "Audio recognition"
+        case .productionText: "Text production"
+        case .productionImage: "Image production"
+        case .cloze: "Cloze"
+        }
+    }
+
+    var cardType: StudyCardDraft.CardType {
+        switch self {
+        case .textRecognition, .audioRecognition: .recognition
+        case .productionText, .productionImage: .production
+        case .cloze: .cloze
+        }
+    }
+
+    var defaultImagePlacement: StudyCardDraft.ImagePlacement {
+        switch self {
+        case .productionImage: .prompt
+        case .cloze: .both
+        case .textRecognition, .audioRecognition, .productionText: .none
+        }
+    }
+}
+
+// learning-os resolves these ConvoLab compatibility resources directly, so
+// card-draft list, detail, mutation, and preview responses are intentionally
+// decoded without APIEnvelope.
+struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let status: String
+    let committedCardId: String?
+    let creationKind: StudyCardCreationKind
+    let cardType: String
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+    let previewAudio: JSONValue?
+    let previewAudioRole: String?
+    let previewImage: JSONValue?
+    let errorMessage: String?
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct StudyManualCardDraftListResponse: Codable, Sendable {
+    let drafts: [StudyManualCardDraft]
+    let total: Int?
+    let limit: Int
+    let nextCursor: String?
+}
+
+struct CreateStudyManualCardDraftRequest: Codable, Equatable, Sendable {
+    let id: String
+    let creationKind: StudyCardCreationKind
+    let cardType: String
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+}
+
+struct UpdateStudyManualCardDraftRequest: Encodable, Equatable, Sendable {
+    let prompt: JSONValue
+    let answer: JSONValue
+    let imagePlacement: StudyCardDraft.ImagePlacement
+    let imagePrompt: String?
+    let previewAudio: JSONValue
+    let previewAudioRole: JSONValue
+    let previewImage: JSONValue
+}
+
+struct StudyCardDraftPreviewAudioResponse: Codable, Sendable {
+    let previewAudio: JSONValue?
+    let previewAudioRole: String?
+}
+
+struct StudyCardDraftImageResponse: Codable, Sendable {
+    let previewImage: JSONValue
+    let imagePrompt: String
+    let imagePlacement: StudyCardDraft.ImagePlacement
+}
+
+struct CreateCardFromStudyManualDraftRequest: Codable, Equatable, Sendable {
+    let id: String
+}
+
 struct StudySession: Codable, Sendable {
     let overview: StudyOverview
     let cards: [StudyCard]
+}
+
+struct StudySessionResponse: Decodable, Sendable {
+    let session: StudySession
+
+    private enum CodingKeys: String, CodingKey {
+        case data
+        case overview
+        case cards
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.data) {
+            session = try container.decode(StudySession.self, forKey: .data)
+        } else {
+            session = try StudySession(from: decoder)
+        }
+    }
 }
 
 struct StudyOverview: Codable, Sendable {
@@ -86,13 +204,46 @@ struct StudyOverview: Codable, Sendable {
         self.newCardsAvailableToday = newCardsAvailableToday
     }
 
-    enum CodingKeys: String, CodingKey {
-        case dueCount = "due_count"
-        case failedCount = "failed_count"
-        case newCount = "new_count"
-        case reviewCount = "review_count"
-        case newCardsPerDay = "new_cards_per_day"
-        case newCardsAvailableToday = "new_cards_available_today"
+    private enum CodingKeys: String, CodingKey {
+        case dueCount
+        case failedCount
+        case newCount
+        case reviewCount
+        case newCardsPerDay
+        case newCardsAvailableToday
+
+        case legacyDueCount = "due_count"
+        case legacyFailedCount = "failed_count"
+        case legacyNewCount = "new_count"
+        case legacyReviewCount = "review_count"
+        case legacyNewCardsPerDay = "new_cards_per_day"
+        case legacyNewCardsAvailableToday = "new_cards_available_today"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dueCount = try container.decodeIfPresent(Int.self, forKey: .dueCount)
+            ?? container.decode(Int.self, forKey: .legacyDueCount)
+        failedCount = try container.decodeIfPresent(Int.self, forKey: .failedCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyFailedCount)
+        newCount = try container.decodeIfPresent(Int.self, forKey: .newCount)
+            ?? container.decode(Int.self, forKey: .legacyNewCount)
+        reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount)
+            ?? container.decode(Int.self, forKey: .legacyReviewCount)
+        newCardsPerDay = try container.decodeIfPresent(Int.self, forKey: .newCardsPerDay)
+            ?? container.decode(Int.self, forKey: .legacyNewCardsPerDay)
+        newCardsAvailableToday = try container.decodeIfPresent(Int.self, forKey: .newCardsAvailableToday)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyNewCardsAvailableToday)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(dueCount, forKey: .dueCount)
+        try container.encodeIfPresent(failedCount, forKey: .failedCount)
+        try container.encode(newCount, forKey: .newCount)
+        try container.encode(reviewCount, forKey: .reviewCount)
+        try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
+        try container.encodeIfPresent(newCardsAvailableToday, forKey: .newCardsAvailableToday)
     }
 }
 

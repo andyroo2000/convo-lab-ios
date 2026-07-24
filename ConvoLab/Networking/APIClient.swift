@@ -3,6 +3,7 @@ import Foundation
 enum APIClientError: LocalizedError {
     case invalidResponse
     case rejected(status: Int, message: String)
+    case decoding(path: String, details: String)
 
     var errorDescription: String? {
         switch self {
@@ -10,6 +11,8 @@ enum APIClientError: LocalizedError {
             "The server returned an invalid response."
         case let .rejected(_, message):
             message
+        case let .decoding(path, details):
+            "The server response for \(path) couldn’t be read: \(details)"
         }
     }
 }
@@ -73,7 +76,13 @@ final class APIClient {
         if data.isEmpty, Response.self == IgnoredResponse.self {
             return IgnoredResponse() as! Response
         }
-        return try Self.decoder.decode(Response.self, from: data)
+        do {
+            return try Self.decoder.decode(Response.self, from: data)
+        } catch let error as DecodingError {
+            let details = Self.decodingDetails(error)
+            print("API decoding failed for \(path): \(details)")
+            throw APIClientError.decoding(path: path, details: details)
+        }
     }
 
     func download(_ rawURL: URL) async throws -> (URL, URLResponse) {
@@ -93,20 +102,36 @@ final class APIClient {
         if let accessToken, isSameOrigin(url, baseURL) {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
-        let (temporaryURL, response) = try await session.download(for: request)
-        guard
-            let httpResponse = response as? HTTPURLResponse,
-            200..<300 ~= httpResponse.statusCode
-        else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw APIClientError.rejected(
-                status: status,
-                message: status == 0
-                    ? "The media server returned an invalid response."
-                    : HTTPURLResponse.localizedString(forStatusCode: status)
-            )
+
+        var rateLimitRetry = 0
+        while true {
+            let (temporaryURL, response) = try await session.download(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIClientError.rejected(
+                    status: 0,
+                    message: "The media server returned an invalid response."
+                )
+            }
+            if httpResponse.statusCode == 429, rateLimitRetry < 3 {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                let delay = Self.rateLimitRetryDelay(
+                    response: httpResponse,
+                    retry: rateLimitRetry
+                )
+                rateLimitRetry += 1
+                try await Task.sleep(for: .seconds(delay))
+                continue
+            }
+            guard 200..<300 ~= httpResponse.statusCode else {
+                throw APIClientError.rejected(
+                    status: httpResponse.statusCode,
+                    message: HTTPURLResponse.localizedString(
+                        forStatusCode: httpResponse.statusCode
+                    )
+                )
+            }
+            return (temporaryURL, response)
         }
-        return (temporaryURL, response)
     }
 
     private func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
@@ -120,6 +145,20 @@ final class APIClient {
             url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         }
         return effectivePort(for: lhs) == effectivePort(for: rhs)
+    }
+
+    private static func rateLimitRetryDelay(
+        response: HTTPURLResponse,
+        retry: Int
+    ) -> TimeInterval {
+        if let rawValue = response.value(forHTTPHeaderField: "Retry-After"),
+           let seconds = TimeInterval(rawValue.trimmingCharacters(in: .whitespaces)),
+           seconds >= 0 {
+            // A small cushion prevents retrying just before the server's fixed
+            // rate-limit window has actually rolled over.
+            return min(seconds + 0.25, 120)
+        }
+        return [5, 15, 45][min(retry, 2)]
     }
 
     private struct ErrorPayload: Decodable {
@@ -164,4 +203,35 @@ final class APIClient {
         }
         return decoder
     }()
+
+    private static func decodingDetails(_ error: DecodingError) -> String {
+        switch error {
+        case let .keyNotFound(key, context):
+            "missing \(codingPath(context.codingPath, appending: key))"
+        case let .valueNotFound(_, context):
+            "missing value at \(codingPath(context.codingPath))"
+        case let .typeMismatch(_, context):
+            "unexpected value at \(codingPath(context.codingPath))"
+        case let .dataCorrupted(context):
+            "invalid value at \(codingPath(context.codingPath)): \(context.debugDescription)"
+        @unknown default:
+            "unknown decoding error"
+        }
+    }
+
+    private static func codingPath(
+        _ codingPath: [any CodingKey],
+        appending key: (any CodingKey)? = nil
+    ) -> String {
+        let keys = codingPath + (key.map { [$0] } ?? [])
+        guard !keys.isEmpty else { return "response root" }
+        return keys.map { codingKey in
+            if let index = codingKey.intValue {
+                return "[\(index)]"
+            }
+            return codingKey.stringValue
+        }
+        .joined(separator: ".")
+        .replacingOccurrences(of: ".[", with: "[")
+    }
 }

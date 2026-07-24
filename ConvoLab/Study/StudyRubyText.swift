@@ -216,6 +216,9 @@ private extension StudyRubyDocument {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
         paragraph.lineBreakMode = .byWordWrapping
+        if hasRuby {
+            paragraph.lineSpacing = font.lineHeight * 0.4
+        }
         let output = NSMutableAttributedString()
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,

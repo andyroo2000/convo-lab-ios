@@ -5,6 +5,1366 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let audio: JSONValue = .object([
+            "id": .string("audio-1"),
+            "filename": .string("audio-1.mp3"),
+            "url": .string("/api/study/media/audio-1"),
+            "mediaKind": .string("audio"),
+            "source": .string("generated"),
+        ])
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000DR",
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([
+                "serverEnrichment": .object(["source": .string("learning-os")]),
+            ]),
+            answer: .object([
+                "expression": .string("営業の仕事は楽しいです。"),
+                "meaning": .string("Sales work is fun."),
+                "pitchAccent": .array([.number(2)]),
+            ]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: audio,
+            previewAudioRole: "prompt",
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let card = StudyCard(
+            id: "01j0000000000000000000000cd",
+            syncId: "01j0000000000000000000000cd",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueAudio": audio]),
+            answer: serverDraft.answer.replacingObjectValues(["answerAudio": audio]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "generated",
+            createdAt: now,
+            updatedAt: now
+        )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
+        let committedData = try StorageCodec.encoder.encode(card)
+        let paths = LockedRequestPaths()
+        let commitIDs = LockedRequestPaths()
+        let deleteAttempts = LockedCounter()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/study/card-drafts" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            if request.httpMethod == "PATCH" {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                let prompt = payload?["prompt"] as? [String: Any]
+                let answer = payload?["answer"] as? [String: Any]
+                XCTAssertEqual(
+                    (prompt?["serverEnrichment"] as? [String: Any])?["source"] as? String,
+                    "learning-os"
+                )
+                XCTAssertEqual(answer?["pitchAccent"] as? [Int], [2])
+                XCTAssertEqual((prompt?["cueAudio"] as? [String: Any])?["id"] as? String, "audio-1")
+                XCTAssertEqual(
+                    (answer?["answerAudio"] as? [String: Any])?["id"] as? String,
+                    "audio-1"
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            if path.hasSuffix("/create-card") {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                XCTAssertEqual((payload?["id"] as? String)?.count, 26)
+                commitIDs.append(payload?["id"] as? String ?? "")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            if request.httpMethod == "DELETE" {
+                if deleteAttempts.next() == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 409,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"cleanup failed"}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 410,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"draft gone"}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("draft-audio".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "営業の仕事は楽しいです。"
+        draft.answerMeaning = "Sales work is fun."
+
+        let queued = try await store.queueManualDraft(
+            creationKind: .audioRecognition,
+            draft: draft
+        )
+        do {
+            try await store.createCard(
+                from: queued,
+                draft: draft,
+                previewAudio: audio,
+                previewAudioRole: "prompt",
+                previewImage: nil
+            )
+            XCTFail("Expected the first draft cleanup to fail")
+        } catch let APIClientError.rejected(status, message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "cleanup failed")
+        }
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertFalse(store.manualDrafts.isEmpty)
+        XCTAssertTrue(store.hasPendingDraftCommit(for: serverDraft.id))
+        XCTAssertEqual(store.quarantinedMutationCount, 0)
+        do {
+            try await store.deleteManualDraft(queued)
+            XCTFail("Expected ambiguous draft commits to block deletion")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This draft may already have created a card. Retry Create Card or sync before deleting it."
+            )
+        }
+
+        try await store.retryPendingDraftCommits()
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/card-drafts",
+                "/api/study/card-drafts/\(serverDraft.id)",
+                "/api/study/card-drafts/\(serverDraft.id)/create-card",
+                "/api/study/media/audio-1",
+                "/api/study/card-drafts/\(serverDraft.id)",
+                "/api/study/card-drafts/\(serverDraft.id)/create-card",
+                "/api/study/card-drafts/\(serverDraft.id)",
+            ]
+        )
+        XCTAssertEqual(commitIDs.values.count, 2)
+        XCTAssertEqual(commitIDs.values[0], commitIDs.values[1])
+        XCTAssertTrue(store.manualDrafts.isEmpty)
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .allSatisfy { $0.kind != "draftCommit" }
+        )
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.prompt["cueAudio"], audio)
+        XCTAssertEqual(persisted.answer["answerAudio"], audio)
+    }
+
+    @MainActor
+    func testDraftCommitRetryContinuesAfterAnUnrelatedFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let firstDraftID = "01J0000000000000000000000F1"
+        let secondDraftID = "01J0000000000000000000000F2"
+        let firstCardID = "01J0000000000000000000000C1"
+        let secondCardID = "01J0000000000000000000000C2"
+        let firstMutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: firstDraftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: firstCardID)
+            )
+        )
+        let secondMutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: secondDraftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: secondCardID)
+            )
+        )
+        secondMutation.createdAt = firstMutation.createdAt.addingTimeInterval(1)
+        container.mainContext.insert(firstMutation)
+        container.mainContext.insert(secondMutation)
+        try container.mainContext.save()
+
+        let committedCard = makeCard(
+            id: secondCardID.lowercased(),
+            expression: "二番目"
+        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path.contains(firstDraftID) {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 500,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"first draft failed"}"#.utf8)
+                )
+            }
+            if path.hasSuffix("/create-card") {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected the first draft failure to be reported")
+        } catch let APIClientError.rejected(status, message) {
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(message, "first draft failed")
+        }
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/card-drafts/\(firstDraftID)/create-card",
+                "/api/study/card-drafts/\(secondDraftID)/create-card",
+                "/api/study/card-drafts/\(secondDraftID)",
+            ]
+        )
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.resourceID), [firstDraftID])
+        XCTAssertEqual(pending.first?.attemptCount, 1)
+        XCTAssertNil(pending.first?.lastError)
+
+        for _ in 0..<2 {
+            do {
+                try await store.retryPendingDraftCommits()
+                XCTFail("Expected the remaining draft retry to fail")
+            } catch let APIClientError.rejected(status, _) {
+                XCTAssertEqual(status, 500)
+            }
+        }
+        let retrying = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        XCTAssertEqual(retrying.attemptCount, 3)
+        XCTAssertNil(retrying.lastError)
+        XCTAssertEqual(store.quarantinedMutationCount, 0)
+    }
+
+    @MainActor
+    func testTransientDraftCommitFailuresKeepTheirClientCardID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000R1"
+        let clientCardID = "01J0000000000000000000000R2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("再試行")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "再試行"
+        )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
+        let committedData = try StorageCodec.encoder.encode(committedCard)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let commitIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/create-card") == true {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                commitIDs.append(payload?["id"] as? String ?? "")
+                let attempt = createAttempts.next()
+                if attempt == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 429,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"try later"}"#.utf8)
+                    )
+                }
+                if attempt == 2 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 409,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(
+                            #"{"message":"Generating drafts cannot create cards yet."}"#.utf8
+                        )
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            if request.httpMethod == "GET" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "再試行"
+
+        do {
+            try await store.createCard(
+                from: serverDraft,
+                draft: draft,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil
+            )
+            XCTFail("Expected the first commit to be rate limited")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 429)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .outcomeUnknown)
+        XCTAssertNil(mutation.lastError)
+
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected the still-generating conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .outcomeUnknown)
+        XCTAssertEqual(mutation.kind, "draftCommit")
+        XCTAssertNil(mutation.lastError)
+
+        try await store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+
+        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID, clientCardID])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertEqual(store.libraryCards.first?.id, commitIDs.values.last?.lowercased())
+    }
+
+    @MainActor
+    func testDifferentCommittedCardIDConflictIsPermanentlyRejectedFromDraftState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000K1"
+        let clientCardID = "01J0000000000000000000000K2"
+        let conflictingCardID = "01J0000000000000000000000K3"
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: conflictingCardID.lowercased(),
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("競合")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let client = makeClient { request in
+            if request.httpMethod == "GET" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverDraftData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"conflict"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected a different-card-ID conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .rejected)
+        XCTAssertEqual(mutation.kind, "draftCommitRejected")
+        XCTAssertNotNil(mutation.lastError)
+        XCTAssertEqual(store.manualDrafts.first?.committedCardId, conflictingCardID.lowercased())
+    }
+
+    @MainActor
+    func testRejectedDraftCommitCanBeEditedAndRetriedWithSameID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000V1"
+        let clientCardID = "01J0000000000000000000000V2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("修正前")]),
+            imagePlacement: .prompt,
+            imagePrompt: "before",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let correctedDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("修正後")]),
+            imagePlacement: .prompt,
+            imagePrompt: "after",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "修正後"
+        )
+        let correctedData = try StorageCodec.encoder.encode(correctedDraft)
+        let committedData = try StorageCodec.encoder.encode(committedCard)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let commitIDs = LockedRequestPaths()
+        let patchedExpressions = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.httpMethod == "PATCH" {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                let answer = payload?["answer"] as? [String: Any]
+                patchedExpressions.append(answer?["expression"] as? String ?? "")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    correctedData
+                )
+            }
+            if request.url?.path.hasSuffix("/create-card") == true {
+                let body = try requestBody(request)
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+                commitIDs.append(payload?["id"] as? String ?? "")
+                if createAttempts.next() == 1 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 422,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"fix the draft"}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.isMediaLedPrompt = true
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = "before"
+        draft.answerExpression = "修正前"
+
+        do {
+            try await store.createCard(
+                from: serverDraft,
+                draft: draft,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil
+            )
+            XCTFail("Expected validation rejection")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 422)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .rejected)
+        XCTAssertEqual(mutation.kind, "draftCommitRejected")
+        XCTAssertNotNil(mutation.lastError)
+
+        draft.imagePrompt = "after"
+        draft.answerExpression = "修正後"
+        try await store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+
+        XCTAssertEqual(patchedExpressions.values, ["修正後"])
+        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+    }
+
+    @MainActor
+    func testRejectedDraftCommitCanBeDeletedSafely() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000D1"
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("削除")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let mutation = PendingMutation(
+            kind: "draftCommitRejected",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(
+                    id: "01J0000000000000000000000D2"
+                )
+            )
+        )
+        mutation.lastError = "HTTP 422: rejected"
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            paths.append(request.url?.path ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.deleteManualDraft(serverDraft)
+
+        XCTAssertEqual(paths.values, ["/api/study/card-drafts/\(draftID)"])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
+    func testManualDraftRefreshConsumesEveryCursorPage() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        func makeDraft(_ id: String) -> StudyManualCardDraft {
+            StudyManualCardDraft(
+                id: id,
+                status: "ready",
+                committedCardId: nil,
+                creationKind: .audioRecognition,
+                cardType: "recognition",
+                prompt: .object([:]),
+                answer: .object(["expression": .string(id)]),
+                imagePlacement: .none,
+                imagePrompt: nil,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil,
+                errorMessage: nil,
+                createdAt: now,
+                updatedAt: now
+            )
+        }
+        let firstDraft = makeDraft("01J0000000000000000000000P1")
+        let secondDraft = makeDraft("01J0000000000000000000000P2")
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [firstDraft],
+                total: 2,
+                limit: 200,
+                nextCursor: "next-page"
+            )
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [secondDraft],
+                total: nil,
+                limit: 200,
+                nextCursor: nil
+            )
+        )
+        let requestedURLs = LockedRequestPaths()
+        let client = makeClient { request in
+            requestedURLs.append(request.url?.absoluteString ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                request.url?.query?.contains("cursor=next-page") == true
+                    ? secondPage : firstPage
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshManualDrafts()
+
+        XCTAssertEqual(store.manualDrafts.map(\.id), [firstDraft.id, secondDraft.id])
+        XCTAssertEqual(requestedURLs.values.count, 2)
+        XCTAssertTrue(requestedURLs.values[0].contains("limit=200"))
+        XCTAssertTrue(requestedURLs.values[1].contains("cursor=next-page"))
+    }
+
+    @MainActor
+    func testImageProductionDraftQueuesAndPlainDraftDeleteRemovesIt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000Q1",
+            status: "generating",
+            committedCardId: nil,
+            creationKind: .productionImage,
+            cardType: "production",
+            prompt: .object([:]),
+            answer: .object([
+                "expression": .string("会社"),
+                "meaning": .string("company"),
+            ]),
+            imagePlacement: .prompt,
+            imagePrompt: "A Japanese company office",
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            paths.append("\(request.httpMethod ?? "") \(request.url?.path ?? "")")
+            if request.httpMethod == "POST" {
+                let body = try requestBody(request)
+                let payload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(payload["creationKind"] as? String, "production-image")
+                XCTAssertEqual(payload["cardType"] as? String, "production")
+                XCTAssertEqual(payload["imagePlacement"] as? String, "prompt")
+                XCTAssertEqual(
+                    payload["imagePrompt"] as? String,
+                    "A Japanese company office"
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.answerExpression = "会社"
+        draft.answerMeaning = "company"
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = "A Japanese company office"
+
+        let queued = try await store.queueManualDraft(
+            creationKind: .productionImage,
+            draft: draft,
+            id: serverDraft.id
+        )
+        XCTAssertEqual(store.manualDrafts.map(\.id), [serverDraft.id])
+
+        try await store.deleteManualDraft(queued)
+
+        XCTAssertTrue(store.manualDrafts.isEmpty)
+        XCTAssertEqual(
+            paths.values,
+            [
+                "POST /api/study/card-drafts",
+                "DELETE /api/study/card-drafts/\(serverDraft.id)",
+            ]
+        )
+    }
+
+    @MainActor
+    func testManualDraftCreateRetainsItsClientIDAcrossALostResponseAndRelaunch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientDraftID = ClientIdentifier.ulid()
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: clientDraftID.lowercased(),
+            status: "generating",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("犬")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let attempts = LockedCounter()
+        let requestIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: try requestBody(request))
+                    as? [String: Any]
+            )
+            requestIDs.append(try XCTUnwrap(payload["id"] as? String))
+            let status = attempts.next() == 1 ? 500 : 200
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                status == 200
+                    ? responseData
+                    : Data(#"{"message":"response lost"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "犬"
+
+        do {
+            _ = try await store.queueManualDraft(
+                creationKind: .audioRecognition,
+                draft: draft,
+                id: clientDraftID
+            )
+            XCTFail("Expected the first draft request to lose its response")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 500)
+        }
+
+        let pendingAfterFailure = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "draftCreate" }
+            )
+        )
+        XCTAssertEqual(pendingAfterFailure.map(\.resourceID), [clientDraftID])
+        XCTAssertEqual(pendingAfterFailure.first?.attemptCount, 1)
+
+        let relaunchedStore = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        try await relaunchedStore.retryPendingDraftCreates()
+
+        XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "draftCreate" }
+                )
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            relaunchedStore.manualDrafts.map(\.id),
+            [clientDraftID.lowercased()]
+        )
+    }
+
+    @MainActor
+    func testPermanentlyRejectedManualDraftCreateIsQuarantinedFromBackgroundRetry() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let attempts = LockedCounter()
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/study/card-drafts")
+            _ = attempts.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 422,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"The image prompt is too long."}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.answerExpression = "会社"
+        draft.answerMeaning = "company"
+        draft.imagePlacement = .prompt
+        draft.imagePrompt = String(repeating: "a", count: 1_001)
+
+        do {
+            _ = try await store.queueManualDraft(
+                creationKind: .productionImage,
+                draft: draft
+            )
+            XCTFail("Expected the invalid draft to be rejected")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 422)
+        }
+
+        XCTAssertEqual(attempts.current, 1)
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
+        let pending = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "draftCreate" }
+            )
+        )
+        XCTAssertNotNil(pending.first?.lastError)
+
+        try await store.retryPendingDraftCreates()
+
+        XCTAssertEqual(attempts.current, 1)
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
+    }
+
+    @MainActor
+    func testManualDraftCreateRetryUsesLatestEditedPayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientDraftID = ClientIdentifier.ulid()
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: clientDraftID.lowercased(),
+            status: "generating",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("猫")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let attempts = LockedCounter()
+        let submittedExpressions = LockedRequestPaths()
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: try requestBody(request))
+                    as? [String: Any]
+            )
+            let answer = try XCTUnwrap(payload["answer"] as? [String: Any])
+            submittedExpressions.append(try XCTUnwrap(answer["expression"] as? String))
+            let status = attempts.next() == 1 ? 500 : 200
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                status == 200
+                    ? responseData
+                    : Data(#"{"message":"try again"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "犬"
+
+        do {
+            _ = try await store.queueManualDraft(
+                creationKind: .audioRecognition,
+                draft: draft,
+                id: clientDraftID
+            )
+            XCTFail("Expected the first draft request to fail")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 500)
+        }
+
+        draft.answerExpression = "猫"
+        _ = try await store.queueManualDraft(
+            creationKind: .audioRecognition,
+            draft: draft,
+            id: clientDraftID
+        )
+
+        XCTAssertEqual(submittedExpressions.values, ["犬", "猫"])
+    }
+
+    @MainActor
+    func testManualDraftUpdatePreservesExistingPreviewMediaWhenOmitted() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let previewAudio: JSONValue = .object([
+            "id": .string("preview-audio"),
+            "url": .string("/api/study/media/preview-audio"),
+        ])
+        let previewImage: JSONValue = .object([
+            "id": .string("preview-image"),
+            "url": .string("/api/study/media/preview-image"),
+        ])
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: "01J00000000000000000000P1",
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("犬")]),
+            imagePlacement: .answer,
+            imagePrompt: nil,
+            previewAudio: previewAudio,
+            previewAudioRole: "prompt",
+            previewImage: previewImage,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: try requestBody(request))
+                    as? [String: Any]
+            )
+            XCTAssertEqual(
+                (payload["previewAudio"] as? [String: Any])?["id"] as? String,
+                "preview-audio"
+            )
+            XCTAssertEqual(payload["previewAudioRole"] as? String, "prompt")
+            XCTAssertEqual(
+                (payload["previewImage"] as? [String: Any])?["id"] as? String,
+                "preview-image"
+            )
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "犬"
+
+        _ = try await store.updateManualDraft(serverDraft, draft: draft)
+    }
+
+    @MainActor
+    func testManualDraftRefreshCoalescesAndDoesNotOverwriteANewerLocalDraft() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        let queuedDraft = StudyManualCardDraft(
+            id: "01J0000000000000000000000R1",
+            status: "generating",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("新しい下書き")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let emptyPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [],
+                total: 0,
+                limit: 200,
+                nextCursor: nil
+            )
+        )
+        let listGate = LockedRequestGate()
+        let listRequests = LockedCounter()
+        let client = makeClient { request in
+            _ = listRequests.next()
+            listGate.markStarted()
+            listGate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                emptyPage
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let firstRefresh = Task { try await store.refreshManualDrafts() }
+        await waitUntil { listGate.hasStarted }
+        let secondRefresh = Task { try await store.refreshManualDrafts() }
+        store.replaceManualDraft(queuedDraft)
+        listGate.release()
+        try await firstRefresh.value
+        try await secondRefresh.value
+
+        XCTAssertEqual(listRequests.current, 1)
+        XCTAssertEqual(store.manualDrafts.map(\.id), [queuedDraft.id])
+    }
+
+    @MainActor
+    func testManualAndBackgroundDraftCommitShareOneInFlightRequest() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000S1"
+        let clientCardID = "01J0000000000000000000000S2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("一回")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "一回"
+        )
+        let committedData = try StorageCodec.encoder.encode(committedCard)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/create-card") == true {
+                _ = createAttempts.next()
+                Thread.sleep(forTimeInterval: 0.05)
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "一回"
+
+        async let manual: Void = store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+        async let background: Void = store.retryPendingDraftCommits()
+        _ = try await (manual, background)
+
+        XCTAssertEqual(createAttempts.current, 1)
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+    }
+
+    @MainActor
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
@@ -35,6 +1395,40 @@ final class StudyStoreTests: XCTestCase {
             from: mutation.payload
         )
         XCTAssertEqual(request.cardType, "cloze")
+        XCTAssertEqual(request.prompt, card.prompt)
+        XCTAssertEqual(request.answer, card.answer)
+    }
+
+    @MainActor
+    func testOfflineTextProductionCreationQueuesTypeAwarePayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .production)
+        draft.cueText = "to learn"
+        draft.answerExpression = "学ぶ"
+        draft.answerReading = "学[まな]ぶ"
+        draft.answerMeaning = "to learn"
+
+        try await store.createCard(draft)
+
+        let card = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(card.cardType, "production")
+        XCTAssertEqual(card.prompt["cueText"]?.stringValue, "to learn")
+        XCTAssertEqual(card.answer["expression"]?.stringValue, "学ぶ")
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardCreate" })
+        )
+        let request = try StorageCodec.decoder.decode(
+            CreateStudyCardRequest.self,
+            from: mutation.payload
+        )
+        XCTAssertEqual(request.cardType, "production")
         XCTAssertEqual(request.prompt, card.prompt)
         XCTAssertEqual(request.answer, card.answer)
     }

@@ -10,6 +10,8 @@ struct StudySessionView: View {
     @State private var submittingReviewCardIDs: Set<String> = []
     @State private var answerAudioLocalURL: URL?
     @State private var didAttemptAnswerAudioLoad = false
+    @State private var didAutoplayAnswerForCardID: String?
+    @State private var editingCard: StudyCard?
 
     private var card: StudyCard? { store.cards.first }
 
@@ -18,6 +20,20 @@ struct StudySessionView: View {
             if let card {
                 let presentation = card.presentation
                 HStack(spacing: 8) {
+                    if showingAnswer,
+                       StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                        Button {
+                            player.stop()
+                            editingCard = card
+                        } label: {
+                            Image(systemName: "pencil")
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(ConvoLabTheme.navy)
+                        .accessibilityLabel("Edit card")
+                        .accessibilityIdentifier("StudyAnswerEditButton")
+                    }
                     sessionMetric(
                         label: "Failed",
                         value: store.sessionCounts.failedDue,
@@ -42,7 +58,7 @@ struct StudySessionView: View {
                 Spacer()
 
                 if showingAnswer {
-                    answerFace(presentation.back, cardID: card.id)
+                    answerFace(presentation.back, card: card)
                 } else {
                     promptFace(presentation.front, cardID: card.id)
                 }
@@ -54,9 +70,8 @@ struct StudySessionView: View {
                 } else {
                     Button("Show Answer") {
                         player.stop()
-                        withAnimation(.snappy) {
-                            showingAnswer = true
-                        }
+                        showingAnswer = true
+                        autoplayAnswerAudioIfReady(cardID: card.id)
                         Task {
                             await store.resolvePitchAccent(for: card)
                         }
@@ -81,6 +96,7 @@ struct StudySessionView: View {
             player.stop()
             showingAnswer = false
             cardStartedAt = .now
+            didAutoplayAnswerForCardID = nil
         }
         .task(id: card?.presentation.back.audioURL) {
             answerAudioLocalURL = nil
@@ -90,9 +106,20 @@ struct StudySessionView: View {
             guard !Task.isCancelled else { return }
             answerAudioLocalURL = resolvedURL
             didAttemptAnswerAudioLoad = true
+            if let cardID = card?.id {
+                autoplayAnswerAudioIfReady(cardID: cardID)
+            }
         }
         .onDisappear {
             player.stop()
+        }
+        .sheet(item: $editingCard) { card in
+            CardEditorView(
+                store: store,
+                player: player,
+                card: card,
+                serverDraft: nil
+            )
         }
     }
 
@@ -124,6 +151,7 @@ struct StudySessionView: View {
                     remoteURL: audioURL,
                     trackID: "study-prompt-\(cardID)",
                     label: face.isMediaLed ? "Replay prompt audio" : "Play prompt audio",
+                    autoplay: card?.id == cardID && card?.shouldAutoplayPromptAudio == true,
                     store: store,
                     player: player
                 )
@@ -146,7 +174,7 @@ struct StudySessionView: View {
     }
 
     @ViewBuilder
-    private func answerFace(_ face: StudyCardPresentation.Face, cardID: String) -> some View {
+    private func answerFace(_ face: StudyCardPresentation.Face, card: StudyCard) -> some View {
         ScrollView {
             VStack(spacing: 16) {
                 if let heading = face.heading {
@@ -160,7 +188,7 @@ struct StudySessionView: View {
 
                 if face.audioURL != nil {
                     Button {
-                        playAnswerAudio(cardID: cardID)
+                        playAnswerAudio(cardID: card.id)
                     } label: {
                         Label("Play answer audio", systemImage: "play.circle.fill")
                     }
@@ -176,7 +204,7 @@ struct StudySessionView: View {
                 if let pitchAccent = face.pitchAccent {
                     StudyPitchAccentDiagram(pitchAccent: pitchAccent)
                         .accessibilityIdentifier("StudyPitchAccentDiagram")
-                } else if store.resolvingPitchAccentCardIDs.contains(cardID) {
+                } else if store.resolvingPitchAccentCardIDs.contains(card.id) {
                     Text("Loading pitch accent…")
                         .font(.caption.bold())
                         .textCase(.uppercase)
@@ -222,7 +250,6 @@ struct StudySessionView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     private func font(for role: StudyCardPresentation.TextRole) -> Font {
@@ -259,23 +286,6 @@ struct StudySessionView: View {
 
     private func gradeButtons(card: StudyCard) -> some View {
         HStack(spacing: 8) {
-            Button {
-                playAnswerAudio(cardID: card.id)
-            } label: {
-                Image(systemName: "play.fill")
-            }
-            .buttonStyle(.bordered)
-            .tint(ConvoLabTheme.navy)
-            .frame(width: 44, height: 64)
-            .accessibilityLabel("Replay answer audio")
-            .accessibilityHint(answerAudioAccessibilityHint)
-            .accessibilityIdentifier("StudyGradeTrayAnswerAudioButton")
-            .disabled(
-                answerAudioLocalURL == nil
-                    || player.isBlockedByLongFormAudio
-                    || submittingReviewCardIDs.contains(card.id)
-            )
-
             gradeButton("Again", rating: .again, color: ConvoLabTheme.coral, card: card)
             gradeButton("Hard", rating: .hard, color: .orange, card: card)
             gradeButton("Good", rating: .good, color: ConvoLabTheme.cyan, card: card)
@@ -291,6 +301,9 @@ struct StudySessionView: View {
     ) -> some View {
         Button {
             guard submittingReviewCardIDs.insert(card.id).inserted else { return }
+            if rating == .again {
+                didAutoplayAnswerForCardID = nil
+            }
             let duration = Date.now.timeIntervalSince(cardStartedAt)
             Task {
                 await store.recordReview(
@@ -319,6 +332,18 @@ struct StudySessionView: View {
         player.play(url: answerAudioLocalURL, trackID: "study-answer-\(cardID)")
     }
 
+    private func autoplayAnswerAudioIfReady(cardID: String) {
+        guard
+            showingAnswer,
+            didAutoplayAnswerForCardID != cardID,
+            answerAudioLocalURL != nil
+        else {
+            return
+        }
+        didAutoplayAnswerForCardID = cardID
+        playAnswerAudio(cardID: cardID)
+    }
+
     private var answerAudioAccessibilityHint: String {
         if player.isBlockedByLongFormAudio {
             return "Pause Daily Audio before playing a study card."
@@ -343,6 +368,7 @@ private struct StudyCardAudioButton: View {
     let remoteURL: URL
     let trackID: String
     let label: String
+    let autoplay: Bool
     let store: StudyStore
     let player: StudyAudioPlayer
 
@@ -366,13 +392,16 @@ private struct StudyCardAudioButton: View {
                 ? "Audio is not available offline."
                 : "Plays downloaded study audio."
         )
-        .task(id: remoteURL) {
+        .task(id: trackID) {
             didAttemptLoad = false
             localURL = nil
             let resolvedURL = await store.playableMediaURL(for: remoteURL)
             guard !Task.isCancelled else { return }
             localURL = resolvedURL
             didAttemptLoad = true
+            if autoplay, let resolvedURL {
+                player.play(url: resolvedURL, trackID: trackID)
+            }
         }
     }
 }
