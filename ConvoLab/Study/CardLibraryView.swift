@@ -11,7 +11,7 @@ struct CardLibraryView: View {
         NavigationStack {
             List(store.libraryCards) { card in
                 Group {
-                    if card.isEditableInBasicForm {
+                    if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                         Button {
                             selectedCard = card
                         } label: {
@@ -70,11 +70,9 @@ struct CardLibraryView: View {
             Text(card.answerText)
                 .lineLimit(2)
                 .foregroundStyle(.secondary)
-            if !card.isEditableInBasicForm {
-                Text("\(card.cardType.capitalized) · type-aware editing coming next")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+            Text(card.cardType.capitalized)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -92,9 +90,7 @@ private struct CardEditorView: View {
     let store: StudyStore
     let card: StudyCard?
 
-    @State private var expression: String
-    @State private var reading: String
-    @State private var meaning: String
+    @State private var draft: StudyCardDraft
     @State private var isSaving = false
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
@@ -102,24 +98,45 @@ private struct CardEditorView: View {
     init(store: StudyStore, card: StudyCard?) {
         self.store = store
         self.card = card
-        _expression = State(
-            initialValue: card?.prompt.firstNonEmptyString(for: ["cueText"]) ?? ""
-        )
-        _reading = State(initialValue: card?.prompt.firstNonEmptyString(for: ["cueReading"]) ?? "")
-        _meaning = State(initialValue: card?.answerText ?? "")
+        _draft = State(initialValue: card.map(StudyCardDraft.init(card:)) ?? StudyCardDraft())
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Japanese") {
-                    TextField("Expression", text: $expression)
-                    TextField("Reading (optional)", text: $reading)
+                if card == nil {
+                    Section("Card type") {
+                        Picker("Card type", selection: $draft.cardType) {
+                            ForEach(StudyCardDraft.CardType.allCases) { type in
+                                Text(type.title).tag(type)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
                 }
-                Section("Answer") {
-                    TextField("Meaning", text: $meaning, axis: .vertical)
+
+                if draft.cardType == .cloze {
+                    clozeFields
+                } else {
+                    standardFields
+                }
+
+                Section("Notes") {
+                    TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
                         .lineLimit(2...6)
                 }
+
+                if card?.mediaURLs.isEmpty == false {
+                    Section {
+                        Label(
+                            "Existing audio and images are preserved when you save.",
+                            systemImage: "photo.on.rectangle.angled"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
                 if let errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
@@ -142,9 +159,64 @@ private struct CardEditorView: View {
                     Button("Save") {
                         Task { await save() }
                     }
-                    .disabled(expression.isEmpty || meaning.isEmpty || isSaving)
+                    .disabled(!draft.isValid || isSaving)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var standardFields: some View {
+        if draft.isAudioLedPrompt {
+            Section("Prompt") {
+                Label(
+                    "This card uses its existing audio or image as the prompt.",
+                    systemImage: "play.rectangle"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        } else {
+            Section("Prompt") {
+                TextField("Japanese prompt", text: $draft.cueText, axis: .vertical)
+                TextField("Prompt reading (optional)", text: $draft.cueReading, axis: .vertical)
+                TextField("Prompt hint (optional)", text: $draft.cueMeaning, axis: .vertical)
+            }
+        }
+        Section("Answer") {
+            TextField("Japanese answer", text: $draft.answerExpression, axis: .vertical)
+            TextField("Answer reading (optional)", text: $draft.answerReading, axis: .vertical)
+            TextField("Meaning (optional)", text: $draft.answerMeaning, axis: .vertical)
+                .lineLimit(2...6)
+            TextField("Japanese example (optional)", text: $draft.sentenceJapanese, axis: .vertical)
+                .lineLimit(2...6)
+            TextField("English example (optional)", text: $draft.sentenceEnglish, axis: .vertical)
+                .lineLimit(2...6)
+        }
+    }
+
+    @ViewBuilder
+    private var clozeFields: some View {
+        Section("Prompt") {
+            TextField("Cloze text", text: $draft.cueText, axis: .vertical)
+                .lineLimit(2...6)
+            Text("Use Anki-style markup, for example: 毎日{{c1::勉強する}}。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if !draft.cueText.isEmpty, !draft.hasCanonicalClozeMarkup {
+                Text("Add a cloze marker such as {{c1::answer}} before saving.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+            TextField("Hint (optional)", text: $draft.cueMeaning, axis: .vertical)
+        }
+        Section("Answer") {
+            TextField("Restored sentence", text: $draft.answerExpression, axis: .vertical)
+                .lineLimit(2...6)
+            TextField("Sentence with furigana (optional)", text: $draft.answerReading, axis: .vertical)
+                .lineLimit(2...6)
+            TextField("Meaning (optional)", text: $draft.answerMeaning, axis: .vertical)
+                .lineLimit(2...6)
         }
     }
 
@@ -153,18 +225,9 @@ private struct CardEditorView: View {
         defer { isSaving = false }
         do {
             if let card {
-                try await store.updateCard(
-                    card,
-                    prompt: expression,
-                    reading: reading,
-                    answer: meaning
-                )
+                try await store.updateCard(card, draft: draft)
             } else {
-                try await store.createCard(
-                    expression: expression,
-                    reading: reading,
-                    meaning: meaning
-                )
+                try await store.createCard(draft)
             }
             dismiss()
         } catch {

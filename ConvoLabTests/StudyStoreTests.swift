@@ -5,6 +5,689 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .cloze)
+        draft.cueText = "毎日{{c1::勉強する}}。"
+        draft.cueMeaning = "daily habit"
+        draft.answerExpression = "毎日勉強する。"
+        draft.answerReading = "毎日[まいにち]勉強[べんきょう]する。"
+        draft.answerMeaning = "I study every day."
+
+        try await store.createCard(draft)
+
+        let card = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(card.cardType, "cloze")
+        XCTAssertEqual(card.prompt["clozeText"]?.stringValue, "毎日{{c1::勉強する}}。")
+        XCTAssertEqual(card.answer["restoredText"]?.stringValue, "毎日勉強する。")
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardCreate" })
+        )
+        let request = try StorageCodec.decoder.decode(
+            CreateStudyCardRequest.self,
+            from: mutation.payload
+        )
+        XCTAssertEqual(request.cardType, "cloze")
+        XCTAssertEqual(request.prompt, card.prompt)
+        XCTAssertEqual(request.answer, card.answer)
+    }
+
+    @MainActor
+    func testCreateReconcilesBackendNormalizedULIDWithoutDuplicate() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let body = try requestBody(request)
+            let createRequest = try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            let canonicalID = try XCTUnwrap(createRequest["id"] as? String).lowercased()
+            let serverCard: [String: Any] = [
+                "id": canonicalID,
+                "syncId": canonicalID,
+                "noteId": NSNull(),
+                "cardType": try XCTUnwrap(createRequest["cardType"]),
+                "prompt": try XCTUnwrap(createRequest["prompt"]),
+                "answer": try XCTUnwrap(createRequest["answer"]),
+                "state": [
+                    "dueAt": NSNull(),
+                    "introducedAt": NSNull(),
+                    "failedAt": NSNull(),
+                    "queueState": "new",
+                    "scheduler": NSNull(),
+                    "source": [:],
+                ],
+                "answerAudioSource": "missing",
+                "createdAt": "2026-07-24T11:00:00Z",
+                "updatedAt": "2026-07-24T11:00:00Z",
+            ]
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: serverCard)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.createCard(
+            expression: "正規化",
+            reading: "せいきか",
+            meaning: "normalization"
+        )
+
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, records.first?.id.lowercased())
+        XCTAssertEqual(store.libraryCards.count, 1)
+        XCTAssertEqual(store.libraryCards.first?.id, records.first?.id)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
+    func testCreateAcknowledgementPreservesQueuedEditWhenUpdateIsRejected() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let createAttempts = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                guard createAttempts.next() > 1 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                let createRequest = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let canonicalID = try XCTUnwrap(
+                    createRequest["id"] as? String
+                ).lowercased()
+                let response: [String: Any] = [
+                    "id": canonicalID,
+                    "syncId": canonicalID,
+                    "noteId": NSNull(),
+                    "cardType": try XCTUnwrap(createRequest["cardType"]),
+                    "prompt": try XCTUnwrap(createRequest["prompt"]),
+                    "answer": try XCTUnwrap(createRequest["answer"]),
+                    "state": [
+                        "dueAt": NSNull(),
+                        "introducedAt": NSNull(),
+                        "failedAt": NSNull(),
+                        "queueState": "new",
+                        "scheduler": NSNull(),
+                        "source": [:],
+                    ],
+                    "answerAudioSource": "missing",
+                    "createdAt": "2026-07-24T11:00:00Z",
+                    "updatedAt": "2026-07-24T11:00:00Z",
+                ]
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: response)
+                )
+            default:
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 422,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Rejected update"}"#.utf8)
+                )
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.createCard(
+            expression: "最初",
+            reading: "さいしょ",
+            meaning: "original"
+        )
+        let created = try XCTUnwrap(store.libraryCards.first)
+        var editedDraft = StudyCardDraft(card: created)
+        editedDraft.cueText = "編集済み"
+        editedDraft.answerExpression = "編集済み"
+        editedDraft.answerMeaning = "edited"
+        try await store.updateCard(created, draft: editedDraft)
+
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(record.id, created.id.lowercased())
+        XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "編集済み")
+        XCTAssertEqual(persisted.answer["meaning"]?.stringValue, "edited")
+        XCTAssertNotNil(record.locallyUpdatedAt)
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.kind), ["cardUpdate"])
+        XCTAssertEqual(pending.first?.resourceID, created.id.lowercased())
+        XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testOlderUpdateAcknowledgementPreservesNewerRejectedEdit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000UE",
+            expression: "元"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let patchAttempts = LockedCounter()
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let cardID = card.id
+        let cardType = card.cardType
+        let client = makeClient { request in
+            guard request.url?.path != "/api/study/session/start" else {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            let attempt = patchAttempts.next()
+            guard attempt > 2 else {
+                throw URLError(.notConnectedToInternet)
+            }
+            guard attempt == 3 else {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 422,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Rejected newer update"}"#.utf8)
+                )
+            }
+            let body = try XCTUnwrap(
+                try JSONSerialization.jsonObject(
+                    with: requestBody(request)
+                ) as? [String: Any]
+            )
+            let response: [String: Any] = [
+                "id": cardID,
+                "syncId": cardID,
+                "noteId": NSNull(),
+                "cardType": cardType,
+                "prompt": try XCTUnwrap(body["prompt"]),
+                "answer": try XCTUnwrap(body["answer"]),
+                "state": [
+                    "dueAt": NSNull(),
+                    "introducedAt": NSNull(),
+                    "failedAt": NSNull(),
+                    "queueState": "new",
+                    "scheduler": NSNull(),
+                    "source": [:],
+                ],
+                "answerAudioSource": "missing",
+                "createdAt": "2026-07-24T11:00:00Z",
+                "updatedAt": "2026-07-24T11:01:00Z",
+            ]
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: response)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var firstDraft = StudyCardDraft(card: card)
+        firstDraft.cueText = "一回目"
+        firstDraft.answerExpression = "一回目"
+        firstDraft.answerMeaning = "first"
+        try await store.updateCard(card, draft: firstDraft)
+        let firstEdit = try XCTUnwrap(store.libraryCards.first)
+        var secondDraft = StudyCardDraft(card: firstEdit)
+        secondDraft.cueText = "二回目"
+        secondDraft.answerExpression = "二回目"
+        secondDraft.answerMeaning = "second"
+        try await store.updateCard(firstEdit, draft: secondDraft)
+
+        await store.synchronize()
+
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "二回目")
+        XCTAssertEqual(persisted.answer["meaning"]?.stringValue, "second")
+        XCTAssertNotNil(record.locallyUpdatedAt)
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.kind), ["cardUpdate"])
+        XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testStaleEditorSnapshotSavesAgainstCanonicalLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000SE"
+        let canonicalID = clientID.lowercased()
+        let staleCard = makeCard(id: clientID, expression: "同期前")
+        let canonicalCard = StudyCard(
+            id: canonicalID,
+            syncId: canonicalID,
+            noteId: staleCard.noteId,
+            cardType: staleCard.cardType,
+            prompt: staleCard.prompt,
+            answer: staleCard.answer,
+            state: staleCard.state,
+            answerAudioSource: staleCard.answerAudioSource,
+            createdAt: staleCard.createdAt,
+            updatedAt: staleCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: canonicalCard,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(canonicalCard)
+            )
+        )
+        try container.mainContext.save()
+        let patchedPaths = LockedRequestPaths()
+        let canonicalCardType = canonicalCard.cardType
+        let canonicalAudioSource = canonicalCard.answerAudioSource
+        let client = makeClient { request in
+            patchedPaths.append(request.url?.path ?? "")
+            let body = try XCTUnwrap(
+                try JSONSerialization.jsonObject(
+                    with: requestBody(request)
+                ) as? [String: Any]
+            )
+            let response: [String: Any] = [
+                "id": canonicalID,
+                "syncId": canonicalID,
+                "noteId": NSNull(),
+                "cardType": canonicalCardType,
+                "prompt": try XCTUnwrap(body["prompt"]),
+                "answer": try XCTUnwrap(body["answer"]),
+                "state": [
+                    "dueAt": NSNull(),
+                    "introducedAt": NSNull(),
+                    "failedAt": NSNull(),
+                    "queueState": "new",
+                    "scheduler": NSNull(),
+                    "source": [:],
+                ],
+                "answerAudioSource": canonicalAudioSource,
+                "createdAt": "2026-07-24T11:00:00Z",
+                "updatedAt": "2026-07-24T11:01:00Z",
+            ]
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: response)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(card: staleCard)
+        draft.cueText = "同期後"
+        draft.answerExpression = "同期後"
+        draft.answerMeaning = "after sync"
+
+        try await store.updateCard(staleCard, draft: draft)
+
+        XCTAssertEqual(patchedPaths.values, ["/api/study/cards/\(canonicalID)"])
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, canonicalID)
+        XCTAssertEqual(store.libraryCards.first?.prompt["cueText"]?.stringValue, "同期後")
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
+    func testStaleEditorSnapshotDeletesCanonicalLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000SD"
+        let canonicalID = clientID.lowercased()
+        let staleCard = makeCard(id: clientID, expression: "削除")
+        let canonicalCard = StudyCard(
+            id: canonicalID,
+            syncId: canonicalID,
+            noteId: staleCard.noteId,
+            cardType: staleCard.cardType,
+            prompt: staleCard.prompt,
+            answer: staleCard.answer,
+            state: staleCard.state,
+            answerAudioSource: staleCard.answerAudioSource,
+            createdAt: staleCard.createdAt,
+            updatedAt: staleCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: canonicalCard,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(canonicalCard)
+            )
+        )
+        try container.mainContext.save()
+        let deletedPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            deletedPaths.append(request.url?.path ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.deleteCard(staleCard)
+
+        XCTAssertEqual(deletedPaths.values, ["/api/study/cards/\(canonicalID)"])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+    }
+
+    @MainActor
+    func testNormalizedCreateRewritesQueuedReviewToCanonicalCardID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let createAttempts = LockedCounter()
+        let postedReviewCardIDs = LockedRequestPaths()
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                guard createAttempts.next() > 2 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                let createRequest = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let canonicalID = try XCTUnwrap(
+                    createRequest["id"] as? String
+                ).lowercased()
+                let response: [String: Any] = [
+                    "id": canonicalID,
+                    "syncId": canonicalID,
+                    "noteId": NSNull(),
+                    "cardType": try XCTUnwrap(createRequest["cardType"]),
+                    "prompt": try XCTUnwrap(createRequest["prompt"]),
+                    "answer": try XCTUnwrap(createRequest["answer"]),
+                    "state": [
+                        "dueAt": NSNull(),
+                        "introducedAt": NSNull(),
+                        "failedAt": NSNull(),
+                        "queueState": "new",
+                        "scheduler": NSNull(),
+                        "source": [:],
+                    ],
+                    "answerAudioSource": "missing",
+                    "createdAt": "2026-07-24T11:00:00Z",
+                    "updatedAt": "2026-07-24T11:00:00Z",
+                ]
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: response)
+                )
+            case "/api/card-review-events/batch":
+                let body = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let events = try XCTUnwrap(body["events"] as? [[String: Any]])
+                postedReviewCardIDs.append(
+                    try XCTUnwrap(events.first?["card_id"] as? String)
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            case "/api/study/session/start":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
+        let clientCard = try XCTUnwrap(store.cards.first)
+        await store.recordReview(card: clientCard, rating: .good, duration: nil)
+
+        XCTAssertEqual(
+            Set(
+                try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                    .map(\.kind)
+            ),
+            ["cardCreate", "review"]
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(postedReviewCardIDs.values, [clientCard.id.lowercased()])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertEqual(store.libraryCards.first?.id, clientCard.id.lowercased())
+    }
+
+    @MainActor
+    func testCreateReconciliationKeepsReviewedCanonicalDuplicateState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000RA"
+        let serverID = clientID.lowercased()
+        let staleClientCard = makeCard(
+            id: clientID,
+            expression: "同期",
+            queueState: "new"
+        )
+        let canonicalServerCard = StudyCard(
+            id: serverID,
+            syncId: serverID,
+            noteId: staleClientCard.noteId,
+            cardType: staleClientCard.cardType,
+            prompt: staleClientCard.prompt,
+            answer: staleClientCard.answer,
+            state: staleClientCard.state,
+            answerAudioSource: staleClientCard.answerAudioSource,
+            createdAt: staleClientCard.createdAt,
+            updatedAt: staleClientCard.updatedAt.addingTimeInterval(1)
+        )
+        let clientRecord = LocalCardRecord(
+            card: staleClientCard,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(staleClientCard)
+        )
+        clientRecord.locallyUpdatedAt = staleClientCard.updatedAt
+        let serverRecord = LocalCardRecord(
+            card: canonicalServerCard,
+            queueIndex: 1,
+            payload: try StorageCodec.encoder.encode(canonicalServerCard)
+        )
+        container.mainContext.insert(clientRecord)
+        container.mainContext.insert(serverRecord)
+        let createRequest = CreateStudyCardRequest(
+            id: clientID,
+            cardType: staleClientCard.cardType,
+            prompt: staleClientCard.prompt,
+            answer: staleClientCard.answer
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardCreate",
+                resourceID: clientID,
+                payload: try StorageCodec.encoder.encode(createRequest)
+            )
+        )
+        try container.mainContext.save()
+
+        let serverCardData = try StorageCodec.encoder.encode(canonicalServerCard)
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverCardData
+                )
+            case "/api/card-review-events/batch", "/api/study/session/start":
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        await store.recordReview(card: canonicalServerCard, rating: .good, duration: nil)
+        let reviewedCard = try XCTUnwrap(
+            store.libraryCards.first { $0.id == serverID }
+        )
+
+        await store.synchronize()
+
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, serverID)
+        let persisted = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: try XCTUnwrap(records.first?.payload)
+        )
+        XCTAssertEqual(persisted.state.queueState, reviewedCard.state.queueState)
+        XCTAssertEqual(persisted.state.scheduler, reviewedCard.state.scheduler)
+        XCTAssertEqual(
+            try XCTUnwrap(persisted.state.dueAt).timeIntervalSince1970,
+            try XCTUnwrap(reviewedCard.state.dueAt).timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(persisted.state.introducedAt).timeIntervalSince1970,
+            try XCTUnwrap(reviewedCard.state.introducedAt).timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertFalse(try XCTUnwrap(records.first).isInActiveSession)
+        XCTAssertTrue(store.cards.allSatisfy { $0.id != serverID })
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.map(\.kind), ["review"])
+        XCTAssertEqual(pending.first?.resourceID, serverID)
+    }
+
+    @MainActor
     func testPitchAccentResolutionPersistsServerEnrichmentWithoutChangingSchedule() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let original = makeCard(

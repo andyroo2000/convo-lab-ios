@@ -58,7 +58,6 @@ final class StudyCardPresentationTests: XCTestCase {
             card.presentation.back.textBlocks.map(\.role),
             [.meaning]
         )
-        XCTAssertTrue(card.isEditableInBasicForm)
     }
 
     func testRecognitionFrontIgnoresReadingForDifferentCueText() {
@@ -220,7 +219,6 @@ final class StudyCardPresentationTests: XCTestCase {
             URL(string: "https://example.com/prompt.png")
         )
         XCTAssertEqual(card.promptText, "事故です。")
-        XCTAssertFalse(card.isEditableInBasicForm)
     }
 
     func testImageOnlyProductionPromptShowsDesktopPartOfSpeechLabel() {
@@ -269,7 +267,6 @@ final class StudyCardPresentationTests: XCTestCase {
 
         XCTAssertEqual(card.presentation.front.heading, "[...]は雨です。")
         XCTAssertEqual(card.presentation.back.heading, "今日は雨です。")
-        XCTAssertFalse(card.isEditableInBasicForm)
     }
 
     func testLooseDisplayOnlyClozeDoesNotExposeAnswer() {
