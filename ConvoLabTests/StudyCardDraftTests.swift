@@ -329,6 +329,17 @@ final class StudyCardDraftTests: XCTestCase {
         draft.imagePlacement = .prompt
         XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
         XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], .null)
+
+        // Choosing the back face keeps the image that was already on that face.
+        draft = StudyCardDraft(card: card)
+        draft.imagePlacement = .answer
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], .null)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], backImage)
+        XCTAssertTrue(draft.isReplacingIndependentFaceImages)
+
+        draft.imagePlacement = .both
+        XCTAssertEqual(draft.prompt(merging: card.prompt)["cueImage"], frontImage)
+        XCTAssertEqual(draft.answer(merging: card.answer)["answerImage"], frontImage)
     }
 
     @MainActor

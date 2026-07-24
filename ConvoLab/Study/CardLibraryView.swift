@@ -88,6 +88,13 @@ struct CardLibraryView: View {
 }
 
 private struct CardEditorView: View {
+    private enum IndependentImageAction: String, Identifiable {
+        case save
+        case regenerate
+
+        var id: String { rawValue }
+    }
+
     let store: StudyStore
     let player: StudyAudioPlayer
     let card: StudyCard?
@@ -104,9 +111,13 @@ private struct CardEditorView: View {
     @State private var sharedImageLocalURL: URL?
     @State private var promptImagePreview: UIImage?
     @State private var answerImagePreview: UIImage?
+    @State private var originalPromptImageLocalURL: URL?
+    @State private var originalAnswerImageLocalURL: URL?
+    @State private var originalPromptImagePreview: UIImage?
+    @State private var originalAnswerImagePreview: UIImage?
     @State private var sharedImagePreview: UIImage?
     @State private var errorMessage: String?
-    @State private var showingIndependentImageReplacementConfirmation = false
+    @State private var independentImageAction: IndependentImageAction?
     @Environment(\.dismiss) private var dismiss
 
     init(store: StudyStore, player: StudyAudioPlayer, card: StudyCard?) {
@@ -176,7 +187,11 @@ private struct CardEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        Task { await save() }
+                        if draft.isReplacingIndependentFaceImages {
+                            independentImageAction = .save
+                        } else {
+                            Task { await save() }
+                        }
                     }
                     .disabled(!draft.isValid || isBusy)
                 }
@@ -193,17 +208,24 @@ private struct CardEditorView: View {
                     player.stop()
                 }
             }
-            .alert(
-                "Replace distinct front and back images?",
-                isPresented: $showingIndependentImageReplacementConfirmation
-            ) {
-                Button("Replace Images", role: .destructive) {
-                    startImageRegeneration()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(
-                    "This card has a different image on each face. Regenerating converts it to one generated image using the selected placement."
+            .alert(item: $independentImageAction) { action in
+                Alert(
+                    title: Text("Replace distinct front and back images?"),
+                    message: Text(
+                        action == .save
+                            ? "Saving this placement converts the card to one image and removes the other face’s distinct image."
+                            : "Regenerating converts this card to one generated image using the selected placement."
+                    ),
+                    primaryButton: .destructive(
+                        Text(action == .save ? "Save and Replace" : "Replace Images")
+                    ) {
+                        if action == .save {
+                            Task { await save() }
+                        } else {
+                            startImageRegeneration()
+                        }
+                    },
+                    secondaryButton: .cancel()
                 )
             }
         }
@@ -270,8 +292,8 @@ private struct CardEditorView: View {
 
             if card != nil {
                 Button {
-                    if hasIndependentFaceImages {
-                        showingIndependentImageReplacementConfirmation = true
+                    if draft.hasIndependentFaceImages {
+                        independentImageAction = .regenerate
                     } else {
                         startImageRegeneration()
                     }
@@ -492,6 +514,8 @@ private struct CardEditorView: View {
             promptImageLocalURL = nil
             promptImagePreview = nil
         }
+        originalPromptImageLocalURL = promptImageLocalURL
+        originalPromptImagePreview = promptImagePreview
         if let answerURL = card?.answerImageURL {
             answerImageLocalURL = await store.playableMediaURL(for: answerURL)
             answerImagePreview = answerImageLocalURL.flatMap {
@@ -501,6 +525,8 @@ private struct CardEditorView: View {
             answerImageLocalURL = nil
             answerImagePreview = nil
         }
+        originalAnswerImageLocalURL = answerImageLocalURL
+        originalAnswerImagePreview = answerImagePreview
         sharedImageLocalURL = promptImageLocalURL ?? answerImageLocalURL
         sharedImagePreview = promptImagePreview ?? answerImagePreview
     }
@@ -508,6 +534,20 @@ private struct CardEditorView: View {
     private func applyImagePlacementPreview(
         _ placement: StudyCardDraft.ImagePlacement
     ) {
+        if draft.hasIndependentFaceImages {
+            switch placement {
+            case .answer:
+                sharedImageLocalURL =
+                    originalAnswerImageLocalURL ?? originalPromptImageLocalURL
+                sharedImagePreview =
+                    originalAnswerImagePreview ?? originalPromptImagePreview
+            case .none, .prompt, .both:
+                sharedImageLocalURL =
+                    originalPromptImageLocalURL ?? originalAnswerImageLocalURL
+                sharedImagePreview =
+                    originalPromptImagePreview ?? originalAnswerImagePreview
+            }
+        }
         switch placement {
         case .none:
             promptImageLocalURL = nil
@@ -530,18 +570,6 @@ private struct CardEditorView: View {
             promptImagePreview = sharedImagePreview
             answerImagePreview = sharedImagePreview
         }
-    }
-
-    private var hasIndependentFaceImages: Bool {
-        guard
-            let promptImage = card?.prompt["cueImage"],
-            let answerImage = card?.answer["answerImage"],
-            !promptImage.mediaURLs.isEmpty,
-            !answerImage.mediaURLs.isEmpty
-        else {
-            return false
-        }
-        return promptImage != answerImage
     }
 
     private func startImageRegeneration() {
@@ -589,6 +617,7 @@ private struct CardEditorView: View {
             draft.currentImage = result.card.prompt["cueImage"]?.mediaURLs.isEmpty == false
                 ? result.card.prompt["cueImage"]
                 : result.card.answer["answerImage"]
+            draft.acceptIndependentFaceImageReplacement()
             sharedImageLocalURL = result.localURL
             sharedImagePreview = UIImage(contentsOfFile: result.localURL.path)
             promptImageLocalURL = draft.imagePlacement.includesPrompt

@@ -52,6 +52,14 @@ struct StudyCardDraft: Equatable, Sendable {
     var imagePlacement: ImagePlacement {
         didSet {
             if imagePlacement != oldValue {
+                if hasIndependentFaceImages {
+                    currentImage = switch imagePlacement {
+                    case .answer:
+                        originalAnswerImage ?? originalPromptImage
+                    case .none, .prompt, .both:
+                        originalPromptImage ?? originalAnswerImage
+                    }
+                }
                 preservesIndependentFaceImages = false
             }
         }
@@ -69,6 +77,8 @@ struct StudyCardDraft: Equatable, Sendable {
     var isAudioLedPrompt: Bool
     private var originalClozeHint: String?
     private var preservesIndependentFaceImages: Bool
+    private var originalPromptImage: JSONValue?
+    private var originalAnswerImage: JSONValue?
 
     init(cardType: CardType = .recognition) {
         self.cardType = cardType
@@ -83,6 +93,8 @@ struct StudyCardDraft: Equatable, Sendable {
         answerAudioVoiceId = StudyAnswerVoice.defaultVoice.id
         answerAudioTextOverride = ""
         preservesIndependentFaceImages = false
+        originalPromptImage = nil
+        originalAnswerImage = nil
         imagePlacement = .none
         imagePrompt = ""
         currentImage = nil
@@ -133,6 +145,8 @@ struct StudyCardDraft: Equatable, Sendable {
         preservesIndependentFaceImages = false
         let promptImage = card.prompt["cueImage"]
         let answerImage = card.answer["answerImage"]
+        originalPromptImage = promptImage
+        originalAnswerImage = answerImage
         currentImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : answerImage
         imagePlacement = if
             promptImage?.mediaURLs.isEmpty == false,
@@ -160,6 +174,28 @@ struct StudyCardDraft: Equatable, Sendable {
             .map { " (\($0))" } ?? ""
         imagePrompt = "A clear natural real-world image representing \(imageSubject)\(imageMeaning)."
         notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
+    }
+
+    var hasIndependentFaceImages: Bool {
+        guard
+            let originalPromptImage,
+            let originalAnswerImage,
+            !originalPromptImage.mediaURLs.isEmpty,
+            !originalAnswerImage.mediaURLs.isEmpty
+        else {
+            return false
+        }
+        return originalPromptImage != originalAnswerImage
+    }
+
+    var isReplacingIndependentFaceImages: Bool {
+        hasIndependentFaceImages && !preservesIndependentFaceImages
+    }
+
+    mutating func acceptIndependentFaceImageReplacement() {
+        originalPromptImage = imagePlacement.includesPrompt ? currentImage : nil
+        originalAnswerImage = imagePlacement.includesAnswer ? currentImage : nil
+        preservesIndependentFaceImages = false
     }
 
     var isValid: Bool {
