@@ -126,11 +126,11 @@ final class StudyStoreTests: XCTestCase {
                 return (
                     HTTPURLResponse(
                         url: request.url!,
-                        statusCode: 404,
+                        statusCode: 410,
                         httpVersion: nil,
                         headerFields: ["Content-Type": "application/json"]
                     )!,
-                    Data(#"{"message":"draft already removed"}"#.utf8)
+                    Data(#"{"message":"draft gone"}"#.utf8)
                 )
             }
             return (
@@ -443,6 +443,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID])
         XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
         XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertEqual(store.libraryCards.first?.id, commitIDs.values.last?.lowercased())
     }
 
     @MainActor

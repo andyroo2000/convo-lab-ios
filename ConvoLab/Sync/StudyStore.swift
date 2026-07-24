@@ -1723,7 +1723,7 @@ final class StudyStore {
                 "/api/study/card-drafts/\(response.draftId)",
                 method: "DELETE"
             )
-        } catch let APIClientError.rejected(status, _) where status == 404 {
+        } catch let APIClientError.rejected(status, _) where [404, 410].contains(status) {
             // Cleanup is idempotent: an already-absent transient draft is done.
         } catch {
             recordDraftCommitFailure(error, on: mutation)
