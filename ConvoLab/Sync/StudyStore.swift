@@ -3,6 +3,13 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private struct PendingReviewState {
+        var cardIDs: Set<String> = []
+        var newlyFailedCardIDs: Set<String> = []
+        var retainedFailedCardIDs: Set<String> = []
+        var resolvedFailedCardIDs: Set<String> = []
+    }
+
     private struct QuarantinedReviewError: LocalizedError {
         let count: Int
 
@@ -32,7 +39,9 @@ final class StudyStore {
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var activeUserID: Int?
-    @ObservationIgnored private var reviewedFailedCardIDs: Set<String> = []
+    @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
+    @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
+    @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -54,6 +63,7 @@ final class StudyStore {
         deviceID = ClientIdentifier.deviceID()
         loadLocalCards()
         loadLibraryCards()
+        restorePendingReviewState()
     }
 
     func activate(userID: Int) {
@@ -70,7 +80,9 @@ final class StudyStore {
         StudySessionCounts.calculate(
             cards: cards,
             overview: overview,
-            reviewedFailedCardIDs: reviewedFailedCardIDs
+            newlyFailedCardIDs: newlyFailedCardIDs,
+            retainedFailedCardIDs: retainedFailedCardIDs,
+            resolvedFailedCardIDs: resolvedFailedCardIDs
         )
     }
 
@@ -141,14 +153,16 @@ final class StudyStore {
             method: "POST",
             body: ["time_zone": timeZone]
         )
+        let pendingReviewState = try pendingReviewState()
         var seenCardIDs: Set<String> = []
         let activeCards = try envelope.data.cards.filter { card in
             try !hasPendingDelete(for: card.id)
+                && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         }
         overview = envelope.data.overview
         cards = activeCards
-        reviewedFailedCardIDs = []
+        apply(pendingReviewState)
         try persist(cards: activeCards)
         loadLibraryCards()
 
@@ -245,8 +259,14 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             try context.fetch(descriptor).first?.isInActiveSession = false
             try context.save()
-            if card.state.failedAt != nil, rating != .again {
-                reviewedFailedCardIDs.insert(card.id)
+            if rating == .again {
+                if card.state.failedAt == nil {
+                    newlyFailedCardIDs.insert(card.id)
+                } else {
+                    retainedFailedCardIDs.insert(card.id)
+                }
+            } else if card.state.failedAt != nil {
+                resolvedFailedCardIDs.insert(card.id)
             }
             cards.removeAll { $0.id == card.id }
             try await flushReviewOutbox()
@@ -540,6 +560,53 @@ final class StudyStore {
         return try !context.fetch(descriptor).isEmpty
     }
 
+    private func restorePendingReviewState() {
+        guard let state = try? pendingReviewState() else { return }
+        apply(state)
+    }
+
+    private func apply(_ state: PendingReviewState) {
+        newlyFailedCardIDs = state.newlyFailedCardIDs
+        retainedFailedCardIDs = state.retainedFailedCardIDs
+        resolvedFailedCardIDs = state.resolvedFailedCardIDs
+    }
+
+    private func pendingReviewState() throws -> PendingReviewState {
+        let pending = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "review" }
+            )
+        )
+        let records = try context.fetch(FetchDescriptor<LocalCardRecord>())
+        let cardsByID = Dictionary(
+            records.compactMap { record in
+                (try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload))
+                    .map { ($0.id, $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var state = PendingReviewState()
+
+        for mutation in pending {
+            let event = try StorageCodec.decoder.decode(
+                ReviewBatchRequest.Event.self,
+                from: mutation.payload
+            )
+            state.cardIDs.insert(event.cardID)
+            guard let card = cardsByID[event.cardID] else { continue }
+            if event.rating == .again {
+                if card.state.failedAt == nil {
+                    state.newlyFailedCardIDs.insert(card.id)
+                } else {
+                    state.retainedFailedCardIDs.insert(card.id)
+                }
+            } else if card.state.failedAt != nil {
+                state.resolvedFailedCardIDs.insert(card.id)
+            }
+        }
+        return state
+    }
+
     private func persist(cards: [StudyCard]) throws {
         let existing = try context.fetch(FetchDescriptor<LocalCardRecord>())
         existing.forEach { $0.isInActiveSession = false }
@@ -691,13 +758,16 @@ struct StudySessionCounts: Equatable {
     static func calculate(
         cards: [StudyCard],
         overview: StudyOverview?,
-        reviewedFailedCardIDs: Set<String> = []
+        newlyFailedCardIDs: Set<String> = [],
+        retainedFailedCardIDs: Set<String> = [],
+        resolvedFailedCardIDs: Set<String> = []
     ) -> StudySessionCounts {
         let loadedFailedCount = cards.count(where: { $0.state.failedAt != nil })
         let authoritativeFailedCount = max(
             0,
-            (overview?.failedCount ?? 0) - reviewedFailedCardIDs.count
+            (overview?.failedCount ?? 0) - resolvedFailedCardIDs.count
         )
+        let pendingFailedCount = retainedFailedCardIDs.count + newlyFailedCardIDs.count
         let newRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
@@ -706,7 +776,10 @@ struct StudySessionCounts: Equatable {
         })
 
         return StudySessionCounts(
-            failedDue: max(authoritativeFailedCount, loadedFailedCount),
+            failedDue: max(
+                authoritativeFailedCount + newlyFailedCardIDs.count,
+                max(loadedFailedCount, pendingFailedCount)
+            ),
             reviewRemaining: reviewRemaining,
             newRemaining: newRemaining
         )

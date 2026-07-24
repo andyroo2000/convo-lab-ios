@@ -5,6 +5,73 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testFirstTimeOfflineFailureSurvivesRelaunchAndStaleServerRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "01J00000000000000000000011", expression: "再学習")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        await store.recordReview(card: card, rating: .again, duration: nil)
+
+        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertTrue(store.cards.isEmpty)
+
+        let relaunched = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+        XCTAssertTrue(relaunched.cards.isEmpty)
+
+        let staleSession = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                failedCount: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(staleSession)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/study/session/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+
+        try await relaunched.refreshSession()
+
+        XCTAssertTrue(relaunched.cards.isEmpty)
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(

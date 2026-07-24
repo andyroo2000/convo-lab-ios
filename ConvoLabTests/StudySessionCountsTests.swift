@@ -73,7 +73,7 @@ final class StudySessionCountsTests: XCTestCase {
         let counts = StudySessionCounts.calculate(
             cards: [],
             overview: overview,
-            reviewedFailedCardIDs: ["failed-1"]
+            resolvedFailedCardIDs: ["failed-1"]
         )
 
         XCTAssertEqual(counts.failedDue, 1)
@@ -90,6 +90,35 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         let counts = StudySessionCounts.calculate(cards: [], overview: overview)
+
+        XCTAssertEqual(counts.failedDue, 1)
+    }
+
+    func testFirstTimeAgainIncrementsFailureCountBeforeServerSync() {
+        let overview = StudyOverview(
+            dueCount: 4,
+            newCount: 0,
+            reviewCount: 4,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: 0,
+            failedCount: 0
+        )
+
+        let counts = StudySessionCounts.calculate(
+            cards: [],
+            overview: overview,
+            newlyFailedCardIDs: ["new-failure"]
+        )
+
+        XCTAssertEqual(counts.failedDue, 1)
+    }
+
+    func testPendingRelearningFailureSurvivesOfflineRelaunchWithoutOverview() {
+        let counts = StudySessionCounts.calculate(
+            cards: [],
+            overview: nil,
+            retainedFailedCardIDs: ["existing-failure"]
+        )
 
         XCTAssertEqual(counts.failedDue, 1)
     }
