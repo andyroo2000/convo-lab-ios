@@ -662,6 +662,8 @@ final class StudyStore {
             answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
             answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
         )
+        // learning-os compatibility endpoint returns the card directly, without
+        // the data envelope used by newer API endpoints.
         let serverCard: StudyCard = try await api.request(
             "/api/study/cards/\(currentCard.reviewCardID)/regenerate-answer-audio",
             method: "POST",
@@ -678,7 +680,8 @@ final class StudyStore {
             remoteURL,
             category: "active-study"
         )
-        try Task.checkCancellation()
+        // Once the server and cache have changed, always reconcile local card
+        // metadata even if the editor that initiated the request was dismissed.
         let latestCard = try currentLocalCard(for: currentCard)
         let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
         let updatedCard = StudyCard(

@@ -360,9 +360,13 @@ private struct CardEditorView: View {
                 voiceID: draft.answerAudioVoiceId,
                 textOverride: draft.answerAudioTextOverride
             )
+            try Task.checkCancellation()
             answerAudioLocalURL = result.localURL
             player.stop()
             player.play(url: result.localURL, trackID: answerAudioTrackID)
+        } catch is CancellationError {
+            // The store still reconciles completed server/cache side effects,
+            // but a dismissed editor must not update UI or begin playback.
         } catch {
             errorMessage = error.localizedDescription
         }
