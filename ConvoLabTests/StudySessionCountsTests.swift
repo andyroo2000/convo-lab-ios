@@ -137,6 +137,22 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.failedDue, 2)
     }
 
+    func testDuePendingFailureIsNotCountedTwiceWhenItReturnsToQueue() {
+        let card = makeCard(
+            id: "failed-1",
+            queueState: "relearning",
+            failedAt: .now
+        )
+
+        let counts = StudySessionCounts.calculate(
+            cards: [card],
+            overview: nil,
+            retainedFailedCardIDs: [card.id]
+        )
+
+        XCTAssertEqual(counts.failedDue, 1)
+    }
+
     private func makeCard(
         id: String,
         queueState: String,
