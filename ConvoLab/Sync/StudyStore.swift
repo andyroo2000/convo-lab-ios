@@ -662,6 +662,16 @@ final class StudyStore {
             body: request,
             timeout: 180
         )
+        guard
+            let generatedAudio = serverCard.answer["answerAudio"],
+            let remoteURL = serverCard.answerAudioURL
+        else {
+            throw MissingGeneratedAudioError()
+        }
+        let localURL = try await mediaCache.refresh(
+            remoteURL,
+            category: "active-study"
+        )
         try Task.checkCancellation()
         let latestCard = try currentLocalCard(for: currentCard)
         let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
@@ -672,7 +682,7 @@ final class StudyStore {
             cardType: latestCard.cardType,
             prompt: latestCard.prompt,
             answer: latestCard.answer.replacingObjectValues([
-                "answerAudio": serverCard.answer["answerAudio"] ?? .null,
+                "answerAudio": generatedAudio,
                 "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
                     ?? request.answerAudioVoiceId.map(JSONValue.string)
                     ?? .null,
@@ -693,14 +703,6 @@ final class StudyStore {
         cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
-
-        guard let remoteURL = updatedCard.answerAudioURL else {
-            throw MissingGeneratedAudioError()
-        }
-        let localURL = try await mediaCache.refresh(
-            remoteURL,
-            category: "active-study"
-        )
         return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
     }
 
