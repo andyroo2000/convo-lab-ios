@@ -75,7 +75,6 @@ final class StudyCardDraftTests: XCTestCase {
             cardType: "recognition",
             prompt: .object([
                 "cueAudio": media("/media/prompt.mp3"),
-                "cueMeaning": .string("stale generated label"),
             ]),
             answer: .object([
                 "expression": .string("続けています"),
@@ -87,10 +86,62 @@ final class StudyCardDraftTests: XCTestCase {
         let prompt = draft.prompt(merging: card.prompt)
 
         XCTAssertTrue(draft.isMediaLedPrompt)
+        XCTAssertTrue(draft.isAudioLedPrompt)
         XCTAssertTrue(draft.isValid)
         XCTAssertEqual(prompt["cueText"], .null)
         XCTAssertEqual(prompt["cueMeaning"], .null)
         XCTAssertEqual(prompt["cueAudio"], card.prompt["cueAudio"])
+    }
+
+    @MainActor
+    func testImageLedProductionKeepsVisibleLabelAndAllowsEmptyCueText() {
+        let card = makeCard(
+            cardType: "production",
+            prompt: .object([
+                "cueImage": media("/media/prompt.png"),
+                "cueMeaning": .string("名詞"),
+            ]),
+            answer: .object([
+                "expression": .string("教材"),
+                "meaning": .string("study materials"),
+            ])
+        )
+
+        let draft = StudyCardDraft(card: card)
+        let prompt = draft.prompt(merging: card.prompt)
+
+        XCTAssertTrue(draft.isMediaLedPrompt)
+        XCTAssertFalse(draft.isAudioLedPrompt)
+        XCTAssertTrue(draft.isValid)
+        XCTAssertEqual(prompt["cueMeaning"], .string("名詞"))
+        XCTAssertEqual(prompt["cueImage"], card.prompt["cueImage"])
+    }
+
+    @MainActor
+    func testDraftPreservesUnexpectedNonStringKnownFieldsWhenUntouched() {
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueText": .string("教材"),
+                "cueMeaning": .array([.string("unexpected")]),
+            ]),
+            answer: .object([
+                "expression": .string("教材"),
+                "meaning": .string("study materials"),
+                "notes": .object(["legacy": .bool(true)]),
+            ])
+        )
+
+        let draft = StudyCardDraft(card: card)
+
+        XCTAssertEqual(
+            draft.prompt(merging: card.prompt)["cueMeaning"],
+            card.prompt["cueMeaning"]
+        )
+        XCTAssertEqual(
+            draft.answer(merging: card.answer)["notes"],
+            card.answer["notes"]
+        )
     }
 
     @MainActor

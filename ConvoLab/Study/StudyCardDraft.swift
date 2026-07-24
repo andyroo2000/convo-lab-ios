@@ -28,6 +28,7 @@ struct StudyCardDraft: Equatable, Sendable {
     var sentenceEnglish: String
     var notes: String
     var isMediaLedPrompt: Bool
+    var isAudioLedPrompt: Bool
 
     init(cardType: CardType = .recognition) {
         self.cardType = cardType
@@ -41,6 +42,7 @@ struct StudyCardDraft: Equatable, Sendable {
         sentenceEnglish = ""
         notes = ""
         isMediaLedPrompt = false
+        isAudioLedPrompt = false
     }
 
     init(card: StudyCard) {
@@ -48,6 +50,10 @@ struct StudyCardDraft: Equatable, Sendable {
         isMediaLedPrompt = cardType != .cloze
             && card.prompt.firstNonEmptyString(for: ["cueText"]) == nil
             && !card.prompt.mediaURLs.isEmpty
+        isAudioLedPrompt = cardType == .recognition
+            && card.prompt.firstNonEmptyString(for: ["cueText"]) == nil
+            && card.prompt.firstNonEmptyString(for: ["cueMeaning"]) == nil
+            && card.prompt["cueAudio"]?.mediaURLs.isEmpty == false
         if cardType == .cloze {
             cueText = card.prompt.firstNonEmptyString(for: ["clozeText"]) ?? ""
             cueReading = ""
@@ -87,13 +93,23 @@ struct StudyCardDraft: Equatable, Sendable {
         case .cloze:
             existing.replacingObjectValues([
                 "clozeText": .string(cueText.trimmed),
-                "clozeHint": cueMeaning.optionalJSONText,
+                "clozeHint": cueMeaning.optionalJSONText(
+                    preservingNonString: existing["clozeHint"]
+                ),
             ])
         case .recognition, .production:
             existing.replacingObjectValues([
-                "cueText": isMediaLedPrompt ? .null : .string(cueText.trimmed),
-                "cueReading": isMediaLedPrompt ? .null : cueReading.optionalJSONText,
-                "cueMeaning": isMediaLedPrompt ? .null : cueMeaning.optionalJSONText,
+                "cueText": isAudioLedPrompt ? .null : .string(cueText.trimmed),
+                "cueReading": isAudioLedPrompt
+                    ? .null
+                    : cueReading.optionalJSONText(
+                        preservingNonString: existing["cueReading"]
+                    ),
+                "cueMeaning": isAudioLedPrompt
+                    ? .null
+                    : cueMeaning.optionalJSONText(
+                        preservingNonString: existing["cueMeaning"]
+                    ),
             ])
         }
     }
@@ -103,18 +119,34 @@ struct StudyCardDraft: Equatable, Sendable {
         case .cloze:
             existing.replacingObjectValues([
                 "restoredText": .string(answerExpression.trimmed),
-                "restoredTextReading": answerReading.optionalJSONText,
-                "meaning": answerMeaning.optionalJSONText,
-                "notes": notes.optionalJSONText,
+                "restoredTextReading": answerReading.optionalJSONText(
+                    preservingNonString: existing["restoredTextReading"]
+                ),
+                "meaning": answerMeaning.optionalJSONText(
+                    preservingNonString: existing["meaning"]
+                ),
+                "notes": notes.optionalJSONText(
+                    preservingNonString: existing["notes"]
+                ),
             ])
         case .recognition, .production:
             existing.replacingObjectValues([
                 "expression": .string(answerExpression.trimmed),
-                "expressionReading": answerReading.optionalJSONText,
-                "meaning": answerMeaning.optionalJSONText,
-                "sentenceJp": sentenceJapanese.optionalJSONText,
-                "sentenceEn": sentenceEnglish.optionalJSONText,
-                "notes": notes.optionalJSONText,
+                "expressionReading": answerReading.optionalJSONText(
+                    preservingNonString: existing["expressionReading"]
+                ),
+                "meaning": answerMeaning.optionalJSONText(
+                    preservingNonString: existing["meaning"]
+                ),
+                "sentenceJp": sentenceJapanese.optionalJSONText(
+                    preservingNonString: existing["sentenceJp"]
+                ),
+                "sentenceEn": sentenceEnglish.optionalJSONText(
+                    preservingNonString: existing["sentenceEn"]
+                ),
+                "notes": notes.optionalJSONText(
+                    preservingNonString: existing["notes"]
+                ),
             ])
         }
     }
@@ -125,8 +157,14 @@ private extension String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var optionalJSONText: JSONValue {
+    func optionalJSONText(preservingNonString existing: JSONValue? = nil) -> JSONValue {
         let value = trimmed
-        return value.isEmpty ? .null : .string(value)
+        if !value.isEmpty {
+            return .string(value)
+        }
+        if let existing, existing != .null, existing.stringValue == nil {
+            return existing
+        }
+        return .null
     }
 }

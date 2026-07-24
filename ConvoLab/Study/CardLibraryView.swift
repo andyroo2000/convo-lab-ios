@@ -167,7 +167,7 @@ private struct CardEditorView: View {
 
     @ViewBuilder
     private var standardFields: some View {
-        if draft.isMediaLedPrompt {
+        if draft.isAudioLedPrompt {
             Section("Prompt") {
                 Label(
                     "This card uses its existing audio or image as the prompt.",

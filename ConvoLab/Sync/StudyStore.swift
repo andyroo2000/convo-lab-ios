@@ -795,9 +795,16 @@ final class StudyStore {
     private func reconcileCreatedCardID(from clientID: String, to serverID: String) throws {
         guard clientID != serverID else { return }
 
-        let localRecords = try context.fetch(FetchDescriptor<LocalCardRecord>())
-        let clientRecord = localRecords.first { $0.id == clientID }
-        let serverRecord = localRecords.first { $0.id == serverID }
+        var clientDescriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.id == clientID }
+        )
+        clientDescriptor.fetchLimit = 1
+        var serverDescriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.id == serverID }
+        )
+        serverDescriptor.fetchLimit = 1
+        let clientRecord = try context.fetch(clientDescriptor).first
+        let serverRecord = try context.fetch(serverDescriptor).first
         if let clientRecord {
             if let serverRecord, serverRecord !== clientRecord {
                 context.delete(serverRecord)
@@ -806,8 +813,10 @@ final class StudyStore {
             clientRecord.id = serverID
         }
 
-        let mutations = try context.fetch(FetchDescriptor<PendingMutation>())
-        for pending in mutations where pending.resourceID == clientID {
+        let mutationDescriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate { $0.resourceID == clientID }
+        )
+        for pending in try context.fetch(mutationDescriptor) {
             pending.resourceID = serverID
             guard
                 pending.kind == "review",

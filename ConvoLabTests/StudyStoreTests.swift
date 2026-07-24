@@ -100,6 +100,127 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testNormalizedCreateRewritesQueuedReviewToCanonicalCardID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let createAttempts = LockedCounter()
+        let postedReviewCardIDs = LockedRequestPaths()
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                guard createAttempts.next() > 2 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                let createRequest = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let canonicalID = try XCTUnwrap(
+                    createRequest["id"] as? String
+                ).lowercased()
+                let response: [String: Any] = [
+                    "id": canonicalID,
+                    "syncId": canonicalID,
+                    "noteId": NSNull(),
+                    "cardType": try XCTUnwrap(createRequest["cardType"]),
+                    "prompt": try XCTUnwrap(createRequest["prompt"]),
+                    "answer": try XCTUnwrap(createRequest["answer"]),
+                    "state": [
+                        "dueAt": NSNull(),
+                        "introducedAt": NSNull(),
+                        "failedAt": NSNull(),
+                        "queueState": "new",
+                        "scheduler": NSNull(),
+                        "source": [:],
+                    ],
+                    "answerAudioSource": "missing",
+                    "createdAt": "2026-07-24T11:00:00Z",
+                    "updatedAt": "2026-07-24T11:00:00Z",
+                ]
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: response)
+                )
+            case "/api/card-review-events/batch":
+                let body = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let events = try XCTUnwrap(body["events"] as? [[String: Any]])
+                postedReviewCardIDs.append(
+                    try XCTUnwrap(events.first?["card_id"] as? String)
+                )
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            case "/api/study/session/start":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
+        let clientCard = try XCTUnwrap(store.cards.first)
+        await store.recordReview(card: clientCard, rating: .good, duration: nil)
+
+        XCTAssertEqual(
+            Set(
+                try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                    .map(\.kind)
+            ),
+            ["cardCreate", "review"]
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(postedReviewCardIDs.values, [clientCard.id.lowercased()])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertEqual(store.libraryCards.first?.id, clientCard.id.lowercased())
+    }
+
+    @MainActor
     func testPitchAccentResolutionPersistsServerEnrichmentWithoutChangingSchedule() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let original = makeCard(

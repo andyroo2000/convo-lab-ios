@@ -77,10 +77,12 @@ meaning, and notes. Existing card types cannot be changed.
 
 Saving an existing card merges the edited fields into its full payload so
 server-managed scheduling data, generated audio, images, and pitch accent are
-preserved. For an audio- or image-led prompt without cue text, the editor keeps
-the media prompt and edits only the answer fields. Creates and updates enter the
-same persisted sync outbox as reviews and remain visible after relaunch.
-Generated-media controls require learning-os and are specified separately.
+preserved. A recognition card whose only prompt is audio keeps the desktop
+audio-led contract: prompt text fields stay hidden and only answer fields are
+edited. Image-led cards retain their image and expose any helper label while
+allowing cue text to remain empty. Creates and updates enter the same persisted
+sync outbox as reviews and remain visible after relaunch. Generated-media
+controls require learning-os and are specified separately.
 
 ## Review tray
 
