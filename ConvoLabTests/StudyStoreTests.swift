@@ -320,7 +320,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRateLimitedDraftCommitKeepsItsClientCardID() async throws {
+    func testTransientDraftCommitFailuresKeepTheirClientCardID() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let draftID = "01J0000000000000000000000R1"
         let clientCardID = "01J0000000000000000000000R2"
@@ -362,7 +362,8 @@ final class StudyStoreTests: XCTestCase {
                 let body = try requestBody(request)
                 let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
                 commitIDs.append(payload?["id"] as? String ?? "")
-                if createAttempts.next() == 1 {
+                let attempt = createAttempts.next()
+                if attempt == 1 {
                     return (
                         HTTPURLResponse(
                             url: request.url!,
@@ -371,6 +372,19 @@ final class StudyStoreTests: XCTestCase {
                             headerFields: ["Content-Type": "application/json"]
                         )!,
                         Data(#"{"message":"try later"}"#.utf8)
+                    )
+                }
+                if attempt == 2 {
+                    return (
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 409,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(
+                            #"{"message":"Generating drafts cannot create cards yet."}"#.utf8
+                        )
                     )
                 }
                 return (
@@ -418,6 +432,16 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .outcomeUnknown)
         XCTAssertNil(mutation.lastError)
 
+        do {
+            try await store.retryPendingDraftCommits()
+            XCTFail("Expected the still-generating conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+        XCTAssertEqual(store.draftCommitRecoveryState(for: draftID), .outcomeUnknown)
+        XCTAssertEqual(mutation.kind, "draftCommit")
+        XCTAssertNil(mutation.lastError)
+
         try await store.createCard(
             from: serverDraft,
             draft: draft,
@@ -426,7 +450,7 @@ final class StudyStoreTests: XCTestCase {
             previewImage: nil
         )
 
-        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID])
+        XCTAssertEqual(commitIDs.values, [clientCardID, clientCardID, clientCardID])
         XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
         XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
         XCTAssertEqual(store.libraryCards.first?.id, commitIDs.values.last?.lowercased())

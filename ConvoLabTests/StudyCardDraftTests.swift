@@ -17,6 +17,21 @@ final class StudyCardDraftTests: XCTestCase {
     }
 
     @MainActor
+    func testImageProductionRequiresAPromptBeforePreparation() {
+        var draft = StudyCardDraft(cardType: .production)
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "会社"
+        draft.imagePlacement = .prompt
+
+        XCTAssertTrue(draft.isValid)
+        XCTAssertFalse(draft.isValid(for: .productionImage))
+
+        draft.imagePrompt = "A Japanese company office"
+
+        XCTAssertTrue(draft.isValid(for: .productionImage))
+    }
+
+    @MainActor
     func testClozeDraftReadsAndWritesTypeSpecificFieldsWhilePreservingMedia() {
         let card = makeCard(
             cardType: "cloze",

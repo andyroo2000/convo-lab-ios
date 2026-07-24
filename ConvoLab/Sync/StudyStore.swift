@@ -1744,12 +1744,12 @@ final class StudyStore {
                 body: request
             )
         } catch let rejection as APIClientError {
-            if case let .rejected(status, _) = rejection,
-               [400, 404, 409, 410, 422].contains(status)
+            if case let .rejected(status, message) = rejection,
+               isPermanentDraftCommitRejection(status: status, message: message)
             {
                 // learning-os returns 200 for a same-client-ID idempotent retry.
-                // A 409 here means the draft is still generating or was
-                // committed with a different card ID, so editing is required.
+                // Its "still generating" 409 remains transient; only a
+                // different-card-ID 409 is terminal.
                 mutation.kind = "draftCommitRejected"
             }
             recordDraftCommitFailure(rejection, on: mutation)
@@ -1796,12 +1796,25 @@ final class StudyStore {
         mutation.attemptCount += 1
         mutation.lastAttemptAt = .now
         let isPermanentRejection: Bool
-        if case let APIClientError.rejected(status, _) = error {
-            isPermanentRejection = [400, 404, 409, 410, 422].contains(status)
+        if case let APIClientError.rejected(status, message) = error {
+            isPermanentRejection = isPermanentDraftCommitRejection(
+                status: status,
+                message: message
+            )
         } else {
             isPermanentRejection = false
         }
         mutation.lastError = isPermanentRejection ? error.localizedDescription : nil
+    }
+
+    private func isPermanentDraftCommitRejection(
+        status: Int,
+        message: String?
+    ) -> Bool {
+        if status == 409 {
+            return message == "Draft was already committed with a different card ID."
+        }
+        return [400, 404, 410, 422].contains(status)
     }
 
     private func recordDraftCleanupFailure(on mutation: PendingMutation) {

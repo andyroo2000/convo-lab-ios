@@ -327,7 +327,7 @@ private struct CardEditorView: View {
                             Task { await save() }
                         }
                     }
-                    .disabled(!draft.isValid || isBusy)
+                    .disabled(!draft.isValid(for: creationKind) || isBusy)
                 }
             }
             .task(id: card?.id) {

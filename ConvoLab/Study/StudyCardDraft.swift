@@ -276,6 +276,14 @@ struct StudyCardDraft: Equatable, Sendable {
         }
     }
 
+    func isValid(for creationKind: StudyCardCreationKind) -> Bool {
+        isValid
+            && (
+                creationKind != .productionImage
+                    || !imagePrompt.trimmed.isEmpty
+            )
+    }
+
     var hasCanonicalClozeMarkup: Bool {
         cueText.range(of: #"(?s)\{\{c\d+::.+?\}\}"#, options: .regularExpression) != nil
     }
