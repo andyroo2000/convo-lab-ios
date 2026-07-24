@@ -159,6 +159,7 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
+    @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -585,11 +586,25 @@ final class StudyStore {
     }
 
     func refreshManualDrafts() async throws {
-        let response: StudyManualCardDraftListResponse = try await api.request(
-            "/api/study/card-drafts",
-            query: [URLQueryItem(name: "limit", value: "50")]
-        )
-        manualDrafts = response.drafts
+        var drafts: [StudyManualCardDraft] = []
+        var cursor: String?
+        var seenCursors: Set<String> = []
+        repeat {
+            var query = [URLQueryItem(name: "limit", value: "200")]
+            if let cursor {
+                query.append(URLQueryItem(name: "cursor", value: cursor))
+            }
+            let response: StudyManualCardDraftListResponse = try await api.request(
+                "/api/study/card-drafts",
+                query: query
+            )
+            drafts.append(contentsOf: response.drafts)
+            cursor = response.nextCursor
+            if let nextCursor = cursor, !seenCursors.insert(nextCursor).inserted {
+                cursor = nil
+            }
+        } while cursor != nil
+        manualDrafts = drafts
     }
 
     @discardableResult
@@ -753,7 +768,7 @@ final class StudyStore {
             commitMutation.lastError = nil
             try context.save()
         }
-        try await performDraftCommit(commitMutation)
+        try await runDraftCommit(commitMutation)
     }
 
     func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
@@ -1671,7 +1686,7 @@ final class StudyStore {
         var firstError: (any Error)?
         for mutation in try context.fetch(descriptor) {
             do {
-                try await performDraftCommit(mutation)
+                try await runDraftCommit(mutation)
             } catch {
                 firstError = firstError ?? error
             }
@@ -1679,6 +1694,20 @@ final class StudyStore {
         if let firstError {
             throw firstError
         }
+    }
+
+    private func runDraftCommit(_ mutation: PendingMutation) async throws {
+        let mutationID = mutation.id
+        if let task = draftCommitTasks[mutationID] {
+            return try await task.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await performDraftCommit(mutation)
+        }
+        draftCommitTasks[mutationID] = task
+        defer { draftCommitTasks[mutationID] = nil }
+        try await task.value
     }
 
     private func performDraftCommit(_ mutation: PendingMutation) async throws {

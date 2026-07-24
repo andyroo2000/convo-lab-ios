@@ -110,7 +110,7 @@ struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-struct StudyManualCardDraftListResponse: Decodable, Sendable {
+struct StudyManualCardDraftListResponse: Codable, Sendable {
     let drafts: [StudyManualCardDraft]
     let total: Int?
     let limit: Int

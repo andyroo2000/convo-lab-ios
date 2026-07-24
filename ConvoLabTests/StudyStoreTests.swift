@@ -661,6 +661,165 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testManualDraftRefreshConsumesEveryCursorPage() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        func makeDraft(_ id: String) -> StudyManualCardDraft {
+            StudyManualCardDraft(
+                id: id,
+                status: "ready",
+                creationKind: .audioRecognition,
+                cardType: "recognition",
+                prompt: .object([:]),
+                answer: .object(["expression": .string(id)]),
+                imagePlacement: .none,
+                imagePrompt: nil,
+                previewAudio: nil,
+                previewAudioRole: nil,
+                previewImage: nil,
+                errorMessage: nil,
+                createdAt: now,
+                updatedAt: now
+            )
+        }
+        let firstDraft = makeDraft("01J0000000000000000000000P1")
+        let secondDraft = makeDraft("01J0000000000000000000000P2")
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [firstDraft],
+                total: 2,
+                limit: 200,
+                nextCursor: "next-page"
+            )
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [secondDraft],
+                total: nil,
+                limit: 200,
+                nextCursor: nil
+            )
+        )
+        let requestedURLs = LockedRequestPaths()
+        let client = makeClient { request in
+            requestedURLs.append(request.url?.absoluteString ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                request.url?.query?.contains("cursor=next-page") == true
+                    ? secondPage : firstPage
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshManualDrafts()
+
+        XCTAssertEqual(store.manualDrafts.map(\.id), [firstDraft.id, secondDraft.id])
+        XCTAssertEqual(requestedURLs.values.count, 2)
+        XCTAssertTrue(requestedURLs.values[0].contains("limit=200"))
+        XCTAssertTrue(requestedURLs.values[1].contains("cursor=next-page"))
+    }
+
+    @MainActor
+    func testManualAndBackgroundDraftCommitShareOneInFlightRequest() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000S1"
+        let clientCardID = "01J0000000000000000000000S2"
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: draftID,
+            status: "ready",
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("一回")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "一回"
+        )
+        let committedData = try StorageCodec.encoder.encode(
+            CreateCardFromStudyManualDraftResponse(
+                card: committedCard,
+                draftId: draftID
+            )
+        )
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let createAttempts = LockedCounter()
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/create-card") == true {
+                _ = createAttempts.next()
+                Thread.sleep(forTimeInterval: 0.05)
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    committedData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "一回"
+
+        async let manual: Void = store.createCard(
+            from: serverDraft,
+            draft: draft,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil
+        )
+        async let background: Void = store.retryPendingDraftCommits()
+        _ = try await (manual, background)
+
+        XCTAssertEqual(createAttempts.current, 1)
+        XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertFalse(store.hasPendingDraftCommit(for: draftID))
+    }
+
+    @MainActor
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
