@@ -89,7 +89,15 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     let updatedAt: Date
 
     var promptText: String {
-        presentation.front.heading ?? "Media prompt"
+        if let heading = presentation.front.heading {
+            return heading
+        }
+        if presentation.front.audioURL != nil || presentation.front.imageURL != nil {
+            return presentation.back.heading
+                ?? presentation.back.textBlocks.first { $0.role == .meaning }?.text
+                ?? "Media prompt"
+        }
+        return prompt.preferredText ?? answer.preferredText ?? "Study card"
     }
 
     var promptHint: String? {

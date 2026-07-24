@@ -117,6 +117,7 @@ final class StudyCardPresentationTests: XCTestCase {
             card.presentation.front.imageURL,
             URL(string: "https://example.com/prompt.png")
         )
+        XCTAssertEqual(card.promptText, "事故です。")
         XCTAssertFalse(card.isEditableInBasicForm)
     }
 
@@ -167,6 +168,16 @@ final class StudyCardPresentationTests: XCTestCase {
 
         XCTAssertEqual(card.presentation.front.heading, "私は[...]です。")
         XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+    }
+
+    func testMalformedCardUsesHonestLibraryFallback() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([:]),
+            answer: .object([:])
+        )
+
+        XCTAssertEqual(card.promptText, "Study card")
     }
 
     func testReviewIntervalLabelsMatchLearningOSIntervals() {

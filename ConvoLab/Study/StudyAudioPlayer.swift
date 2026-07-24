@@ -13,6 +13,7 @@ final class StudyAudioPlayer {
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
 
     private(set) var isPlaying = false
+    var isBlockedByLongFormAudio: Bool { isLongFormAudioPlaying() }
 
     init(isLongFormAudioPlaying: @escaping @MainActor () -> Bool) {
         self.isLongFormAudioPlaying = isLongFormAudioPlaying
@@ -51,6 +52,7 @@ final class StudyAudioPlayer {
     }
 
     func play(url: URL, trackID: String) {
+        guard !isBlockedByLongFormAudio else { return }
         activateAudioSession()
         currentTrackID = trackID
         player.replaceCurrentItem(with: AVPlayerItem(url: url))

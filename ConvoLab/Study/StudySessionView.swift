@@ -232,9 +232,11 @@ private struct StudyCardAudioButton: View {
         }
         .buttonStyle(.bordered)
         .tint(ConvoLabTheme.navy)
-        .disabled(localURL == nil)
+        .disabled(localURL == nil || player.isBlockedByLongFormAudio)
         .accessibilityHint(
-            didAttemptLoad && localURL == nil
+            player.isBlockedByLongFormAudio
+                ? "Pause Daily Audio before playing a study card."
+                : didAttemptLoad && localURL == nil
                 ? "Audio is not available offline."
                 : "Plays downloaded study audio."
         )
