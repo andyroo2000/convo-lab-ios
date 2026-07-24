@@ -3,6 +3,32 @@ import XCTest
 
 @MainActor
 final class StudyCardPresentationTests: XCTestCase {
+    func testPromptAutoplayMatchesDesktopAudioRecognitionRules() {
+        let audio = media(url: "https://example.com/prompt.mp3", kind: "audio")
+        let audioRecognition = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueAudio": audio]),
+            answer: .object([:])
+        )
+        let labeledRecognition = makeCard(
+            cardType: "recognition",
+            prompt: .object([
+                "cueAudio": audio,
+                "cueMeaning": .string("名詞"),
+            ]),
+            answer: .object([:])
+        )
+        let audioProduction = makeCard(
+            cardType: "production",
+            prompt: .object(["cueAudio": audio]),
+            answer: .object([:])
+        )
+
+        XCTAssertTrue(audioRecognition.shouldAutoplayPromptAudio)
+        XCTAssertFalse(labeledRecognition.shouldAutoplayPromptAudio)
+        XCTAssertFalse(audioProduction.shouldAutoplayPromptAudio)
+    }
+
     func testClozePresentationUsesCanonicalMarkupAndRevealsRestoredSentence() {
         let card = makeCard(
             cardType: "cloze",

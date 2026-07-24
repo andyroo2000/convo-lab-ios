@@ -12,6 +12,14 @@ extension StudyCard {
     var answerImageURL: URL? {
         answer.mediaURL(for: "answerImage")
     }
+
+    var shouldAutoplayPromptAudio: Bool {
+        cardType == "recognition"
+            && prompt.mediaURL(for: "cueAudio") != nil
+            && prompt.firstNonEmptyString(
+                for: ["cueText", "cueMeaning", "clozeText"]
+            ) == nil
+    }
 }
 
 struct StudyCardPresentation: Equatable, Sendable {

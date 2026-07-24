@@ -24,6 +24,39 @@ final class APIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testDownloadRetriesRateLimitUsingRetryAfter() async throws {
+        let requestCounter = LockedCounter()
+        let client = makeClient { request in
+            if requestCounter.next() == 1 {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 429,
+                        httpVersion: nil,
+                        headerFields: ["Retry-After": "0"]
+                    )!,
+                    Data()
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio".utf8)
+            )
+        }
+
+        _ = try await client.download(
+            URL(string: "https://learning-os.example/media.mp3")!
+        )
+
+        XCTAssertEqual(requestCounter.current, 2)
+    }
+
+    @MainActor
     func testStudyCardMutationUsesDirectCompatibilityPayload() async throws {
         let cardJSON = """
         {
@@ -152,6 +185,128 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(response.data.id, 1)
         XCTAssertEqual(response.data.email, "andrewlandry@gmail.com")
+    }
+
+    @MainActor
+    func testStudySessionDecodesCurrentDirectResponse() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Self.studySessionData(wrapped: false)
+            )
+        }
+
+        let response: StudySessionResponse = try await client.request(
+            "/api/study/session/start",
+            method: "POST"
+        )
+
+        XCTAssertEqual(response.session.overview.newCount, 1)
+        XCTAssertEqual(response.session.cards.first?.promptText, "犬")
+    }
+
+    @MainActor
+    func testStudySessionStillDecodesLegacyWrappedResponse() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Self.studySessionData(wrapped: true)
+            )
+        }
+
+        let response: StudySessionResponse = try await client.request(
+            "/api/study/session/start",
+            method: "POST"
+        )
+
+        XCTAssertEqual(response.session.overview.newCardsPerDay, 20)
+        XCTAssertEqual(response.session.cards.first?.reviewCardID, "01J00000000000000000000000")
+    }
+
+    @MainActor
+    func testStudySessionDecodesProductionCamelCaseOverview() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Self.studySessionData(wrapped: false, camelCaseOverview: true)
+            )
+        }
+
+        let response: StudySessionResponse = try await client.request(
+            "/api/study/session/start",
+            method: "POST"
+        )
+
+        XCTAssertEqual(response.session.overview.newCardsPerDay, 20)
+        XCTAssertEqual(response.session.overview.newCardsAvailableToday, 1)
+        XCTAssertEqual(response.session.cards.first?.reviewCardID, "01J00000000000000000000000")
+    }
+
+    private static func studySessionData(
+        wrapped: Bool,
+        camelCaseOverview: Bool = false
+    ) -> Data {
+        let overview = camelCaseOverview
+            ? #"""
+            {
+              "dueCount": 0,
+              "failedCount": 0,
+              "newCount": 1,
+              "reviewCount": 0,
+              "newCardsPerDay": 20,
+              "newCardsAvailableToday": 1
+            }
+            """#
+            : #"""
+            {
+              "due_count": 0,
+              "failed_count": 0,
+              "new_count": 1,
+              "review_count": 0,
+              "new_cards_per_day": 20,
+              "new_cards_available_today": 1
+            }
+            """#
+        let session = #"""
+        {
+          "overview": \#(overview),
+          "cards": [{
+            "id": "98f42a62-8303-410e-ad4d-5a69c55911bb",
+            "syncId": "01J00000000000000000000000",
+            "noteId": null,
+            "cardType": "recognition",
+            "prompt": {"cueText": "犬"},
+            "answer": {"meaning": "dog"},
+            "state": {
+              "dueAt": null,
+              "introducedAt": null,
+              "failedAt": null,
+              "queueState": "new",
+              "scheduler": null,
+              "source": {}
+            },
+            "answerAudioSource": "missing",
+            "createdAt": "2026-07-24T12:00:00.000Z",
+            "updatedAt": "2026-07-24T12:00:00.000Z"
+          }]
+        }
+        """#
+        return Data((wrapped ? #"{"data":\#(session)}"# : session).utf8)
     }
 
     @MainActor

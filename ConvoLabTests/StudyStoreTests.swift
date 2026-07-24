@@ -906,7 +906,8 @@ final class StudyStoreTests: XCTestCase {
 
         let queued = try await store.queueManualDraft(
             creationKind: .productionImage,
-            draft: draft
+            draft: draft,
+            id: serverDraft.id
         )
         XCTAssertEqual(store.manualDrafts.map(\.id), [serverDraft.id])
 
@@ -920,6 +921,97 @@ final class StudyStoreTests: XCTestCase {
                 "DELETE /api/study/card-drafts/\(serverDraft.id)",
             ]
         )
+    }
+
+    @MainActor
+    func testManualDraftCreateRetainsItsClientIDAcrossALostResponseRetry() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientDraftID = ClientIdentifier.ulid()
+        let now = Date.now
+        let serverDraft = StudyManualCardDraft(
+            id: clientDraftID.lowercased(),
+            status: "generating",
+            committedCardId: nil,
+            creationKind: .audioRecognition,
+            cardType: "recognition",
+            prompt: .object([:]),
+            answer: .object(["expression": .string("犬")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverDraft)
+        let attempts = LockedCounter()
+        let requestIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: try requestBody(request))
+                    as? [String: Any]
+            )
+            requestIDs.append(try XCTUnwrap(payload["id"] as? String))
+            let status = attempts.next() == 1 ? 500 : 200
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                status == 200
+                    ? responseData
+                    : Data(#"{"message":"response lost"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        var draft = StudyCardDraft(cardType: .recognition)
+        draft.isAudioLedPrompt = true
+        draft.isMediaLedPrompt = true
+        draft.answerExpression = "犬"
+
+        do {
+            _ = try await store.queueManualDraft(
+                creationKind: .audioRecognition,
+                draft: draft,
+                id: clientDraftID
+            )
+            XCTFail("Expected the first draft request to lose its response")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 500)
+        }
+
+        let pendingAfterFailure = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "draftCreate" }
+            )
+        )
+        XCTAssertEqual(pendingAfterFailure.map(\.resourceID), [clientDraftID])
+        XCTAssertEqual(pendingAfterFailure.first?.attemptCount, 1)
+
+        let queued = try await store.queueManualDraft(
+            creationKind: .audioRecognition,
+            draft: draft,
+            id: clientDraftID
+        )
+
+        XCTAssertEqual(queued.id, clientDraftID.lowercased())
+        XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "draftCreate" }
+                )
+            ).isEmpty
+        )
+        XCTAssertEqual(store.manualDrafts.map(\.id), [clientDraftID.lowercased()])
     }
 
     @MainActor

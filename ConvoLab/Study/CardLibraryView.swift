@@ -164,7 +164,7 @@ struct CardLibraryView: View {
     }
 }
 
-private struct CardEditorView: View {
+struct CardEditorView: View {
     private enum IndependentImageAction: String, Identifiable {
         case save
         case regenerate
@@ -178,6 +178,7 @@ private struct CardEditorView: View {
     let serverDraft: StudyManualCardDraft?
 
     @State private var draft: StudyCardDraft
+    @State private var clientDraftID: String
     @State private var creationKind: StudyCardCreationKind
     @State private var previewAudio: JSONValue?
     @State private var previewAudioRole: String?
@@ -220,6 +221,7 @@ private struct CardEditorView: View {
             StudyCardDraft()
         }
         _draft = State(initialValue: initialDraft)
+        _clientDraftID = State(initialValue: serverDraft?.id ?? ClientIdentifier.ulid())
         _creationKind = State(initialValue: serverDraft?.creationKind ?? .textRecognition)
         _previewAudio = State(initialValue: serverDraft?.previewAudio)
         _previewAudioRole = State(initialValue: serverDraft?.previewAudioRole)
@@ -682,7 +684,11 @@ private struct CardEditorView: View {
                     previewImage: previewImage
                 )
             } else if [.audioRecognition, .productionImage].contains(creationKind) {
-                try await store.queueManualDraft(creationKind: creationKind, draft: draft)
+                try await store.queueManualDraft(
+                    creationKind: creationKind,
+                    draft: draft,
+                    id: clientDraftID
+                )
             } else {
                 try await store.createCard(draft)
             }
