@@ -655,10 +655,8 @@ final class StudyStore {
         previewAudioRole: String? = nil,
         previewImage: JSONValue? = nil
     ) async throws -> StudyManualCardDraft {
-        var prompt = serverDraft.creationKind == .audioRecognition
-            ? JSONValue.object([:])
-            : draft.prompt()
-        var answer = draft.answer()
+        var prompt = draft.prompt(merging: serverDraft.prompt)
+        var answer = draft.answer(merging: serverDraft.answer)
         if let previewAudio {
             if previewAudioRole == "prompt" {
                 prompt = prompt.replacingObjectValues(["cueAudio": previewAudio])

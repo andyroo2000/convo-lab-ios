@@ -21,10 +21,13 @@ final class StudyStoreTests: XCTestCase {
             committedCardId: nil,
             creationKind: .audioRecognition,
             cardType: "recognition",
-            prompt: .object([:]),
+            prompt: .object([
+                "serverEnrichment": .object(["source": .string("learning-os")]),
+            ]),
             answer: .object([
                 "expression": .string("営業の仕事は楽しいです。"),
                 "meaning": .string("Sales work is fun."),
+                "pitchAccent": .array([.number(2)]),
             ]),
             imagePlacement: .none,
             imagePrompt: nil,
@@ -78,6 +81,11 @@ final class StudyStoreTests: XCTestCase {
                 let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
                 let prompt = payload?["prompt"] as? [String: Any]
                 let answer = payload?["answer"] as? [String: Any]
+                XCTAssertEqual(
+                    (prompt?["serverEnrichment"] as? [String: Any])?["source"] as? String,
+                    "learning-os"
+                )
+                XCTAssertEqual(answer?["pitchAccent"] as? [Int], [2])
                 XCTAssertEqual((prompt?["cueAudio"] as? [String: Any])?["id"] as? String, "audio-1")
                 XCTAssertEqual(
                     (answer?["answerAudio"] as? [String: Any])?["id"] as? String,
