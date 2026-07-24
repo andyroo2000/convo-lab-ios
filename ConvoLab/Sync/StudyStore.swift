@@ -93,6 +93,7 @@ final class StudyStore {
     private(set) var wanikaniLastSyncedAt: Date?
     private(set) var isWaniKaniWorking = false
     private(set) var wanikaniErrorMessage: String?
+    private(set) var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
 
@@ -149,6 +150,53 @@ final class StudyStore {
             return localURL
         }
         return try? await mediaCache.download(remoteURL, category: "active-study")
+    }
+
+    func resolvePitchAccent(for card: StudyCard) async {
+        guard
+            card.presentation.back.pitchAccent == nil,
+            resolvingPitchAccentCardIDs.insert(card.id).inserted
+        else {
+            return
+        }
+        defer { resolvingPitchAccentCardIDs.remove(card.id) }
+
+        do {
+            try await flushCardOutbox()
+            guard
+                let currentCard = cards.first(where: { $0.id == card.id }),
+                currentCard.presentation.back.pitchAccent == nil
+            else {
+                return
+            }
+            let serverCard: StudyCard = try await api.request(
+                "/api/study/cards/\(currentCard.reviewCardID)/pitch-accent",
+                method: "POST"
+            )
+            let updatedCard = StudyCard(
+                id: currentCard.id,
+                syncId: serverCard.syncId ?? currentCard.syncId,
+                noteId: serverCard.noteId,
+                cardType: serverCard.cardType,
+                prompt: serverCard.prompt,
+                answer: serverCard.answer,
+                state: currentCard.state,
+                answerAudioSource: serverCard.answerAudioSource,
+                createdAt: serverCard.createdAt,
+                updatedAt: serverCard.updatedAt
+            )
+            try updateLocalCard(
+                updatedCard,
+                markedDirty: false,
+                serverUpdatedAt: serverCard.updatedAt
+            )
+            cards = cards.map { $0.id == card.id ? updatedCard : $0 }
+            libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
+            try context.save()
+        } catch {
+            // Pitch accent is optional enrichment. Offline and unresolved cards
+            // remain fully studyable and can retry on a later reveal.
+        }
     }
 
     var preparedCardCount: Int {

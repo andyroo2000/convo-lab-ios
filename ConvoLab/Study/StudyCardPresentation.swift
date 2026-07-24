@@ -1,6 +1,14 @@
 import Foundation
 
 struct StudyCardPresentation: Equatable, Sendable {
+    struct PitchAccent: Equatable, Sendable {
+        let expression: String
+        let reading: String
+        let morae: [String]
+        let pattern: [Int]
+        let patternName: String
+    }
+
     enum TextRole: String, Sendable {
         case restoredText
         case meaning
@@ -22,6 +30,7 @@ struct StudyCardPresentation: Equatable, Sendable {
         let audioURL: URL?
         let imageURL: URL?
         let isMediaLed: Bool
+        let pitchAccent: PitchAccent?
     }
 
     let front: Face
@@ -86,7 +95,8 @@ extension StudyCard {
                     textBlocks: [],
                     audioURL: nil,
                     imageURL: promptImageURL,
-                    isMediaLed: promptImageURL != nil
+                    isMediaLed: promptImageURL != nil,
+                    pitchAccent: nil
                 ),
                 back: .init(
                     heading: restoredText?.studyDisplayText,
@@ -94,7 +104,8 @@ extension StudyCard {
                     textBlocks: [meaning].compactMap(\.self) + notes,
                     audioURL: answerAudioURL,
                     imageURL: answerImageURL,
-                    isMediaLed: false
+                    isMediaLed: false,
+                    pitchAccent: answer.studyPitchAccent
                 )
             )
         }
@@ -145,7 +156,8 @@ extension StudyCard {
                 textBlocks: [],
                 audioURL: promptAudioURL,
                 imageURL: promptImageURL,
-                isMediaLed: isMediaLed
+                isMediaLed: isMediaLed,
+                pitchAccent: nil
             ),
             back: .init(
                 heading: answer.firstNonEmptyString(for: ["expressionReading"])?.studyDisplayText
@@ -155,7 +167,8 @@ extension StudyCard {
                 textBlocks: details,
                 audioURL: answerAudioURL,
                 imageURL: answerImageURL,
-                isMediaLed: false
+                isMediaLed: false,
+                pitchAccent: answer.studyPitchAccent
             )
         )
     }
@@ -298,6 +311,44 @@ private func slicedRubyText(_ value: String, start: Int, end: Int) -> String {
 }
 
 private extension JSONValue {
+    var studyPitchAccent: StudyCardPresentation.PitchAccent? {
+        guard
+            let value = self["pitchAccent"],
+            value["status"]?.stringValue == "resolved",
+            let expression = value["expression"]?.stringValue,
+            let reading = value["reading"]?.stringValue,
+            let patternName = value["patternName"]?.stringValue,
+            case let .array(moraValues) = value["morae"],
+            case let .array(patternValues) = value["pattern"]
+        else {
+            return nil
+        }
+        let morae = moraValues.compactMap(\.stringValue)
+        let pattern = patternValues.compactMap { item -> Int? in
+            guard case let .number(value) = item, value == 0 || value == 1 else {
+                return nil
+            }
+            return Int(value)
+        }
+        guard
+            !expression.isEmpty,
+            !reading.isEmpty,
+            !morae.isEmpty,
+            morae.count == moraValues.count,
+            pattern.count == patternValues.count,
+            pattern.count == morae.count
+        else {
+            return nil
+        }
+        return .init(
+            expression: expression,
+            reading: reading,
+            morae: morae,
+            pattern: pattern,
+            patternName: patternName
+        )
+    }
+
     func mediaURL(for key: String) -> URL? {
         guard
             let media = self[key],

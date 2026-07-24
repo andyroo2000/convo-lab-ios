@@ -5,6 +5,101 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testPitchAccentResolutionPersistsServerEnrichmentWithoutChangingSchedule() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let original = makeCard(
+            id: "compatibility-card-id",
+            expression: "会社"
+        )
+        let card = StudyCard(
+            id: original.id,
+            syncId: "01J000000000000000000000PA",
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer,
+            state: original.state,
+            answerAudioSource: original.answerAudioSource,
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        let resolvedAnswer = card.answer.replacingObjectValues([
+            "pitchAccent": .object([
+                "status": .string("resolved"),
+                "expression": .string("会社"),
+                "reading": .string("かいしゃ"),
+                "pitchNum": .number(0),
+                "morae": .array([.string("か"), .string("い"), .string("しゃ")]),
+                "pattern": .array([.number(0), .number(1), .number(1)]),
+                "patternName": .string("平板"),
+                "source": .string("kanjium"),
+                "resolvedBy": .string("local-reading"),
+            ]),
+        ])
+        let serverCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: resolvedAnswer,
+            state: .init(
+                dueAt: .distantFuture,
+                introducedAt: .now,
+                failedAt: .now,
+                queueState: "relearning",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: .now
+        )
+        let responseData = try StorageCodec.encoder.encode(serverCard)
+        let client = makeClient { request in
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/study/cards/01J000000000000000000000PA/pitch-accent"
+            )
+            XCTAssertEqual(request.httpMethod, "POST")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        await store.resolvePitchAccent(for: card)
+
+        let updated = try XCTUnwrap(store.cards.first)
+        XCTAssertEqual(updated.state, card.state)
+        XCTAssertEqual(updated.presentation.back.pitchAccent?.reading, "かいしゃ")
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.presentation.back.pitchAccent?.pattern, [0, 1, 1])
+    }
+
+    @MainActor
     func testCardBecomingDueDoesNotReplaceVisibleCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let visibleCard = makeCard(

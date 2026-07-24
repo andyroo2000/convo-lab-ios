@@ -62,6 +62,11 @@ reading is hidden only when every kanji in its annotated word is known; an
 iteration mark does not require its own knowledge entry. WaniKani connection
 tokens are submitted to learning-os and are never stored on the device.
 
+Resolved pitch-accent payloads render only on the answer face and are persisted
+with the local card for offline review. When a card has no resolved payload,
+revealing the answer may ask learning-os to resolve it; failure or lack of a
+network never blocks the card or grading.
+
 ## Review tray
 
 The four grades are Again, Hard, Good, and Easy. Each grade displays the next
