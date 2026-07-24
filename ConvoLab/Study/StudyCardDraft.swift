@@ -105,7 +105,10 @@ struct StudyCardDraft: Equatable, Sendable {
                     preservingNonString: existing["clozeHint"]
                 ),
             ]
-            if cueMeaning.trimmed != originalClozeHint?.trimmed {
+            if
+                let originalClozeHint,
+                cueMeaning.trimmed != originalClozeHint.trimmed
+            {
                 // clozeResolvedHint wins during presentation. Once the user
                 // explicitly edits the displayed hint, clear that derived value
                 // so the new manual hint is visible immediately.

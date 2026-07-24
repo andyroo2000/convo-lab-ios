@@ -401,6 +401,64 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleEditorSnapshotDeletesCanonicalLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000SD"
+        let canonicalID = clientID.lowercased()
+        let staleCard = makeCard(id: clientID, expression: "削除")
+        let canonicalCard = StudyCard(
+            id: canonicalID,
+            syncId: canonicalID,
+            noteId: staleCard.noteId,
+            cardType: staleCard.cardType,
+            prompt: staleCard.prompt,
+            answer: staleCard.answer,
+            state: staleCard.state,
+            answerAudioSource: staleCard.answerAudioSource,
+            createdAt: staleCard.createdAt,
+            updatedAt: staleCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: canonicalCard,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(canonicalCard)
+            )
+        )
+        try container.mainContext.save()
+        let deletedPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            deletedPaths.append(request.url?.path ?? "")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.deleteCard(staleCard)
+
+        XCTAssertEqual(deletedPaths.values, ["/api/study/cards/\(canonicalID)"])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+    }
+
+    @MainActor
     func testNormalizedCreateRewritesQueuedReviewToCanonicalCardID() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let createAttempts = LockedCounter()

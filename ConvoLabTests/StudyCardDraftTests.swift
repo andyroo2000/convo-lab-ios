@@ -89,6 +89,7 @@ final class StudyCardDraftTests: XCTestCase {
         draft.cueText = "毎日{{c1::勉強する}}。"
         XCTAssertTrue(draft.hasCanonicalClozeMarkup)
         XCTAssertTrue(draft.isValid)
+        XCTAssertNil(draft.prompt()["clozeResolvedHint"])
     }
 
     @MainActor

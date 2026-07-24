@@ -602,16 +602,21 @@ final class StudyStore {
     }
 
     func deleteCard(_ card: StudyCard) async throws {
-        context.insert(PendingMutation(kind: "cardDelete", resourceID: card.id, payload: Data()))
-        let cardID = card.id
+        let currentCard = try currentLocalCard(for: card)
+        context.insert(PendingMutation(
+            kind: "cardDelete",
+            resourceID: currentCard.id,
+            payload: Data()
+        ))
+        let cardID = currentCard.id
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.id == cardID }
         )
         if let record = try context.fetch(descriptor).first {
             context.delete(record)
         }
-        cards.removeAll { $0.id == card.id }
-        libraryCards.removeAll { $0.id == card.id }
+        cards.removeAll { $0.id == currentCard.id }
+        libraryCards.removeAll { $0.id == currentCard.id }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -692,11 +697,14 @@ final class StudyStore {
 
     private func drainCardOutbox() async throws {
         var quarantinedCount = 0
+        let activeCardOrder = cards.map { $0.id.lowercased() }
         defer {
             // Reconciliation can rename or remove records. Refresh once after
             // the drain instead of decoding the entire library after every
-            // queued mutation in a large offline backlog.
-            loadLocalCards()
+            // queued mutation in a large offline backlog. Preserve the active
+            // array's current order so background sync cannot replace the card
+            // at the front of an in-progress session.
+            loadLocalCards(preservingNormalizedOrder: activeCardOrder)
             loadLibraryCards()
         }
         while true {
@@ -1155,6 +1163,21 @@ final class StudyStore {
             try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
         }
         cards = Self.orderSessionCards(cards)
+    }
+
+    private func loadLocalCards(preservingNormalizedOrder order: [String]) {
+        let descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.isInActiveSession },
+            sortBy: [SortDescriptor(\.queueIndex)]
+        )
+        var persistedByNormalizedID = Dictionary(
+            ((try? context.fetch(descriptor)) ?? []).compactMap { record in
+                try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+            }.map { ($0.id.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let preserved = order.compactMap { persistedByNormalizedID.removeValue(forKey: $0) }
+        cards = preserved + Self.orderSessionCards(Array(persistedByNormalizedID.values))
     }
 
     private func loadLibraryCards() {
