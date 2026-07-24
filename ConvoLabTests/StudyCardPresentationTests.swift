@@ -196,6 +196,19 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.promptText, "Study card")
     }
 
+    func testResolvedLegacyClozeDoesNotExposeAnswerOnFront() {
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([
+                "clozeDisplayText": .string("私は学生です。"),
+            ]),
+            answer: .object([:])
+        )
+
+        XCTAssertNil(card.presentation.front.heading)
+        XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+    }
+
     func testReviewIntervalLabelsMatchLearningOSIntervals() {
         XCTAssertEqual(ReviewRating.again.nextIntervalLabel, "<10m")
         XCTAssertEqual(ReviewRating.hard.nextIntervalLabel, "1d")

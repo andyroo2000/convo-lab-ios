@@ -182,7 +182,10 @@ private struct ClozePresentation {
 
         let normalized = rawText.normalizedLooseClozeText
         guard normalized.containsCanonicalClozeMarkup else {
-            displayText = normalized.studyPlainText.nilIfEmpty
+            // A resolved legacy sentence has no reliable indication of which text
+            // should be hidden. Keep it for the revealed face, but never expose it
+            // as the prompt.
+            displayText = nil
             restoredText = normalized.studyPlainText.nilIfEmpty
             return
         }
