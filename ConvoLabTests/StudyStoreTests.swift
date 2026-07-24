@@ -241,6 +241,81 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testBothImageRegenerationRejectsDistinctServerImages() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000000IW",
+            expression: "会社"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let frontImage: JSONValue = .object([
+            "url": .string("/api/study/media/generated-front"),
+        ])
+        let backImage: JSONValue = .object([
+            "url": .string("/api/study/media/generated-back"),
+        ])
+        let serverCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt.replacingObjectValues(["cueImage": frontImage]),
+            answer: card.answer.replacingObjectValues(["answerImage": backImage]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(serverCard)
+        let requestCount = LockedCounter()
+        let client = makeClient { request in
+            _ = requestCount.next()
+            XCTAssertTrue(request.url?.path.hasSuffix("/regenerate-image") == true)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            _ = try await store.regenerateImage(
+                for: card,
+                prompt: "A company office.",
+                placement: .both
+            )
+            XCTFail("Expected distinct images for a shared-image request to fail")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The server returned different front and back images for a shared-image request."
+            )
+        }
+
+        XCTAssertEqual(requestCount.current, 1)
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.prompt, card.prompt)
+        XCTAssertEqual(persisted.answer, card.answer)
+        XCTAssertEqual(persisted.state, card.state)
+    }
+
+    @MainActor
     func testRegenerateImageExplicitlyConvertsIndependentImagesToSelectedPlacement() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let frontImage: JSONValue = .object([

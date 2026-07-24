@@ -518,8 +518,12 @@ private struct CardEditorView: View {
         originalPromptImagePreview = promptImagePreview
         if let answerURL = card?.answerImageURL {
             answerImageLocalURL = await store.playableMediaURL(for: answerURL)
-            answerImagePreview = answerImageLocalURL.flatMap {
-                UIImage(contentsOfFile: $0.path)
+            answerImagePreview = if answerImageLocalURL == promptImageLocalURL {
+                promptImagePreview
+            } else {
+                answerImageLocalURL.flatMap {
+                    UIImage(contentsOfFile: $0.path)
+                }
             }
         } else {
             answerImageLocalURL = nil
@@ -632,18 +636,29 @@ private struct CardEditorView: View {
                 nextAnswerImageLocalURL = nil
             }
             try Task.checkCancellation()
-            let nextPromptImagePreview = nextPromptImageLocalURL.flatMap {
-                UIImage(contentsOfFile: $0.path)
+            let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
+            let nextPromptImagePreview = if nextPromptImageLocalURL == result.localURL {
+                generatedImagePreview
+            } else {
+                nextPromptImageLocalURL.flatMap {
+                    UIImage(contentsOfFile: $0.path)
+                }
             }
-            let nextAnswerImagePreview = nextAnswerImageLocalURL.flatMap {
-                UIImage(contentsOfFile: $0.path)
+            let nextAnswerImagePreview = if nextAnswerImageLocalURL == result.localURL {
+                generatedImagePreview
+            } else if nextAnswerImageLocalURL == nextPromptImageLocalURL {
+                nextPromptImagePreview
+            } else {
+                nextAnswerImageLocalURL.flatMap {
+                    UIImage(contentsOfFile: $0.path)
+                }
             }
             draft.reconcileImages(
                 promptImage: result.card.prompt["cueImage"],
                 answerImage: result.card.answer["answerImage"]
             )
             sharedImageLocalURL = result.localURL
-            sharedImagePreview = UIImage(contentsOfFile: result.localURL.path)
+            sharedImagePreview = generatedImagePreview
             promptImageLocalURL = nextPromptImageLocalURL
             promptImagePreview = nextPromptImagePreview
             answerImageLocalURL = nextAnswerImageLocalURL

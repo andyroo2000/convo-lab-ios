@@ -88,6 +88,12 @@ final class StudyStore {
         }
     }
 
+    private struct MismatchedGeneratedImagesError: LocalizedError {
+        var errorDescription: String? {
+            "The server returned different front and back images for a shared-image request."
+        }
+    }
+
     private struct InvalidImagePromptError: LocalizedError {
         var errorDescription: String? {
             "Enter a non-empty image prompt no longer than 1,000 characters."
@@ -776,6 +782,16 @@ final class StudyStore {
             body: request,
             timeout: 180
         )
+        if
+            placement == .both,
+            let promptImage = serverCard.prompt["cueImage"],
+            let answerImage = serverCard.answer["answerImage"],
+            !promptImage.mediaURLs.isEmpty,
+            !answerImage.mediaURLs.isEmpty,
+            promptImage.mediaURLs != answerImage.mediaURLs
+        {
+            throw MismatchedGeneratedImagesError()
+        }
         let generatedImageCandidates = placement == .answer
             ? [serverCard.answer["answerImage"], serverCard.prompt["cueImage"]]
             : [serverCard.prompt["cueImage"], serverCard.answer["answerImage"]]
