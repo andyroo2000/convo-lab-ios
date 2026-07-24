@@ -72,6 +72,63 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCorruptedPendingReviewDoesNotBlockSessionRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewedCard = makeCard(
+            id: "01J00000000000000000000012",
+            expression: "破損"
+        )
+        let availableCard = makeCard(
+            id: "01J00000000000000000000013",
+            expression: "利用可能"
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "review",
+                resourceID: reviewedCard.id,
+                payload: Data("not-json".utf8)
+            )
+        )
+        try container.mainContext.save()
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 2,
+                newCount: 0,
+                reviewCount: 2,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [reviewedCard, availableCard]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/session/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.cards.map(\.id), [availableCard.id])
+        XCTAssertEqual(store.overview?.dueCount, 2)
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(

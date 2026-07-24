@@ -8,6 +8,18 @@ final class StudyStore {
         var newlyFailedCardIDs: Set<String> = []
         var retainedFailedCardIDs: Set<String> = []
         var resolvedFailedCardIDs: Set<String> = []
+
+        mutating func record(card: StudyCard, rating: ReviewRating) {
+            if rating == .again {
+                if card.state.failedAt == nil {
+                    newlyFailedCardIDs.insert(card.id)
+                } else {
+                    retainedFailedCardIDs.insert(card.id)
+                }
+            } else if card.state.failedAt != nil {
+                resolvedFailedCardIDs.insert(card.id)
+            }
+        }
     }
 
     private struct QuarantinedReviewError: LocalizedError {
@@ -259,15 +271,13 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             try context.fetch(descriptor).first?.isInActiveSession = false
             try context.save()
-            if rating == .again {
-                if card.state.failedAt == nil {
-                    newlyFailedCardIDs.insert(card.id)
-                } else {
-                    retainedFailedCardIDs.insert(card.id)
-                }
-            } else if card.state.failedAt != nil {
-                resolvedFailedCardIDs.insert(card.id)
-            }
+            var pendingState = PendingReviewState(
+                newlyFailedCardIDs: newlyFailedCardIDs,
+                retainedFailedCardIDs: retainedFailedCardIDs,
+                resolvedFailedCardIDs: resolvedFailedCardIDs
+            )
+            pendingState.record(card: card, rating: rating)
+            apply(pendingState)
             cards.removeAll { $0.id == card.id }
             try await flushReviewOutbox()
         } catch {
@@ -579,7 +589,12 @@ final class StudyStore {
                 }
             )
         )
-        let records = try context.fetch(FetchDescriptor<LocalCardRecord>())
+        let pendingCardIDs = pending.map(\.resourceID)
+        let records = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { pendingCardIDs.contains($0.id) }
+            )
+        )
         let cardsByID = Dictionary(
             records.compactMap { record in
                 (try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload))
@@ -590,21 +605,13 @@ final class StudyStore {
         var state = PendingReviewState()
 
         for mutation in pending {
-            let event = try StorageCodec.decoder.decode(
+            state.cardIDs.insert(mutation.resourceID)
+            guard let event = try? StorageCodec.decoder.decode(
                 ReviewBatchRequest.Event.self,
                 from: mutation.payload
-            )
-            state.cardIDs.insert(event.cardID)
-            guard let card = cardsByID[event.cardID] else { continue }
-            if event.rating == .again {
-                if card.state.failedAt == nil {
-                    state.newlyFailedCardIDs.insert(card.id)
-                } else {
-                    state.retainedFailedCardIDs.insert(card.id)
-                }
-            } else if card.state.failedAt != nil {
-                state.resolvedFailedCardIDs.insert(card.id)
-            }
+            ) else { continue }
+            guard let card = cardsByID[mutation.resourceID] else { continue }
+            state.record(card: card, rating: event.rating)
         }
         return state
     }
