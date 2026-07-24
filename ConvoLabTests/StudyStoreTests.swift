@@ -173,14 +173,19 @@ final class StudyStoreTests: XCTestCase {
         }
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
         XCTAssertFalse(store.manualDrafts.isEmpty)
+        XCTAssertTrue(store.hasPendingDraftCommit(for: serverDraft.id))
+        XCTAssertEqual(store.quarantinedMutationCount, 1)
+        do {
+            try await store.deleteManualDraft(queued)
+            XCTFail("Expected ambiguous draft commits to block deletion")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This draft may already have created a card. Retry Create Card or sync before deleting it."
+            )
+        }
 
-        try await store.createCard(
-            from: queued,
-            draft: draft,
-            previewAudio: audio,
-            previewAudioRole: "prompt",
-            previewImage: nil
-        )
+        try await store.retryPendingDraftCommits()
 
         XCTAssertEqual(
             paths.values,

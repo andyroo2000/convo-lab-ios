@@ -114,6 +114,12 @@ final class StudyStore {
         }
     }
 
+    private struct PendingDraftCommitError: LocalizedError {
+        var errorDescription: String? {
+            "This draft may already have created a card. Retry Create Card or sync before deleting it."
+        }
+    }
+
     struct AnswerAudioRegenerationResult {
         let card: StudyCard
         let localURL: URL
@@ -309,6 +315,11 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch {
             firstError = error
+        }
+        do {
+            try await retryPendingDraftCommits()
+        } catch {
+            firstError = firstError ?? error
         }
         do {
             try await flushReviewOutbox()
@@ -585,7 +596,7 @@ final class StudyStore {
             prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),
             answer: draft.answer(),
             imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.trimmedOrNil
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty
         )
         let serverDraft: StudyManualCardDraft = try await api.request(
             "/api/study/card-drafts",
@@ -628,7 +639,7 @@ final class StudyStore {
             prompt: prompt,
             answer: answer,
             imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.trimmedOrNil,
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty,
             previewAudio: previewAudio ?? .null,
             previewAudioRole: previewAudioRole.map(JSONValue.string) ?? .null,
             previewImage: previewImage ?? .null
@@ -726,56 +737,22 @@ final class StudyStore {
             context.insert(commitMutation)
             try context.save()
         }
-        let request = try StorageCodec.decoder.decode(
-            CreateCardFromStudyManualDraftRequest.self,
-            from: commitMutation.payload
-        )
-        let response: CreateCardFromStudyManualDraftResponse
-        do {
-            response = try await api.request(
-                "/api/study/card-drafts/\(updated.id)/create-card",
-                method: "POST",
-                body: request
-            )
-        } catch let rejection as APIClientError {
-            if case let .rejected(status, _) = rejection, 400..<500 ~= status {
-                // A definitive client rejection means the server did not accept
-                // this commit attempt. Let the user edit and start a fresh one.
-                context.delete(commitMutation)
-                try context.save()
-            }
-            throw rejection
-        }
-
-        // The server mutation has completed. Reconcile locally even if the
-        // editor is dismissed while media preparation is still in progress.
-        try updateLocalCard(response.card, markedDirty: false)
-        cards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
-        cards.append(response.card)
-        cards = Self.orderSessionCards(cards)
-        libraryCards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
-        libraryCards.append(response.card)
-        try context.save()
-        await mediaCache.prepare(urls: response.card.mediaURLs, category: "active-study")
-        let _: IgnoredResponse = try await api.request(
-            "/api/study/card-drafts/\(response.draftId)",
-            method: "DELETE"
-        )
-        context.delete(commitMutation)
-        manualDrafts.removeAll { $0.id == response.draftId }
-        try context.save()
+        try await performDraftCommit(commitMutation)
     }
 
     func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
+        guard try pendingDraftCommit(for: serverDraft.id) == nil else {
+            throw PendingDraftCommitError()
+        }
         let _: IgnoredResponse = try await api.request(
             "/api/study/card-drafts/\(serverDraft.id)",
             method: "DELETE"
         )
-        if let pending = try pendingDraftCommit(for: serverDraft.id) {
-            context.delete(pending)
-            try context.save()
-        }
         manualDrafts.removeAll { $0.id == serverDraft.id }
+    }
+
+    func hasPendingDraftCommit(for draftID: String) -> Bool {
+        (try? pendingDraftCommit(for: draftID)) != nil
     }
 
     func createCard(_ draft: StudyCardDraft) async throws {
@@ -1637,6 +1614,78 @@ final class StudyStore {
         return try context.fetch(descriptor).first
     }
 
+    func retryPendingDraftCommits() async throws {
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate { $0.kind == "draftCommit" },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        for mutation in try context.fetch(descriptor) {
+            try await performDraftCommit(mutation)
+        }
+    }
+
+    private func performDraftCommit(_ mutation: PendingMutation) async throws {
+        let request = try StorageCodec.decoder.decode(
+            CreateCardFromStudyManualDraftRequest.self,
+            from: mutation.payload
+        )
+        let response: CreateCardFromStudyManualDraftResponse
+        do {
+            response = try await api.request(
+                "/api/study/card-drafts/\(mutation.resourceID)/create-card",
+                method: "POST",
+                body: request
+            )
+        } catch let rejection as APIClientError {
+            if case let .rejected(status, _) = rejection, 400..<500 ~= status {
+                // A definitive client rejection means the server did not accept
+                // this commit attempt. Let the user edit and start a fresh one.
+                context.delete(mutation)
+            } else {
+                recordDraftCommitFailure(rejection, on: mutation)
+            }
+            try context.save()
+            throw rejection
+        } catch {
+            recordDraftCommitFailure(error, on: mutation)
+            try context.save()
+            throw error
+        }
+
+        // Reconcile the confirmed server card before cleaning up the transient
+        // draft so an interrupted cleanup cannot lose the canonical card.
+        try updateLocalCard(response.card, markedDirty: false)
+        cards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
+        cards.append(response.card)
+        cards = Self.orderSessionCards(cards)
+        libraryCards.removeAll { $0.id.lowercased() == response.card.id.lowercased() }
+        libraryCards.append(response.card)
+        try context.save()
+        await mediaCache.prepare(urls: response.card.mediaURLs, category: "active-study")
+        do {
+            let _: IgnoredResponse = try await api.request(
+                "/api/study/card-drafts/\(response.draftId)",
+                method: "DELETE"
+            )
+        } catch {
+            recordDraftCommitFailure(error, on: mutation)
+            try context.save()
+            throw error
+        }
+        context.delete(mutation)
+        manualDrafts.removeAll { $0.id == response.draftId }
+        try context.save()
+    }
+
+    private func recordDraftCommitFailure(
+        _ error: any Error,
+        on mutation: PendingMutation
+    ) {
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        mutation.lastError = error.localizedDescription
+    }
+
     private func replaceManualDraft(_ draft: StudyManualCardDraft) {
         manualDrafts.removeAll { $0.id == draft.id }
         manualDrafts.append(draft)
@@ -1785,13 +1834,6 @@ final class StudyStore {
             return leftEntry.offset < rightEntry.offset
         }
         .map(\.element)
-    }
-}
-
-private extension String {
-    var trimmedOrNil: String? {
-        let value = trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
     }
 }
 

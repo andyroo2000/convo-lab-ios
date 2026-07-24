@@ -101,19 +101,25 @@ struct CardLibraryView: View {
     }
 
     private func draftRow(_ draft: StudyManualCardDraft) -> some View {
-        HStack(spacing: 12) {
+        let hasPendingCommit = store.hasPendingDraftCommit(for: draft.id)
+        return HStack(spacing: 12) {
             Image(
-                systemName: draft.status == "generating"
+                systemName: hasPendingCommit
+                    ? "checkmark.circle"
+                    : draft.status == "generating"
                     ? "sparkles"
                     : draft.status == "error" ? "exclamationmark.triangle" : "doc.badge.gearshape"
             )
             .foregroundStyle(draft.status == "error" ? .red : ConvoLabTheme.navy)
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(draft.creationKind.title)
                     .font(.headline)
                     .foregroundStyle(ConvoLabTheme.navy)
                 Text(
-                    draft.status == "generating"
+                    hasPendingCommit
+                        ? "Card created; tap to finish cleanup"
+                        : draft.status == "generating"
                         ? "Preparing fields and media…"
                         : draft.errorMessage ?? "Ready to review and create"
                 )
@@ -277,7 +283,21 @@ private struct CardEditorView: View {
                         Button("Delete Draft", role: .destructive) {
                             Task { await deleteServerDraft() }
                         }
-                        .disabled(isBusy)
+                        .disabled(
+                            isBusy
+                                || serverDraft.map {
+                                    store.hasPendingDraftCommit(for: $0.id)
+                                } == true
+                        )
+                        if serverDraft.map({
+                            store.hasPendingDraftCommit(for: $0.id)
+                        }) == true {
+                            Text(
+                                "This card may already exist. Retry Create Card or sync to finish cleanup."
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
