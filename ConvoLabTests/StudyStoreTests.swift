@@ -241,6 +241,100 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRegenerateImageExplicitlyConvertsIndependentImagesToSelectedPlacement() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let frontImage: JSONValue = .object([
+            "url": .string("/api/study/media/original-front"),
+            "filename": .string("front.webp"),
+        ])
+        let backImage: JSONValue = .object([
+            "url": .string("/api/study/media/original-back"),
+            "filename": .string("back.webp"),
+        ])
+        let baseCard = makeCard(
+            id: "01J0000000000000000000000ID",
+            expression: "会社"
+        )
+        let card = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.syncId,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt.replacingObjectValues(["cueImage": frontImage]),
+            answer: baseCard.answer.replacingObjectValues(["answerImage": backImage]),
+            state: baseCard.state,
+            answerAudioSource: baseCard.answerAudioSource,
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        let generatedImage: JSONValue = .object([
+            "url": .string("/api/study/media/replacement"),
+            "filename": .string("replacement.webp"),
+        ])
+        let serverCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues(["answerImage": generatedImage]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(serverCard)
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/regenerate-image") == true {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/webp"]
+                )!,
+                Data("replacement-image".utf8)
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let result = try await store.regenerateImage(
+            for: card,
+            prompt: "A company office.",
+            placement: .answer
+        )
+
+        XCTAssertEqual(result.card.prompt["cueImage"], .null)
+        XCTAssertEqual(result.card.answer["answerImage"], generatedImage)
+        let stored = try persistedCard(in: container)
+        XCTAssertEqual(stored.prompt["cueImage"], .null)
+        XCTAssertEqual(stored.answer["answerImage"], generatedImage)
+    }
+
+    @MainActor
     func testCancelledImageRegenerationStillReconcilesCompletedChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

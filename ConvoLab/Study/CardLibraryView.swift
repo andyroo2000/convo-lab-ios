@@ -106,6 +106,7 @@ private struct CardEditorView: View {
     @State private var answerImagePreview: UIImage?
     @State private var sharedImagePreview: UIImage?
     @State private var errorMessage: String?
+    @State private var showingIndependentImageReplacementConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
     init(store: StudyStore, player: StudyAudioPlayer, card: StudyCard?) {
@@ -192,6 +193,19 @@ private struct CardEditorView: View {
                     player.stop()
                 }
             }
+            .alert(
+                "Replace distinct front and back images?",
+                isPresented: $showingIndependentImageReplacementConfirmation
+            ) {
+                Button("Replace Images", role: .destructive) {
+                    startImageRegeneration()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "This card has a different image on each face. Regenerating converts it to one generated image using the selected placement."
+                )
+            }
         }
     }
 
@@ -256,9 +270,10 @@ private struct CardEditorView: View {
 
             if card != nil {
                 Button {
-                    imageRegenerationTask?.cancel()
-                    imageRegenerationTask = Task {
-                        await regenerateImage()
+                    if hasIndependentFaceImages {
+                        showingIndependentImageReplacementConfirmation = true
+                    } else {
+                        startImageRegeneration()
                     }
                 } label: {
                     if isRegeneratingImage {
@@ -291,6 +306,7 @@ private struct CardEditorView: View {
             Text(label)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
@@ -513,6 +529,25 @@ private struct CardEditorView: View {
             answerImageLocalURL = sharedImageLocalURL
             promptImagePreview = sharedImagePreview
             answerImagePreview = sharedImagePreview
+        }
+    }
+
+    private var hasIndependentFaceImages: Bool {
+        guard
+            let promptImage = card?.prompt["cueImage"],
+            let answerImage = card?.answer["answerImage"],
+            !promptImage.mediaURLs.isEmpty,
+            !answerImage.mediaURLs.isEmpty
+        else {
+            return false
+        }
+        return promptImage != answerImage
+    }
+
+    private func startImageRegeneration() {
+        imageRegenerationTask?.cancel()
+        imageRegenerationTask = Task {
+            await regenerateImage()
         }
     }
 
