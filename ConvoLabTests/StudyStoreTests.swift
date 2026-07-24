@@ -277,7 +277,8 @@ final class StudyStoreTests: XCTestCase {
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(
-            id: "01J00000000000000000000010",
+            id: "98f42a62-8303-410e-ad4d-5a69c55911bb",
+            syncId: "01J00000000000000000000010",
             noteId: nil,
             cardType: "recognition",
             prompt: .object(["cueText": .string("失敗")]),
@@ -309,6 +310,7 @@ final class StudyStoreTests: XCTestCase {
             with: StorageCodec.encoder.encode(session)
         )
         let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let expectedSyncID = failedCard.syncId
         let client = makeClient { request in
             if request.url?.path == "/api/study/session/start" {
                 return (
@@ -322,6 +324,12 @@ final class StudyStoreTests: XCTestCase {
                 )
             }
             XCTAssertEqual(request.url?.path, "/api/card-review-events/batch")
+            let body = try requestBody(request)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            let events = try XCTUnwrap(payload["events"] as? [[String: Any]])
+            XCTAssertEqual(events.first?["card_id"] as? String, expectedSyncID)
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -731,6 +739,180 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testNewCardCreateFlushesBeforeItsReview() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: offlineClient,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: offlineClient, context: container.mainContext)
+        )
+
+        try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
+        let card = try XCTUnwrap(store.cards.first)
+        await store.recordReview(card: card, rating: .good, duration: nil)
+        let locallyReviewedCard = try XCTUnwrap(
+            store.libraryCards.first { $0.id == card.id }
+        )
+        let serverCreatedAt = card.createdAt.addingTimeInterval(-60)
+        let serverUpdatedAt = card.updatedAt.addingTimeInterval(1)
+        let serverCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: "server-note-id",
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer,
+            state: card.state,
+            answerAudioSource: "generated",
+            createdAt: serverCreatedAt,
+            updatedAt: serverUpdatedAt
+        )
+        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let decodedServerCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: serverCardData
+        )
+        let decodedReviewedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: StorageCodec.encoder.encode(locallyReviewedCard)
+        )
+        XCTAssertEqual(
+            Set(
+                try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                    .map(\.kind)
+            ),
+            ["cardCreate", "review"]
+        )
+
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let paths = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            let status = path == "/api/study/session/start" ? 200 : 201
+            let data: Data
+            switch path {
+            case "/api/study/cards":
+                data = serverCardData
+            case "/api/study/session/start":
+                data = sessionData
+            default:
+                data = Data(#"{"data":[]}"#.utf8)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+
+        await store.synchronize()
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/cards",
+                "/api/card-review-events/batch",
+                "/api/study/session/start",
+            ]
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let storedCard = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertNil(record.locallyUpdatedAt)
+        XCTAssertEqual(record.serverUpdatedAt, decodedServerCard.updatedAt)
+        XCTAssertEqual(storedCard.noteId, "server-note-id")
+        XCTAssertEqual(storedCard.answerAudioSource, "generated")
+        XCTAssertEqual(storedCard.createdAt, decodedServerCard.createdAt)
+        XCTAssertEqual(storedCard.state, decodedReviewedCard.state)
+        XCTAssertEqual(storedCard.updatedAt, decodedReviewedCard.updatedAt)
+    }
+
+    @MainActor
+    func testRejectedCardCreateSurfacesItsDependentReview() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            api: offlineClient,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: offlineClient, context: container.mainContext)
+        )
+
+        try await store.createCard(expression: "拒否", reading: "きょひ", meaning: "reject")
+        let card = try XCTUnwrap(store.cards.first)
+        await store.recordReview(card: card, rating: .good, duration: nil)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path
+            let status: Int
+            let data: Data
+            switch path {
+            case "/api/study/cards":
+                status = 422
+                data = Data(#"{"message":"Invalid card"}"#.utf8)
+            case "/api/card-review-events/batch":
+                status = 404
+                data = Data(#"{"message":"Card not found"}"#.utf8)
+            default:
+                status = 200
+                data = sessionData
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+
+        await store.synchronize()
+
+        let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+        XCTAssertEqual(pending.count, 2)
+        XCTAssertEqual(Set(pending.map(\.kind)), ["cardCreate", "review"])
+        XCTAssertTrue(pending.allSatisfy { $0.lastError != nil })
+        XCTAssertEqual(store.quarantinedMutationCount, 2)
+    }
+
+    @MainActor
     func testQuarantinedReviewDoesNotBlockCardSyncOrSessionRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
@@ -879,6 +1061,18 @@ final class StudyStoreTests: XCTestCase {
     @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000018",
+            expression: "鳥"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
@@ -888,8 +1082,6 @@ final class StudyStoreTests: XCTestCase {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        try await store.createCard(expression: "鳥", reading: "とり", meaning: "bird")
-        let card = try XCTUnwrap(store.cards.first)
 
         await store.recordReview(card: card, rating: .good, duration: .milliseconds(750))
         let relaunchedStore = StudyStore(
@@ -981,5 +1173,22 @@ final class LockedCounter: @unchecked Sendable {
         defer { lock.unlock() }
         value += 1
         return value
+    }
+}
+
+final class LockedRequestPaths: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ value: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(value)
     }
 }

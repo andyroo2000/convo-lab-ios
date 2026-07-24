@@ -97,6 +97,7 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     }
 
     let id: String
+    let syncId: String?
     let noteId: String?
     let cardType: String
     let prompt: JSONValue
@@ -105,6 +106,32 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     let answerAudioSource: String?
     let createdAt: Date
     let updatedAt: Date
+
+    init(
+        id: String,
+        syncId: String? = nil,
+        noteId: String?,
+        cardType: String,
+        prompt: JSONValue,
+        answer: JSONValue,
+        state: State,
+        answerAudioSource: String?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.syncId = syncId
+        self.noteId = noteId
+        self.cardType = cardType
+        self.prompt = prompt
+        self.answer = answer
+        self.state = state
+        self.answerAudioSource = answerAudioSource
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    var reviewCardID: String { syncId ?? id }
 
     var promptText: String {
         if let heading = presentation.front.heading {
@@ -146,6 +173,7 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
         let queueState = rating.nextQueueState(from: state.queueState)
         return StudyCard(
             id: id,
+            syncId: syncId,
             noteId: noteId,
             cardType: cardType,
             prompt: prompt,

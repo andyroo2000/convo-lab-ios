@@ -27,7 +27,8 @@ final class APIClientTests: XCTestCase {
     func testStudyCardMutationUsesDirectCompatibilityPayload() async throws {
         let cardJSON = """
         {
-          "id": "01J00000000000000000000000",
+          "id": "98f42a62-8303-410e-ad4d-5a69c55911bb",
+          "syncId": "01J00000000000000000000000",
           "noteId": null,
           "cardType": "recognition",
           "prompt": {"cueText": "犬"},
@@ -68,6 +69,19 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(card.promptText, "犬")
         XCTAssertEqual(card.answerText, "dog")
+        XCTAssertEqual(card.id, "98f42a62-8303-410e-ad4d-5a69c55911bb")
+        XCTAssertEqual(card.reviewCardID, "01J00000000000000000000000")
+
+        var cachedPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(cardJSON.utf8)) as? [String: Any]
+        )
+        cachedPayload.removeValue(forKey: "syncId")
+        let legacyCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: cachedPayload)
+        )
+        XCTAssertNil(legacyCard.syncId)
+        XCTAssertEqual(legacyCard.reviewCardID, legacyCard.id)
     }
 
     @MainActor

@@ -167,12 +167,12 @@ final class StudyStore {
         var refreshed = false
 
         do {
-            try await flushReviewOutbox()
+            try await flushCardOutbox()
         } catch {
             firstError = error
         }
         do {
-            try await flushCardOutbox()
+            try await flushReviewOutbox()
         } catch {
             firstError = firstError ?? error
         }
@@ -346,7 +346,7 @@ final class StudyStore {
         let now = reviewedAt
         let event = ReviewBatchRequest.Event(
             id: ClientIdentifier.ulid(date: now),
-            cardID: card.id,
+            cardID: card.reviewCardID,
             rating: rating,
             reviewedAt: now,
             durationMilliseconds: duration.map {
@@ -405,6 +405,9 @@ final class StudyStore {
                 libraryCards.append(updatedCard)
             }
             scheduleNextOfflineActivation()
+            if try hasPendingCreate(for: card.id) {
+                try await flushCardOutbox()
+            }
             try await flushReviewOutbox()
         } catch {
             handleSyncError(error)
@@ -434,6 +437,7 @@ final class StudyStore {
         let now = Date.now
         let optimistic = StudyCard(
             id: id,
+            syncId: id,
             noteId: nil,
             cardType: "recognition",
             prompt: prompt,
@@ -484,6 +488,7 @@ final class StudyStore {
         let request = UpdateStudyCardRequest(prompt: promptPayload, answer: answerPayload)
         let updated = StudyCard(
             id: card.id,
+            syncId: card.syncId,
             noteId: card.noteId,
             cardType: card.cardType,
             prompt: promptPayload,
@@ -545,6 +550,9 @@ final class StudyStore {
 
         var quarantinedCount = 0
         for mutation in pending {
+            if try hasPendingCreate(for: mutation.resourceID) {
+                continue
+            }
             let event = try decodePendingReview(mutation.payload).event
             do {
                 let _: IgnoredResponse = try await api.request(
@@ -651,10 +659,20 @@ final class StudyStore {
                 }
 
                 if let serverCard, try !hasPendingDelete(for: serverCard.id) {
-                    try updateLocalCard(serverCard, markedDirty: false)
-                    cards = cards.map { $0.id == serverCard.id ? serverCard : $0 }
+                    let acknowledgedCard = try acknowledgedCard(
+                        serverCard,
+                        preservingPendingReview: hasPendingReview(for: serverCard.id)
+                    )
+                    try updateLocalCard(
+                        acknowledgedCard,
+                        markedDirty: false,
+                        serverUpdatedAt: serverCard.updatedAt
+                    )
+                    cards = cards.map {
+                        $0.id == serverCard.id ? acknowledgedCard : $0
+                    }
                     libraryCards = libraryCards.map {
-                        $0.id == serverCard.id ? serverCard : $0
+                        $0.id == serverCard.id ? acknowledgedCard : $0
                     }
                 }
                 context.delete(mutation)
@@ -687,6 +705,30 @@ final class StudyStore {
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.kind == "cardDelete" && $0.resourceID == cardID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !context.fetch(descriptor).isEmpty
+    }
+
+    private func hasPendingCreate(for cardID: String) throws -> Bool {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "cardCreate"
+                    && $0.resourceID == cardID
+                    && $0.lastError == nil
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !context.fetch(descriptor).isEmpty
+    }
+
+    private func hasPendingReview(for cardID: String) throws -> Bool {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.kind == "review"
+                    && $0.resourceID == cardID
+                    && $0.lastError == nil
             }
         )
         descriptor.fetchLimit = 1
@@ -810,7 +852,46 @@ final class StudyStore {
         try? context.save()
     }
 
-    private func updateLocalCard(_ card: StudyCard, markedDirty: Bool) throws {
+    private func acknowledgedCard(
+        _ serverCard: StudyCard,
+        preservingPendingReview: Bool
+    ) throws -> StudyCard {
+        guard preservingPendingReview else { return serverCard }
+
+        let cardID = serverCard.id
+        var descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.id == cardID }
+        )
+        descriptor.fetchLimit = 1
+        guard
+            let record = try context.fetch(descriptor).first,
+            let localCard = try? StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: record.payload
+            )
+        else {
+            return serverCard
+        }
+
+        return StudyCard(
+            id: serverCard.id,
+            syncId: serverCard.syncId ?? localCard.syncId,
+            noteId: serverCard.noteId,
+            cardType: serverCard.cardType,
+            prompt: serverCard.prompt,
+            answer: serverCard.answer,
+            state: localCard.state,
+            answerAudioSource: serverCard.answerAudioSource,
+            createdAt: serverCard.createdAt,
+            updatedAt: localCard.updatedAt
+        )
+    }
+
+    private func updateLocalCard(
+        _ card: StudyCard,
+        markedDirty: Bool,
+        serverUpdatedAt: Date? = nil
+    ) throws {
         let cardID = card.id
         var descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.id == cardID }
@@ -819,10 +900,11 @@ final class StudyStore {
         let payload = try StorageCodec.encoder.encode(card)
         if let record = try context.fetch(descriptor).first {
             record.payload = payload
-            record.serverUpdatedAt = card.updatedAt
+            record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
         } else {
             let record = LocalCardRecord(card: card, queueIndex: cards.count, payload: payload)
+            record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
             context.insert(record)
         }
