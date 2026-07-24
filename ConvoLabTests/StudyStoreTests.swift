@@ -69,6 +69,7 @@ final class StudyStoreTests: XCTestCase {
         let card = try XCTUnwrap(store.cards.first)
         let session = StudySession(
             overview: StudyOverview(
+                dueCount: 0,
                 newCount: 1,
                 reviewCount: 0,
                 newCardsPerDay: 10,
@@ -156,6 +157,7 @@ final class StudyStoreTests: XCTestCase {
         let acceptedCardData = try StorageCodec.encoder.encode(acceptedCard)
         let session = StudySession(
             overview: StudyOverview(
+                dueCount: 0,
                 newCount: 0,
                 reviewCount: 0,
                 newCardsPerDay: 10,

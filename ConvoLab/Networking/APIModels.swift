@@ -53,12 +53,14 @@ struct StudySession: Codable, Sendable {
 }
 
 struct StudyOverview: Codable, Sendable {
+    let dueCount: Int
     let newCount: Int
     let reviewCount: Int
     let newCardsPerDay: Int
     let newCardsAvailableToday: Int?
 
     enum CodingKeys: String, CodingKey {
+        case dueCount = "due_count"
         case newCount = "new_count"
         case reviewCount = "review_count"
         case newCardsPerDay = "new_cards_per_day"
@@ -86,8 +88,47 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date
     let updatedAt: Date
 
-    var promptText: String { prompt.preferredText ?? "Study card" }
-    var answerText: String { answer.preferredText ?? "No answer text" }
+    var promptText: String {
+        if cardType == "cloze" {
+            if let clozeText = prompt.firstNonEmptyString(for: ["clozeText"]),
+               clozeText.range(of: #"\{\{c\d+::.*?\}\}"#, options: .regularExpression) != nil
+            {
+                return clozeText.replacingOccurrences(
+                    of: #"\{\{c\d+::.*?\}\}"#,
+                    with: "[...]",
+                    options: .regularExpression
+                )
+            }
+            if let displayText = prompt.firstNonEmptyString(for: ["clozeDisplayText", "clozeText"]) {
+                return displayText
+            }
+        }
+        return prompt.firstNonEmptyString(
+            for: ["cueText", "text", "expression", "clozeDisplayText", "clozeText"]
+        ) ?? prompt.preferredText ?? "Study card"
+    }
+
+    var promptHint: String? {
+        prompt.firstNonEmptyString(for: ["clozeResolvedHint", "clozeHint", "cueMeaning"])
+    }
+
+    var answerText: String {
+        if cardType == "cloze" {
+            return answer.firstNonEmptyString(for: ["restoredText", "expression", "text", "meaning"])
+                ?? answer.preferredText
+                ?? "No answer text"
+        }
+        return answer.firstNonEmptyString(for: ["meaning", "translation", "text", "answerText"])
+            ?? answer.preferredText
+            ?? "No answer text"
+    }
+
+    var answerDetailText: String? {
+        guard cardType == "cloze" else { return nil }
+        let detail = answer.firstNonEmptyString(for: ["meaning", "translation"])
+        return detail == answerText ? nil : detail
+    }
+
     var mediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
 }
 
@@ -96,6 +137,16 @@ enum ReviewRating: String, Codable, CaseIterable, Sendable {
     case hard
     case good
     case easy
+
+    var nextIntervalLabel: String {
+        // Keep these synchronized with ApplyCardStudyReviewAction in learning-os.
+        switch self {
+        case .again: "<10m"
+        case .hard: "1d"
+        case .good: "3d"
+        case .easy: "7d"
+        }
+    }
 }
 
 struct ReviewBatchRequest: Codable {

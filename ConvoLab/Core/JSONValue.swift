@@ -47,6 +47,18 @@ enum JSONValue: Codable, Hashable, Sendable {
         return value
     }
 
+    func firstNonEmptyString(for keys: [String]) -> String? {
+        guard case let .object(object) = self else { return nil }
+        for key in keys {
+            if let text = object[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty
+            {
+                return text
+            }
+        }
+        return nil
+    }
+
     var mediaURLs: [URL] {
         switch self {
         case let .object(object):
@@ -84,4 +96,3 @@ enum JSONValue: Codable, Hashable, Sendable {
         }
     }
 }
-

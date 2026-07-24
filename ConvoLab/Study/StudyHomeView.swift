@@ -56,7 +56,7 @@ struct StudyHomeView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            metric(title: "Due", value: store.overview?.reviewCount ?? store.cards.count)
+            metric(title: "Due", value: store.overview?.dueCount ?? store.cards.count)
             metric(title: "New", value: store.overview?.newCount ?? 0)
             metric(title: "Daily", value: store.overview?.newCardsPerDay ?? 0)
         }
@@ -131,4 +131,3 @@ struct StudyHomeView: View {
         .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
     }
 }
-

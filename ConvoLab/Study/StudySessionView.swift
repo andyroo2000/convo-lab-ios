@@ -28,6 +28,13 @@ struct StudySessionView: View {
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
 
+                if let promptHint = card.promptHint, !showingAnswer {
+                    Text(promptHint)
+                        .font(.title3)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                }
+
                 if showingAnswer {
                     Divider()
                     Text(card.answerText)
@@ -35,6 +42,13 @@ struct StudySessionView: View {
                         .multilineTextAlignment(.center)
                         .foregroundStyle(ConvoLabTheme.navy)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    if let answerDetailText = card.answerDetailText {
+                        Text(answerDetailText)
+                            .font(.title3)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .transition(.opacity)
+                    }
                 }
 
                 Spacer()
@@ -84,7 +98,7 @@ struct StudySessionView: View {
         color: Color,
         card: StudyCard
     ) -> some View {
-        Button(title) {
+        Button {
             let duration = Date.now.timeIntervalSince(cardStartedAt)
             Task {
                 await store.recordReview(
@@ -93,10 +107,16 @@ struct StudySessionView: View {
                     duration: .milliseconds(Int64(duration * 1_000))
                 )
             }
+        } label: {
+            VStack(spacing: 2) {
+                Text(rating.nextIntervalLabel)
+                    .font(.caption.bold())
+                Text(title)
+            }
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .tint(color)
         .frame(maxWidth: .infinity)
     }
 }
-
