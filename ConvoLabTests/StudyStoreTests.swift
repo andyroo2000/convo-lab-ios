@@ -4373,6 +4373,76 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountSwitchCannotAdvanceCheckpointPastSkippedCardChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(
+            id: "01J00000000000000000000C1",
+            expression: "未適用"
+        )
+        let serverCardID = serverCard.id
+        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            switch path {
+            case "/api/sync/feed":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(
+                        """
+                        {"data":[{"checkpoint":9,"resource_id":"\(serverCardID)","operation":"update"}],
+                        "meta":{"next_checkpoint":9,"has_more":false}}
+                        """.utf8
+                    )
+                )
+            case "/api/study/cards/\(serverCardID)":
+                gate.markStarted()
+                gate.waitForRelease()
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    serverCardData
+                )
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let synchronization = Task { await store.synchronize() }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        gate.release()
+        await synchronization.value
+
+        let states = try container.mainContext.fetch(FetchDescriptor<LocalSyncState>())
+        XCTAssertEqual(states.first(where: { $0.userID == 1 })?.cardCheckpoint, 0)
+        XCTAssertFalse(try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>()
+        ).contains(where: { $0.userID == 1 && $0.id == serverCardID }))
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
     func testRejectedCardCreateSurfacesItsDependentReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }

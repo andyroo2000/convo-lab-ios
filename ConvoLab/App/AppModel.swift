@@ -57,13 +57,19 @@ final class AppModel {
     func start() async {
         await auth.restore()
         guard case .signedIn = auth.state else { return }
-        await refreshAuthenticatedData()
+        // Only a credential restored at cold launch can establish ownership of
+        // rows created by the pre-account-scoping app.
+        await refreshAuthenticatedData(claimLegacyData: true)
     }
 
     func synchronize() async {
+        if case .signedIn = auth.state {
+            await refreshAuthenticatedData(claimLegacyData: false)
+            return
+        }
         await auth.restore()
         guard case .signedIn = auth.state else { return }
-        await refreshAuthenticatedData()
+        await refreshAuthenticatedData(claimLegacyData: false)
     }
 
     func applicationDidBecomeActive() {
@@ -103,20 +109,22 @@ final class AppModel {
         return true
     }
 
-    private func refreshAuthenticatedData() async {
+    private func refreshAuthenticatedData(claimLegacyData: Bool) async {
         guard case let .signedIn(user) = auth.state else { return }
         // Rows created by pre-account-scoping builds receive SwiftData's zero default
         // during lightweight migration. The first restored signed-in account owns
         // those cards and, critically, any unsent mutation outbox entries.
-        do {
-            try Persistence.claimLegacyLocalData(
-                for: user.id,
-                context: container.mainContext
-            )
-        } catch {
-            // Leave zero-scoped rows untouched so a later activation can retry
-            // instead of loading or discarding only part of the legacy outbox.
-            return
+        if claimLegacyData {
+            do {
+                try Persistence.claimLegacyLocalData(
+                    for: user.id,
+                    context: container.mainContext
+                )
+            } catch {
+                // Leave zero-scoped rows untouched so the same restored account can
+                // retry instead of loading or discarding only part of the outbox.
+                return
+            }
         }
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)

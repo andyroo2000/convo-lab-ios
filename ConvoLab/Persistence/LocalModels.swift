@@ -116,10 +116,15 @@ final class LocalKnownKanjiSnapshot {
 }
 
 enum Persistence {
+    private static let legacyClaimCompletedKey =
+        "ConvoLab.persistence.accountScopedLegacyClaimCompleted"
+
     static func claimLegacyLocalData(
         for userID: Int,
-        context: ModelContext
+        context: ModelContext,
+        defaults: UserDefaults = .standard
     ) throws {
+        guard !defaults.bool(forKey: legacyClaimCompletedKey) else { return }
         let legacyCards = try context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == 0 }
@@ -151,6 +156,9 @@ enum Persistence {
         {
             try context.save()
         }
+        // This marker lives outside SwiftData so a later account can never inherit
+        // zero-scoped rows, even if cleanup or a partial store restore leaves one behind.
+        defaults.set(true, forKey: legacyClaimCompletedKey)
     }
 
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {

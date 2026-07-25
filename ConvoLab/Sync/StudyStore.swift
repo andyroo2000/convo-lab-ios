@@ -529,6 +529,10 @@ final class StudyStore {
                 for entry in page.data {
                     try await apply(entry, userID: userID)
                 }
+                // An account switch can happen while an individual card fetch is
+                // suspended. Never acknowledge the page unless every entry was
+                // durably applied for the account that requested it.
+                guard activeUserID == userID else { return }
                 checkpoint = page.meta.nextCheckpoint
                 state.cardCheckpoint = checkpoint
                 state.updatedAt = .now

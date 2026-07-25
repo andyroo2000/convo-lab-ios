@@ -98,7 +98,14 @@ final class DailyAudioStore {
     }
 
     func download(_ practice: DailyAudioPractice) async {
+        guard
+            let userID = activeUserID,
+            practices.contains(where: { $0.id == practice.id })
+        else {
+            return
+        }
         for track in practice.tracks {
+            guard activeUserID == userID else { return }
             guard let raw = track.audioUrl, let remote = URL(string: raw) else { continue }
             do {
                 let cacheKey = cacheKey(for: track)
@@ -107,14 +114,24 @@ final class DailyAudioStore {
                     category: "daily-audio",
                     cacheKey: cacheKey
                 )
+                guard activeUserID == userID else { return }
                 try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             } catch {
+                guard activeUserID == userID else { return }
                 errorMessage = error.localizedDescription
             }
         }
     }
 
     func playableURL(for track: DailyAudioTrack) async -> URL? {
+        guard
+            let userID = activeUserID,
+            practices.contains(where: { practice in
+                practice.tracks.contains(where: { $0.id == track.id })
+            })
+        else {
+            return nil
+        }
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
         let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
@@ -126,9 +143,11 @@ final class DailyAudioStore {
                 category: "daily-audio",
                 cacheKey: cacheKey
             )
+            guard activeUserID == userID else { return nil }
             try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             return local
         } catch {
+            guard activeUserID == userID else { return nil }
             errorMessage = error.localizedDescription
             return nil
         }

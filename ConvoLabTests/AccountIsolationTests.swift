@@ -174,6 +174,9 @@ final class AccountIsolationTests: XCTestCase {
 
     func testLegacyUnscopedRowsAreClaimedByTheRestoredAccount() throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        let suiteName = "AccountIsolationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         try insertCard(id: "legacy-card", userID: 0, into: container)
         try insertPractice(id: "legacy-practice", userID: 0, into: container)
         container.mainContext.insert(PendingMutation(
@@ -191,7 +194,11 @@ final class AccountIsolationTests: XCTestCase {
         ))
         try container.mainContext.save()
 
-        try Persistence.claimLegacyLocalData(for: 42, context: container.mainContext)
+        try Persistence.claimLegacyLocalData(
+            for: 42,
+            context: container.mainContext,
+            defaults: defaults
+        )
 
         XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 42, in: container), 1)
         XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 42, in: container), 1)
@@ -202,6 +209,88 @@ final class AccountIsolationTests: XCTestCase {
         )
         XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 0, in: container), 0)
         XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 0, in: container), 0)
+
+        try insertCard(id: "unowned-late-row", userID: 0, into: container)
+        try Persistence.claimLegacyLocalData(
+            for: 84,
+            context: container.mainContext,
+            defaults: defaults
+        )
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 84, in: container), 0)
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 0, in: container), 1)
+    }
+
+    func testDailyAudioDownloadStopsWhenTheAccountChanges() async throws {
+        let gate = AccountIsolationGate()
+        let requestCounter = AccountIsolationCounter()
+        let client = makeClient { request in
+            _ = requestCounter.next()
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("old account audio".utf8)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let practiceID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e9"
+        let tracks = [0, 1].map { index in
+            DailyAudioTrack(
+                id: "4aa076b2-1bc7-45a8-b7b4-12b74dcbd46\(index)",
+                practiceId: practiceID,
+                mode: "drill",
+                status: "ready",
+                title: "Track \(index)",
+                sortOrder: index,
+                audioUrl: "/api/daily-audio-practice/\(practiceID)/tracks/\(index)/audio",
+                approxDurationSeconds: 60,
+                updatedAt: .now
+            )
+        }
+        let practice = DailyAudioPractice(
+            id: practiceID,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now,
+            tracks: tracks
+        )
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: practice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(practice)
+        ))
+        try container.mainContext.save()
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: cache
+        )
+
+        let download = Task { await store.download(practice) }
+        for _ in 0..<100 where !gate.hasStarted {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        gate.release()
+        await download.value
+
+        XCTAssertEqual(requestCounter.current, 1)
+        XCTAssertEqual(
+            try localRecordCount(CachedMediaRecord.self, userID: 2, in: container),
+            0
+        )
+        Self.retainedObservableStores.append(store)
     }
 
     func testDeletingMediaWhileDownloadIsInFlightCannotResurrectIt() async throws {
