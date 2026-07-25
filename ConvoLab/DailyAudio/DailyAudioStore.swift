@@ -78,7 +78,6 @@ final class DailyAudioStore {
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
         let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
-            try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             return local
         }
         do {

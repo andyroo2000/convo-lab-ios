@@ -617,8 +617,8 @@ final class StudyStore {
                 currentOverview: overview
             )
         )
-        overview = response.overview
         try restoreReviewedCard(response.card)
+        overview = response.overview
         apply(try pendingReviewState())
     }
 

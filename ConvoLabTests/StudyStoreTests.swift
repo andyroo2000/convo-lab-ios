@@ -4761,6 +4761,112 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingDeleteDuringServerUndoDoesNotApplyRestoredOverview() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000002A",
+            expression: "削除競合"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let responseOverview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let cardJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(card),
+                encoding: .utf8
+            )
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(responseOverview),
+                encoding: .utf8
+            )
+        )
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            guard request.url?.path == "/api/study/reviews/undo" else {
+                throw URLError(.notConnectedToInternet)
+            }
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "01j0000000000000000000002b",
+                      "card": \(cardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let undoTask = Task {
+            try await store.undoReview(
+                eventID: "01J0000000000000000000002B",
+                cardBefore: card
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardDelete",
+                resourceID: card.id,
+                payload: Data()
+            )
+        )
+        let localRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>()
+        )
+        for record in localRecords {
+            container.mainContext.delete(record)
+        }
+        try container.mainContext.save()
+        gate.release()
+
+        do {
+            try await undoTask.value
+            XCTFail("Expected the pending delete to reject restoration.")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This card was deleted and cannot be restored."
+            )
+        }
+
+        XCTAssertNil(store.overview)
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<LocalCardRecord>()
+            ).isEmpty
+        )
+    }
+
+    @MainActor
     func testUndoDoesNotResurrectCardWithPendingDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

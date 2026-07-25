@@ -104,6 +104,8 @@ final class MediaCache {
         let destination = rootURL.appending(path: filename)
 
         if FileManager.default.fileExists(atPath: destination.path) {
+            // Atomic replacement keeps already-open reader handles valid while
+            // ensuring a retired exact-key retry receives the newly fetched bytes.
             _ = try FileManager.default.replaceItemAt(
                 destination,
                 withItemAt: temporaryURL,

@@ -108,8 +108,8 @@ struct StudySessionView: View {
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
             if let restoredCardID = answerRestoredByUndoCardID {
-                answerRestoredByUndoCardID = nil
                 if newCardID?.lowercased() == restoredCardID.lowercased() {
+                    answerRestoredByUndoCardID = nil
                     return
                 }
             }
