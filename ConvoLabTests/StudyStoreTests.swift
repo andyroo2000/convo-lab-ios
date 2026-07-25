@@ -3503,7 +3503,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
 
         let goodDueAt = try XCTUnwrap(relaunched.libraryCards.first?.state.dueAt)
-        XCTAssertEqual(goodDueAt, againDueAt.addingTimeInterval(3 * 24 * 60 * 60))
+        XCTAssertEqual(goodDueAt, againDueAt.addingTimeInterval(24 * 60 * 60))
         relaunched.activateOfflineDueCards(at: goodDueAt)
         XCTAssertEqual(relaunched.cards.map(\.id), [card.id])
         XCTAssertEqual(relaunched.cards.first?.state.queueState, "review")

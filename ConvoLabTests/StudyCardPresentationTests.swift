@@ -384,11 +384,30 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.answerText, "私は学生です。")
     }
 
-    func testReviewIntervalLabelsMatchLearningOSIntervals() {
-        XCTAssertEqual(ReviewRating.again.nextIntervalLabel, "<10m")
-        XCTAssertEqual(ReviewRating.hard.nextIntervalLabel, "1d")
-        XCTAssertEqual(ReviewRating.good.nextIntervalLabel, "3d")
-        XCTAssertEqual(ReviewRating.easy.nextIntervalLabel, "7d")
+    func testReviewIntervalLabelsMatchDesktopFormatting() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        XCTAssertEqual(
+            FSRSReviewScheduler.intervalLabel(
+                dueAt: now.addingTimeInterval(10 * 60),
+                reviewedAt: now
+            ),
+            "<10m"
+        )
+        XCTAssertEqual(
+            FSRSReviewScheduler.intervalLabel(
+                dueAt: now.addingTimeInterval(104 * 24 * 60 * 60),
+                reviewedAt: now
+            ),
+            "3mo"
+        )
+        XCTAssertEqual(
+            FSRSReviewScheduler.intervalLabel(
+                dueAt: now.addingTimeInterval(400 * 24 * 60 * 60),
+                reviewedAt: now
+            ),
+            "1y"
+        )
     }
 
     func testResolvedPitchAccentAppearsOnlyOnAnswerFace() {

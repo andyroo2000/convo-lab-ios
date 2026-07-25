@@ -349,7 +349,7 @@ struct StudySessionView: View {
             }
         } label: {
             VStack(spacing: 2) {
-                Text(rating.nextIntervalLabel)
+                Text(card.reviewSchedule(rating, at: .now).intervalLabel)
                     .font(.caption.bold())
                 Text(title)
             }

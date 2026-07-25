@@ -331,9 +331,17 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var mediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
 
+    func reviewSchedule(_ rating: ReviewRating, at reviewedAt: Date) -> FSRSReviewSchedule {
+        FSRSReviewScheduler.schedule(
+            schedulerState: state.scheduler,
+            queueState: state.queueState,
+            rating: rating,
+            reviewedAt: reviewedAt
+        )
+    }
+
     func applyingReview(_ rating: ReviewRating, at reviewedAt: Date) -> StudyCard {
-        let dueAt = rating.nextDueDate(from: reviewedAt)
-        let queueState = rating.nextQueueState(from: state.queueState)
+        let schedule = reviewSchedule(rating, at: reviewedAt)
         return StudyCard(
             id: id,
             syncId: syncId,
@@ -342,17 +350,12 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
             prompt: prompt,
             answer: answer,
             state: .init(
-                dueAt: dueAt,
+                dueAt: schedule.dueAt,
                 introducedAt: state.introducedAt
                     ?? (state.queueState == "new" ? reviewedAt : nil),
                 failedAt: rating == .again ? reviewedAt : nil,
-                queueState: queueState,
-                scheduler: rating.nextSchedulerState(
-                    from: state.scheduler,
-                    queueState: queueState,
-                    dueAt: dueAt,
-                    reviewedAt: reviewedAt
-                ),
+                queueState: schedule.queueState,
+                scheduler: schedule.schedulerState,
                 source: state.source
             ),
             answerAudioSource: answerAudioSource,
@@ -375,113 +378,6 @@ enum ReviewRating: String, Codable, CaseIterable, Sendable {
     case hard
     case good
     case easy
-
-    // Keep the interval, queue-state, and scheduler transitions below synchronized
-    // with ApplyCardStudyReviewAction in learning-os.
-    var nextIntervalLabel: String {
-        switch self {
-        case .again: "<10m"
-        case .hard: "1d"
-        case .good: "3d"
-        case .easy: "7d"
-        }
-    }
-
-    func nextDueDate(from reviewedAt: Date) -> Date {
-        switch self {
-        case .again: reviewedAt.addingTimeInterval(10 * 60)
-        case .hard: reviewedAt.addingTimeInterval(24 * 60 * 60)
-        case .good: reviewedAt.addingTimeInterval(3 * 24 * 60 * 60)
-        case .easy: reviewedAt.addingTimeInterval(7 * 24 * 60 * 60)
-        }
-    }
-
-    func nextQueueState(from currentState: String) -> String {
-        switch self {
-        case .again:
-            "relearning"
-        case .hard:
-            ["new", "learning", "relearning"].contains(currentState)
-                ? "learning"
-                : "review"
-        case .good, .easy:
-            "review"
-        }
-    }
-
-    fileprivate func nextSchedulerState(
-        from currentState: JSONValue?,
-        queueState: String,
-        dueAt: Date,
-        reviewedAt: Date
-    ) -> JSONValue {
-        let current = currentState?.objectValue ?? [:]
-        let lastReview = current["last_review"]?.stringValue.flatMap(Date.studyISO8601)
-        let elapsedDays = lastReview.map {
-            max(0, Int(
-                (reviewedAt.timeIntervalSince($0) / (24 * 60 * 60)).rounded()
-            ))
-        } ?? 0
-        let stateNumber: Double = switch queueState {
-        case "new": 0
-        case "learning": 1
-        case "relearning": 3
-        default: 2
-        }
-
-        return .object([
-            "due": .string(dueAt.studyISO8601),
-            "stability": .number(current["stability"]?.numberValue ?? 0.1),
-            "difficulty": .number(current["difficulty"]?.numberValue ?? 5),
-            "elapsed_days": .number(Double(elapsedDays)),
-            "scheduled_days": .number(Double(
-                max(0, Int(
-                    (dueAt.timeIntervalSince(reviewedAt) / (24 * 60 * 60)).rounded()
-                ))
-            )),
-            "learning_steps": .number(Double(
-                current["learning_steps"]?.integerValue ?? 0
-            )),
-            "reps": .number(Double(current["reps"]?.integerValue ?? 0) + 1),
-            "lapses": .number(
-                Double(current["lapses"]?.integerValue ?? 0)
-                    + (self == .again ? 1 : 0)
-            ),
-            "state": .number(stateNumber),
-            "last_review": .string(reviewedAt.studyISO8601),
-        ])
-    }
-}
-
-private extension JSONValue {
-    var objectValue: [String: JSONValue]? {
-        guard case let .object(value) = self else { return nil }
-        return value
-    }
-
-    var integerValue: Int? {
-        guard case let .number(value) = self, value.rounded() == value else { return nil }
-        return Int(value)
-    }
-
-    var numberValue: Double? {
-        guard case let .number(value) = self else { return nil }
-        return value
-    }
-}
-
-private extension Date {
-    static func studyISO8601(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-    }
-
-    var studyISO8601: String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: self)
-    }
 }
 
 struct ReviewBatchRequest: Codable {
