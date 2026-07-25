@@ -111,6 +111,48 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertEqual(requestCounter.current, 2)
     }
 
+    func testDownloadingVersionedTrackRetiresLegacyUnversionedCacheEntry() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("new-audio".utf8)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        let track = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
+        let legacyKey = "daily-audio:\(track.id)"
+        container.mainContext.insert(
+            CachedMediaRecord(
+                remoteURL: legacyKey,
+                relativePath: "legacy.mp3",
+                byteCount: 10,
+                category: "daily-audio"
+            )
+        )
+        try container.mainContext.save()
+
+        let playableURL = await store.playableURL(for: track)
+
+        XCTAssertNotNil(playableURL)
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<CachedMediaRecord>()
+        )
+        XCTAssertEqual(
+            records.first { $0.remoteURL == legacyKey }?.category,
+            "deferred-deletion"
+        )
+    }
+
     private func dailyAudioTrack(updatedAt: Date) -> DailyAudioTrack {
         DailyAudioTrack(
             id: "4aa076b2-1bc7-45a8-b7b4-12b74dcbd463",

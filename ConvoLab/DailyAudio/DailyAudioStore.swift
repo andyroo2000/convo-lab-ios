@@ -106,7 +106,9 @@ final class DailyAudioStore {
     ) throws {
         try mediaCache.removeCachedItems(
             category: "daily-audio",
-            cacheKeyPrefix: "daily-audio:\(track.id):",
+            // The prefix intentionally omits the revision separator so it also
+            // retires the unversioned key written by older app builds.
+            cacheKeyPrefix: "daily-audio:\(track.id)",
             keeping: cacheKey
         )
     }
