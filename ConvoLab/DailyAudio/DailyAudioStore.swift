@@ -123,6 +123,47 @@ final class DailyAudioStore {
         }
     }
 
+    func detailedTrack(for track: DailyAudioTrack) async -> DailyAudioTrack? {
+        guard
+            let userID = activeUserID,
+            practices.contains(where: { $0.id == track.practiceId })
+        else {
+            return nil
+        }
+        if track.scriptUnitsJson != nil, track.timingData != nil {
+            return track
+        }
+        if let persisted = persistedTrack(
+            id: track.id,
+            practiceID: track.practiceId,
+            userID: userID
+        ), persisted.scriptUnitsJson != nil, persisted.timingData != nil {
+            return persisted
+        }
+
+        do {
+            let practice: DailyAudioPractice = try await api.request(
+                "/api/daily-audio-practice/\(track.practiceId)"
+            )
+            guard
+                activeUserID == userID,
+                practice.id == track.practiceId,
+                let detailedTrack = practice.tracks.first(where: { $0.id == track.id })
+            else {
+                return nil
+            }
+            practices.removeAll { $0.id == practice.id }
+            practices.append(practice)
+            practices.sort { $0.createdAt > $1.createdAt }
+            try persist([practice], userID: userID)
+            return detailedTrack
+        } catch {
+            guard activeUserID == userID else { return nil }
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func playableURL(for track: DailyAudioTrack) async -> URL? {
         guard
             let userID = activeUserID,
@@ -182,12 +223,19 @@ final class DailyAudioStore {
         )
         let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
         for practice in practices {
-            let payload = try StorageCodec.encoder.encode(practice)
             if let record = byID[practice.id] {
+                let cached = try? StorageCodec.decoder.decode(
+                    DailyAudioPractice.self,
+                    from: record.payload
+                )
+                let payload = try StorageCodec.encoder.encode(
+                    practice.preservingTrackDetails(from: cached)
+                )
                 record.payload = payload
                 record.status = practice.status
                 record.updatedAt = practice.updatedAt
             } else {
+                let payload = try StorageCodec.encoder.encode(practice)
                 context.insert(LocalDailyAudioPractice(
                     practice: practice,
                     userID: userID,
@@ -198,6 +246,28 @@ final class DailyAudioStore {
         try context.save()
     }
 
+    private func persistedTrack(
+        id: String,
+        practiceID: String,
+        userID: Int
+    ) -> DailyAudioTrack? {
+        let descriptor = FetchDescriptor<LocalDailyAudioPractice>(
+            predicate: #Predicate {
+                $0.userID == userID && $0.id == practiceID
+            }
+        )
+        guard
+            let record = try? context.fetch(descriptor).first,
+            let practice = try? StorageCodec.decoder.decode(
+                DailyAudioPractice.self,
+                from: record.payload
+            )
+        else {
+            return nil
+        }
+        return practice.tracks.first { $0.id == id }
+    }
+
     private func loadLocal(userID: Int) {
         let descriptor = FetchDescriptor<LocalDailyAudioPractice>(
             predicate: #Predicate { $0.userID == userID },
@@ -206,5 +276,49 @@ final class DailyAudioStore {
         practices = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(DailyAudioPractice.self, from: $0.payload)
         }
+    }
+}
+
+private extension DailyAudioPractice {
+    func preservingTrackDetails(
+        from cached: DailyAudioPractice?
+    ) -> DailyAudioPractice {
+        guard let cached else { return self }
+        let cachedByID = Dictionary(
+            uniqueKeysWithValues: cached.tracks.map { ($0.id, $0) }
+        )
+        let mergedTracks = tracks.map { track in
+            guard
+                track.scriptUnitsJson == nil,
+                track.timingData == nil,
+                let previous = cachedByID[track.id],
+                previous.updatedAt == track.updatedAt
+            else {
+                return track
+            }
+            return DailyAudioTrack(
+                id: track.id,
+                practiceId: track.practiceId,
+                mode: track.mode,
+                status: track.status,
+                title: track.title,
+                sortOrder: track.sortOrder,
+                scriptUnitsJson: previous.scriptUnitsJson,
+                audioUrl: track.audioUrl,
+                timingData: previous.timingData,
+                approxDurationSeconds: track.approxDurationSeconds,
+                updatedAt: track.updatedAt
+            )
+        }
+        return DailyAudioPractice(
+            id: id,
+            practiceDate: practiceDate,
+            status: status,
+            targetDurationMinutes: targetDurationMinutes,
+            errorMessage: errorMessage,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            tracks: mergedTracks
+        )
     }
 }

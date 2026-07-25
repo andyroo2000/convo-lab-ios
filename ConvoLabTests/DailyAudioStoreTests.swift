@@ -156,6 +156,143 @@ final class DailyAudioStoreTests: XCTestCase {
         )
     }
 
+    func testOpeningPlayerLoadsAndPersistsDetailedTranscript() async throws {
+        let summaryTrack = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
+        let detailedTrack = DailyAudioTrack(
+            id: summaryTrack.id,
+            practiceId: summaryTrack.practiceId,
+            mode: summaryTrack.mode,
+            status: summaryTrack.status,
+            title: summaryTrack.title,
+            sortOrder: summaryTrack.sortOrder,
+            scriptUnitsJson: [
+                DailyAudioScriptUnit(
+                    type: "L2",
+                    text: "猫です",
+                    reading: "猫[ねこ]です",
+                    translation: "It is a cat."
+                ),
+            ],
+            audioUrl: summaryTrack.audioUrl,
+            timingData: [
+                DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_500),
+            ],
+            approxDurationSeconds: 1.5,
+            updatedAt: summaryTrack.updatedAt
+        )
+        let detailedPractice = DailyAudioPractice(
+            id: detailedTrack.practiceId,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now,
+            tracks: [detailedTrack]
+        )
+        let summaryPractice = DailyAudioPractice(
+            id: summaryTrack.practiceId,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: detailedPractice.createdAt,
+            updatedAt: detailedPractice.updatedAt,
+            tracks: [summaryTrack]
+        )
+        let expectedPath = "/api/daily-audio-practice/\(summaryTrack.practiceId)"
+        let detailedData = try StorageCodec.encoder.encode(detailedPractice)
+        let summaryData = try StorageCodec.encoder.encode([summaryPractice])
+        let client = makeClient { request in
+            let path = request.url?.path
+            XCTAssertTrue(path == expectedPath || path == "/api/daily-audio-practice")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                path == expectedPath ? detailedData : summaryData
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        try insertPractice(containing: summaryTrack, userID: 1, into: container)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let result = await store.detailedTrack(for: summaryTrack)
+
+        XCTAssertEqual(result?.scriptUnitsJson?.first?.text, "猫です")
+        XCTAssertEqual(result?.timingData?.first?.endTime, 1_500)
+        await store.refresh()
+        MockURLProtocol.handler = { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let cachedResult = await store.detailedTrack(for: summaryTrack)
+        XCTAssertEqual(cachedResult?.scriptUnitsJson?.first?.text, "猫です")
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(
+                FetchDescriptor<LocalDailyAudioPractice>()
+            ).first
+        )
+        let persisted = try StorageCodec.decoder.decode(
+            DailyAudioPractice.self,
+            from: record.payload
+        )
+        XCTAssertEqual(persisted.tracks.first?.scriptUnitsJson?.first?.translation, "It is a cat.")
+    }
+
+    func testTranscriptSelectsOnlyTheCurrentlySpokenTargetLanguageUnit() {
+        let track = transcriptTrack(
+            timings: [
+                DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_000),
+                DailyAudioTiming(unitIndex: 1, startTime: 1_000, endTime: 2_000),
+            ]
+        )
+
+        XCTAssertNil(
+            DailyAudioTranscript.currentSpokenUnit(
+                in: track,
+                elapsedSeconds: 0.5,
+                durationSeconds: 2
+            )
+        )
+        XCTAssertEqual(
+            DailyAudioTranscript.currentSpokenUnit(
+                in: track,
+                elapsedSeconds: 1.25,
+                durationSeconds: 2
+            )?.text,
+            "猫です"
+        )
+    }
+
+    func testTranscriptTimingScalesToTheActualPlayerDuration() {
+        let track = transcriptTrack(
+            timings: [
+                DailyAudioTiming(unitIndex: 1, startTime: 2_000, endTime: 4_000),
+            ]
+        )
+
+        XCTAssertEqual(
+            DailyAudioTranscript.currentSpokenUnit(
+                in: track,
+                elapsedSeconds: 1.5,
+                durationSeconds: 2
+            )?.text,
+            "猫です"
+        )
+    }
+
     private func dailyAudioTrack(updatedAt: Date) -> DailyAudioTrack {
         DailyAudioTrack(
             id: "4aa076b2-1bc7-45a8-b7b4-12b74dcbd463",
@@ -167,6 +304,35 @@ final class DailyAudioStoreTests: XCTestCase {
             audioUrl: "/api/daily-audio-practice/practice/tracks/track/audio",
             approxDurationSeconds: 60,
             updatedAt: updatedAt
+        )
+    }
+
+    private func transcriptTrack(timings: [DailyAudioTiming]) -> DailyAudioTrack {
+        DailyAudioTrack(
+            id: "track",
+            practiceId: "practice",
+            mode: "drill",
+            status: "ready",
+            title: "Recognition drill",
+            sortOrder: 0,
+            scriptUnitsJson: [
+                DailyAudioScriptUnit(
+                    type: "narration_L1",
+                    text: "Listen carefully.",
+                    reading: nil,
+                    translation: nil
+                ),
+                DailyAudioScriptUnit(
+                    type: "L2",
+                    text: "猫です",
+                    reading: "猫[ねこ]です",
+                    translation: "It is a cat."
+                ),
+            ],
+            audioUrl: "/audio",
+            timingData: timings,
+            approxDurationSeconds: 2,
+            updatedAt: .now
         )
     }
 

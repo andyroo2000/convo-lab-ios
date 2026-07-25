@@ -525,9 +525,50 @@ struct DailyAudioTrack: Codable, Identifiable, Sendable {
     let status: String
     let title: String
     let sortOrder: Int
+    let scriptUnitsJson: [DailyAudioScriptUnit]?
     let audioUrl: String?
+    let timingData: [DailyAudioTiming]?
     let approxDurationSeconds: Double?
     let updatedAt: Date
+
+    init(
+        id: String,
+        practiceId: String,
+        mode: String,
+        status: String,
+        title: String,
+        sortOrder: Int,
+        scriptUnitsJson: [DailyAudioScriptUnit]? = nil,
+        audioUrl: String?,
+        timingData: [DailyAudioTiming]? = nil,
+        approxDurationSeconds: Double?,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.practiceId = practiceId
+        self.mode = mode
+        self.status = status
+        self.title = title
+        self.sortOrder = sortOrder
+        self.scriptUnitsJson = scriptUnitsJson
+        self.audioUrl = audioUrl
+        self.timingData = timingData
+        self.approxDurationSeconds = approxDurationSeconds
+        self.updatedAt = updatedAt
+    }
+}
+
+struct DailyAudioScriptUnit: Codable, Equatable, Sendable {
+    let type: String
+    let text: String?
+    let reading: String?
+    let translation: String?
+}
+
+struct DailyAudioTiming: Codable, Equatable, Sendable {
+    let unitIndex: Int
+    let startTime: Double
+    let endTime: Double
 }
 
 struct CreateDailyAudioRequest: Encodable {

@@ -99,52 +99,58 @@ struct DailyAudioView: View {
     }
 
     private func trackRow(_ track: DailyAudioTrack) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(track.title)
-                        .font(.headline)
-                    Text(track.mode.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        Group {
+            if track.audioUrl != nil, track.status == "ready" {
+                NavigationLink {
+                    DailyAudioPlayerView(track: track, store: store, player: player)
+                } label: {
+                    trackRowLabel(track, isPlayable: true)
                 }
-                Spacer()
-
-                if track.audioUrl != nil, track.status == "ready" {
-                    Button {
-                        Task {
-                            if player.isCurrent(track.id) {
-                                player.toggle()
-                            } else if let url = await store.playableURL(for: track) {
-                                player.play(
-                                    url: url,
-                                    trackID: track.id,
-                                    title: track.title
-                                )
-                            }
-                        }
-                    } label: {
-                        Image(systemName: player.isCurrent(track.id) && player.isPlaying
-                            ? "pause.circle.fill"
-                            : "play.circle.fill")
-                            .font(.title)
-                    }
-                    .accessibilityLabel(
-                        player.isCurrent(track.id) && player.isPlaying ? "Pause" : "Play"
-                    )
-                }
-            }
-
-            if player.isCurrent(track.id), player.duration > 0 {
-                Slider(
-                    value: Binding(
-                        get: { player.elapsed },
-                        set: { player.seek(to: $0) }
-                    ),
-                    in: 0...player.duration
-                )
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the audio player")
+            } else {
+                trackRowLabel(track, isPlayable: false)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func trackRowLabel(
+        _ track: DailyAudioTrack,
+        isPlayable: Bool
+    ) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(ConvoLabTheme.cyan.opacity(0.16))
+                    .frame(width: 44, height: 44)
+                Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                    ? "waveform"
+                    : "play.fill")
+                    .foregroundStyle(ConvoLabTheme.navy)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.headline)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                Text(track.mode.capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+
+            if isPlayable {
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.tertiary)
+            } else if track.status == "generating" || track.status == "draft" {
+                ProgressView()
+            } else {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(.rect)
     }
 }
