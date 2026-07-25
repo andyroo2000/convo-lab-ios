@@ -3788,7 +3788,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let session = StudySession(
             overview: StudyOverview(
-                dueCount: 1,
+                dueCount: 0,
                 newCount: 0,
                 reviewCount: 0,
                 newCardsPerDay: 20,
@@ -4203,7 +4203,7 @@ final class StudyStoreTests: XCTestCase {
         let acceptedCard = makeCard(id: "01J00000000000000000000002", expression: "猫")
         let requestCounter = LockedCounter()
         let client = makeClient { request in
-            let status = requestCounter.next() == 1 ? 422 : 204
+            let status = requestCounter.next() <= 2 ? 422 : 204
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -4229,6 +4229,61 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pending.first?.resourceID, rejectedCard.id)
         XCTAssertEqual(pending.first?.attemptCount, 1)
         XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testOfflineReviewBacklogUploadsInOneBatch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let cards = (0..<4).map {
+            makeCard(
+                id: "01J000000000000000000000\(String(format: "%02d", $0))",
+                expression: "card-\($0)"
+            )
+        }
+
+        for card in cards.prefix(3) {
+            await store.recordReview(card: card, rating: .good, duration: nil)
+        }
+
+        let uploadedBatchSizes = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let events = try XCTUnwrap(body?["events"] as? [[String: Any]])
+            uploadedBatchSizes.append(String(events.count))
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data()
+            )
+        }
+
+        await store.recordReview(card: cards[3], rating: .good, duration: nil)
+
+        XCTAssertEqual(uploadedBatchSizes.values, ["4"])
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
     }
 
     @MainActor

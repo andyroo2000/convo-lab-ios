@@ -31,7 +31,7 @@ final class StudySessionCountsTests: XCTestCase {
             makeCard(id: "new", queueState: "new"),
         ]
         let overview = StudyOverview(
-            dueCount: 3,
+            dueCount: 2,
             newCount: 1,
             reviewCount: 2,
             newCardsPerDay: 20,
@@ -45,6 +45,24 @@ final class StudySessionCountsTests: XCTestCase {
             counts,
             StudySessionCounts(failedDue: 1, reviewRemaining: 2, newRemaining: 1)
         )
+    }
+
+    func testAuthoritativeDueCountIsNotLimitedToLoadedSessionCards() {
+        let cards = (0..<300).map {
+            makeCard(id: "review-\($0)", queueState: "review")
+        }
+        let overview = StudyOverview(
+            dueCount: 618,
+            newCount: 0,
+            reviewCount: 618,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: 0,
+            failedCount: 0
+        )
+
+        let counts = StudySessionCounts.calculate(cards: cards, overview: overview)
+
+        XCTAssertEqual(counts.reviewRemaining, 618)
     }
 
     func testLoadedFailuresWinWhenOverviewIsStaleOrUnavailableOffline() {

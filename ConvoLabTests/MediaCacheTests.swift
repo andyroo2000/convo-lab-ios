@@ -5,6 +5,63 @@ import XCTest
 
 final class MediaCacheTests: XCTestCase {
     @MainActor
+    func testPreparationDownloadsStudyMediaInBoundedBatches() async throws {
+        let paths = LockedRequestPaths()
+        let batchSizes = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            paths.append(request.url?.path ?? "")
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let ids = try XCTUnwrap(body?["ids"] as? [String])
+            batchSizes.append(String(ids.count))
+            let items = ids.map { id in
+                [
+                    "id": id,
+                    "mimeType": "audio/mpeg",
+                    "data": Data("bytes-\(id)".utf8).base64EncodedString(),
+                ]
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: ["items": items])
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let urls = (0..<45).map { offset in
+            let id = ClientIdentifier.ulid(
+                date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
+            )
+            return URL(string: "/api/study/media/\(id)")!
+        }
+
+        await cache.prepare(urls: urls, category: "offline-study")
+
+        XCTAssertEqual(
+            paths.values,
+            Array(repeating: "/api/study/media/batch", count: 3)
+        )
+        XCTAssertEqual(batchSizes.values.sorted(), ["20", "20", "5"])
+        XCTAssertEqual(cache.cachedKeys(for: urls).count, 45)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            45
+        )
+    }
+
+    @MainActor
     func testChangingSignatureReusesStableMediaCacheEntry() async throws {
         let requestCounter = LockedCounter()
         MockURLProtocol.handler = { request in

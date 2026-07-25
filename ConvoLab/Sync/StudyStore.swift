@@ -3,6 +3,8 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private static let reviewUploadBatchSize = 100
+
     private struct PendingReviewCardState: Codable {
         let id: String
         let failedAt: Date?
@@ -923,6 +925,7 @@ final class StudyStore {
                 rating: rating
             )
             apply(pendingState)
+            consumeOverviewCount(for: card)
             cards.removeAll { $0.id == card.id }
             if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
                 libraryCards[index] = updatedCard
@@ -1641,41 +1644,65 @@ final class StudyStore {
 
     private func drainReviewOutbox() async throws {
         guard let userID = activeUserID else { return }
-        let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.kind == "review" && $0.lastError == nil
-            },
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-        let pending = try context.fetch(descriptor)
-        guard !pending.isEmpty else { return }
-
         var quarantinedCount = 0
-        for mutation in pending {
-            if try hasPendingCreate(for: mutation.resourceID) {
-                continue
-            }
-            let event = try decodePendingReview(mutation.payload).event
+        while true {
+            let descriptor = FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
+                },
+                sortBy: [SortDescriptor(\.createdAt)]
+            )
+            let pending = try context.fetch(descriptor)
+            let ready = try pending.filter { try !hasPendingCreate(for: $0.resourceID) }
+            let batch = Array(ready.prefix(Self.reviewUploadBatchSize))
+            guard !batch.isEmpty else { break }
+
+            let events = try batch.map { try decodePendingReview($0.payload).event }
             do {
                 let _: IgnoredResponse = try await api.request(
                     "/api/card-review-events/batch",
                     method: "POST",
-                    body: ReviewBatchRequest(events: [event])
+                    body: ReviewBatchRequest(events: events)
                 )
-                context.delete(mutation)
+                batch.forEach(context.delete)
                 try context.save()
-            } catch let APIClientError.rejected(status, message)
+            } catch let APIClientError.rejected(status, _)
                 where [400, 404, 409, 410, 422].contains(status)
             {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = "HTTP \(status): \(message)"
-                try context.save()
-                quarantinedCount += 1
+                // A permanent batch rejection may be caused by only one event.
+                // Retry individually so valid reviews still sync and only the
+                // rejected event is quarantined for inspection.
+                for (mutation, event) in zip(batch, events) {
+                    do {
+                        let _: IgnoredResponse = try await api.request(
+                            "/api/card-review-events/batch",
+                            method: "POST",
+                            body: ReviewBatchRequest(events: [event])
+                        )
+                        context.delete(mutation)
+                        try context.save()
+                    } catch let APIClientError.rejected(individualStatus, individualMessage)
+                        where [400, 404, 409, 410, 422].contains(individualStatus)
+                    {
+                        mutation.attemptCount += 1
+                        mutation.lastAttemptAt = .now
+                        mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
+                        try context.save()
+                        quarantinedCount += 1
+                    } catch {
+                        mutation.attemptCount += 1
+                        mutation.lastAttemptAt = .now
+                        mutation.lastError = nil
+                        try context.save()
+                        throw error
+                    }
+                }
             } catch {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = nil
+                for mutation in batch {
+                    mutation.attemptCount += 1
+                    mutation.lastAttemptAt = .now
+                    mutation.lastError = nil
+                }
                 try context.save()
                 throw error
             }
@@ -1684,6 +1711,26 @@ final class StudyStore {
         if quarantinedCount > 0 {
             throw QuarantinedReviewError(count: quarantinedCount)
         }
+    }
+
+    private func consumeOverviewCount(for card: StudyCard) {
+        guard let current = overview else { return }
+        overview = StudyOverview(
+            dueCount: card.state.failedAt == nil && card.state.queueState != "new"
+                ? max(0, current.dueCount - 1)
+                : current.dueCount,
+            newCount: card.state.queueState == "new"
+                ? max(0, current.newCount - 1)
+                : current.newCount,
+            reviewCount: current.reviewCount,
+            newCardsPerDay: current.newCardsPerDay,
+            newCardsAvailableToday: card.state.queueState == "new"
+                ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
+                : current.newCardsAvailableToday,
+            failedCount: card.state.failedAt != nil
+                ? current.failedCount.map { max(0, $0 - 1) }
+                : current.failedCount
+        )
     }
 
     private func flushCardOutbox() async throws {
@@ -2830,9 +2877,11 @@ struct StudySessionCounts: Equatable {
         let newRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
-        let reviewRemaining = cards.count(where: {
+        let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
         })
+        let reviewRemaining = overview.map { max(0, $0.dueCount) }
+            ?? loadedReviewRemaining
 
         return StudySessionCounts(
             failedDue: max(

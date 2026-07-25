@@ -525,6 +525,20 @@ struct ReviewBatchRequest: Codable {
     let events: [Event]
 }
 
+struct StudyMediaBatchRequest: Encodable {
+    let ids: [String]
+}
+
+struct StudyMediaBatchResponse: Decodable {
+    struct Item: Decodable {
+        let id: String
+        let mimeType: String
+        let data: Data
+    }
+
+    let items: [Item]
+}
+
 struct UndoStudyReviewRequest: Encodable {
     let reviewLogId: String
     let timeZone: String
