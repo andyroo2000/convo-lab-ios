@@ -86,6 +86,9 @@ final class AppModel {
     }
 
     func deleteAccount(currentPassword: String) async -> Bool {
+        guard case let .signedIn(user) = auth.state else {
+            return false
+        }
         guard await auth.deleteAccount(currentPassword: currentPassword) else {
             return false
         }
@@ -94,6 +97,9 @@ final class AppModel {
         study.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
+        try? mediaCache.deleteLocalData(userID: user.id)
+        try? dailyAudio.deleteLocalData(userID: user.id)
+        try? study.deleteLocalData(userID: user.id)
         return true
     }
 

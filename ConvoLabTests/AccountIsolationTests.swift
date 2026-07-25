@@ -100,6 +100,78 @@ final class AccountIsolationTests: XCTestCase {
         )
     }
 
+    func testDeletingAnAccountPurgesOnlyThatUsersLocalData() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        try insertCard(id: "user-one-card", userID: 1, into: container)
+        try insertCard(id: "user-two-card", userID: 2, into: container)
+        try insertPractice(id: "practice-one", userID: 1, into: container)
+        try insertPractice(id: "practice-two", userID: 2, into: container)
+        for userID in [1, 2] {
+            container.mainContext.insert(PendingMutation(
+                kind: "cardUpdate",
+                userID: userID,
+                resourceID: "card-\(userID)",
+                payload: Data()
+            ))
+            container.mainContext.insert(LocalSyncState(userID: userID, cardCheckpoint: 7))
+            container.mainContext.insert(LocalKnownKanjiSnapshot(
+                userID: userID,
+                payload: Data()
+            ))
+            container.mainContext.insert(CachedMediaRecord(
+                remoteURL: "media-\(userID)",
+                userID: userID,
+                relativePath: "missing-\(userID).mp3",
+                byteCount: 1,
+                category: "active-study"
+            ))
+        }
+        try container.mainContext.save()
+        let client = makeClient()
+        let cache = MediaCache(api: client, context: container.mainContext)
+        let study = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: cache
+        )
+        let dailyAudio = DailyAudioStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: cache
+        )
+
+        try cache.deleteLocalData(userID: 1)
+        try dailyAudio.deleteLocalData(userID: 1)
+        try study.deleteLocalData(userID: 1)
+
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 1, in: container), 0)
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 2, in: container), 1)
+        XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 1, in: container), 0)
+        XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 2, in: container), 1)
+        XCTAssertEqual(
+            try localRecordCount(LocalDailyAudioPractice.self, userID: 1, in: container),
+            0
+        )
+        XCTAssertEqual(
+            try localRecordCount(LocalDailyAudioPractice.self, userID: 2, in: container),
+            1
+        )
+        XCTAssertEqual(try localRecordCount(CachedMediaRecord.self, userID: 1, in: container), 0)
+        XCTAssertEqual(try localRecordCount(CachedMediaRecord.self, userID: 2, in: container), 1)
+        XCTAssertEqual(try localRecordCount(LocalSyncState.self, userID: 1, in: container), 0)
+        XCTAssertEqual(try localRecordCount(LocalSyncState.self, userID: 2, in: container), 1)
+        XCTAssertEqual(
+            try localRecordCount(LocalKnownKanjiSnapshot.self, userID: 1, in: container),
+            0
+        )
+        XCTAssertEqual(
+            try localRecordCount(LocalKnownKanjiSnapshot.self, userID: 2, in: container),
+            1
+        )
+        Self.retainedObservableStores.append(study)
+        Self.retainedObservableStores.append(dailyAudio)
+    }
+
     private func insertCard(
         id: String,
         userID: Int,
@@ -180,6 +252,25 @@ final class AccountIsolationTests: XCTestCase {
             baseURL: URL(string: "https://learning-os.example")!,
             session: URLSession(configuration: configuration)
         )
+    }
+
+    private func localRecordCount<T: PersistentModel>(
+        _ type: T.Type,
+        userID: Int,
+        in container: ModelContainer
+    ) throws -> Int where T: AnyObject {
+        let records = try container.mainContext.fetch(FetchDescriptor<T>())
+        return records.filter {
+            switch $0 {
+            case let record as LocalCardRecord: record.userID == userID
+            case let record as PendingMutation: record.userID == userID
+            case let record as CachedMediaRecord: record.userID == userID
+            case let record as LocalDailyAudioPractice: record.userID == userID
+            case let record as LocalSyncState: record.userID == userID
+            case let record as LocalKnownKanjiSnapshot: record.userID == userID
+            default: false
+            }
+        }.count
     }
 }
 

@@ -41,6 +41,19 @@ final class DailyAudioStore {
         isLoading = false
     }
 
+    func deleteLocalData(userID: Int) throws {
+        if activeUserID == userID {
+            deactivate()
+        }
+        let records = try context.fetch(
+            FetchDescriptor<LocalDailyAudioPractice>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        records.forEach(context.delete)
+        try context.save()
+    }
+
     func refresh() async {
         guard let userID = activeUserID else { return }
         isLoading = true

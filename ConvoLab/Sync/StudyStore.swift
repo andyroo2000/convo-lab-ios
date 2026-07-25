@@ -249,6 +249,37 @@ final class StudyStore {
         lastSyncAt = nil
     }
 
+    func deleteLocalData(userID: Int) throws {
+        if activeUserID == userID {
+            deactivate()
+        }
+        let cards = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let mutations = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let syncStates = try context.fetch(
+            FetchDescriptor<LocalSyncState>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let knownKanji = try context.fetch(
+            FetchDescriptor<LocalKnownKanjiSnapshot>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        cards.forEach(context.delete)
+        mutations.forEach(context.delete)
+        syncStates.forEach(context.delete)
+        knownKanji.forEach(context.delete)
+        try context.save()
+    }
+
     var fiveDayNewCardTarget: Int {
         (overview?.newCardsPerDay ?? 0) * 5
     }
@@ -377,46 +408,52 @@ final class StudyStore {
         } catch {
             firstError = error
         }
+        guard activeUserID == userID else { return }
         do {
             try await retryPendingDraftCreates()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await retryPendingDraftCommits()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await flushReviewOutbox()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await pullCardChanges(userID: userID)
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         // Fetch small, user-visible metadata before session media preparation
         // consumes the shared production request bucket.
-        if activeUserID != nil {
-            do {
-                try await refreshKnownKanji()
-            } catch {
-                firstError = firstError ?? error
-            }
+        do {
+            try await refreshKnownKanji()
+        } catch {
+            firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await refreshSession()
             refreshed = true
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await refreshOfflineReserve(userID: userID)
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
 
         if refreshed {
             lastSyncAt = .now
@@ -499,12 +536,15 @@ final class StudyStore {
                 guard page.meta.hasMore else { break }
             }
         } catch APIClientError.rejected(status: 409, message: _) {
+            guard activeUserID == userID else { return }
             try resetServerBackedCards(userID: userID)
             state = try syncState(userID: userID)
             state.cardCheckpoint = 0
             state.updatedAt = .now
             try context.save()
+            guard activeUserID == userID else { return }
             try await refreshSession()
+            guard activeUserID == userID else { return }
             try await refreshOfflineReserve(userID: userID)
         }
     }
@@ -522,7 +562,7 @@ final class StudyStore {
             )
             guard activeUserID == userID else { return }
             let hasPendingReview = try pendingReviewState().cardIDs.contains(card.id)
-            let hasPendingEdit = try hasPendingCardMutation(for: card.id)
+            let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
             let merged = try acknowledgedCard(
                 card,
                 preservingPendingReview: hasPendingReview,
@@ -531,6 +571,7 @@ final class StudyStore {
             try updateLocalCard(merged, markedDirty: hasPendingEdit, serverUpdatedAt: card.updatedAt)
             try context.save()
         } catch APIClientError.rejected(status: 404, message: _) {
+            guard activeUserID == userID else { return }
             try removeServerCard(resourceID: entry.resourceId, userID: userID)
         }
     }
@@ -550,7 +591,8 @@ final class StudyStore {
     }
 
     private func removeServerCard(resourceID: String, userID: Int) throws {
-        guard try !hasPendingCardMutation(for: resourceID) else { return }
+        guard activeUserID == userID else { return }
+        guard try !hasPendingCardMutation(for: resourceID, userID: userID) else { return }
         let normalizedID = resourceID.lowercased()
         let records = try context.fetch(
             FetchDescriptor<LocalCardRecord>(
@@ -578,11 +620,12 @@ final class StudyStore {
             )
         )
         for record in records where record.locallyUpdatedAt == nil {
-            if try !hasPendingCardMutation(for: record.id) {
+            if try !hasPendingCardMutation(for: record.id, userID: userID) {
                 context.delete(record)
             }
         }
         try context.save()
+        guard activeUserID == userID else { return }
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
     }
@@ -1766,8 +1809,7 @@ final class StudyStore {
         return try !context.fetch(descriptor).isEmpty
     }
 
-    private func hasPendingCardMutation(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
+    private func hasPendingCardMutation(for cardID: String, userID: Int) throws -> Bool {
         let normalizedID = cardID.lowercased()
         return try context.fetch(
             FetchDescriptor<PendingMutation>(

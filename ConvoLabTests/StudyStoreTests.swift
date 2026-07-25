@@ -4309,6 +4309,70 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleCheckpointResponseCannotReplaceNewAccountsCards() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let userOneCard = makeCard(
+            id: "01J00000000000000000000A1",
+            expression: "前の利用者"
+        )
+        let userTwoCard = makeCard(
+            id: "01J00000000000000000000A2",
+            expression: "現在の利用者"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: userOneCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userOneCard)
+        ))
+        container.mainContext.insert(LocalCardRecord(
+            card: userTwoCard,
+            userID: 2,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userTwoCard)
+        ))
+        try container.mainContext.save()
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            guard request.url?.path == "/api/sync/feed" else {
+                throw URLError(.badServerResponse)
+            }
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Checkpoint expired"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let synchronization = Task { await store.synchronize() }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        gate.release()
+        await synchronization.value
+
+        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
     func testRejectedCardCreateSurfacesItsDependentReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }

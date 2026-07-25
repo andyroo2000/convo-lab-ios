@@ -304,6 +304,21 @@ final class MediaCache {
 
     func clearDownloadedMedia() throws {
         guard let userID = activeUserID else { return }
+        try deleteLocalData(userID: userID)
+    }
+
+    func deleteLocalData(userID: Int) throws {
+        let taskPrefix = "\(userID):"
+        let downloadKeys = inFlightDownloads.keys.filter { $0.hasPrefix(taskPrefix) }
+        for key in downloadKeys {
+            inFlightDownloads[key]?.cancel()
+            inFlightDownloads[key] = nil
+        }
+        let refreshKeys = inFlightRefreshes.keys.filter { $0.hasPrefix(taskPrefix) }
+        for key in refreshKeys {
+            inFlightRefreshes[key]?.cancel()
+            inFlightRefreshes[key] = nil
+        }
         let records = try context.fetch(
             FetchDescriptor<CachedMediaRecord>(
                 predicate: #Predicate { $0.userID == userID }
