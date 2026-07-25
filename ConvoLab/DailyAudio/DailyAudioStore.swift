@@ -67,7 +67,7 @@ final class DailyAudioStore {
                     category: "daily-audio",
                     cacheKey: cacheKey
                 )
-                try removePreviousCachedRevisions(of: track, keeping: cacheKey)
+                try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -87,7 +87,7 @@ final class DailyAudioStore {
                 category: "daily-audio",
                 cacheKey: cacheKey
             )
-            try removePreviousCachedRevisions(of: track, keeping: cacheKey)
+            try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             return local
         } catch {
             errorMessage = error.localizedDescription

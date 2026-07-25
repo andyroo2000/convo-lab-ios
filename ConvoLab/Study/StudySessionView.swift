@@ -96,7 +96,7 @@ struct StudySessionView: View {
         .padding()
         .paperBackground()
         .background {
-            ShakeDetector {
+            ShakeDetector(isEnabled: editingCard == nil) {
                 Task { await undoLastAction() }
             }
         }
