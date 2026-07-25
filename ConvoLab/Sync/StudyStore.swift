@@ -159,6 +159,7 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
+    @ObservationIgnored private var reviewOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var draftCreateTasks: [String: Task<StudyManualCardDraft, Error>] = [:]
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
@@ -588,6 +589,9 @@ final class StudyStore {
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
+        if let reviewOutboxFlushTask {
+            _ = try? await reviewOutboxFlushTask.value
+        }
         if let pending = try pendingReview(eventID: eventID) {
             context.delete(pending)
             try restoreReviewedCard(cardBefore)
@@ -599,7 +603,7 @@ final class StudyStore {
             "/api/study/reviews/undo",
             method: "POST",
             body: UndoStudyReviewRequest(
-                reviewLogId: eventID,
+                reviewLogId: eventID.lowercased(),
                 timeZone: TimeZone.current.identifier,
                 currentOverview: overview
             )
@@ -1193,6 +1197,25 @@ final class StudyStore {
     }
 
     private func flushReviewOutbox() async throws {
+        if let reviewOutboxFlushTask {
+            return try await reviewOutboxFlushTask.value
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await drainReviewOutbox()
+        }
+        reviewOutboxFlushTask = task
+        do {
+            try await task.value
+            reviewOutboxFlushTask = nil
+        } catch {
+            reviewOutboxFlushTask = nil
+            throw error
+        }
+    }
+
+    private func drainReviewOutbox() async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate { $0.kind == "review" && $0.lastError == nil },
             sortBy: [SortDescriptor(\.createdAt)]

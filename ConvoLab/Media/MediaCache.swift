@@ -4,6 +4,9 @@ import SwiftData
 
 @Observable
 final class MediaCache {
+    private static let deferredDeletionCategory = "deferred-deletion"
+    private static let processStartedAt = Date.now
+
     private let api: APIClient
     private let context: ModelContext
     private let rootURL: URL
@@ -24,6 +27,7 @@ final class MediaCache {
             at: rootURL,
             withIntermediateDirectories: true
         )
+        try? purgeDeferredDeletionsFromPreviousLaunch()
     }
 
     func localURL(for remoteURL: URL, cacheKey explicitCacheKey: String? = nil) -> URL? {
@@ -207,6 +211,21 @@ final class MediaCache {
             else {
                 continue
             }
+            // AVPlayer may still be reading this file. Retire it from normal
+            // cache lookup now, then unlink it on a later process launch when
+            // no player from this session can still hold the asset.
+            record.category = Self.deferredDeletionCategory
+            record.lastAccessedAt = .now
+        }
+        try context.save()
+    }
+
+    private func purgeDeferredDeletionsFromPreviousLaunch() throws {
+        let records = try context.fetch(FetchDescriptor<CachedMediaRecord>())
+        for record in records where
+            record.category == Self.deferredDeletionCategory
+                && record.lastAccessedAt < Self.processStartedAt
+        {
             let url = rootURL.appending(path: record.relativePath)
             try? FileManager.default.removeItem(at: url)
             context.delete(record)

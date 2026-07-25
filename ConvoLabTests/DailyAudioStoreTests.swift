@@ -91,12 +91,23 @@ final class DailyAudioStoreTests: XCTestCase {
             try String(contentsOf: regeneratedURL, encoding: .utf8),
             "audio-2"
         )
-        XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstURL.path))
         let cachedRecords = try container.mainContext.fetch(
             FetchDescriptor<CachedMediaRecord>()
         )
-        XCTAssertEqual(cachedRecords.count, 1)
-        XCTAssertTrue(cachedRecords[0].remoteURL.hasSuffix(":2000000"))
+        XCTAssertEqual(cachedRecords.count, 2)
+        XCTAssertEqual(
+            cachedRecords.first {
+                $0.remoteURL.hasSuffix(":1000000")
+            }?.category,
+            "deferred-deletion"
+        )
+        XCTAssertEqual(
+            cachedRecords.first {
+                $0.remoteURL.hasSuffix(":2000000")
+            }?.category,
+            "daily-audio"
+        )
         XCTAssertEqual(requestCounter.current, 2)
     }
 

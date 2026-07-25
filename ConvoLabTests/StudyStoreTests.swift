@@ -4592,9 +4592,135 @@ final class StudyStoreTests: XCTestCase {
             paths.values,
             ["/api/card-review-events/batch", "/api/study/reviews/undo"]
         )
-        XCTAssertEqual(undoEventIDs.values, [eventID])
+        XCTAssertEqual(undoEventIDs.values, [eventID.lowercased()])
         XCTAssertEqual(store.cards.map(\.id), [card.id])
         XCTAssertEqual(store.sessionCounts.reviewRemaining, 1)
+    }
+
+    @MainActor
+    func testUndoWaitsForInFlightReviewUploadBeforeCallingServerUndo() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001X",
+            expression: "競合を避ける"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let cardJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(card),
+                encoding: .utf8
+            )
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(overview),
+                encoding: .utf8
+            )
+        )
+        let gate = LockedRequestGate()
+        let paths = LockedRequestPaths()
+        let uploadedEventIDs = LockedRequestPaths()
+        let undoEventIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/card-review-events/batch" {
+                let body = try JSONSerialization.jsonObject(
+                    with: try requestBody(request)
+                ) as? [String: Any]
+                let events = try XCTUnwrap(body?["events"] as? [[String: Any]])
+                let eventID = try XCTUnwrap(events.first?["id"] as? String)
+                uploadedEventIDs.append(eventID)
+                gate.markStarted()
+                gate.waitForRelease()
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data()
+                )
+            }
+
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let eventID = try XCTUnwrap(body?["reviewLogId"] as? String)
+            undoEventIDs.append(eventID)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "\(eventID)",
+                      "card": \(cardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let reviewTask = Task {
+            await store.recordReview(
+                card: card,
+                rating: .good,
+                duration: .milliseconds(500)
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        let eventID = try XCTUnwrap(uploadedEventIDs.values.first)
+        let undoTask = Task {
+            try await store.undoReview(eventID: eventID, cardBefore: card)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(paths.values, ["/api/card-review-events/batch"])
+
+        gate.release()
+        let recordedEventID = await reviewTask.value
+        try await undoTask.value
+
+        XCTAssertEqual(recordedEventID, eventID)
+        XCTAssertEqual(
+            paths.values,
+            ["/api/card-review-events/batch", "/api/study/reviews/undo"]
+        )
+        XCTAssertEqual(undoEventIDs.values, [eventID.lowercased()])
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
     }
 
     @MainActor
