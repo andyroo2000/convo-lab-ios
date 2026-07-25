@@ -191,21 +191,93 @@ final class StudyStore {
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
 
-    init(api: APIClient, context: ModelContext, mediaCache: MediaCache) {
+    init(
+        initialUserID: Int? = nil,
+        api: APIClient,
+        context: ModelContext,
+        mediaCache: MediaCache
+    ) {
         self.api = api
         self.context = context
         self.mediaCache = mediaCache
         deviceID = ClientIdentifier.deviceID()
-        loadLocalCards()
-        loadLibraryCards()
-        restorePendingReviewState()
-        activateOfflineDueCards(preservingCurrentOrder: false)
+        if let initialUserID {
+            activate(userID: initialUserID)
+        }
     }
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        deactivate()
         activeUserID = userID
+        mediaCache.activate(userID: userID)
+        loadLocalCards(userID: userID)
+        loadLibraryCards(userID: userID)
+        restorePendingReviewState()
         loadKnownKanji(userID: userID)
+        activateOfflineDueCards(preservingCurrentOrder: false)
+    }
+
+    func deactivate() {
+        offlineDueActivationTimer?.invalidate()
+        offlineDueActivationTimer = nil
+        cardOutboxFlushTask?.cancel()
+        reviewOutboxFlushTask?.cancel()
+        draftCreateTasks.values.forEach { $0.cancel() }
+        draftCommitTasks.values.forEach { $0.cancel() }
+        manualDraftRefreshTask?.cancel()
+        cardOutboxFlushTask = nil
+        reviewOutboxFlushTask = nil
+        draftCreateTasks.removeAll()
+        draftCommitTasks.removeAll()
+        manualDraftRefreshTask = nil
+        activeUserID = nil
+        mediaCache.deactivate()
+        cards = []
+        libraryCards = []
+        manualDrafts = []
+        overview = nil
+        knownKanji = []
+        manualKnownKanji = []
+        knownKanjiVersion = -1
+        wanikaniConnected = false
+        wanikaniLastSyncedAt = nil
+        newlyFailedCardIDs = []
+        retainedFailedCardIDs = []
+        resolvedFailedCardIDs = []
+        syncStatus = .idle
+        lastSyncAt = nil
+    }
+
+    func deleteLocalData(userID: Int) throws {
+        if activeUserID == userID {
+            deactivate()
+        }
+        let cards = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let mutations = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let syncStates = try context.fetch(
+            FetchDescriptor<LocalSyncState>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let knownKanji = try context.fetch(
+            FetchDescriptor<LocalKnownKanjiSnapshot>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        cards.forEach(context.delete)
+        mutations.forEach(context.delete)
+        syncStates.forEach(context.delete)
+        knownKanji.forEach(context.delete)
+        try context.save()
     }
 
     var fiveDayNewCardTarget: Int {
@@ -247,6 +319,7 @@ final class StudyStore {
     }
 
     func resolvePitchAccent(for card: StudyCard) async {
+        guard let userID = activeUserID else { return }
         guard
             card.answer["pitchAccent"]?["status"]?.stringValue == nil,
             resolvingPitchAccentCardIDs.insert(card.id).inserted
@@ -277,7 +350,7 @@ final class StudyStore {
             }
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.id == cardID }
+                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
             )
             descriptor.fetchLimit = 1
             guard
@@ -315,16 +388,17 @@ final class StudyStore {
     }
 
     var preparedCardCount: Int {
+        guard let userID = activeUserID else { return 0 }
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate {
-                $0.isInActiveSession && $0.mediaPreparedAt != nil
+                $0.userID == userID && $0.isInActiveSession && $0.mediaPreparedAt != nil
             }
         )
         return (try? context.fetchCount(descriptor)) ?? 0
     }
 
     func synchronize() async {
-        guard syncStatus != .syncing else { return }
+        guard let userID = activeUserID, syncStatus != .syncing else { return }
         syncStatus = .syncing
         var firstError: (any Error)?
         var refreshed = false
@@ -334,36 +408,52 @@ final class StudyStore {
         } catch {
             firstError = error
         }
+        guard activeUserID == userID else { return }
         do {
             try await retryPendingDraftCreates()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await retryPendingDraftCommits()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await flushReviewOutbox()
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
+        do {
+            try await pullCardChanges(userID: userID)
+        } catch {
+            firstError = firstError ?? error
+        }
+        guard activeUserID == userID else { return }
         // Fetch small, user-visible metadata before session media preparation
         // consumes the shared production request bucket.
-        if activeUserID != nil {
-            do {
-                try await refreshKnownKanji()
-            } catch {
-                firstError = firstError ?? error
-            }
+        do {
+            try await refreshKnownKanji()
+        } catch {
+            firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
         do {
             try await refreshSession()
             refreshed = true
         } catch {
             firstError = firstError ?? error
         }
+        guard activeUserID == userID else { return }
+        do {
+            try await refreshOfflineReserve(userID: userID)
+        } catch {
+            firstError = firstError ?? error
+        }
+        guard activeUserID == userID else { return }
 
         if refreshed {
             lastSyncAt = .now
@@ -376,6 +466,7 @@ final class StudyStore {
     }
 
     func refreshSession() async throws {
+        guard let userID = activeUserID else { return }
         let timeZone = TimeZone.current.identifier
         let response: StudySessionResponse = try await api.request(
             "/api/study/session/start",
@@ -383,6 +474,7 @@ final class StudyStore {
             body: ["time_zone": timeZone]
         )
         let session = response.session
+        guard activeUserID == userID else { return }
         let pendingReviewState = try pendingReviewState()
         var seenCardIDs: Set<String> = []
         let activeCards = Self.orderSessionCards(try session.cards.filter { card in
@@ -393,13 +485,153 @@ final class StudyStore {
         overview = session.overview
         cards = activeCards
         apply(pendingReviewState)
-        try persist(cards: activeCards)
-        loadLibraryCards()
+        try persist(cards: activeCards, userID: userID)
+        loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
 
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    private func refreshOfflineReserve(userID: Int) async throws {
+        let reserve: StudyOfflineReserve = try await api.request(
+            "/api/study/offline-reserve",
+            method: "POST"
+        )
+        guard activeUserID == userID else { return }
+        try persistReserve(reserve.cards, userID: userID)
+        loadLibraryCards(userID: userID)
+        scheduleNextOfflineActivation()
+        await mediaCache.prepare(
+            urls: reserve.cards.flatMap(\.mediaURLs),
+            category: "offline-study"
+        )
+        markPrepared(cards: reserve.cards)
+    }
+
+    private func pullCardChanges(userID: Int) async throws {
+        var state = try syncState(userID: userID)
+        var checkpoint = state.cardCheckpoint
+
+        do {
+            while true {
+                let page: SyncFeedPage = try await api.request(
+                    "/api/sync/feed",
+                    query: [
+                        URLQueryItem(name: "domain", value: "flashcards"),
+                        URLQueryItem(name: "resource_type", value: "card"),
+                        URLQueryItem(name: "after_checkpoint", value: String(checkpoint)),
+                        URLQueryItem(name: "per_page", value: "100"),
+                    ]
+                )
+                guard activeUserID == userID else { return }
+                for entry in page.data {
+                    try await apply(entry, userID: userID)
+                }
+                // An account switch can happen while an individual card fetch is
+                // suspended. Never acknowledge the page unless every entry was
+                // durably applied for the account that requested it.
+                guard activeUserID == userID else { return }
+                checkpoint = page.meta.nextCheckpoint
+                state.cardCheckpoint = checkpoint
+                state.updatedAt = .now
+                try context.save()
+                guard page.meta.hasMore else { break }
+            }
+        } catch APIClientError.rejected(status: 409, message: _) {
+            guard activeUserID == userID else { return }
+            try resetServerBackedCards(userID: userID)
+            state = try syncState(userID: userID)
+            state.cardCheckpoint = 0
+            state.updatedAt = .now
+            try context.save()
+            guard activeUserID == userID else { return }
+            try await refreshSession()
+            guard activeUserID == userID else { return }
+            try await refreshOfflineReserve(userID: userID)
+        }
+    }
+
+    private func apply(_ entry: SyncFeedPage.Entry, userID: Int) async throws {
+        guard activeUserID == userID else { return }
+        if entry.operation == "delete" {
+            try removeServerCard(resourceID: entry.resourceId, userID: userID)
+            return
+        }
+
+        do {
+            let card: StudyCard = try await api.request(
+                "/api/study/cards/\(entry.resourceId)"
+            )
+            guard activeUserID == userID else { return }
+            let hasPendingReview = try pendingReviewState().cardIDs.contains(card.id)
+            let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
+            let merged = try acknowledgedCard(
+                card,
+                preservingPendingReview: hasPendingReview,
+                preservingPendingEdit: hasPendingEdit
+            )
+            try updateLocalCard(merged, markedDirty: hasPendingEdit, serverUpdatedAt: card.updatedAt)
+            try context.save()
+        } catch APIClientError.rejected(status: 404, message: _) {
+            guard activeUserID == userID else { return }
+            try removeServerCard(resourceID: entry.resourceId, userID: userID)
+        }
+    }
+
+    private func syncState(userID: Int) throws -> LocalSyncState {
+        var descriptor = FetchDescriptor<LocalSyncState>(
+            predicate: #Predicate { $0.userID == userID }
+        )
+        descriptor.fetchLimit = 1
+        if let state = try context.fetch(descriptor).first {
+            return state
+        }
+        let state = LocalSyncState(userID: userID)
+        context.insert(state)
+        try context.save()
+        return state
+    }
+
+    private func removeServerCard(resourceID: String, userID: Int) throws {
+        guard activeUserID == userID else { return }
+        guard try !hasPendingCardMutation(for: resourceID, userID: userID) else { return }
+        let normalizedID = resourceID.lowercased()
+        let records = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        for record in records where
+            record.id.lowercased() == normalizedID
+        {
+            context.delete(record)
+        }
+        cards.removeAll {
+            $0.id.lowercased() == normalizedID || $0.reviewCardID.lowercased() == normalizedID
+        }
+        libraryCards.removeAll {
+            $0.id.lowercased() == normalizedID || $0.reviewCardID.lowercased() == normalizedID
+        }
+        try context.save()
+    }
+
+    private func resetServerBackedCards(userID: Int) throws {
+        let records = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        for record in records where record.locallyUpdatedAt == nil {
+            if try !hasPendingCardMutation(for: record.id, userID: userID) {
+                context.delete(record)
+            }
+        }
+        try context.save()
+        guard activeUserID == userID else { return }
+        loadLocalCards(userID: userID)
+        loadLibraryCards(userID: userID)
     }
 
     func refreshKnownKanji() async throws {
@@ -412,15 +644,20 @@ final class StudyStore {
         at date: Date = .now,
         preservingCurrentOrder: Bool = true
     ) {
+        guard let userID = activeUserID else { return }
         let records = (try? context.fetch(
             FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { !$0.isInActiveSession }
+                predicate: #Predicate {
+                    $0.userID == userID && !$0.isInActiveSession
+                }
             )
         )) ?? []
         let pendingDeleteIDs = Set(
             ((try? context.fetch(
                 FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.kind == "cardDelete" }
+                    predicate: #Predicate {
+                        $0.userID == userID && $0.kind == "cardDelete"
+                    }
                 )
             )) ?? []).map { $0.resourceID.lowercased() }
         )
@@ -520,6 +757,7 @@ final class StudyStore {
         duration: Duration?,
         reviewedAt: Date = .now
     ) async -> String? {
+        guard let userID = activeUserID else { return nil }
         let now = reviewedAt
         let event = ReviewBatchRequest.Event(
             id: ClientIdentifier.ulid(date: now),
@@ -545,10 +783,15 @@ final class StudyStore {
                     cardBefore: PendingReviewCardState(card: card)
                 )
             )
-            context.insert(PendingMutation(kind: "review", resourceID: card.id, payload: payload))
+            context.insert(PendingMutation(
+                kind: "review",
+                userID: userID,
+                resourceID: card.id,
+                payload: payload
+            ))
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.id == cardID }
+                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
             )
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
@@ -559,6 +802,7 @@ final class StudyStore {
             } else {
                 let record = LocalCardRecord(
                     card: updatedCard,
+                    userID: userID,
                     queueIndex: cards.count,
                     payload: updatedPayload
                 )
@@ -679,6 +923,7 @@ final class StudyStore {
         draft: StudyCardDraft,
         id: String = ClientIdentifier.ulid()
     ) async throws -> StudyManualCardDraft {
+        guard let userID = activeUserID else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
             id: id,
             creationKind: creationKind,
@@ -697,6 +942,7 @@ final class StudyStore {
         } else {
             mutation = PendingMutation(
                 kind: "draftCreate",
+                userID: userID,
                 resourceID: id,
                 payload: try StorageCodec.encoder.encode(request)
             )
@@ -812,6 +1058,7 @@ final class StudyStore {
         previewAudioRole: String?,
         previewImage: JSONValue?
     ) async throws {
+        guard let userID = activeUserID else { throw CancellationError() }
         let existingCommit = try pendingDraftCommit(for: serverDraft.id)
         let shouldUpdateDraft = existingCommit == nil
             || existingCommit?.kind == "draftCommitRejected"
@@ -835,6 +1082,7 @@ final class StudyStore {
             let request = CreateCardFromStudyManualDraftRequest(id: ClientIdentifier.ulid())
             commitMutation = PendingMutation(
                 kind: "draftCommit",
+                userID: userID,
                 resourceID: updated.id,
                 payload: try StorageCodec.encoder.encode(request)
             )
@@ -873,6 +1121,7 @@ final class StudyStore {
     }
 
     func draftCommitRecoveryState(for draftID: String) -> DraftCommitRecoveryState {
+        guard let userID = activeUserID else { return .none }
         guard
             let mutation = try? pendingDraftCommit(for: draftID),
             let request = try? StorageCodec.decoder.decode(
@@ -889,7 +1138,8 @@ final class StudyStore {
         let normalizedCardID = request.id.lowercased()
         var descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate {
-                $0.id == normalizedCardID || $0.id == originalCardID
+                $0.userID == userID
+                    && ($0.id == normalizedCardID || $0.id == originalCardID)
             }
         )
         descriptor.fetchLimit = 1
@@ -898,6 +1148,7 @@ final class StudyStore {
     }
 
     func createCard(_ draft: StudyCardDraft) async throws {
+        guard let userID = activeUserID else { throw CancellationError() }
         let id = ClientIdentifier.ulid()
         let prompt = draft.prompt()
         let answer = draft.answer()
@@ -929,10 +1180,20 @@ final class StudyStore {
         )
         let mutationData = try StorageCodec.encoder.encode(request)
         let cardData = try StorageCodec.encoder.encode(optimistic)
-        let record = LocalCardRecord(card: optimistic, queueIndex: cards.count, payload: cardData)
+        let record = LocalCardRecord(
+            card: optimistic,
+            userID: userID,
+            queueIndex: cards.count,
+            payload: cardData
+        )
         record.locallyUpdatedAt = now
         context.insert(record)
-        context.insert(PendingMutation(kind: "cardCreate", resourceID: id, payload: mutationData))
+        context.insert(PendingMutation(
+            kind: "cardCreate",
+            userID: userID,
+            resourceID: id,
+            payload: mutationData
+        ))
         cards.append(optimistic)
         libraryCards.append(optimistic)
         try context.save()
@@ -959,6 +1220,7 @@ final class StudyStore {
     }
 
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
+        guard let userID = activeUserID else { throw CancellationError() }
         let currentCard = try currentLocalCard(for: card)
         let promptPayload = draft.prompt(merging: currentCard.prompt)
         let answerPayload = draft.answer(merging: currentCard.answer)
@@ -978,6 +1240,7 @@ final class StudyStore {
         try updateLocalCard(updated, markedDirty: true)
         context.insert(PendingMutation(
             kind: "cardUpdate",
+            userID: userID,
             resourceID: currentCard.id,
             payload: try StorageCodec.encoder.encode(request)
         ))
@@ -992,15 +1255,17 @@ final class StudyStore {
     }
 
     func deleteCard(_ card: StudyCard) async throws {
+        guard let userID = activeUserID else { throw CancellationError() }
         let currentCard = try currentLocalCard(for: card)
         context.insert(PendingMutation(
             kind: "cardDelete",
+            userID: userID,
             resourceID: currentCard.id,
             payload: Data()
         ))
         let cardID = currentCard.id
         let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
+            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
         )
         if let record = try context.fetch(descriptor).first {
             context.delete(record)
@@ -1199,8 +1464,9 @@ final class StudyStore {
     }
 
     var quarantinedMutationCount: Int {
+        guard let userID = activeUserID else { return 0 }
         let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.lastError != nil }
+            predicate: #Predicate { $0.userID == userID && $0.lastError != nil }
         )
         return (try? context.fetchCount(descriptor)) ?? 0
     }
@@ -1225,8 +1491,11 @@ final class StudyStore {
     }
 
     private func drainReviewOutbox() async throws {
+        guard let userID = activeUserID else { return }
         let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.kind == "review" && $0.lastError == nil },
+            predicate: #Predicate {
+                $0.userID == userID && $0.kind == "review" && $0.lastError == nil
+            },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         let pending = try context.fetch(descriptor)
@@ -1288,6 +1557,7 @@ final class StudyStore {
     }
 
     private func drainCardOutbox() async throws {
+        guard let userID = activeUserID else { return }
         var quarantinedCount = 0
         let activeCardOrder = cards.map { $0.id.lowercased() }
         defer {
@@ -1296,13 +1566,14 @@ final class StudyStore {
             // queued mutation in a large offline backlog. Preserve the active
             // array's current order so background sync cannot replace the card
             // at the front of an in-progress session.
-            loadLocalCards(preservingNormalizedOrder: activeCardOrder)
-            loadLibraryCards()
+            loadLocalCards(preservingNormalizedOrder: activeCardOrder, userID: userID)
+            loadLibraryCards(userID: userID)
         }
         while true {
             var descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
-                    ($0.kind == "cardCreate"
+                    $0.userID == userID
+                        && ($0.kind == "cardCreate"
                         || $0.kind == "cardUpdate"
                         || $0.kind == "cardDelete")
                         && $0.lastError == nil
@@ -1403,20 +1674,22 @@ final class StudyStore {
 
     private func reconcileCreatedCardID(from clientID: String, to serverID: String) throws {
         guard clientID != serverID else { return }
+        guard let userID = activeUserID else { throw CancellationError() }
 
         var clientDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == clientID }
+            predicate: #Predicate { $0.userID == userID && $0.id == clientID }
         )
         clientDescriptor.fetchLimit = 1
         var serverDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == serverID }
+            predicate: #Predicate { $0.userID == userID && $0.id == serverID }
         )
         serverDescriptor.fetchLimit = 1
         let clientRecord = try context.fetch(clientDescriptor).first
         let serverRecord = try context.fetch(serverDescriptor).first
         let mutationDescriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.resourceID == clientID || $0.resourceID == serverID
+                $0.userID == userID
+                    && ($0.resourceID == clientID || $0.resourceID == serverID)
             }
         )
         let aliasMutations = try context.fetch(mutationDescriptor)
@@ -1490,9 +1763,10 @@ final class StudyStore {
     }
 
     private func hasPendingDelete(for cardID: String) throws -> Bool {
+        guard let userID = activeUserID else { return false }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "cardDelete" && $0.resourceID == cardID
+                $0.userID == userID && $0.kind == "cardDelete" && $0.resourceID == cardID
             }
         )
         descriptor.fetchLimit = 1
@@ -1503,7 +1777,9 @@ final class StudyStore {
         let normalizedID = cardID.lowercased()
         return try context.fetch(
             FetchDescriptor<PendingMutation>(
-                predicate: #Predicate { $0.kind == "cardDelete" }
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "cardDelete"
+                }
             )
         ).contains {
             $0.resourceID.lowercased() == normalizedID
@@ -1511,9 +1787,11 @@ final class StudyStore {
     }
 
     private func hasPendingCreate(for cardID: String) throws -> Bool {
+        guard let userID = activeUserID else { return false }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "cardCreate"
+                $0.userID == userID
+                    && $0.kind == "cardCreate"
                     && $0.resourceID == cardID
                     && $0.lastError == nil
             }
@@ -1523,9 +1801,11 @@ final class StudyStore {
     }
 
     private func hasPendingCardWrite(for cardID: String) throws -> Bool {
+        guard let userID = activeUserID else { return false }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
+                $0.userID == userID
+                    && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
                     && $0.resourceID == cardID
             }
         )
@@ -1533,10 +1813,27 @@ final class StudyStore {
         return try !context.fetch(descriptor).isEmpty
     }
 
+    private func hasPendingCardMutation(for cardID: String, userID: Int) throws -> Bool {
+        let normalizedID = cardID.lowercased()
+        return try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && ($0.kind == "cardCreate"
+                            || $0.kind == "cardUpdate"
+                            || $0.kind == "cardDelete"
+                            || $0.kind == "review")
+                }
+            )
+        ).contains { $0.resourceID.lowercased() == normalizedID }
+    }
+
     private func hasPendingReview(for cardID: String) throws -> Bool {
+        guard let userID = activeUserID else { return false }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "review"
+                $0.userID == userID
+                    && $0.kind == "review"
                     && $0.resourceID == cardID
                     && $0.lastError == nil
             }
@@ -1549,9 +1846,11 @@ final class StudyStore {
         for cardID: String,
         excluding mutationID: String
     ) throws -> Bool {
+        guard let userID = activeUserID else { return false }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "cardUpdate"
+                $0.userID == userID
+                    && $0.kind == "cardUpdate"
                     && $0.resourceID == cardID
                     && $0.id != mutationID
                     && $0.lastError == nil
@@ -1573,10 +1872,11 @@ final class StudyStore {
     }
 
     private func pendingReviewState() throws -> PendingReviewState {
+        guard let userID = activeUserID else { return PendingReviewState() }
         let pending = try context.fetch(
             FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
-                    $0.kind == "review" && $0.lastError == nil
+                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
                 },
                 sortBy: [SortDescriptor(\.createdAt)]
             )
@@ -1584,7 +1884,9 @@ final class StudyStore {
         let pendingCardIDs = pending.map(\.resourceID)
         let records = try context.fetch(
             FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { pendingCardIDs.contains($0.id) }
+                predicate: #Predicate {
+                    $0.userID == userID && pendingCardIDs.contains($0.id)
+                }
             )
         )
         let cardsByID = Dictionary(
@@ -1642,9 +1944,10 @@ final class StudyStore {
     }
 
     private func pendingReview(eventID: String) throws -> PendingMutation? {
-        try context.fetch(
+        guard let userID = activeUserID else { return nil }
+        return try context.fetch(
             FetchDescriptor<PendingMutation>(
-                predicate: #Predicate { $0.kind == "review" }
+                predicate: #Predicate { $0.userID == userID && $0.kind == "review" }
             )
         ).first {
             (try? decodePendingReview($0.payload).event.id) == eventID
@@ -1678,11 +1981,18 @@ final class StudyStore {
                 record.serverUpdatedAt = restoredCard.updatedAt
             }
         } else {
+            guard let userID = activeUserID else { throw CancellationError() }
             context.insert(
-                LocalCardRecord(card: restoredCard, queueIndex: 0, payload: payload)
+                LocalCardRecord(
+                    card: restoredCard,
+                    userID: userID,
+                    queueIndex: 0,
+                    payload: payload
+                )
             )
         }
-        try persist(cards: cards)
+        guard let userID = activeUserID else { throw CancellationError() }
+        try persist(cards: cards, userID: userID)
         scheduleNextOfflineActivation()
     }
 
@@ -1725,8 +2035,12 @@ final class StudyStore {
         )
     }
 
-    private func persist(cards: [StudyCard]) throws {
-        let existing = try context.fetch(FetchDescriptor<LocalCardRecord>())
+    private func persist(cards: [StudyCard], userID: Int) throws {
+        let existing = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
         existing.forEach { $0.isInActiveSession = false }
         let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
 
@@ -1739,19 +2053,60 @@ final class StudyStore {
                 record.queueIndex = index
                 record.serverUpdatedAt = card.updatedAt
             } else {
-                context.insert(LocalCardRecord(card: card, queueIndex: index, payload: payload))
+                context.insert(LocalCardRecord(
+                    card: card,
+                    userID: userID,
+                    queueIndex: index,
+                    payload: payload
+                ))
+            }
+        }
+        try context.save()
+    }
+
+    private func persistReserve(_ cards: [StudyCard], userID: Int) throws {
+        let existing = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        let byID = Dictionary(
+            existing.map { ($0.id.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for (index, card) in cards.enumerated() {
+            let payload = try StorageCodec.encoder.encode(card)
+            if let record = byID[card.id.lowercased()] {
+                guard record.locallyUpdatedAt == nil else { continue }
+                record.payload = payload
+                record.queueIndex = index
+                record.serverUpdatedAt = card.updatedAt
+            } else {
+                let record = LocalCardRecord(
+                    card: card,
+                    userID: userID,
+                    queueIndex: index,
+                    payload: payload
+                )
+                record.isInActiveSession = false
+                context.insert(record)
             }
         }
         try context.save()
     }
 
     private func markPrepared(cards: [StudyCard]) {
+        guard let userID = activeUserID else { return }
         let cardsByID = Dictionary(
             cards.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         let cachedKeys = mediaCache.cachedKeys(for: cards.flatMap(\.mediaURLs))
-        let records = (try? context.fetch(FetchDescriptor<LocalCardRecord>())) ?? []
+        let records = (try? context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )) ?? []
         for record in records {
             guard let card = cardsByID[record.id] else { continue }
             let isPrepared = card.mediaURLs.allSatisfy {
@@ -1768,10 +2123,11 @@ final class StudyStore {
         preservingPendingEdit: Bool
     ) throws -> StudyCard {
         guard preservingPendingReview || preservingPendingEdit else { return serverCard }
+        guard let userID = activeUserID else { return serverCard }
 
         let cardID = serverCard.id
         var descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
+            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
         )
         descriptor.fetchLimit = 1
         guard
@@ -1812,8 +2168,9 @@ final class StudyStore {
     }
 
     private func localCardRecord(forID cardID: String) throws -> LocalCardRecord? {
+        guard let userID = activeUserID else { return nil }
         var exactDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
+            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
         )
         exactDescriptor.fetchLimit = 1
         if let record = try context.fetch(exactDescriptor).first {
@@ -1824,7 +2181,11 @@ final class StudyStore {
         // can still hold the original snapshot while background sync renames the
         // persisted record, so resolve that alias before saving.
         let normalizedID = cardID.lowercased()
-        return try context.fetch(FetchDescriptor<LocalCardRecord>()).first(
+        return try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        ).first(
             where: { $0.id.lowercased() == normalizedID }
         )
     }
@@ -1834,9 +2195,10 @@ final class StudyStore {
         markedDirty: Bool,
         serverUpdatedAt: Date? = nil
     ) throws {
+        guard let userID = activeUserID else { throw CancellationError() }
         let cardID = card.id
         var descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
+            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
         )
         descriptor.fetchLimit = 1
         let payload = try StorageCodec.encoder.encode(card)
@@ -1845,7 +2207,12 @@ final class StudyStore {
             record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
         } else {
-            let record = LocalCardRecord(card: card, queueIndex: cards.count, payload: payload)
+            let record = LocalCardRecord(
+                card: card,
+                userID: userID,
+                queueIndex: cards.count,
+                payload: payload
+            )
             record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
             context.insert(record)
@@ -1861,9 +2228,11 @@ final class StudyStore {
     }
 
     private func pendingDraftCommit(for draftID: String) throws -> PendingMutation? {
+        guard let userID = activeUserID else { return nil }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                ($0.kind == "draftCommit" || $0.kind == "draftCommitRejected")
+                $0.userID == userID
+                    && ($0.kind == "draftCommit" || $0.kind == "draftCommitRejected")
                     && $0.resourceID == draftID
             }
         )
@@ -1872,9 +2241,12 @@ final class StudyStore {
     }
 
     private func pendingDraftCreate(for draftID: String) throws -> PendingMutation? {
+        guard let userID = activeUserID else { return nil }
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "draftCreate" && $0.resourceID == draftID
+                $0.userID == userID
+                    && $0.kind == "draftCreate"
+                    && $0.resourceID == draftID
             }
         )
         descriptor.fetchLimit = 1
@@ -1882,9 +2254,12 @@ final class StudyStore {
     }
 
     func retryPendingDraftCreates() async throws {
+        guard let userID = activeUserID else { return }
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "draftCreate" && $0.lastError == nil
+                $0.userID == userID
+                    && $0.kind == "draftCreate"
+                    && $0.lastError == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
@@ -1958,9 +2333,12 @@ final class StudyStore {
     }
 
     func retryPendingDraftCommits() async throws {
+        guard let userID = activeUserID else { return }
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.kind == "draftCommit" && $0.lastError == nil
+                $0.userID == userID
+                    && $0.kind == "draftCommit"
+                    && $0.lastError == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
@@ -2123,9 +2501,9 @@ final class StudyStore {
         manualDraftRevision += 1
     }
 
-    private func loadLocalCards() {
+    private func loadLocalCards(userID: Int) {
         let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.isInActiveSession },
+            predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
             sortBy: [SortDescriptor(\.queueIndex)]
         )
         cards = ((try? context.fetch(descriptor)) ?? []).compactMap {
@@ -2134,9 +2512,12 @@ final class StudyStore {
         cards = Self.orderSessionCards(cards)
     }
 
-    private func loadLocalCards(preservingNormalizedOrder order: [String]) {
+    private func loadLocalCards(
+        preservingNormalizedOrder order: [String],
+        userID: Int
+    ) {
         let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.isInActiveSession },
+            predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
             sortBy: [SortDescriptor(\.queueIndex)]
         )
         var persistedByNormalizedID = Dictionary(
@@ -2149,8 +2530,9 @@ final class StudyStore {
         cards = preserved + Self.orderSessionCards(Array(persistedByNormalizedID.values))
     }
 
-    private func loadLibraryCards() {
+    private func loadLibraryCards(userID: Int) {
         let descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.userID == userID },
             sortBy: [SortDescriptor(\.serverUpdatedAt, order: .reverse)]
         )
         libraryCards = ((try? context.fetch(descriptor)) ?? []).compactMap {

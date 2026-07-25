@@ -43,10 +43,10 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.refresh()
@@ -73,12 +73,13 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let first = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1_000))
+        try insertPractice(containing: first, userID: 1, into: container)
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
-        let first = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1_000))
         let regenerated = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
 
         let firstResolvedURL = await store.playableURL(for: first)
@@ -124,16 +125,18 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let track = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
+        try insertPractice(containing: track, userID: 1, into: container)
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
-        let track = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
         let legacyKey = "daily-audio:\(track.id)"
         container.mainContext.insert(
             CachedMediaRecord(
                 remoteURL: legacyKey,
+                userID: 1,
                 relativePath: "legacy.mp3",
                 byteCount: 10,
                 category: "daily-audio"
@@ -165,6 +168,29 @@ final class DailyAudioStoreTests: XCTestCase {
             approxDurationSeconds: 60,
             updatedAt: updatedAt
         )
+    }
+
+    private func insertPractice(
+        containing track: DailyAudioTrack,
+        userID: Int,
+        into container: ModelContainer
+    ) throws {
+        let practice = DailyAudioPractice(
+            id: track.practiceId,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now,
+            tracks: [track]
+        )
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: practice,
+            userID: userID,
+            payload: try StorageCodec.encoder.encode(practice)
+        ))
+        try container.mainContext.save()
     }
 
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {

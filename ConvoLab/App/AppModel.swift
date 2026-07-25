@@ -12,6 +12,7 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let isUsingEphemeralStorage: Bool
+    @ObservationIgnored private var shouldClaimLegacyData = false
 
     init(configuration: AppConfiguration = .load()) {
         let container: ModelContainer
@@ -57,10 +58,18 @@ final class AppModel {
     func start() async {
         await auth.restore()
         guard case .signedIn = auth.state else { return }
+        // Only a credential restored at cold launch can establish ownership of
+        // rows created by the pre-account-scoping app. Never mark the migration
+        // complete while running against the emergency in-memory store.
+        shouldClaimLegacyData = !isUsingEphemeralStorage
         await refreshAuthenticatedData()
     }
 
     func synchronize() async {
+        if case .signedIn = auth.state {
+            await refreshAuthenticatedData()
+            return
+        }
         await auth.restore()
         guard case .signedIn = auth.state else { return }
         await refreshAuthenticatedData()
@@ -70,9 +79,61 @@ final class AppModel {
         study.activateOfflineDueCards()
     }
 
+    func logout() async {
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        study.deactivate()
+        dailyAudio.deactivate()
+        mediaCache.deactivate()
+        await auth.logout()
+    }
+
+    func clearDownloadedMedia() throws {
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        try mediaCache.clearDownloadedMedia()
+    }
+
+    func deleteAccount(currentPassword: String) async -> Bool {
+        guard case let .signedIn(user) = auth.state else {
+            return false
+        }
+        guard await auth.deleteAccount(currentPassword: currentPassword) else {
+            return false
+        }
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        study.deactivate()
+        dailyAudio.deactivate()
+        mediaCache.deactivate()
+        try? mediaCache.deleteLocalData(userID: user.id)
+        try? dailyAudio.deleteLocalData(userID: user.id)
+        try? study.deleteLocalData(userID: user.id)
+        return true
+    }
+
     private func refreshAuthenticatedData() async {
         guard case let .signedIn(user) = auth.state else { return }
+        // Rows created by pre-account-scoping builds receive SwiftData's zero default
+        // during lightweight migration. The first restored signed-in account owns
+        // those cards and, critically, any unsent mutation outbox entries.
+        if shouldClaimLegacyData {
+            do {
+                try Persistence.claimLegacyLocalData(
+                    for: user.id,
+                    context: container.mainContext
+                )
+                shouldClaimLegacyData = false
+            } catch {
+                // Leave zero-scoped rows untouched so the same restored account can
+                // retry on the next synchronization instead of loading or discarding
+                // only part of the outbox.
+                return
+            }
+        }
+        mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
+        dailyAudio.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Void = dailyAudio.refresh()
         _ = await (studySync, audioRefresh)

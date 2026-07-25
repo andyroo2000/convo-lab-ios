@@ -8,15 +8,16 @@ A native, local-first iOS client for the ConvoLab study experience, backed by
 The first release targets iOS 26 and focuses on:
 
 - Email/password authentication with a mobile bearer token stored in Keychain.
+- Invite-code account creation, profile/password management, and account deletion.
 - Offline flashcard study with retry-safe review-event replay.
 - Local card creation and editing when the operation does not require generated media.
-- Automatic media preparation for the active queue plus five days of new cards.
+- Incremental inbound card sync plus a server-selected five-day offline reserve.
+- Automatic media preparation for the active queue and offline reserve.
 - Daily Audio creation while online and downloaded, background-capable playback offline.
 - Native SwiftUI navigation and controls with ConvoLab's visual character.
 
-Anki import is intentionally out of scope. WaniKani setup and manual sync are planned as
-the first fast-follow; the local models preserve the backend's study metadata so adding it
-does not require a storage migration.
+Anki import is intentionally out of scope. WaniKani setup, manual sync, and adaptive
+furigana are available through the study settings.
 
 ## Requirements
 
@@ -39,8 +40,8 @@ composer run dev
 
 The Laravel server should report that it is listening on `http://127.0.0.1:8000`.
 
-The release URL is deliberately an invalid placeholder until the production learning-os
-hostname is selected.
+The release configuration points at the production ConvoLab edge, which forwards native
+API routes to learning-os.
 
 ## Build
 
@@ -54,14 +55,19 @@ xcodebuild \
 
 ## Offline model
 
-The device stores cards, Daily Audio metadata, media-cache records, and ordered mutation
-outboxes in SwiftData. Reviews use learning-os client event IDs and replay safely. Card
-mutations use client-generated ULIDs. Pending local writes are pushed before refreshing the
-study session, avoiding a stale pull overwriting an offline edit.
+The device stores cards, Daily Audio metadata, media-cache records, sync checkpoints, and
+ordered mutation outboxes in SwiftData. Every local record is scoped to the authenticated
+account, and switching or signing out clears all in-memory state. Reviews use learning-os
+client event IDs and replay safely. Card mutations use client-generated ULIDs. Pending
+local writes are pushed before the incremental card feed is pulled, avoiding a stale pull
+overwriting an offline edit. If a checkpoint expires, the client rebuilds clean server
+state while retaining unsynced local changes.
 
 The five-day preparation target is:
 
 `active due cards + (daily new-card limit × 5)`
 
-Only referenced media is downloaded. Daily Audio tracks are downloaded after opening a
-ready practice and remain local until removed through storage management.
+Learning OS selects scheduled cards due during the next five days plus five days of new
+cards. Scheduled reserve cards become active when their due time arrives; future new cards
+remain reserved until the server introduces them. Only referenced media is downloaded.
+Daily Audio tracks remain local until removed through storage management.
