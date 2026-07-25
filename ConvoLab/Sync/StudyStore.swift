@@ -178,6 +178,9 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var newCardQueue: [StudyNewCardQueueItem] = []
+    private(set) var newCardQueueTotal = 0
+    private(set) var isRefreshingNewCardQueue = false
     private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
     private(set) var knownKanji: Set<Character> = []
@@ -235,6 +238,9 @@ final class StudyStore {
         mediaCache.deactivate()
         cards = []
         libraryCards = []
+        newCardQueue = []
+        newCardQueueTotal = 0
+        isRefreshingNewCardQueue = false
         manualDrafts = []
         overview = nil
         knownKanji = []
@@ -492,6 +498,38 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    func refreshNewCardQueue() async throws {
+        guard activeUserID != nil else { return }
+        isRefreshingNewCardQueue = true
+        defer { isRefreshingNewCardQueue = false }
+
+        let response: StudyNewCardQueueResponse = try await api.request(
+            "/api/study/new-queue",
+            query: [URLQueryItem(name: "limit", value: "100")]
+        )
+        newCardQueue = response.items
+        newCardQueueTotal = response.total
+    }
+
+    func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
+        guard !fromOffsets.isEmpty else { return }
+        let previousItems = newCardQueue
+        newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
+
+        do {
+            let response: StudyNewCardQueueResponse = try await api.request(
+                "/api/study/new-queue/reorder",
+                method: "POST",
+                body: ReorderStudyNewCardQueueRequest(cardIds: newCardQueue.map(\.id))
+            )
+            newCardQueue = response.items
+            newCardQueueTotal = response.total
+        } catch {
+            newCardQueue = previousItems
+            throw error
+        }
     }
 
     private func refreshOfflineReserve(userID: Int) async throws {
@@ -1147,7 +1185,8 @@ final class StudyStore {
         return hasConfirmedLocalCard ? .cleanupPending : .outcomeUnknown
     }
 
-    func createCard(_ draft: StudyCardDraft) async throws {
+    @discardableResult
+    func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
         guard let userID = activeUserID else { throw CancellationError() }
         let id = ClientIdentifier.ulid()
         let prompt = draft.prompt()
@@ -1203,6 +1242,7 @@ final class StudyStore {
         } catch {
             handleSyncError(error)
         }
+        return optimistic
     }
 
     func updateCard(
@@ -1389,6 +1429,51 @@ final class StudyStore {
             body: request,
             timeout: 180
         )
+        return try await reconcileImageMutation(
+            currentCard: currentCard,
+            serverCard: serverCard,
+            placement: placement
+        )
+    }
+
+    func uploadImage(
+        for card: StudyCard,
+        jpegData: Data,
+        placement: StudyCardDraft.ImagePlacement
+    ) async throws -> ImageRegenerationResult {
+        guard placement != .none else {
+            throw InvalidImagePlacementError()
+        }
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardError {
+            // Rejected writes for other cards do not block this card's media.
+        }
+        let currentCard = try currentLocalCard(for: card)
+        guard try !hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError(medium: "image")
+        }
+        let serverCard: StudyCard = try await api.upload(
+            "/api/study/cards/\(currentCard.reviewCardID)/image",
+            fields: ["imageRole": placement.rawValue],
+            fileData: jpegData,
+            fileField: "image",
+            fileName: "iphone-photo.jpg",
+            mimeType: "image/jpeg",
+            timeout: 120
+        )
+        return try await reconcileImageMutation(
+            currentCard: currentCard,
+            serverCard: serverCard,
+            placement: placement
+        )
+    }
+
+    private func reconcileImageMutation(
+        currentCard: StudyCard,
+        serverCard: StudyCard,
+        placement: StudyCardDraft.ImagePlacement
+    ) async throws -> ImageRegenerationResult {
         if
             placement == .both,
             let promptImage = serverCard.prompt["cueImage"],

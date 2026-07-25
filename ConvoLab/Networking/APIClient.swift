@@ -134,6 +134,69 @@ final class APIClient {
         }
     }
 
+    func upload<Response: Decodable>(
+        _ path: String,
+        fields: [String: String],
+        fileData: Data,
+        fileField: String,
+        fileName: String,
+        mimeType: String,
+        timeout: TimeInterval = 90,
+        response: Response.Type = Response.self
+    ) async throws -> Response {
+        let url = baseURL.appending(
+            path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        )
+
+        let boundary = "ConvoLab-\(UUID().uuidString)"
+        var body = Data()
+        func append(_ value: String) {
+            body.append(Data(value.utf8))
+        }
+        for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+        append("--\(boundary)\r\n")
+        append(
+            "Content-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(fileName)\"\r\n"
+        )
+        append("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(fileData)
+        append("\r\n--\(boundary)--\r\n")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        if let accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, urlResponse) = try await session.data(for: request)
+        guard let httpResponse = urlResponse as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        guard 200..<300 ~= httpResponse.statusCode else {
+            let message = (try? Self.decoder.decode(ErrorPayload.self, from: data).message)
+                ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
+        }
+        do {
+            return try Self.decoder.decode(Response.self, from: data)
+        } catch let error as DecodingError {
+            let details = Self.decodingDetails(error)
+            print("API decoding failed for \(path): \(details)")
+            throw APIClientError.decoding(path: path, details: details)
+        }
+    }
+
     private func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
         guard lhs.scheme?.lowercased() == rhs.scheme?.lowercased(),
               lhs.host?.lowercased() == rhs.host?.lowercased()

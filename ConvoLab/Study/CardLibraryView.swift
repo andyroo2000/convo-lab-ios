@@ -1,17 +1,149 @@
+import PhotosUI
 import SwiftUI
 
 struct CardLibraryView: View {
+    private enum CollectionMode: String, CaseIterable, Identifiable {
+        case queue = "Queue"
+        case all = "All Cards"
+
+        var id: String { rawValue }
+    }
+
     let store: StudyStore
     let player: StudyAudioPlayer
+    @State private var collectionMode: CollectionMode = .queue
+    @State private var searchText = ""
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
     @State private var selectedDraft: StudyManualCardDraft?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
+    @State private var queueErrorMessage: String?
 
     var body: some View {
         NavigationStack {
-            List {
+            Group {
+                if collectionMode == .all {
+                    cardList
+                        .searchable(
+                            text: $searchText,
+                            placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: "Search your cards"
+                        )
+                } else {
+                    cardList
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Picker("Card collection", selection: $collectionMode) {
+                    ForEach(CollectionMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+            .scrollContentBackground(.hidden)
+            .paperBackground()
+            .navigationTitle("Cards")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingCreate = true
+                    } label: {
+                        Label("Create Card", systemImage: "plus")
+                    }
+                }
+                if collectionMode == .queue {
+                    ToolbarItem(placement: .secondaryAction) {
+                        EditButton()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingCreate) {
+                CardEditorView(store: store, player: player, card: nil, serverDraft: nil)
+            }
+            .sheet(item: $selectedCard) { card in
+                CardEditorView(store: store, player: player, card: card, serverDraft: nil)
+            }
+            .sheet(item: $selectedDraft) { draft in
+                CardEditorView(store: store, player: player, card: nil, serverDraft: draft)
+            }
+            .alert("Could not delete card", isPresented: $showingDeletionError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deletionErrorMessage)
+            }
+            .task {
+                try? await store.refreshManualDrafts()
+                try? await store.refreshNewCardQueue()
+            }
+            .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
+                while !Task.isCancelled,
+                      store.manualDrafts.contains(where: { $0.status == "generating" })
+                {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    try? await store.refreshManualDrafts()
+                }
+            }
+            .refreshable {
+                try? await store.refreshManualDrafts()
+                await store.synchronize()
+                try? await store.refreshNewCardQueue()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cardList: some View {
+        List {
+            if collectionMode == .queue {
+                if let queueErrorMessage {
+                    Text(queueErrorMessage)
+                        .foregroundStyle(.red)
+                }
+                Section {
+                    ForEach(Array(store.newCardQueue.enumerated()), id: \.element.id) {
+                        index,
+                        item in
+                        if let card = store.libraryCards.first(where: { $0.id == item.id }) {
+                            Button {
+                                selectedCard = card
+                            } label: {
+                                queueRow(item, number: index + 1)
+                            }
+                        } else {
+                            queueRow(item, number: index + 1)
+                        }
+                    }
+                    .onMove { offsets, destination in
+                        Task {
+                            do {
+                                try await store.moveNewCards(
+                                    fromOffsets: offsets,
+                                    toOffset: destination
+                                )
+                                queueErrorMessage = nil
+                            } catch {
+                                queueErrorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Up Next")
+                } footer: {
+                    if store.newCardQueueTotal > store.newCardQueue.count {
+                        Text(
+                            "Showing the next \(store.newCardQueue.count) of \(store.newCardQueueTotal) cards."
+                        )
+                    } else {
+                        Text("Tap Edit, then drag the handles to change the study order.")
+                    }
+                }
+            } else {
                 if !store.manualDrafts.isEmpty {
                     Section("Creation drafts") {
                         ForEach(store.manualDrafts) { draft in
@@ -25,9 +157,9 @@ struct CardLibraryView: View {
                     }
                 }
 
-                if !store.libraryCards.isEmpty {
+                if !filteredLibraryCards.isEmpty {
                     Section("Cards") {
-                        ForEach(store.libraryCards) { card in
+                        ForEach(filteredLibraryCards) { card in
                             Group {
                                 if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                                     Button {
@@ -48,58 +180,58 @@ struct CardLibraryView: View {
                     }
                 }
             }
-            .overlay {
-                if store.libraryCards.isEmpty && store.manualDrafts.isEmpty {
+        }
+        .overlay {
+            if collectionMode == .queue, store.newCardQueue.isEmpty {
+                ContentUnavailableView(
+                    store.isRefreshingNewCardQueue ? "Loading queue…" : "Queue is empty",
+                    systemImage: "text.line.first.and.arrowtriangle.forward",
+                    description: Text("New cards waiting to be introduced appear here.")
+                )
+            } else if collectionMode == .all,
+                      filteredLibraryCards.isEmpty,
+                      store.manualDrafts.isEmpty {
+                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView(
-                        "No local cards",
+                        "No cards",
                         systemImage: "rectangle.stack",
                         description: Text("Sync or create a card to begin.")
                     )
+                } else {
+                    ContentUnavailableView.search(text: searchText)
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .paperBackground()
-            .navigationTitle("Cards")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingCreate = true
-                    } label: {
-                        Label("Create Card", systemImage: "plus")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingCreate) {
-                CardEditorView(store: store, player: player, card: nil, serverDraft: nil)
-            }
-            .sheet(item: $selectedCard) { card in
-                CardEditorView(store: store, player: player, card: card, serverDraft: nil)
-            }
-            .sheet(item: $selectedDraft) { draft in
-                CardEditorView(store: store, player: player, card: nil, serverDraft: draft)
-            }
-            .alert("Could not delete card", isPresented: $showingDeletionError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(deletionErrorMessage)
-            }
-            .task {
-                try? await store.refreshManualDrafts()
-            }
-            .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
-                while !Task.isCancelled,
-                      store.manualDrafts.contains(where: { $0.status == "generating" })
-                {
-                    try? await Task.sleep(for: .seconds(2))
-                    guard !Task.isCancelled else { return }
-                    try? await store.refreshManualDrafts()
-                }
-            }
-            .refreshable {
-                try? await store.refreshManualDrafts()
-                await store.synchronize()
             }
         }
+    }
+
+    private var filteredLibraryCards: [StudyCard] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return store.libraryCards }
+        return store.libraryCards.filter {
+            $0.promptText.localizedCaseInsensitiveContains(query)
+                || $0.answerText.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func queueRow(_ item: StudyNewCardQueueItem, number: Int) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.displayText)
+                    .font(.headline)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                if let meaning = item.meaning, !meaning.isEmpty {
+                    Text(meaning)
+                        .lineLimit(2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Queue position \(number), \(item.displayText)")
     }
 
     private func draftRow(_ draft: StudyManualCardDraft) -> some View {
@@ -164,6 +296,51 @@ struct CardLibraryView: View {
     }
 }
 
+private struct CameraImagePicker: UIViewControllerRepresentable {
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onImage: onImage, dismiss: dismiss)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate,
+        UIImagePickerControllerDelegate
+    {
+        let onImage: (UIImage) -> Void
+        let dismiss: DismissAction
+
+        init(onImage: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.onImage = onImage
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage {
+                onImage(image)
+            }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            dismiss()
+        }
+    }
+}
+
 struct CardEditorView: View {
     private enum IndependentImageAction: String, Identifiable {
         case save
@@ -199,6 +376,10 @@ struct CardEditorView: View {
     @State private var originalPromptImagePreview: UIImage?
     @State private var originalAnswerImagePreview: UIImage?
     @State private var sharedImagePreview: UIImage?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var stagedPhotoData: Data?
+    @State private var stagedPhotoPreview: UIImage?
+    @State private var showingCamera = false
     @State private var errorMessage: String?
     @State private var independentImageAction: IndependentImageAction?
     @Environment(\.dismiss) private var dismiss
@@ -355,6 +536,12 @@ struct CardEditorView: View {
                     player.stop()
                 }
             }
+            .sheet(isPresented: $showingCamera) {
+                CameraImagePicker { image in
+                    stagePhoto(image)
+                }
+                .ignoresSafeArea()
+            }
             .alert(item: $independentImageAction) { action in
                 Alert(
                     title: Text("Replace distinct front and back images?"),
@@ -433,6 +620,9 @@ struct CardEditorView: View {
     @ViewBuilder
     private var imageFields: some View {
         Section("Image") {
+            if let stagedPhotoPreview {
+                imagePreview(stagedPhotoPreview, label: "Selected photo")
+            }
             if let promptImagePreview {
                 imagePreview(
                     promptImagePreview,
@@ -483,6 +673,46 @@ struct CardEditorView: View {
             .disabled(isRegeneratingImage)
             .onChange(of: draft.imagePlacement) { _, placement in
                 applyImagePlacementPreview(placement)
+            }
+
+            if supportsUserPhoto {
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                }
+                .onChange(of: selectedPhotoItem) { _, item in
+                    guard let item else { return }
+                    Task {
+                        do {
+                            guard
+                                let data = try await item.loadTransferable(type: Data.self),
+                                let image = UIImage(data: data)
+                            else {
+                                throw CocoaError(.fileReadCorruptFile)
+                            }
+                            stagePhoto(image)
+                        } catch {
+                            errorMessage = "The selected photo could not be loaded."
+                        }
+                    }
+                }
+
+                Button {
+                    showingCamera = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
+                if stagedPhotoData != nil {
+                    Button("Remove Selected Photo", role: .destructive) {
+                        stagedPhotoData = nil
+                        stagedPhotoPreview = nil
+                        selectedPhotoItem = nil
+                    }
+                    Text("The selected photo will upload when you save the card.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if card != nil || serverDraft != nil {
@@ -673,8 +903,10 @@ struct CardEditorView: View {
         isSaving = true
         defer { isSaving = false }
         do {
+            var photoTarget: StudyCard?
             if let card {
                 try await store.updateCard(card, draft: draft)
+                photoTarget = card
             } else if let serverDraft {
                 try await store.createCard(
                     from: serverDraft,
@@ -690,12 +922,46 @@ struct CardEditorView: View {
                     id: clientDraftID
                 )
             } else {
-                try await store.createCard(draft)
+                photoTarget = try await store.createCard(draft)
+            }
+            if let stagedPhotoData, let photoTarget {
+                _ = try await store.uploadImage(
+                    for: photoTarget,
+                    jpegData: stagedPhotoData,
+                    placement: draft.imagePlacement
+                )
             }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var supportsUserPhoto: Bool {
+        serverDraft == nil
+            && (card != nil
+                || ![.audioRecognition, .productionImage].contains(creationKind))
+    }
+
+    private func stagePhoto(_ image: UIImage) {
+        let maxDimension: CGFloat = 2_048
+        let scale = min(1, maxDimension / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let normalized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let data = normalized.jpegData(compressionQuality: 0.85) else {
+            errorMessage = "The selected photo could not be prepared."
+            return
+        }
+        stagedPhotoData = data
+        stagedPhotoPreview = normalized
+        if draft.imagePlacement == .none {
+            draft.imagePlacement = .answer
+        }
+        errorMessage = nil
     }
 
     private func deleteCard() async {

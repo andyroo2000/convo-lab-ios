@@ -463,6 +463,28 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+struct StudyNewCardQueueItem: Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let noteId: String
+    let cardType: String
+    let displayText: String
+    let meaning: String?
+    let queuePosition: Int?
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct StudyNewCardQueueResponse: Codable, Equatable, Sendable {
+    let items: [StudyNewCardQueueItem]
+    let total: Int
+    let limit: Int
+    let nextCursor: String?
+}
+
+struct ReorderStudyNewCardQueueRequest: Encodable, Equatable, Sendable {
+    let cardIds: [String]
+}
+
 enum ReviewRating: String, Codable, CaseIterable, Sendable {
     case again
     case hard

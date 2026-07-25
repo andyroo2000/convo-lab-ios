@@ -5,6 +5,97 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testNewCardQueueRefreshAndReorderUseCompatibilityAPI() async throws {
+        let firstID = "01J00000000000000000000001"
+        let secondID = "01J00000000000000000000002"
+        let queueResponse: @Sendable (String, String) -> Data = { first, second in
+            Data(
+                """
+                {
+                  "items": [
+                    {
+                      "id": "\(first)",
+                      "noteId": "\(first)",
+                      "cardType": "recognition",
+                      "displayText": "\(first == firstID ? "犬" : "猫")",
+                      "meaning": "\(first == firstID ? "dog" : "cat")",
+                      "queuePosition": 1,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z"
+                    },
+                    {
+                      "id": "\(second)",
+                      "noteId": "\(second)",
+                      "cardType": "recognition",
+                      "displayText": "\(second == secondID ? "猫" : "犬")",
+                      "meaning": "\(second == secondID ? "cat" : "dog")",
+                      "queuePosition": 2,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z"
+                    }
+                  ],
+                  "total": 2,
+                  "limit": 100,
+                  "nextCursor": null
+                }
+                """.utf8
+            )
+        }
+        let client = makeClient { request in
+            let path = request.url?.path
+            if path == "/api/study/new-queue" {
+                XCTAssertEqual(request.url?.query, "limit=100")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    queueResponse(firstID, secondID)
+                )
+            }
+
+            XCTAssertEqual(path, "/api/study/new-queue/reorder")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(object["cardIds"] as? [String], [secondID, firstID])
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                queueResponse(secondID, firstID)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.refreshNewCardQueue()
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [firstID, secondID])
+        XCTAssertEqual(store.newCardQueueTotal, 2)
+
+        try await store.moveNewCards(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [secondID, firstID])
+        XCTAssertEqual(store.newCardQueue.map(\.queuePosition), [1, 2])
+    }
+
+    @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let audio: JSONValue = .object([

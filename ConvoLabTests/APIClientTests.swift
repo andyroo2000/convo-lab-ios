@@ -3,6 +3,58 @@ import XCTest
 @testable import ConvoLab
 
 final class APIClientTests: XCTestCase {
+    private struct UploadResponse: Decodable {
+        let ok: Bool
+    }
+
+    @MainActor
+    func testUploadBuildsAuthenticatedMultipartRequest() async throws {
+        let photoBytes = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://learning-os.example/api/study/cards/card-1/image")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Authorization"),
+                "Bearer mobile-token"
+            )
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertTrue(
+                request.value(forHTTPHeaderField: "Content-Type")?
+                    .hasPrefix("multipart/form-data; boundary=ConvoLab-") == true
+            )
+
+            let body = try requestBody(request)
+            let bodyText = String(decoding: body, as: UTF8.self)
+            XCTAssertTrue(bodyText.contains(#"name="imageRole""#))
+            XCTAssertTrue(bodyText.contains("\r\n\r\nboth\r\n"))
+            XCTAssertTrue(bodyText.contains(#"name="image"; filename="iphone-photo.jpg""#))
+            XCTAssertTrue(bodyText.contains("Content-Type: image/jpeg"))
+            XCTAssertNotNil(body.range(of: photoBytes))
+
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"ok":true}"#.utf8)
+            )
+        }
+        client.setAccessToken("mobile-token")
+
+        let response: UploadResponse = try await client.upload(
+            "/api/study/cards/card-1/image",
+            fields: ["imageRole": "both"],
+            fileData: photoBytes,
+            fileField: "image",
+            fileName: "iphone-photo.jpg",
+            mimeType: "image/jpeg"
+        )
+
+        XCTAssertTrue(response.ok)
+    }
+
     @MainActor
     func testDownloadRejectsUnsuccessfulHTTPResponse() async throws {
         let client = makeClient { request in
