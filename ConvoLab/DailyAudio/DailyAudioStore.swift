@@ -64,7 +64,7 @@ final class DailyAudioStore {
                 _ = try await mediaCache.download(
                     remote,
                     category: "daily-audio",
-                    cacheKey: "daily-audio:\(track.id)"
+                    cacheKey: cacheKey(for: track)
                 )
             } catch {
                 errorMessage = error.localizedDescription
@@ -74,7 +74,7 @@ final class DailyAudioStore {
 
     func playableURL(for track: DailyAudioTrack) async -> URL? {
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
-        let cacheKey = "daily-audio:\(track.id)"
+        let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
             return local
         }
@@ -88,6 +88,11 @@ final class DailyAudioStore {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    private func cacheKey(for track: DailyAudioTrack) -> String {
+        let revision = Int64((track.updatedAt.timeIntervalSince1970 * 1_000).rounded())
+        return "daily-audio:\(track.id):\(revision)"
     }
 
     private func persist(_ practices: [DailyAudioPractice]) throws {

@@ -4439,6 +4439,165 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoReviewRemovesPendingOfflineEventAndRestoresCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001U",
+            expression: "戻す"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let requestCount = LockedCounter()
+        let client = makeClient { _ in
+            _ = requestCount.next()
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: .milliseconds(500)
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(requestCount.current, 1)
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertEqual(requestCount.current, 1)
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertTrue(record.isInActiveSession)
+        XCTAssertEqual(try persistedCard(in: container).state, card.state)
+    }
+
+    @MainActor
+    func testUndoSyncedReviewUsesCanonicalUndoResponse() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001V",
+            expression: "取り消す"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let paths = LockedRequestPaths()
+        let undoEventIDs = LockedRequestPaths()
+        let cardJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(card),
+                encoding: .utf8
+            )
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(overview),
+                encoding: .utf8
+            )
+        )
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/card-review-events/batch" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data()
+                )
+            }
+
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let eventID = try XCTUnwrap(body?["reviewLogId"] as? String)
+            undoEventIDs.append(eventID)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "\(eventID)",
+                      "card": \(cardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .easy,
+            duration: .seconds(1)
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertEqual(
+            paths.values,
+            ["/api/card-review-events/batch", "/api/study/reviews/undo"]
+        )
+        XCTAssertEqual(undoEventIDs.values, [eventID])
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertEqual(store.sessionCounts.reviewRemaining, 1)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

@@ -58,6 +58,56 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
+    func testRegeneratedTrackWithSameIDAndURLDownloadsItsNewRevision() async throws {
+        let requestCounter = LockedCounter()
+        let client = makeClient { request in
+            let version = requestCounter.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio-\(version)".utf8)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+        let first = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1_000))
+        let regenerated = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
+
+        let firstResolvedURL = await store.playableURL(for: first)
+        let regeneratedResolvedURL = await store.playableURL(for: regenerated)
+        let firstURL = try XCTUnwrap(firstResolvedURL)
+        let regeneratedURL = try XCTUnwrap(regeneratedResolvedURL)
+
+        XCTAssertNotEqual(firstURL, regeneratedURL)
+        XCTAssertEqual(
+            try String(contentsOf: regeneratedURL, encoding: .utf8),
+            "audio-2"
+        )
+        XCTAssertEqual(requestCounter.current, 2)
+    }
+
+    private func dailyAudioTrack(updatedAt: Date) -> DailyAudioTrack {
+        DailyAudioTrack(
+            id: "4aa076b2-1bc7-45a8-b7b4-12b74dcbd463",
+            practiceId: "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
+            mode: "drill",
+            status: "ready",
+            title: "Recognition drill",
+            sortOrder: 0,
+            audioUrl: "/api/daily-audio-practice/practice/tracks/track/audio",
+            approxDurationSeconds: 60,
+            updatedAt: updatedAt
+        )
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

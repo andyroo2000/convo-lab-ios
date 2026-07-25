@@ -506,12 +506,13 @@ final class StudyStore {
         }
     }
 
+    @discardableResult
     func recordReview(
         card: StudyCard,
         rating: ReviewRating,
         duration: Duration?,
         reviewedAt: Date = .now
-    ) async {
+    ) async -> String? {
         let now = reviewedAt
         let event = ReviewBatchRequest.Event(
             id: ClientIdentifier.ulid(date: now),
@@ -529,6 +530,7 @@ final class StudyStore {
             deviceID: deviceID,
             clientCreatedAt: now
         )
+        var queuedLocally = false
         do {
             let payload = try StorageCodec.encoder.encode(
                 PendingReviewPayload(
@@ -557,6 +559,7 @@ final class StudyStore {
                 context.insert(record)
             }
             try context.save()
+            queuedLocally = true
             var pendingState = PendingReviewState(
                 newlyFailedCardIDs: newlyFailedCardIDs,
                 retainedFailedCardIDs: retainedFailedCardIDs,
@@ -581,6 +584,29 @@ final class StudyStore {
         } catch {
             handleSyncError(error)
         }
+        return queuedLocally ? event.id : nil
+    }
+
+    func undoReview(eventID: String, cardBefore: StudyCard) async throws {
+        if let pending = try pendingReview(eventID: eventID) {
+            context.delete(pending)
+            try restoreReviewedCard(cardBefore)
+            apply(try pendingReviewState())
+            return
+        }
+
+        let response: UndoStudyReviewResponse = try await api.request(
+            "/api/study/reviews/undo",
+            method: "POST",
+            body: UndoStudyReviewRequest(
+                reviewLogId: eventID,
+                timeZone: TimeZone.current.identifier,
+                currentOverview: overview
+            )
+        )
+        overview = response.overview
+        try restoreReviewedCard(response.card)
+        apply(try pendingReviewState())
     }
 
     func createCard(
@@ -1570,6 +1596,43 @@ final class StudyStore {
             try StorageCodec.decoder.decode(ReviewBatchRequest.Event.self, from: payload),
             nil
         )
+    }
+
+    private func pendingReview(eventID: String) throws -> PendingMutation? {
+        try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "review" }
+            )
+        ).first {
+            (try? decodePendingReview($0.payload).event.id) == eventID
+        }
+    }
+
+    private func restoreReviewedCard(_ card: StudyCard) throws {
+        cards.removeAll { $0.id == card.id }
+        cards.insert(card, at: 0)
+        if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
+            libraryCards[index] = card
+        } else {
+            libraryCards.append(card)
+        }
+
+        let cardID = card.id
+        var descriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.id == cardID }
+        )
+        descriptor.fetchLimit = 1
+        let payload = try StorageCodec.encoder.encode(card)
+        if let record = try context.fetch(descriptor).first {
+            record.payload = payload
+            record.isInActiveSession = true
+            record.serverUpdatedAt = card.updatedAt
+            record.locallyUpdatedAt = nil
+        } else {
+            context.insert(LocalCardRecord(card: card, queueIndex: 0, payload: payload))
+        }
+        try persist(cards: cards)
+        scheduleNextOfflineActivation()
     }
 
     private func persist(cards: [StudyCard]) throws {

@@ -12,6 +12,9 @@ struct StudySessionView: View {
     @State private var didAttemptAnswerAudioLoad = false
     @State private var didAutoplayAnswerForCardID: String?
     @State private var editingCard: StudyCard?
+    @State private var undoActions: [StudyUndoAction] = []
+    @State private var isUndoing = false
+    @State private var undoErrorMessage: String?
 
     private var card: StudyCard? { store.cards.first }
 
@@ -70,6 +73,7 @@ struct StudySessionView: View {
                 } else {
                     Button("Show Answer") {
                         player.stop()
+                        pushUndo(.reveal(cardID: card.id))
                         showingAnswer = true
                         autoplayAnswerAudioIfReady(cardID: card.id)
                         Task {
@@ -90,10 +94,16 @@ struct StudySessionView: View {
         }
         .padding()
         .paperBackground()
+        .background {
+            ShakeDetector {
+                Task { await undoLastAction() }
+            }
+        }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: card?.id) {
             player.stop()
+            guard !isUndoing else { return }
             showingAnswer = false
             cardStartedAt = .now
             didAutoplayAnswerForCardID = nil
@@ -120,6 +130,17 @@ struct StudySessionView: View {
                 card: card,
                 serverDraft: nil
             )
+        }
+        .alert(
+            "Unable to Undo",
+            isPresented: Binding(
+                get: { undoErrorMessage != nil },
+                set: { if !$0 { undoErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(undoErrorMessage ?? "The last study action could not be undone.")
         }
     }
 
@@ -306,11 +327,14 @@ struct StudySessionView: View {
             }
             let duration = Date.now.timeIntervalSince(cardStartedAt)
             Task {
-                await store.recordReview(
+                let eventID = await store.recordReview(
                     card: card,
                     rating: rating,
                     duration: .milliseconds(Int64(duration * 1_000))
                 )
+                if let eventID {
+                    pushUndo(.grade(eventID: eventID, cardBefore: card))
+                }
                 submittingReviewCardIDs.remove(card.id)
             }
         } label: {
@@ -324,7 +348,7 @@ struct StudySessionView: View {
         .buttonStyle(.borderedProminent)
         .tint(color)
         .frame(maxWidth: .infinity)
-        .disabled(submittingReviewCardIDs.contains(card.id))
+        .disabled(submittingReviewCardIDs.contains(card.id) || isUndoing)
     }
 
     private func playAnswerAudio(cardID: String) {
@@ -344,6 +368,48 @@ struct StudySessionView: View {
         playAnswerAudio(cardID: cardID)
     }
 
+    private func pushUndo(_ action: StudyUndoAction) {
+        undoActions.append(action)
+        if undoActions.count > 50 {
+            undoActions.removeFirst(undoActions.count - 50)
+        }
+    }
+
+    @MainActor
+    private func undoLastAction() async {
+        guard
+            !isUndoing,
+            submittingReviewCardIDs.isEmpty,
+            editingCard == nil,
+            let action = undoActions.popLast()
+        else {
+            return
+        }
+
+        player.stop()
+        switch action {
+        case let .reveal(cardID):
+            guard card?.id == cardID, showingAnswer else { return }
+            showingAnswer = false
+            didAutoplayAnswerForCardID = nil
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case let .grade(eventID, cardBefore):
+            isUndoing = true
+            defer { isUndoing = false }
+            do {
+                try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
+                showingAnswer = true
+                cardStartedAt = .now
+                didAutoplayAnswerForCardID = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                undoActions.append(action)
+                undoErrorMessage = error.localizedDescription
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
     private var answerAudioAccessibilityHint: String {
         if player.isBlockedByLongFormAudio {
             return "Pause Daily Audio before playing a study card."
@@ -353,6 +419,11 @@ struct StudySessionView: View {
         }
         return "Plays downloaded study audio."
     }
+}
+
+private enum StudyUndoAction {
+    case reveal(cardID: String)
+    case grade(eventID: String, cardBefore: StudyCard)
 }
 
 private extension StudyCardPresentation.TextRole {

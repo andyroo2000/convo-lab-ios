@@ -509,6 +509,18 @@ struct ReviewBatchRequest: Codable {
     let events: [Event]
 }
 
+struct UndoStudyReviewRequest: Encodable {
+    let reviewLogId: String
+    let timeZone: String
+    let currentOverview: StudyOverview?
+}
+
+struct UndoStudyReviewResponse: Decodable {
+    let reviewLogId: String
+    let card: StudyCard
+    let overview: StudyOverview
+}
+
 struct DailyAudioPractice: Codable, Identifiable, Sendable {
     let id: String
     let practiceDate: String
