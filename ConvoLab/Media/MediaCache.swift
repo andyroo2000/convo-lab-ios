@@ -39,6 +39,11 @@ final class MediaCache {
         guard let record = try? context.fetch(descriptor).first else {
             return nil
         }
+        // Retired revisions may remain on disk while an AVPlayer from this
+        // process is still reading them, but they must never become cache hits.
+        guard record.category != Self.deferredDeletionCategory else {
+            return nil
+        }
         let url = rootURL.appending(path: record.relativePath)
         guard FileManager.default.fileExists(atPath: url.path) else {
             context.delete(record)
@@ -178,7 +183,10 @@ final class MediaCache {
         var availableKeys: Set<String> = []
         var removedMissingRecord = false
 
-        for record in records where desiredKeys.contains(record.remoteURL) {
+        for record in records where
+            record.category != Self.deferredDeletionCategory
+                && desiredKeys.contains(record.remoteURL)
+        {
             let url = rootURL.appending(path: record.relativePath)
             if FileManager.default.fileExists(atPath: url.path) {
                 availableKeys.insert(record.remoteURL)
