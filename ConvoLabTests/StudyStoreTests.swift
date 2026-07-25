@@ -4576,6 +4576,111 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleStudySettingsResponseCannotPopulateNewAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"newCardsPerDay":12}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { await store.refreshStudySettings() }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        gate.release()
+        await refresh.value
+
+        XCTAssertNil(store.studySettings)
+        XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testStaleNewCardQueueResponseCannotPopulateNewAccount() async throws {
+        let cardID = "01J00000000000000000000001"
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/new-queue")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "items": [{
+                        "id": "\(cardID)",
+                        "noteId": "\(cardID)",
+                        "cardType": "recognition",
+                        "displayText": "犬",
+                        "meaning": "dog",
+                        "queuePosition": 1,
+                        "createdAt": "2026-07-25T12:00:00.000Z",
+                        "updatedAt": "2026-07-25T12:00:00.000Z"
+                      }],
+                      "total": 1,
+                      "limit": 100,
+                      "nextCursor": null
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { try await store.refreshNewCardQueue() }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        gate.release()
+        try await refresh.value
+
+        XCTAssertTrue(store.newCardQueue.isEmpty)
+        XCTAssertEqual(store.newCardQueueTotal, 0)
+    }
+
+    @MainActor
     func testStaleCheckpointResponseCannotReplaceNewAccountsCards() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let userOneCard = makeCard(

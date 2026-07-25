@@ -264,8 +264,8 @@ final class MediaCache {
                     chunk.map { Self.stableCacheKey(for: $0.url) }
                 )
             } catch {
-                // Older servers and transient batch failures fall back to the
-                // individual download path, preserving rollout compatibility.
+                // Other transient batch failures retain the individual-download
+                // fallback so preparation remains best effort.
             }
         }
 

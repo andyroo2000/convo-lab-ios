@@ -522,22 +522,28 @@ final class StudyStore {
     }
 
     func refreshStudySettings() async {
-        guard activeUserID != nil else { return }
+        guard let userID = activeUserID else { return }
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
+            guard activeUserID == userID else { return }
             studySettings = response
             studySettingsErrorMessage = nil
         } catch {
+            guard activeUserID == userID else { return }
             studySettingsErrorMessage = error.localizedDescription
         }
     }
 
     @discardableResult
     func updateNewCardsPerDay(_ value: Int) async -> Bool {
-        guard activeUserID != nil, (0...1_000).contains(value) else { return false }
+        guard let userID = activeUserID, (0...1_000).contains(value) else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
-        defer { isUpdatingStudySettings = false }
+        defer {
+            if activeUserID == userID {
+                isUpdatingStudySettings = false
+            }
+        }
 
         do {
             let response: StudySettings = try await api.request(
@@ -545,6 +551,7 @@ final class StudyStore {
                 method: "PATCH",
                 body: UpdateStudySettingsRequest(newCardsPerDay: value)
             )
+            guard activeUserID == userID else { return false }
             studySettings = response
             if let current = overview {
                 overview = StudyOverview(
@@ -561,26 +568,32 @@ final class StudyStore {
             lastSyncAt = nil
             return true
         } catch {
+            guard activeUserID == userID else { return false }
             studySettingsErrorMessage = error.localizedDescription
             return false
         }
     }
 
     func refreshNewCardQueue() async throws {
-        guard activeUserID != nil else { return }
+        guard let userID = activeUserID else { return }
         isRefreshingNewCardQueue = true
-        defer { isRefreshingNewCardQueue = false }
+        defer {
+            if activeUserID == userID {
+                isRefreshingNewCardQueue = false
+            }
+        }
 
         let response: StudyNewCardQueueResponse = try await api.request(
             "/api/study/new-queue",
             query: [URLQueryItem(name: "limit", value: "100")]
         )
+        guard activeUserID == userID else { return }
         newCardQueue = response.items
         newCardQueueTotal = response.total
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
-        guard !fromOffsets.isEmpty else { return }
+        guard let userID = activeUserID, !fromOffsets.isEmpty else { return }
         let previousItems = newCardQueue
         newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
 
@@ -590,9 +603,11 @@ final class StudyStore {
                 method: "POST",
                 body: ReorderStudyNewCardQueueRequest(cardIds: newCardQueue.map(\.id))
             )
+            guard activeUserID == userID else { return }
             newCardQueue = response.items
             newCardQueueTotal = response.total
         } catch {
+            guard activeUserID == userID else { return }
             newCardQueue = previousItems
             throw error
         }
@@ -2855,6 +2870,10 @@ struct StudySessionCounts: Equatable {
     let failedDue: Int
     let reviewRemaining: Int
     let newRemaining: Int
+
+    var hasRemainingStudy: Bool {
+        failedDue > 0 || reviewRemaining > 0 || newRemaining > 0
+    }
 
     static func calculate(
         cards: [StudyCard],

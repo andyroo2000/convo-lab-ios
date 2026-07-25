@@ -88,11 +88,26 @@ struct StudySessionView: View {
                     .controlSize(.large)
                 }
             } else {
-                ContentUnavailableView(
-                    "Session complete",
-                    systemImage: "checkmark.seal.fill",
-                    description: Text("Any offline reviews are safely queued for sync.")
-                )
+                if store.sessionCounts.hasRemainingStudy {
+                    ContentUnavailableView {
+                        Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
+                    } description: {
+                        Text("Load the next study batch to keep going.")
+                    } actions: {
+                        Button("Load Next Study Batch") {
+                            Task { await store.synchronize() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(ConvoLabTheme.navy)
+                        .disabled(store.syncStatus == .syncing)
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "Session complete",
+                        systemImage: "checkmark.seal.fill",
+                        description: Text("Any offline reviews are safely queued for sync.")
+                    )
+                }
             }
         }
         .padding()

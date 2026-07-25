@@ -3,6 +3,23 @@ import XCTest
 
 @MainActor
 final class StudySessionCountsTests: XCTestCase {
+    func testRemainingStudyReflectsAnyAuthoritativeBucket() {
+        XCTAssertFalse(
+            StudySessionCounts(
+                failedDue: 0,
+                reviewRemaining: 0,
+                newRemaining: 0
+            ).hasRemainingStudy
+        )
+        XCTAssertTrue(
+            StudySessionCounts(
+                failedDue: 0,
+                reviewRemaining: 1,
+                newRemaining: 0
+            ).hasRemainingStudy
+        )
+    }
+
     func testOverviewDecodesAuthoritativeFailedCount() throws {
         let overview = try StorageCodec.decoder.decode(
             StudyOverview.self,
