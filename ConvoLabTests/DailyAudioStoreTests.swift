@@ -136,6 +136,7 @@ final class DailyAudioStoreTests: XCTestCase {
         container.mainContext.insert(
             CachedMediaRecord(
                 remoteURL: legacyKey,
+                userID: 1,
                 relativePath: "legacy.mp3",
                 byteCount: 10,
                 category: "daily-audio"

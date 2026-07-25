@@ -12,6 +12,7 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let isUsingEphemeralStorage: Bool
+    @ObservationIgnored private var shouldClaimLegacyData = false
 
     init(configuration: AppConfiguration = .load()) {
         let container: ModelContainer
@@ -58,18 +59,20 @@ final class AppModel {
         await auth.restore()
         guard case .signedIn = auth.state else { return }
         // Only a credential restored at cold launch can establish ownership of
-        // rows created by the pre-account-scoping app.
-        await refreshAuthenticatedData(claimLegacyData: true)
+        // rows created by the pre-account-scoping app. Never mark the migration
+        // complete while running against the emergency in-memory store.
+        shouldClaimLegacyData = !isUsingEphemeralStorage
+        await refreshAuthenticatedData()
     }
 
     func synchronize() async {
         if case .signedIn = auth.state {
-            await refreshAuthenticatedData(claimLegacyData: false)
+            await refreshAuthenticatedData()
             return
         }
         await auth.restore()
         guard case .signedIn = auth.state else { return }
-        await refreshAuthenticatedData(claimLegacyData: false)
+        await refreshAuthenticatedData()
     }
 
     func applicationDidBecomeActive() {
@@ -109,20 +112,22 @@ final class AppModel {
         return true
     }
 
-    private func refreshAuthenticatedData(claimLegacyData: Bool) async {
+    private func refreshAuthenticatedData() async {
         guard case let .signedIn(user) = auth.state else { return }
         // Rows created by pre-account-scoping builds receive SwiftData's zero default
         // during lightweight migration. The first restored signed-in account owns
         // those cards and, critically, any unsent mutation outbox entries.
-        if claimLegacyData {
+        if shouldClaimLegacyData {
             do {
                 try Persistence.claimLegacyLocalData(
                     for: user.id,
                     context: container.mainContext
                 )
+                shouldClaimLegacyData = false
             } catch {
                 // Leave zero-scoped rows untouched so the same restored account can
-                // retry instead of loading or discarding only part of the outbox.
+                // retry on the next synchronization instead of loading or discarding
+                // only part of the outbox.
                 return
             }
         }

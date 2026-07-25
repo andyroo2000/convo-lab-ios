@@ -220,6 +220,63 @@ final class AccountIsolationTests: XCTestCase {
         XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 0, in: container), 1)
     }
 
+    func testPreAccountScopingStoreMigratesWithoutLosingTheOutbox() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appending(path: "ConvoLabMigration-\(UUID().uuidString).store")
+        let sidecarURLs = [
+            storeURL,
+            URL(filePath: storeURL.path + "-shm"),
+            URL(filePath: storeURL.path + "-wal"),
+        ]
+        defer {
+            for url in sidecarURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        let cardPayload = Data("legacy-card-payload".utf8)
+        let mutationPayload = Data("unsent-mutation".utf8)
+        let practicePayload = Data("legacy-practice".utf8)
+
+        try createLegacyStore(
+            at: storeURL,
+            cardPayload: cardPayload,
+            mutationPayload: mutationPayload,
+            practicePayload: practicePayload
+        )
+
+        let migrated = try Persistence.makeContainer(storeURL: storeURL)
+        let context = migrated.mainContext
+        let cards = try context.fetch(FetchDescriptor<LocalCardRecord>())
+        let mutations = try context.fetch(FetchDescriptor<PendingMutation>())
+        let media = try context.fetch(FetchDescriptor<CachedMediaRecord>())
+        let practices = try context.fetch(FetchDescriptor<LocalDailyAudioPractice>())
+
+        XCTAssertEqual(cards.first?.id, "legacy-card")
+        XCTAssertEqual(cards.first?.payload, cardPayload)
+        XCTAssertEqual(cards.first?.userID, 0)
+        XCTAssertEqual(mutations.first?.resourceID, "legacy-card")
+        XCTAssertEqual(mutations.first?.payload, mutationPayload)
+        XCTAssertEqual(mutations.first?.userID, 0)
+        XCTAssertEqual(media.first?.remoteURL, "/legacy-audio.mp3")
+        XCTAssertEqual(media.first?.userID, 0)
+        XCTAssertEqual(practices.first?.payload, practicePayload)
+        XCTAssertEqual(practices.first?.userID, 0)
+
+        let suiteName = "AccountIsolationMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try Persistence.claimLegacyLocalData(
+            for: 42,
+            context: context,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(cards.first?.userID, 42)
+        XCTAssertEqual(mutations.first?.userID, 42)
+        XCTAssertEqual(media.first?.userID, 42)
+        XCTAssertEqual(practices.first?.userID, 42)
+    }
+
     func testDailyAudioDownloadStopsWhenTheAccountChanges() async throws {
         let gate = AccountIsolationGate()
         let requestCounter = AccountIsolationCounter()
@@ -363,6 +420,56 @@ final class AccountIsolationTests: XCTestCase {
             )
         )
         try container.mainContext.save()
+    }
+
+    private func createLegacyStore(
+        at storeURL: URL,
+        cardPayload: Data,
+        mutationPayload: Data,
+        practicePayload: Data
+    ) throws {
+        let schema = Schema(versionedSchema: ConvoLabSchemaV1.self)
+        let configuration = ModelConfiguration(
+            "ConvoLab",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let context = container.mainContext
+        context.insert(ConvoLabSchemaV1.LocalCardRecord(
+            id: "legacy-card",
+            payload: cardPayload,
+            queueIndex: 3,
+            serverUpdatedAt: .now
+        ))
+        context.insert(ConvoLabSchemaV1.PendingMutation(
+            id: "legacy-mutation",
+            kind: "cardUpdate",
+            resourceID: "legacy-card",
+            payload: mutationPayload
+        ))
+        context.insert(ConvoLabSchemaV1.CachedMediaRecord(
+            remoteURL: "/legacy-audio.mp3",
+            relativePath: "legacy-audio.mp3",
+            byteCount: 12,
+            category: "offline-study"
+        ))
+        context.insert(ConvoLabSchemaV1.LocalDailyAudioPractice(
+            id: "legacy-practice",
+            payload: practicePayload,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            updatedAt: .now
+        ))
+        context.insert(ConvoLabSchemaV1.LocalKnownKanjiSnapshot(
+            userID: 42,
+            payload: Data("known-kanji".utf8)
+        ))
+        try context.save()
     }
 
     private func insertPractice(

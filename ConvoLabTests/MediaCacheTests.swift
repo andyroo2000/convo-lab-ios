@@ -241,6 +241,7 @@ final class MediaCacheTests: XCTestCase {
         container.mainContext.insert(
             CachedMediaRecord(
                 remoteURL: "active",
+                userID: 1,
                 relativePath: "active.mp3",
                 byteCount: 10,
                 category: "daily-audio"
@@ -249,6 +250,7 @@ final class MediaCacheTests: XCTestCase {
         container.mainContext.insert(
             CachedMediaRecord(
                 remoteURL: "retired",
+                userID: 1,
                 relativePath: "retired.mp3",
                 byteCount: 20,
                 category: "deferred-deletion"
@@ -331,6 +333,7 @@ final class MediaCacheTests: XCTestCase {
         try Data("retired".utf8).write(to: fileURL)
         let record = CachedMediaRecord(
             remoteURL: "retired-from-previous-launch",
+            userID: 1,
             relativePath: filename,
             byteCount: 7,
             category: "deferred-deletion"

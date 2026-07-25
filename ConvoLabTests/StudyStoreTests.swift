@@ -226,6 +226,7 @@ final class StudyStoreTests: XCTestCase {
         let secondCardID = "01J0000000000000000000000C2"
         let firstMutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: firstDraftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: firstCardID)
@@ -233,6 +234,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let secondMutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: secondDraftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: secondCardID)
@@ -359,6 +361,7 @@ final class StudyStoreTests: XCTestCase {
         let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: draftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: clientCardID)
@@ -504,6 +507,7 @@ final class StudyStoreTests: XCTestCase {
         let serverDraftData = try StorageCodec.encoder.encode(serverDraft)
         let mutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: draftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: clientCardID)
@@ -600,6 +604,7 @@ final class StudyStoreTests: XCTestCase {
         let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: draftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: clientCardID)
@@ -726,6 +731,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let mutation = PendingMutation(
             kind: "draftCommitRejected",
+            userID: 1,
             resourceID: draftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(
@@ -1307,6 +1313,7 @@ final class StudyStoreTests: XCTestCase {
         let committedData = try StorageCodec.encoder.encode(committedCard)
         let mutation = PendingMutation(
             kind: "draftCommit",
+            userID: 1,
             resourceID: draftID,
             payload: try StorageCodec.encoder.encode(
                 CreateCardFromStudyManualDraftRequest(id: clientCardID)
@@ -1443,6 +1450,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -1546,6 +1554,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -1653,6 +1662,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -1748,6 +1758,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -1822,6 +1833,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -1905,12 +1917,14 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
         )
         let pendingUpdate = PendingMutation(
             kind: "cardUpdate",
+            userID: 1,
             resourceID: card.id,
             payload: try StorageCodec.encoder.encode(
                 UpdateStudyCardRequest(prompt: card.prompt, answer: card.answer)
@@ -1981,6 +1995,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let record = LocalCardRecord(
             card: card,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(card)
         )
@@ -2092,6 +2107,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -2165,6 +2181,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let record = LocalCardRecord(
             card: card,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(card)
         )
@@ -2249,12 +2266,14 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
         )
         let update = PendingMutation(
             kind: "cardUpdate",
+            userID: 1,
             resourceID: card.id,
             payload: try StorageCodec.encoder.encode(
                 UpdateStudyCardRequest(prompt: card.prompt, answer: card.answer)
@@ -2311,6 +2330,7 @@ final class StudyStoreTests: XCTestCase {
             container.mainContext.insert(
                 LocalCardRecord(
                     card: card,
+                    userID: 1,
                     queueIndex: index,
                     payload: try StorageCodec.encoder.encode(card)
                 )
@@ -2319,6 +2339,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardUpdate",
+                userID: 1,
                 resourceID: rejected.id,
                 payload: try StorageCodec.encoder.encode(
                     UpdateStudyCardRequest(
@@ -2573,6 +2594,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -2708,6 +2730,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: canonicalCard,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(canonicalCard)
             )
@@ -2795,6 +2818,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: canonicalCard,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(canonicalCard)
             )
@@ -2977,12 +3001,14 @@ final class StudyStoreTests: XCTestCase {
         )
         let clientRecord = LocalCardRecord(
             card: staleClientCard,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(staleClientCard)
         )
         clientRecord.locallyUpdatedAt = staleClientCard.updatedAt
         let serverRecord = LocalCardRecord(
             card: canonicalServerCard,
+            userID: 1,
             queueIndex: 1,
             payload: try StorageCodec.encoder.encode(canonicalServerCard)
         )
@@ -2997,6 +3023,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardCreate",
+                userID: 1,
                 resourceID: clientID,
                 payload: try StorageCodec.encoder.encode(createRequest)
             )
@@ -3083,6 +3110,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3183,6 +3211,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3216,6 +3245,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3295,6 +3325,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3313,7 +3344,7 @@ final class StudyStoreTests: XCTestCase {
         await waitUntil { gate.hasStarted }
         XCTAssertTrue(gate.hasStarted)
         container.mainContext.insert(
-            PendingMutation(kind: "cardDelete", resourceID: card.id, payload: Data())
+            PendingMutation(kind: "cardDelete", userID: 1, resourceID: card.id, payload: Data())
         )
         let record = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
@@ -3345,12 +3376,14 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: visibleCard,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(visibleCard)
             )
         )
         let futureRecord = LocalCardRecord(
             card: futureReview,
+            userID: 1,
             queueIndex: 1,
             payload: try StorageCodec.encoder.encode(futureReview)
         )
@@ -3380,6 +3413,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let record = LocalCardRecord(
             card: card,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(card)
         )
@@ -3388,6 +3422,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardDelete",
+                userID: 1,
                 resourceID: card.id.uppercased(),
                 payload: Data()
             )
@@ -3418,6 +3453,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let record = LocalCardRecord(
             card: card,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(card)
         )
@@ -3450,6 +3486,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3517,6 +3554,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -3591,6 +3629,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "review",
+                userID: 1,
                 resourceID: reviewedCard.id,
                 payload: Data("not-json".utf8)
             )
@@ -3784,6 +3823,7 @@ final class StudyStoreTests: XCTestCase {
         )
         let staleRecord = LocalCardRecord(
             card: missingMediaCard,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(missingMediaCard)
         )
@@ -3899,7 +3939,7 @@ final class StudyStoreTests: XCTestCase {
     func testRefreshDoesNotResurrectCardWithQuarantinedDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "01J00000000000000000000003", expression: "削除")
-        let delete = PendingMutation(kind: "cardDelete", resourceID: card.id, payload: Data())
+        let delete = PendingMutation(kind: "cardDelete", userID: 1, resourceID: card.id, payload: Data())
         delete.lastError = "HTTP 409: Delete conflict"
         container.mainContext.insert(delete)
         try container.mainContext.save()
@@ -3977,6 +4017,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -4660,6 +4701,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -4716,6 +4758,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -4769,6 +4812,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -4875,6 +4919,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -5001,6 +5046,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
+                userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             )
@@ -5066,6 +5112,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardDelete",
+                userID: 1,
                 resourceID: card.id,
                 payload: Data()
             )
@@ -5107,6 +5154,7 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardDelete",
+                userID: 1,
                 resourceID: card.id.lowercased(),
                 payload: Data()
             )
@@ -5159,6 +5207,7 @@ final class StudyStoreTests: XCTestCase {
         let dirtyAt = Date(timeIntervalSince1970: 1_000)
         let record = LocalCardRecord(
             card: locallyEditedCard,
+            userID: 1,
             queueIndex: 0,
             payload: try StorageCodec.encoder.encode(locallyEditedCard)
         )
