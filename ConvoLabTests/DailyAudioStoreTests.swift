@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class DailyAudioStoreTests: XCTestCase {
-    func testListAndCreateDecodeDirectLearningOSCompatibilityPayloads() async throws {
+    func testPaginatedListAndDirectCreateDecodeLearningOSCompatibilityPayloads() async throws {
         let practiceJSON = #"""
         {
           "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
@@ -29,9 +29,28 @@ final class DailyAudioStoreTests: XCTestCase {
         }
         """#
         let client = makeClient { request in
-            let body = request.httpMethod == "GET"
-                ? Data("[\(practiceJSON)]".utf8)
-                : Data(practiceJSON.utf8)
+            let body: Data
+            if request.httpMethod == "GET" {
+                let queryItems = URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems
+                XCTAssertEqual(queryItems?.first { $0.name == "paginated" }?.value, "1")
+                XCTAssertEqual(queryItems?.first { $0.name == "cursor" }?.value, "0")
+                XCTAssertEqual(queryItems?.first { $0.name == "limit" }?.value, "14")
+                body = Data(
+                    """
+                    {
+                      "items": [\(practiceJSON)],
+                      "total": 1,
+                      "limit": 14,
+                      "nextCursor": null
+                    }
+                    """.utf8
+                )
+            } else {
+                body = Data(practiceJSON.utf8)
+            }
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -51,11 +70,192 @@ final class DailyAudioStoreTests: XCTestCase {
 
         await store.refresh()
         XCTAssertEqual(store.practices.map(\.id), ["39ac4e14-b8b0-482c-8831-a3c1cb1987e9"])
+        XCTAssertEqual(store.total, 1)
+        XCTAssertFalse(store.hasMore)
 
         await store.create()
         XCTAssertEqual(store.practices.count, 1)
         XCTAssertEqual(store.practices.first?.tracks.first?.mode, "drill")
         XCTAssertNil(store.errorMessage)
+    }
+
+    func testLegacyRootArrayStillRefreshesUntilPaginationBackendIsDeployed() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/daily-audio-practice")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    [{
+                      "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
+                      "practiceDate": "2026-07-25",
+                      "status": "ready",
+                      "targetDurationMinutes": 30,
+                      "errorMessage": null,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z",
+                      "tracks": []
+                    }]
+                    """.utf8
+                )
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+
+        XCTAssertEqual(store.practices.count, 1)
+        XCTAssertEqual(store.total, 1)
+        XCTAssertFalse(store.hasMore)
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testLoadMoreAppendsDistinctEarlierDailyAudioPages() async throws {
+        let firstID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e01"
+        let secondID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e02"
+        let client = makeClient { request in
+            let cursor = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems?.first { $0.name == "cursor" }?.value
+            let id = cursor == "0" ? firstID : secondID
+            let date = cursor == "0" ? "2026-07-25" : "2026-07-24"
+            let nextCursor = cursor == "0" ? #""1""# : "null"
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "items": [{
+                        "id": "\(id)",
+                        "practiceDate": "\(date)",
+                        "status": "ready",
+                        "targetDurationMinutes": 30,
+                        "errorMessage": null,
+                        "createdAt": "\(date)T12:00:00.000Z",
+                        "updatedAt": "\(date)T12:00:00.000Z",
+                        "tracks": []
+                      }],
+                      "total": 2,
+                      "limit": 14,
+                      "nextCursor": \(nextCursor)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+        await store.loadMore()
+
+        XCTAssertEqual(store.practices.map(\.id), [firstID, secondID])
+        XCTAssertEqual(store.total, 2)
+        XCTAssertFalse(store.hasMore)
+        XCTAssertEqual(
+            try container.mainContext.fetch(FetchDescriptor<LocalDailyAudioPractice>()).count,
+            2
+        )
+    }
+
+    func testCreatePreservesTheServerIssuedPaginationCursor() async throws {
+        let firstPractice = """
+        {
+          "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e01",
+          "practiceDate": "2026-07-24",
+          "status": "ready",
+          "targetDurationMinutes": 30,
+          "errorMessage": null,
+          "createdAt": "2026-07-24T12:00:00.000Z",
+          "updatedAt": "2026-07-24T12:00:00.000Z",
+          "tracks": []
+        }
+        """
+        let createdPractice = """
+        {
+          "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e02",
+          "practiceDate": "2026-07-25",
+          "status": "generating",
+          "targetDurationMinutes": 30,
+          "errorMessage": null,
+          "createdAt": "2026-07-25T12:00:00.000Z",
+          "updatedAt": "2026-07-25T12:00:00.000Z",
+          "tracks": []
+        }
+        """
+        let client = makeClient { request in
+            let body = if request.httpMethod == "POST" {
+                Data(createdPractice.utf8)
+            } else {
+                Data(
+                    """
+                    {
+                      "items": [\(firstPractice)],
+                      "total": 20,
+                      "limit": 14,
+                      "nextCursor": "14"
+                    }
+                    """.utf8
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: request.httpMethod == "POST" ? 202 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+        await store.create()
+
+        XCTAssertEqual(store.nextCursor, "14")
+        XCTAssertEqual(store.total, 21)
+        XCTAssertEqual(store.practices.count, 2)
     }
 
     func testRegeneratedTrackWithSameIDAndURLDownloadsItsNewRevision() async throws {

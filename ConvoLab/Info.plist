@@ -6,6 +6,10 @@
 	<string>$(API_BASE_URL)</string>
 	<key>CFBundleDisplayName</key>
 	<string>ConvoLab</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ConvoLab uses the camera so you can add your own photos to study cards.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ConvoLab uses your photo library so you can add images to study cards.</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Light</string>
 	<key>UIBackgroundModes</key>

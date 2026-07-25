@@ -3,6 +3,8 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private static let reviewUploadBatchSize = 100
+
     private struct PendingReviewCardState: Codable {
         let id: String
         let failedAt: Date?
@@ -178,8 +180,14 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var newCardQueue: [StudyNewCardQueueItem] = []
+    private(set) var newCardQueueTotal = 0
+    private(set) var isRefreshingNewCardQueue = false
     private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
+    private(set) var studySettings: StudySettings?
+    private(set) var isUpdatingStudySettings = false
+    private(set) var studySettingsErrorMessage: String?
     private(set) var knownKanji: Set<Character> = []
     private(set) var manualKnownKanji: Set<Character> = []
     private(set) var knownKanjiVersion = -1
@@ -235,8 +243,14 @@ final class StudyStore {
         mediaCache.deactivate()
         cards = []
         libraryCards = []
+        newCardQueue = []
+        newCardQueueTotal = 0
+        isRefreshingNewCardQueue = false
         manualDrafts = []
         overview = nil
+        studySettings = nil
+        isUpdatingStudySettings = false
+        studySettingsErrorMessage = nil
         knownKanji = []
         manualKnownKanji = []
         knownKanjiVersion = -1
@@ -465,6 +479,18 @@ final class StudyStore {
         }
     }
 
+    func synchronizeIfNeeded(maxAge: Duration) async {
+        guard syncStatus != .syncing else { return }
+        let components = maxAge.components
+        let maxAgeSeconds = TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        if let lastSyncAt, Date.now.timeIntervalSince(lastSyncAt) < maxAgeSeconds {
+            activateOfflineDueCards()
+            return
+        }
+        await synchronize()
+    }
+
     func refreshSession() async throws {
         guard let userID = activeUserID else { return }
         let timeZone = TimeZone.current.identifier
@@ -483,6 +509,7 @@ final class StudyStore {
                 && seenCardIDs.insert(card.id).inserted
         })
         overview = session.overview
+        studySettings = StudySettings(newCardsPerDay: session.overview.newCardsPerDay)
         cards = activeCards
         apply(pendingReviewState)
         try persist(cards: activeCards, userID: userID)
@@ -492,6 +519,98 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    func refreshStudySettings() async {
+        guard let userID = activeUserID else { return }
+        do {
+            let response: StudySettings = try await api.request("/api/study/settings")
+            guard activeUserID == userID else { return }
+            studySettings = response
+            studySettingsErrorMessage = nil
+        } catch {
+            guard activeUserID == userID else { return }
+            studySettingsErrorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func updateNewCardsPerDay(_ value: Int) async -> Bool {
+        guard let userID = activeUserID, (0...1_000).contains(value) else { return false }
+        isUpdatingStudySettings = true
+        studySettingsErrorMessage = nil
+        defer {
+            if activeUserID == userID {
+                isUpdatingStudySettings = false
+            }
+        }
+
+        do {
+            let response: StudySettings = try await api.request(
+                "/api/study/settings",
+                method: "PATCH",
+                body: UpdateStudySettingsRequest(newCardsPerDay: value)
+            )
+            guard activeUserID == userID else { return false }
+            studySettings = response
+            if let current = overview {
+                overview = StudyOverview(
+                    dueCount: current.dueCount,
+                    newCount: current.newCount,
+                    reviewCount: current.reviewCount,
+                    newCardsPerDay: response.newCardsPerDay,
+                    newCardsAvailableToday: current.newCardsAvailableToday,
+                    failedCount: current.failedCount
+                )
+            }
+            // The server may now admit a different set of new cards and build a
+            // different offline reserve. Force the next Study-page entry to refresh.
+            lastSyncAt = nil
+            return true
+        } catch {
+            guard activeUserID == userID else { return false }
+            studySettingsErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func refreshNewCardQueue() async throws {
+        guard let userID = activeUserID else { return }
+        isRefreshingNewCardQueue = true
+        defer {
+            if activeUserID == userID {
+                isRefreshingNewCardQueue = false
+            }
+        }
+
+        let response: StudyNewCardQueueResponse = try await api.request(
+            "/api/study/new-queue",
+            query: [URLQueryItem(name: "limit", value: "100")]
+        )
+        guard activeUserID == userID else { return }
+        newCardQueue = response.items
+        newCardQueueTotal = response.total
+    }
+
+    func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
+        guard let userID = activeUserID, !fromOffsets.isEmpty else { return }
+        let previousItems = newCardQueue
+        newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
+
+        do {
+            let response: StudyNewCardQueueResponse = try await api.request(
+                "/api/study/new-queue/reorder",
+                method: "POST",
+                body: ReorderStudyNewCardQueueRequest(cardIds: newCardQueue.map(\.id))
+            )
+            guard activeUserID == userID else { return }
+            newCardQueue = response.items
+            newCardQueueTotal = response.total
+        } catch {
+            guard activeUserID == userID else { return }
+            newCardQueue = previousItems
+            throw error
+        }
     }
 
     private func refreshOfflineReserve(userID: Int) async throws {
@@ -522,7 +641,7 @@ final class StudyStore {
                         URLQueryItem(name: "domain", value: "flashcards"),
                         URLQueryItem(name: "resource_type", value: "card"),
                         URLQueryItem(name: "after_checkpoint", value: String(checkpoint)),
-                        URLQueryItem(name: "per_page", value: "100"),
+                        URLQueryItem(name: "per_page", value: "50"),
                     ]
                 )
                 guard activeUserID == userID else { return }
@@ -821,6 +940,7 @@ final class StudyStore {
                 rating: rating
             )
             apply(pendingState)
+            consumeOverviewCount(for: card)
             cards.removeAll { $0.id == card.id }
             if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
                 libraryCards[index] = updatedCard
@@ -1147,7 +1267,8 @@ final class StudyStore {
         return hasConfirmedLocalCard ? .cleanupPending : .outcomeUnknown
     }
 
-    func createCard(_ draft: StudyCardDraft) async throws {
+    @discardableResult
+    func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
         guard let userID = activeUserID else { throw CancellationError() }
         let id = ClientIdentifier.ulid()
         let prompt = draft.prompt()
@@ -1203,6 +1324,7 @@ final class StudyStore {
         } catch {
             handleSyncError(error)
         }
+        return optimistic
     }
 
     func updateCard(
@@ -1389,6 +1511,51 @@ final class StudyStore {
             body: request,
             timeout: 180
         )
+        return try await reconcileImageMutation(
+            currentCard: currentCard,
+            serverCard: serverCard,
+            placement: placement
+        )
+    }
+
+    func uploadImage(
+        for card: StudyCard,
+        jpegData: Data,
+        placement: StudyCardDraft.ImagePlacement
+    ) async throws -> ImageRegenerationResult {
+        guard placement != .none else {
+            throw InvalidImagePlacementError()
+        }
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardError {
+            // Rejected writes for other cards do not block this card's media.
+        }
+        let currentCard = try currentLocalCard(for: card)
+        guard try !hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError(medium: "image")
+        }
+        let serverCard: StudyCard = try await api.upload(
+            "/api/study/cards/\(currentCard.reviewCardID)/image",
+            fields: ["imageRole": placement.rawValue],
+            fileData: jpegData,
+            fileField: "image",
+            fileName: "iphone-photo.jpg",
+            mimeType: "image/jpeg",
+            timeout: 120
+        )
+        return try await reconcileImageMutation(
+            currentCard: currentCard,
+            serverCard: serverCard,
+            placement: placement
+        )
+    }
+
+    private func reconcileImageMutation(
+        currentCard: StudyCard,
+        serverCard: StudyCard,
+        placement: StudyCardDraft.ImagePlacement
+    ) async throws -> ImageRegenerationResult {
         if
             placement == .both,
             let promptImage = serverCard.prompt["cueImage"],
@@ -1492,41 +1659,65 @@ final class StudyStore {
 
     private func drainReviewOutbox() async throws {
         guard let userID = activeUserID else { return }
-        let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.kind == "review" && $0.lastError == nil
-            },
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-        let pending = try context.fetch(descriptor)
-        guard !pending.isEmpty else { return }
-
         var quarantinedCount = 0
-        for mutation in pending {
-            if try hasPendingCreate(for: mutation.resourceID) {
-                continue
-            }
-            let event = try decodePendingReview(mutation.payload).event
+        while true {
+            let descriptor = FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
+                },
+                sortBy: [SortDescriptor(\.createdAt)]
+            )
+            let pending = try context.fetch(descriptor)
+            let ready = try pending.filter { try !hasPendingCreate(for: $0.resourceID) }
+            let batch = Array(ready.prefix(Self.reviewUploadBatchSize))
+            guard !batch.isEmpty else { break }
+
+            let events = try batch.map { try decodePendingReview($0.payload).event }
             do {
                 let _: IgnoredResponse = try await api.request(
                     "/api/card-review-events/batch",
                     method: "POST",
-                    body: ReviewBatchRequest(events: [event])
+                    body: ReviewBatchRequest(events: events)
                 )
-                context.delete(mutation)
+                batch.forEach(context.delete)
                 try context.save()
-            } catch let APIClientError.rejected(status, message)
+            } catch let APIClientError.rejected(status, _)
                 where [400, 404, 409, 410, 422].contains(status)
             {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = "HTTP \(status): \(message)"
-                try context.save()
-                quarantinedCount += 1
+                // A permanent batch rejection may be caused by only one event.
+                // Retry individually so valid reviews still sync and only the
+                // rejected event is quarantined for inspection.
+                for (mutation, event) in zip(batch, events) {
+                    do {
+                        let _: IgnoredResponse = try await api.request(
+                            "/api/card-review-events/batch",
+                            method: "POST",
+                            body: ReviewBatchRequest(events: [event])
+                        )
+                        context.delete(mutation)
+                        try context.save()
+                    } catch let APIClientError.rejected(individualStatus, individualMessage)
+                        where [400, 404, 409, 410, 422].contains(individualStatus)
+                    {
+                        mutation.attemptCount += 1
+                        mutation.lastAttemptAt = .now
+                        mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
+                        try context.save()
+                        quarantinedCount += 1
+                    } catch {
+                        mutation.attemptCount += 1
+                        mutation.lastAttemptAt = .now
+                        mutation.lastError = nil
+                        try context.save()
+                        throw error
+                    }
+                }
             } catch {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = nil
+                for mutation in batch {
+                    mutation.attemptCount += 1
+                    mutation.lastAttemptAt = .now
+                    mutation.lastError = nil
+                }
                 try context.save()
                 throw error
             }
@@ -1535,6 +1726,24 @@ final class StudyStore {
         if quarantinedCount > 0 {
             throw QuarantinedReviewError(count: quarantinedCount)
         }
+    }
+
+    private func consumeOverviewCount(for card: StudyCard) {
+        guard let current = overview else { return }
+        overview = StudyOverview(
+            dueCount: card.state.failedAt == nil && card.state.queueState != "new"
+                ? max(0, current.dueCount - 1)
+                : current.dueCount,
+            newCount: card.state.queueState == "new"
+                ? max(0, current.newCount - 1)
+                : current.newCount,
+            reviewCount: current.reviewCount,
+            newCardsPerDay: current.newCardsPerDay,
+            newCardsAvailableToday: card.state.queueState == "new"
+                ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
+                : current.newCardsAvailableToday,
+            failedCount: current.failedCount
+        )
     }
 
     private func flushCardOutbox() async throws {
@@ -2662,6 +2871,10 @@ struct StudySessionCounts: Equatable {
     let reviewRemaining: Int
     let newRemaining: Int
 
+    var hasRemainingStudy: Bool {
+        failedDue > 0 || reviewRemaining > 0 || newRemaining > 0
+    }
+
     static func calculate(
         cards: [StudyCard],
         overview: StudyOverview?,
@@ -2681,9 +2894,11 @@ struct StudySessionCounts: Equatable {
         let newRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
-        let reviewRemaining = cards.count(where: {
+        let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
         })
+        let reviewRemaining = overview.map { max(0, $0.dueCount) }
+            ?? loadedReviewRemaining
 
         return StudySessionCounts(
             failedDue: max(

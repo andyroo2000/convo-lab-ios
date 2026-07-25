@@ -5,6 +5,97 @@ import XCTest
 
 final class StudyStoreTests: XCTestCase {
     @MainActor
+    func testNewCardQueueRefreshAndReorderUseCompatibilityAPI() async throws {
+        let firstID = "01J00000000000000000000001"
+        let secondID = "01J00000000000000000000002"
+        let queueResponse: @Sendable (String, String) -> Data = { first, second in
+            Data(
+                """
+                {
+                  "items": [
+                    {
+                      "id": "\(first)",
+                      "noteId": "\(first)",
+                      "cardType": "recognition",
+                      "displayText": "\(first == firstID ? "犬" : "猫")",
+                      "meaning": "\(first == firstID ? "dog" : "cat")",
+                      "queuePosition": 1,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z"
+                    },
+                    {
+                      "id": "\(second)",
+                      "noteId": "\(second)",
+                      "cardType": "recognition",
+                      "displayText": "\(second == secondID ? "猫" : "犬")",
+                      "meaning": "\(second == secondID ? "cat" : "dog")",
+                      "queuePosition": 2,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z"
+                    }
+                  ],
+                  "total": 2,
+                  "limit": 100,
+                  "nextCursor": null
+                }
+                """.utf8
+            )
+        }
+        let client = makeClient { request in
+            let path = request.url?.path
+            if path == "/api/study/new-queue" {
+                XCTAssertEqual(request.url?.query, "limit=100")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    queueResponse(firstID, secondID)
+                )
+            }
+
+            XCTAssertEqual(path, "/api/study/new-queue/reorder")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(object["cardIds"] as? [String], [secondID, firstID])
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                queueResponse(secondID, firstID)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.refreshNewCardQueue()
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [firstID, secondID])
+        XCTAssertEqual(store.newCardQueueTotal, 2)
+
+        try await store.moveNewCards(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [secondID, firstID])
+        XCTAssertEqual(store.newCardQueue.map(\.queuePosition), [1, 2])
+    }
+
+    @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let audio: JSONValue = .object([
@@ -3697,12 +3788,12 @@ final class StudyStoreTests: XCTestCase {
         )
         let session = StudySession(
             overview: StudyOverview(
-                dueCount: 1,
+                dueCount: 0,
                 newCount: 0,
                 reviewCount: 0,
                 newCardsPerDay: 20,
                 newCardsAvailableToday: 0,
-                failedCount: 1
+                failedCount: 2
             ),
             cards: [failedCard]
         )
@@ -3746,13 +3837,13 @@ final class StudyStoreTests: XCTestCase {
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         try await store.refreshSession()
-        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertEqual(store.sessionCounts.failedDue, 2)
 
         await store.recordReview(card: failedCard, rating: .good, duration: nil)
 
         XCTAssertEqual(
             store.sessionCounts,
-            StudySessionCounts(failedDue: 0, reviewRemaining: 0, newRemaining: 0)
+            StudySessionCounts(failedDue: 1, reviewRemaining: 0, newRemaining: 0)
         )
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertTrue(
@@ -4112,7 +4203,7 @@ final class StudyStoreTests: XCTestCase {
         let acceptedCard = makeCard(id: "01J00000000000000000000002", expression: "猫")
         let requestCounter = LockedCounter()
         let client = makeClient { request in
-            let status = requestCounter.next() == 1 ? 422 : 204
+            let status = requestCounter.next() <= 2 ? 422 : 204
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -4138,6 +4229,61 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pending.first?.resourceID, rejectedCard.id)
         XCTAssertEqual(pending.first?.attemptCount, 1)
         XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testOfflineReviewBacklogUploadsInOneBatch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let cards = (0..<4).map {
+            makeCard(
+                id: "01J000000000000000000000\(String(format: "%02d", $0))",
+                expression: "card-\($0)"
+            )
+        }
+
+        for card in cards.prefix(3) {
+            await store.recordReview(card: card, rating: .good, duration: nil)
+        }
+
+        let uploadedBatchSizes = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let events = try XCTUnwrap(body?["events"] as? [[String: Any]])
+            uploadedBatchSizes.append(String(events.count))
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data()
+            )
+        }
+
+        await store.recordReview(card: cards[3], rating: .good, duration: nil)
+
+        XCTAssertEqual(uploadedBatchSizes.values, ["4"])
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
     }
 
     @MainActor
@@ -4297,6 +4443,10 @@ final class StudyStoreTests: XCTestCase {
                     queryItems?.first(where: { $0.name == "after_checkpoint" })?.value,
                     "1234"
                 )
+                XCTAssertEqual(
+                    queryItems?.first(where: { $0.name == "per_page" })?.value,
+                    "50"
+                )
                 data = Data(
                     """
                     {"data":[{"checkpoint":1235,"resource_id":"\(serverCardID)","operation":"update"}],
@@ -4359,6 +4509,175 @@ final class StudyStoreTests: XCTestCase {
             1_235
         )
         XCTAssertEqual(store.syncStatus, .idle)
+
+        await store.synchronizeIfNeeded(maxAge: .seconds(60))
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/sync/feed",
+                "/api/study/cards/\(serverCardID)",
+                "/api/study/known-kanji",
+                "/api/study/session/start",
+                "/api/study/offline-reserve",
+            ],
+            "A recent successful sync should suppress redundant Study-page refreshes."
+        )
+    }
+
+    @MainActor
+    func testStudySettingsRefreshAndUpdateUseCompatibilityPayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            if request.httpMethod == "PATCH" {
+                let body = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
+                )
+                XCTAssertEqual(body, ["newCardsPerDay": 24])
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"newCardsPerDay":24}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"newCardsPerDay":12}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshStudySettings()
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
+
+        let saved = await store.updateNewCardsPerDay(24)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+        XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testStaleStudySettingsResponseCannotPopulateNewAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"newCardsPerDay":12}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { await store.refreshStudySettings() }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        gate.release()
+        await refresh.value
+
+        XCTAssertNil(store.studySettings)
+        XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testStaleNewCardQueueResponseCannotPopulateNewAccount() async throws {
+        let cardID = "01J00000000000000000000001"
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/new-queue")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "items": [{
+                        "id": "\(cardID)",
+                        "noteId": "\(cardID)",
+                        "cardType": "recognition",
+                        "displayText": "犬",
+                        "meaning": "dog",
+                        "queuePosition": 1,
+                        "createdAt": "2026-07-25T12:00:00.000Z",
+                        "updatedAt": "2026-07-25T12:00:00.000Z"
+                      }],
+                      "total": 1,
+                      "limit": 100,
+                      "nextCursor": null
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { try await store.refreshNewCardQueue() }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        gate.release()
+        try await refresh.value
+
+        XCTAssertTrue(store.newCardQueue.isEmpty)
+        XCTAssertEqual(store.newCardQueueTotal, 0)
     }
 
     @MainActor

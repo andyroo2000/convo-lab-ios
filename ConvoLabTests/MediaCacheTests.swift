@@ -5,6 +5,151 @@ import XCTest
 
 final class MediaCacheTests: XCTestCase {
     @MainActor
+    func testPreparationDownloadsStudyMediaInBoundedBatches() async throws {
+        let paths = LockedRequestPaths()
+        let batchSizes = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            paths.append(request.url?.path ?? "")
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let ids = try XCTUnwrap(body?["ids"] as? [String])
+            batchSizes.append(String(ids.count))
+            let items = ids.map { id in
+                [
+                    "id": id,
+                    "mimeType": "audio/mpeg",
+                    "data": Data("bytes-\(id)".utf8).base64EncodedString(),
+                ]
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: ["items": items])
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let urls = (0..<45).map { offset in
+            let id = ClientIdentifier.ulid(
+                date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
+            )
+            return URL(string: "/api/study/media/\(id)")!
+        }
+
+        await cache.prepare(urls: urls, category: "offline-study")
+
+        XCTAssertEqual(
+            paths.values,
+            Array(repeating: "/api/study/media/batch", count: 3)
+        )
+        XCTAssertEqual(batchSizes.values.sorted(), ["20", "20", "5"])
+        XCTAssertEqual(cache.cachedKeys(for: urls).count, 45)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            45
+        )
+    }
+
+    @MainActor
+    func testMissingBatchEndpointDoesNotFloodLegacyServerWithIndividualRequests() async throws {
+        let requestCounter = LockedCounter()
+        MockURLProtocol.handler = { request in
+            _ = requestCounter.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 404,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Not Found"}"#.utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let urls = (0..<20).map { offset in
+            let id = ClientIdentifier.ulid(
+                date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
+            )
+
+            return URL(string: "/api/study/media/\(id)")!
+        }
+
+        await cache.prepare(urls: urls, category: "offline-study")
+
+        XCTAssertEqual(requestCounter.current, 1)
+        XCTAssertTrue(cache.cachedKeys(for: urls).isEmpty)
+    }
+
+    @MainActor
+    func testBatchResponseCannotBeCachedUnderANewlyActivatedAccount() async throws {
+        let gate = LockedRequestGate()
+        let id = ClientIdentifier.ulid()
+        MockURLProtocol.handler = { request in
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: [
+                    "items": [[
+                        "id": id,
+                        "mimeType": "audio/mpeg",
+                        "data": Data("first-user-media".utf8).base64EncodedString(),
+                    ]],
+                ])
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let remoteURL = URL(string: "/api/study/media/\(id)")!
+
+        let preparation = Task {
+            await cache.prepare(urls: [remoteURL], category: "offline-study")
+        }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+        cache.activate(userID: 2)
+        gate.release()
+        await preparation.value
+
+        XCTAssertNil(cache.localURL(for: remoteURL))
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            0
+        )
+    }
+
+    @MainActor
     func testChangingSignatureReusesStableMediaCacheEntry() async throws {
         let requestCounter = LockedCounter()
         MockURLProtocol.handler = { request in

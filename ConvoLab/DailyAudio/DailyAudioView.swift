@@ -28,6 +28,14 @@ struct DailyAudioView: View {
                     ForEach(store.practices) { practice in
                         practiceCard(practice)
                     }
+
+                    if store.hasMore {
+                        ProgressView("Loading earlier days…")
+                            .padding()
+                            .task(id: store.nextCursor) {
+                                await store.loadMore()
+                            }
+                    }
                 }
                 .padding()
             }

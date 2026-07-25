@@ -15,7 +15,9 @@ struct ConvoLabApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
-                        model.applicationDidBecomeActive()
+                        Task {
+                            await model.applicationDidBecomeActive()
+                        }
                     }
                 }
         }
