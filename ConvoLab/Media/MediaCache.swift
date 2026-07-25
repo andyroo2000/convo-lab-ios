@@ -12,10 +12,11 @@ final class MediaCache {
     private let rootURL: URL
 
     private(set) var activeDownloads = 0
+    @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
     @ObservationIgnored private var inFlightRefreshes: [String: Task<URL, Error>] = [:]
 
-    init(api: APIClient, context: ModelContext) {
+    init(initialUserID: Int? = nil, api: APIClient, context: ModelContext) {
         self.api = api
         self.context = context
         let applicationSupport = FileManager.default.urls(
@@ -28,12 +29,33 @@ final class MediaCache {
             withIntermediateDirectories: true
         )
         try? purgeDeferredDeletionsFromPreviousLaunch()
+        if let initialUserID {
+            activate(userID: initialUserID)
+        }
+    }
+
+    func activate(userID: Int) {
+        guard activeUserID != userID else { return }
+        inFlightDownloads.values.forEach { $0.cancel() }
+        inFlightRefreshes.values.forEach { $0.cancel() }
+        inFlightDownloads.removeAll()
+        inFlightRefreshes.removeAll()
+        activeUserID = userID
+    }
+
+    func deactivate() {
+        inFlightDownloads.values.forEach { $0.cancel() }
+        inFlightRefreshes.values.forEach { $0.cancel() }
+        inFlightDownloads.removeAll()
+        inFlightRefreshes.removeAll()
+        activeUserID = nil
     }
 
     func localURL(for remoteURL: URL, cacheKey explicitCacheKey: String? = nil) -> URL? {
+        guard let userID = activeUserID else { return nil }
         let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
         var descriptor = FetchDescriptor<CachedMediaRecord>(
-            predicate: #Predicate { $0.remoteURL == cacheKey }
+            predicate: #Predicate { $0.userID == userID && $0.remoteURL == cacheKey }
         )
         descriptor.fetchLimit = 1
         guard let record = try? context.fetch(descriptor).first else {
@@ -61,15 +83,19 @@ final class MediaCache {
         category: String,
         cacheKey explicitCacheKey: String? = nil
     ) async throws -> URL {
+        guard let userID = activeUserID else {
+            throw CancellationError()
+        }
         let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
-        if let refresh = inFlightRefreshes[cacheKey] {
+        let taskKey = "\(userID):\(cacheKey)"
+        if let refresh = inFlightRefreshes[taskKey] {
             return try await refresh.value
         }
         if let existing = localURL(for: remoteURL, cacheKey: cacheKey) {
             return existing
         }
 
-        if let existingDownload = inFlightDownloads[cacheKey] {
+        if let existingDownload = inFlightDownloads[taskKey] {
             return try await existingDownload.value
         }
 
@@ -80,8 +106,8 @@ final class MediaCache {
                 cacheKey: cacheKey
             )
         }
-        inFlightDownloads[cacheKey] = download
-        defer { inFlightDownloads[cacheKey] = nil }
+        inFlightDownloads[taskKey] = download
+        defer { inFlightDownloads[taskKey] = nil }
         return try await download.value
     }
 
@@ -90,6 +116,9 @@ final class MediaCache {
         category: String,
         cacheKey: String
     ) async throws -> URL {
+        guard let userID = activeUserID else {
+            throw CancellationError()
+        }
         activeDownloads += 1
         defer { activeDownloads -= 1 }
 
@@ -97,7 +126,7 @@ final class MediaCache {
         let mimeExtension = response.mimeType.flatMap(Self.fileExtension(for:))
         let remoteExtension = remoteURL.pathExtension.isEmpty ? nil : remoteURL.pathExtension
         let fileExtension = mimeExtension ?? remoteExtension ?? "bin"
-        let digest = SHA256.hash(data: Data(cacheKey.utf8))
+        let digest = SHA256.hash(data: Data("\(userID):\(cacheKey)".utf8))
             .map { String(format: "%02x", $0) }
             .joined()
         let filename = "\(digest).\(fileExtension)"
@@ -119,7 +148,7 @@ final class MediaCache {
         let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
         let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         var descriptor = FetchDescriptor<CachedMediaRecord>(
-            predicate: #Predicate { $0.remoteURL == cacheKey }
+            predicate: #Predicate { $0.userID == userID && $0.remoteURL == cacheKey }
         )
         descriptor.fetchLimit = 1
         if let record = try context.fetch(descriptor).first {
@@ -134,6 +163,7 @@ final class MediaCache {
         } else {
             context.insert(CachedMediaRecord(
                 remoteURL: cacheKey,
+                userID: userID,
                 relativePath: filename,
                 byteCount: bytes,
                 category: category
@@ -155,14 +185,18 @@ final class MediaCache {
 
     @discardableResult
     func refresh(_ remoteURL: URL, category: String) async throws -> URL {
+        guard let userID = activeUserID else {
+            throw CancellationError()
+        }
         let cacheKey = Self.stableCacheKey(for: remoteURL)
-        if let refresh = inFlightRefreshes[cacheKey] {
+        let taskKey = "\(userID):\(cacheKey)"
+        if let refresh = inFlightRefreshes[taskKey] {
             return try await refresh.value
         }
-        while let ordinaryDownload = inFlightDownloads[cacheKey] {
+        while let ordinaryDownload = inFlightDownloads[taskKey] {
             _ = try? await ordinaryDownload.value
         }
-        if let refresh = inFlightRefreshes[cacheKey] {
+        if let refresh = inFlightRefreshes[taskKey] {
             return try await refresh.value
         }
         let refresh = Task { @MainActor [self] in
@@ -172,16 +206,21 @@ final class MediaCache {
                 cacheKey: cacheKey
             )
         }
-        inFlightRefreshes[cacheKey] = refresh
-        defer { inFlightRefreshes[cacheKey] = nil }
+        inFlightRefreshes[taskKey] = refresh
+        defer { inFlightRefreshes[taskKey] = nil }
         return try await refresh.value
     }
 
     func cachedKeys(for remoteURLs: [URL]) -> Set<String> {
+        guard let userID = activeUserID else { return [] }
         let desiredKeys = Set(remoteURLs.map(Self.stableCacheKey(for:)))
         guard !desiredKeys.isEmpty else { return [] }
 
-        let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
+        let records = (try? context.fetch(
+            FetchDescriptor<CachedMediaRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )) ?? []
         var availableKeys: Set<String> = []
         var removedMissingRecord = false
 
@@ -209,10 +248,13 @@ final class MediaCache {
         cacheKeyPrefix: String,
         keeping cacheKeyToKeep: String
     ) throws {
+        guard let userID = activeUserID else { return }
         let desiredCategory = category
         let records = try context.fetch(
             FetchDescriptor<CachedMediaRecord>(
-                predicate: #Predicate { $0.category == desiredCategory }
+                predicate: #Predicate {
+                    $0.userID == userID && $0.category == desiredCategory
+                }
             )
         )
         for record in records where
@@ -221,8 +263,8 @@ final class MediaCache {
                 && record.remoteURL != cacheKeyToKeep
         {
             guard
-                inFlightDownloads[record.remoteURL] == nil,
-                inFlightRefreshes[record.remoteURL] == nil
+                inFlightDownloads["\(userID):\(record.remoteURL)"] == nil,
+                inFlightRefreshes["\(userID):\(record.remoteURL)"] == nil
             else {
                 continue
             }
@@ -249,14 +291,35 @@ final class MediaCache {
     }
 
     var totalByteCount: Int64 {
+        guard let userID = activeUserID else { return 0 }
         let records = (try? context.fetch(
             FetchDescriptor<CachedMediaRecord>(
                 predicate: #Predicate {
-                    $0.category != "deferred-deletion"
+                    $0.userID == userID && $0.category != "deferred-deletion"
                 }
             )
         )) ?? []
         return records.reduce(0) { $0 + $1.byteCount }
+    }
+
+    func clearDownloadedMedia() throws {
+        guard let userID = activeUserID else { return }
+        let records = try context.fetch(
+            FetchDescriptor<CachedMediaRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        for record in records {
+            let taskKey = "\(userID):\(record.remoteURL)"
+            guard inFlightDownloads[taskKey] == nil, inFlightRefreshes[taskKey] == nil else {
+                continue
+            }
+            try? FileManager.default.removeItem(
+                at: rootURL.appending(path: record.relativePath)
+            )
+            context.delete(record)
+        }
+        try context.save()
     }
 
     static func stableCacheKey(for url: URL) -> String {

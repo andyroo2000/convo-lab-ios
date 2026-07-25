@@ -7,6 +7,7 @@ struct LoginView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var showingReset = false
+    @State private var showingRegistration = false
 
     var body: some View {
         NavigationStack {
@@ -61,6 +62,11 @@ struct LoginView: View {
                         showingReset = true
                     }
                     .frame(maxWidth: .infinity)
+
+                    Button("Create account") {
+                        showingRegistration = true
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .padding(28)
                 .frame(maxWidth: 520)
@@ -70,6 +76,13 @@ struct LoginView: View {
             .sheet(isPresented: $showingReset) {
                 PasswordResetView(auth: auth, initialEmail: email)
             }
+            .sheet(isPresented: $showingRegistration) {
+                AccountRegistrationView(
+                    auth: auth,
+                    initialEmail: email,
+                    onRegistered: onLogin
+                )
+            }
         }
     }
 
@@ -78,6 +91,82 @@ struct LoginView: View {
             await auth.login(email: email, password: password)
             if case .signedIn = auth.state {
                 await onLogin()
+            }
+        }
+    }
+}
+
+private struct AccountRegistrationView: View {
+    let auth: AuthStore
+    let onRegistered: () async -> Void
+    @State private var name = ""
+    @State private var email: String
+    @State private var password = ""
+    @State private var confirmation = ""
+    @State private var inviteCode = ""
+    @Environment(\.dismiss) private var dismiss
+
+    init(
+        auth: AuthStore,
+        initialEmail: String,
+        onRegistered: @escaping () async -> Void
+    ) {
+        self.auth = auth
+        self.onRegistered = onRegistered
+        _email = State(initialValue: initialEmail)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $name)
+                    .textContentType(.name)
+                TextField("Email", text: $email)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                TextField("Invite code", text: $inviteCode)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                SecureField("Password", text: $password)
+                    .textContentType(.newPassword)
+                SecureField("Confirm password", text: $confirmation)
+                    .textContentType(.newPassword)
+
+                if let error = auth.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+
+                Button("Create Account") {
+                    Task {
+                        await auth.register(
+                            name: name,
+                            email: email,
+                            password: password,
+                            inviteCode: inviteCode
+                        )
+                        if case .signedIn = auth.state {
+                            await onRegistered()
+                            dismiss()
+                        }
+                    }
+                }
+                .disabled(
+                    name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || email.isEmpty
+                        || inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || password.isEmpty
+                        || password != confirmation
+                        || auth.isWorking
+                )
+            }
+            .navigationTitle("Create Account")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
     }
@@ -124,4 +213,3 @@ private struct PasswordResetView: View {
         }
     }
 }
-

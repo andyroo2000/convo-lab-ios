@@ -3,7 +3,8 @@ import SwiftData
 
 @Model
 final class LocalCardRecord {
-    @Attribute(.unique) var id: String
+    var id: String
+    var userID: Int = 0
     var payload: Data
     var queueIndex: Int
     var isInActiveSession: Bool
@@ -11,8 +12,9 @@ final class LocalCardRecord {
     var serverUpdatedAt: Date
     var locallyUpdatedAt: Date?
 
-    init(card: StudyCard, queueIndex: Int, payload: Data) {
+    init(card: StudyCard, userID: Int = 1, queueIndex: Int, payload: Data) {
         id = card.id
+        self.userID = userID
         self.payload = payload
         self.queueIndex = queueIndex
         isInActiveSession = true
@@ -24,6 +26,7 @@ final class LocalCardRecord {
 final class PendingMutation {
     @Attribute(.unique) var id: String
     var kind: String
+    var userID: Int = 0
     var resourceID: String
     var payload: Data
     var createdAt: Date
@@ -31,9 +34,10 @@ final class PendingMutation {
     var lastAttemptAt: Date?
     var lastError: String?
 
-    init(kind: String, resourceID: String, payload: Data) {
+    init(kind: String, userID: Int = 1, resourceID: String, payload: Data) {
         id = UUID().uuidString.lowercased()
         self.kind = kind
+        self.userID = userID
         self.resourceID = resourceID
         self.payload = payload
         createdAt = .now
@@ -43,14 +47,22 @@ final class PendingMutation {
 
 @Model
 final class CachedMediaRecord {
-    @Attribute(.unique) var remoteURL: String
+    var remoteURL: String
+    var userID: Int = 0
     var relativePath: String
     var byteCount: Int64
     var lastAccessedAt: Date
     var category: String
 
-    init(remoteURL: String, relativePath: String, byteCount: Int64, category: String) {
+    init(
+        remoteURL: String,
+        userID: Int = 1,
+        relativePath: String,
+        byteCount: Int64,
+        category: String
+    ) {
         self.remoteURL = remoteURL
+        self.userID = userID
         self.relativePath = relativePath
         self.byteCount = byteCount
         lastAccessedAt = .now
@@ -60,18 +72,33 @@ final class CachedMediaRecord {
 
 @Model
 final class LocalDailyAudioPractice {
-    @Attribute(.unique) var id: String
+    var id: String
+    var userID: Int = 0
     var payload: Data
     var practiceDate: String
     var status: String
     var updatedAt: Date
 
-    init(practice: DailyAudioPractice, payload: Data) {
+    init(practice: DailyAudioPractice, userID: Int = 1, payload: Data) {
         id = practice.id
+        self.userID = userID
         self.payload = payload
         practiceDate = practice.practiceDate
         status = practice.status
         updatedAt = practice.updatedAt
+    }
+}
+
+@Model
+final class LocalSyncState {
+    @Attribute(.unique) var userID: Int
+    var cardCheckpoint: Int64
+    var updatedAt: Date
+
+    init(userID: Int, cardCheckpoint: Int64 = 0) {
+        self.userID = userID
+        self.cardCheckpoint = cardCheckpoint
+        updatedAt = .now
     }
 }
 
@@ -96,6 +123,7 @@ enum Persistence {
             CachedMediaRecord.self,
             LocalDailyAudioPractice.self,
             LocalKnownKanjiSnapshot.self,
+            LocalSyncState.self,
         ])
         let configuration = ModelConfiguration(
             "ConvoLab",

@@ -26,7 +26,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
 
         let first = try await cache.download(
             URL(string: "https://cdn.example/audio/track.mp3?signature=first&expires=1")!,
@@ -67,7 +67,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         let remoteURL = URL(string: "/api/study/media/answer")!
 
         let first = try await cache.download(remoteURL, category: "active-study")
@@ -108,7 +108,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         let remoteURL = URL(string: "/api/study/media/answer")!
         let original = try await cache.download(remoteURL, category: "active-study")
 
@@ -146,7 +146,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         let remoteURL = URL(string: "/api/study/media/answer")!
         _ = try await cache.download(remoteURL, category: "active-study")
 
@@ -214,7 +214,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         let remoteURL = URL(string: "https://cdn.example/audio/track.mp3")!
         _ = try await cache.download(remoteURL, category: "active-study")
         let record = try XCTUnwrap(
@@ -237,7 +237,7 @@ final class MediaCacheTests: XCTestCase {
             baseURL: URL(string: "https://learning-os.example")!,
             session: .shared
         )
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         container.mainContext.insert(
             CachedMediaRecord(
                 remoteURL: "active",
@@ -281,7 +281,7 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(api: client, context: container.mainContext)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         let remoteURL = URL(string: "/api/daily-audio/track")!
         let retiredKey = "daily-audio:track:1"
         _ = try await cache.download(
@@ -343,7 +343,7 @@ final class MediaCacheTests: XCTestCase {
             session: .shared
         )
 
-        _ = MediaCache(api: client, context: container.mainContext)
+        _ = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         XCTAssertEqual(

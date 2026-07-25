@@ -148,10 +148,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("draft-audio".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -284,10 +284,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -429,10 +429,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -533,10 +533,10 @@ final class StudyStoreTests: XCTestCase {
                 Data(#"{"message":"conflict"}"#.utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -661,10 +661,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .production)
         draft.isMediaLedPrompt = true
@@ -749,10 +749,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.deleteManualDraft(serverDraft)
@@ -819,10 +819,10 @@ final class StudyStoreTests: XCTestCase {
                     ? secondPage : firstPage
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.refreshManualDrafts()
@@ -893,10 +893,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .production)
         draft.answerExpression = "会社"
@@ -967,10 +967,10 @@ final class StudyStoreTests: XCTestCase {
                     : Data(#"{"message":"response lost"}"#.utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -996,10 +996,10 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(pendingAfterFailure.map(\.resourceID), [clientDraftID])
         XCTAssertEqual(pendingAfterFailure.first?.attemptCount, 1)
 
-        let relaunchedStore = StudyStore(
+        let relaunchedStore = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         try await relaunchedStore.retryPendingDraftCreates()
 
@@ -1035,10 +1035,10 @@ final class StudyStoreTests: XCTestCase {
                 Data(#"{"message":"The image prompt is too long."}"#.utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .production)
         draft.answerExpression = "会社"
@@ -1116,10 +1116,10 @@ final class StudyStoreTests: XCTestCase {
                     : Data(#"{"message":"try again"}"#.utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -1201,10 +1201,10 @@ final class StudyStoreTests: XCTestCase {
                 responseData
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -1259,10 +1259,10 @@ final class StudyStoreTests: XCTestCase {
                 emptyPage
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let firstRefresh = Task { try await store.refreshManualDrafts() }
@@ -1339,10 +1339,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
@@ -1368,10 +1368,10 @@ final class StudyStoreTests: XCTestCase {
     func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .cloze)
         draft.cueText = "毎日{{c1::勉強する}}。"
@@ -1403,10 +1403,10 @@ final class StudyStoreTests: XCTestCase {
     func testOfflineTextProductionCreationQueuesTypeAwarePayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(cardType: .production)
         draft.cueText = "to learn"
@@ -1504,10 +1504,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("regenerated-audio".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let result = try await store.regenerateAnswerAudio(
@@ -1613,10 +1613,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("generated-image".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let result = try await store.regenerateImage(
@@ -1691,10 +1691,10 @@ final class StudyStoreTests: XCTestCase {
                 responseData
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -1793,10 +1793,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("replacement-image".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let result = try await store.regenerateImage(
@@ -1869,10 +1869,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("cancelled-image".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let regeneration = Task {
@@ -1924,10 +1924,10 @@ final class StudyStoreTests: XCTestCase {
             _ = requestCounter.next()
             throw URLError(.badServerResponse)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -2034,10 +2034,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("race-image".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         let regeneration = Task {
             try await store.regenerateImage(
@@ -2121,10 +2121,10 @@ final class StudyStoreTests: XCTestCase {
             responseData: try StorageCodec.encoder.encode(regenerated),
             gate: gate
         )
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let regeneration = Task {
@@ -2192,10 +2192,10 @@ final class StudyStoreTests: XCTestCase {
             responseData: try StorageCodec.encoder.encode(regenerated),
             gate: gate
         )
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let regeneration = Task {
@@ -2268,10 +2268,10 @@ final class StudyStoreTests: XCTestCase {
             _ = requestCounter.next()
             throw URLError(.badServerResponse)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -2385,10 +2385,10 @@ final class StudyStoreTests: XCTestCase {
                 Data("healthy-audio".utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let result = try await store.regenerateAnswerAudio(
@@ -2451,10 +2451,10 @@ final class StudyStoreTests: XCTestCase {
                 try JSONSerialization.data(withJSONObject: serverCard)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.createCard(
@@ -2531,10 +2531,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             }
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.createCard(
@@ -2656,10 +2656,10 @@ final class StudyStoreTests: XCTestCase {
                 try JSONSerialization.data(withJSONObject: response)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var firstDraft = StudyCardDraft(card: card)
         firstDraft.cueText = "一回目"
@@ -2752,10 +2752,10 @@ final class StudyStoreTests: XCTestCase {
                 try JSONSerialization.data(withJSONObject: response)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         var draft = StudyCardDraft(card: staleCard)
         draft.cueText = "同期後"
@@ -2813,10 +2813,10 @@ final class StudyStoreTests: XCTestCase {
                 Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.deleteCard(staleCard)
@@ -2926,10 +2926,10 @@ final class StudyStoreTests: XCTestCase {
                 throw URLError(.unsupportedURL)
             }
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
@@ -3022,10 +3022,10 @@ final class StudyStoreTests: XCTestCase {
                 throw URLError(.unsupportedURL)
             }
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.recordReview(card: canonicalServerCard, rating: .good, duration: nil)
@@ -3138,10 +3138,10 @@ final class StudyStoreTests: XCTestCase {
                 responseData
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.resolvePitchAccent(for: card)
@@ -3193,10 +3193,10 @@ final class StudyStoreTests: XCTestCase {
             _ = requestCount.next()
             throw URLError(.badServerResponse)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.resolvePitchAccent(for: card)
@@ -3225,10 +3225,10 @@ final class StudyStoreTests: XCTestCase {
         let responseData = try StorageCodec.encoder.encode(serverCard)
         let gate = LockedRequestGate()
         let client = makeDelayedPitchClient(responseData: responseData, gate: gate)
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let resolution = Task { await store.resolvePitchAccent(for: card) }
@@ -3303,10 +3303,10 @@ final class StudyStoreTests: XCTestCase {
         let responseData = try StorageCodec.encoder.encode(cardWithResolvedPitchAccent(card))
         let gate = LockedRequestGate()
         let client = makeDelayedPitchClient(responseData: responseData, gate: gate)
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let resolution = Task { await store.resolvePitchAccent(for: card) }
@@ -3358,8 +3358,8 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(futureRecord)
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3394,8 +3394,8 @@ final class StudyStoreTests: XCTestCase {
         )
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3425,8 +3425,8 @@ final class StudyStoreTests: XCTestCase {
         container.mainContext.insert(record)
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3456,8 +3456,8 @@ final class StudyStoreTests: XCTestCase {
         )
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3494,7 +3494,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.sessionCounts.failedDue, 0)
 
-        let relaunched = StudyStore(
+        let relaunched = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3523,8 +3523,8 @@ final class StudyStoreTests: XCTestCase {
         )
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3535,7 +3535,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.sessionCounts.failedDue, 1)
         XCTAssertTrue(store.cards.isEmpty)
 
-        let relaunched = StudyStore(
+        let relaunched = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3622,10 +3622,10 @@ final class StudyStoreTests: XCTestCase {
                 data
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.refreshSession()
@@ -3701,10 +3701,10 @@ final class StudyStoreTests: XCTestCase {
                 Data(#"{"data":[]}"#.utf8)
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         try await store.refreshSession()
         XCTAssertEqual(store.sessionCounts.failedDue, 1)
@@ -3750,10 +3750,10 @@ final class StudyStoreTests: XCTestCase {
                 sessionData
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.refreshSession()
@@ -3829,10 +3829,10 @@ final class StudyStoreTests: XCTestCase {
                 available ? Data("audio".utf8) : Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.refreshSession()
@@ -3852,8 +3852,8 @@ final class StudyStoreTests: XCTestCase {
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -3929,10 +3929,10 @@ final class StudyStoreTests: XCTestCase {
                 envelopeData
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.refreshSession()
@@ -3983,10 +3983,10 @@ final class StudyStoreTests: XCTestCase {
         )
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.updateCard(
@@ -4022,8 +4022,8 @@ final class StudyStoreTests: XCTestCase {
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -4082,10 +4082,10 @@ final class StudyStoreTests: XCTestCase {
                 status == 422 ? Data(#"{"message":"Invalid review"}"#.utf8) : Data()
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.recordReview(card: rejectedCard, rating: .good, duration: nil)
@@ -4103,10 +4103,10 @@ final class StudyStoreTests: XCTestCase {
     func testNewCardCreateFlushesBeforeItsReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: offlineClient,
             context: container.mainContext,
-            mediaCache: MediaCache(api: offlineClient, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: offlineClient, context: container.mainContext)
         )
 
         try await store.createCard(expression: "同期", reading: "どうき", meaning: "sync")
@@ -4192,7 +4192,10 @@ final class StudyStoreTests: XCTestCase {
             [
                 "/api/study/cards",
                 "/api/card-review-events/batch",
+                "/api/sync/feed",
+                "/api/study/known-kanji",
                 "/api/study/session/start",
+                "/api/study/offline-reserve",
             ]
         )
         XCTAssertTrue(
@@ -4212,13 +4215,107 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSynchronizationPullsCanonicalInboundCardAndAdvancesCheckpoint() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(
+            id: "01J00000000000000000000AA",
+            expression: "受信"
+        )
+        let serverCardID = serverCard.id
+        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let emptySession = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(emptySession)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            let data: Data
+            switch path {
+            case "/api/sync/feed":
+                data = Data(
+                    """
+                    {"data":[{"checkpoint":7,"resource_id":"\(serverCardID)","operation":"update"}],
+                    "meta":{"next_checkpoint":7,"has_more":false}}
+                    """.utf8
+                )
+            case "/api/study/cards/\(serverCardID)":
+                data = serverCardData
+            case "/api/study/known-kanji":
+                data = Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            case "/api/study/session/start":
+                data = sessionData
+            case "/api/study/offline-reserve":
+                data = Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                )
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/sync/feed",
+                "/api/study/cards/\(serverCardID)",
+                "/api/study/known-kanji",
+                "/api/study/session/start",
+                "/api/study/offline-reserve",
+            ]
+        )
+        XCTAssertEqual(store.libraryCards.map(\.id), [serverCardID])
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            7
+        )
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
     func testRejectedCardCreateSurfacesItsDependentReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: offlineClient,
             context: container.mainContext,
-            mediaCache: MediaCache(api: offlineClient, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: offlineClient, context: container.mainContext)
         )
 
         try await store.createCard(expression: "拒否", reading: "きょひ", meaning: "reject")
@@ -4277,10 +4374,10 @@ final class StudyStoreTests: XCTestCase {
     func testQuarantinedReviewDoesNotBlockCardSyncOrSessionRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         let rejectedReviewCard = makeCard(
             id: "01J00000000000000000000005",
@@ -4356,10 +4453,10 @@ final class StudyStoreTests: XCTestCase {
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         try await store.createCard(expression: "犬", reading: "いぬ", meaning: "dog")
         try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
@@ -4437,15 +4534,15 @@ final class StudyStoreTests: XCTestCase {
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
         )
 
         await store.recordReview(card: card, rating: .good, duration: .milliseconds(750))
-        let relaunchedStore = StudyStore(
+        let relaunchedStore = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -4495,10 +4592,10 @@ final class StudyStoreTests: XCTestCase {
             _ = requestCount.next()
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let recordedEventID = await store.recordReview(
@@ -4602,10 +4699,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let recordedEventID = await store.recordReview(
@@ -4719,10 +4816,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let reviewTask = Task {
@@ -4819,10 +4916,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         let undoTask = Task {
@@ -4886,10 +4983,10 @@ final class StudyStoreTests: XCTestCase {
             _ = requestCount.next()
             throw URLError(.badServerResponse)
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         do {
@@ -4981,10 +5078,10 @@ final class StudyStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         try await store.undoReview(

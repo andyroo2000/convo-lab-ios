@@ -1,5 +1,5 @@
 // `$()` preserves `//` because xcconfig otherwise treats it as a comment.
-API_BASE_URL = https:/$()/replace-me.invalid
+API_BASE_URL = https:/$()/convo-lab.com
 PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic

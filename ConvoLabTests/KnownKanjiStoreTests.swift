@@ -66,10 +66,10 @@ final class KnownKanjiStoreTests: XCTestCase {
                 )
             }
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         store.activate(userID: 7)
 
@@ -115,8 +115,8 @@ final class KnownKanjiStoreTests: XCTestCase {
                 )
             )
         }
-        let mediaCache = MediaCache(api: client, context: container.mainContext)
-        let store = StudyStore(
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -131,7 +131,7 @@ final class KnownKanjiStoreTests: XCTestCase {
         XCTAssertNotNil(store.wanikaniLastSyncedAt)
 
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let relaunched = StudyStore(
+        let relaunched = StudyStore(initialUserID: 1,
             api: offlineClient,
             context: container.mainContext,
             mediaCache: mediaCache
@@ -179,10 +179,10 @@ final class KnownKanjiStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         store.activate(userID: 7)
 
@@ -235,10 +235,10 @@ final class KnownKanjiStoreTests: XCTestCase {
                 )
             )
         }
-        let store = StudyStore(
+        let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         store.activate(userID: 7)
 

@@ -61,6 +61,52 @@ final class AuthStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRegistrationUsesInviteGatedConvoLabEndpointAndStoresToken() async throws {
+        let credentials = MemoryCredentialStore()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/convolab/auth/register")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try requestBody(request)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: String]
+            )
+            XCTAssertEqual(payload["name"], "Andrew")
+            XCTAssertEqual(payload["email"], "andrew@example.com")
+            XCTAssertEqual(payload["inviteCode"], "INVITE1")
+            XCTAssertNotNil(payload["device_name"])
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 201,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"data":{"user":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null},"token":"new-token"}}"#.utf8
+                )
+            )
+        }
+        let store = AuthStore(api: client, keychain: credentials)
+
+        await store.register(
+            name: "Andrew",
+            email: "andrew@example.com",
+            password: "password123",
+            inviteCode: "INVITE1"
+        )
+
+        guard case let .signedIn(user) = store.state else {
+            return XCTFail("Expected registration to sign in")
+        }
+        XCTAssertEqual(user.email, "andrew@example.com")
+        XCTAssertEqual(client.accessToken, "new-token")
+        XCTAssertEqual(
+            try credentials.read(account: "learning-os-mobile-token"),
+            "new-token"
+        )
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

@@ -81,6 +81,18 @@ final class AudioPlayer {
         updateNowPlaying()
     }
 
+    func stop() {
+        player.pause()
+        persistPosition()
+        player.replaceCurrentItem(with: nil)
+        currentTrackID = nil
+        currentTitle = ""
+        isPlaying = false
+        elapsed = 0
+        duration = 0
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
     }

@@ -70,9 +70,38 @@ final class AppModel {
         study.activateOfflineDueCards()
     }
 
+    func logout() async {
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        study.deactivate()
+        dailyAudio.deactivate()
+        mediaCache.deactivate()
+        await auth.logout()
+    }
+
+    func clearDownloadedMedia() throws {
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        try mediaCache.clearDownloadedMedia()
+    }
+
+    func deleteAccount(currentPassword: String) async -> Bool {
+        guard await auth.deleteAccount(currentPassword: currentPassword) else {
+            return false
+        }
+        audioPlayer.stop()
+        studyAudioPlayer.stop()
+        study.deactivate()
+        dailyAudio.deactivate()
+        mediaCache.deactivate()
+        return true
+    }
+
     private func refreshAuthenticatedData() async {
         guard case let .signedIn(user) = auth.state else { return }
+        mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
+        dailyAudio.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Void = dailyAudio.refresh()
         _ = await (studySync, audioRefresh)

@@ -43,10 +43,10 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
         await store.refresh()
@@ -73,10 +73,10 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         let first = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1_000))
         let regenerated = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
@@ -124,10 +124,10 @@ final class DailyAudioStoreTests: XCTestCase {
             )
         }
         let container = try Persistence.makeContainer(inMemory: true)
-        let store = DailyAudioStore(
+        let store = DailyAudioStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: MediaCache(api: client, context: container.mainContext)
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         let track = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2_000))
         let legacyKey = "daily-audio:\(track.id)"

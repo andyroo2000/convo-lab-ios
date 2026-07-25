@@ -71,6 +71,101 @@ final class AuthStore {
         }
     }
 
+    func register(
+        name: String,
+        email: String,
+        password: String,
+        inviteCode: String
+    ) async {
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+
+        do {
+            let response: RegistrationResponse = try await api.request(
+                "/api/convolab/auth/register",
+                method: "POST",
+                body: RegistrationRequest(
+                    name: name,
+                    email: email,
+                    password: password,
+                    inviteCode: inviteCode,
+                    deviceName: UIDevice.current.name
+                )
+            )
+            try keychain.save(response.data.token, account: tokenAccount)
+            api.setAccessToken(response.data.token)
+            try cacheUser(response.data.user)
+            state = .signedIn(response.data.user)
+        } catch {
+            errorMessage = error.localizedDescription
+            state = .signedOut
+        }
+    }
+
+    func updateProfile(name: String, email: String) async -> Bool {
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            let response: APIEnvelope<CurrentUser> = try await api.request(
+                "/api/me",
+                method: "PUT",
+                body: UpdateProfileRequest(name: name, email: email)
+            )
+            try cacheUser(response.data)
+            state = .signedIn(response.data)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func updatePassword(
+        currentPassword: String,
+        password: String,
+        passwordConfirmation: String
+    ) async -> Bool {
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            let _: IgnoredResponse = try await api.request(
+                "/api/me/password",
+                method: "PUT",
+                body: UpdatePasswordRequest(
+                    currentPassword: currentPassword,
+                    password: password,
+                    passwordConfirmation: passwordConfirmation
+                )
+            )
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteAccount(currentPassword: String) async -> Bool {
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+        do {
+            let _: IgnoredResponse = try await api.request(
+                "/api/me",
+                method: "DELETE",
+                body: DeleteAccountRequest(currentPassword: currentPassword)
+            )
+            clearCredentials()
+            state = .signedOut
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func requestPasswordReset(email: String) async -> Bool {
         isWorking = true
         errorMessage = nil

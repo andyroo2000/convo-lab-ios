@@ -43,6 +43,53 @@ struct LoginRequest: Encodable {
     }
 }
 
+struct RegistrationRequest: Encodable {
+    let name: String
+    let email: String
+    let password: String
+    let inviteCode: String
+    let deviceName: String
+
+    enum CodingKeys: String, CodingKey {
+        case name, email, password, inviteCode
+        case deviceName = "device_name"
+    }
+}
+
+struct RegistrationResponse: Decodable {
+    struct RegistrationData: Decodable {
+        let user: CurrentUser
+        let token: String
+    }
+
+    let data: RegistrationData
+}
+
+struct UpdateProfileRequest: Encodable {
+    let name: String
+    let email: String
+}
+
+struct UpdatePasswordRequest: Encodable {
+    let currentPassword: String
+    let password: String
+    let passwordConfirmation: String
+
+    enum CodingKeys: String, CodingKey {
+        case password
+        case currentPassword = "current_password"
+        case passwordConfirmation = "password_confirmation"
+    }
+}
+
+struct DeleteAccountRequest: Encodable {
+    let currentPassword: String
+
+    enum CodingKeys: String, CodingKey {
+        case currentPassword = "current_password"
+    }
+}
+
 struct PasswordResetRequest: Encodable {
     let email: String
 }
@@ -178,6 +225,39 @@ struct StudySessionResponse: Decodable, Sendable {
             session = try StudySession(from: decoder)
         }
     }
+}
+
+struct StudyOfflineReserve: Decodable, Sendable {
+    let cards: [StudyCard]
+    let reserveDays: Int
+    let generatedAt: Date
+    let horizonEndsAt: Date
+}
+
+struct SyncFeedPage: Decodable, Sendable {
+    struct Entry: Decodable, Sendable {
+        let checkpoint: Int64
+        let resourceId: String
+        let operation: String
+
+        enum CodingKeys: String, CodingKey {
+            case checkpoint, operation
+            case resourceId = "resource_id"
+        }
+    }
+
+    struct Metadata: Decodable, Sendable {
+        let nextCheckpoint: Int64
+        let hasMore: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case nextCheckpoint = "next_checkpoint"
+            case hasMore = "has_more"
+        }
+    }
+
+    let data: [Entry]
+    let meta: Metadata
 }
 
 struct StudyOverview: Codable, Sendable {
