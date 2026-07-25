@@ -335,15 +335,21 @@ struct StudySessionView: View {
     ) -> some View {
         Button {
             guard submittingReviewCardIDs.insert(card.id).inserted else { return }
+            let reviewedAt = Date.now
+            reviewIntervalLabels[rating] = card.reviewSchedule(
+                rating,
+                at: reviewedAt
+            ).intervalLabel
             if rating == .again {
                 didAutoplayAnswerForCardID = nil
             }
-            let duration = Date.now.timeIntervalSince(cardStartedAt)
+            let duration = reviewedAt.timeIntervalSince(cardStartedAt)
             Task {
                 let eventID = await store.recordReview(
                     card: card,
                     rating: rating,
-                    duration: .milliseconds(Int64(duration * 1_000))
+                    duration: .milliseconds(Int64(duration * 1_000)),
+                    reviewedAt: reviewedAt
                 )
                 if let eventID {
                     pushUndo(.grade(eventID: eventID, cardBefore: card))
