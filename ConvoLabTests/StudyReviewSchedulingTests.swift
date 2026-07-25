@@ -3,85 +3,207 @@ import XCTest
 
 @MainActor
 final class StudyReviewSchedulingTests: XCTestCase {
-    func testReviewRatingsMatchLearningOSStarterSchedule() throws {
-        let reviewedAt = try XCTUnwrap(
-            ISO8601DateFormatter().date(from: "2026-07-24T12:00:00Z")
+    func testMatureCardRatingsMatchTsFSRSAndLearningOS() throws {
+        let reviewedAt = try date("2026-07-25T12:00:00.000Z")
+        let expectations: [(
+            rating: ReviewRating,
+            due: String,
+            stability: Double,
+            difficulty: Double,
+            scheduledDays: Double,
+            queueState: String,
+            lapses: Double,
+            label: String
+        )] = [
+            (.again, "2026-07-25T12:10:00.000Z", 3.31374859, 9.76073091, 0, "relearning", 2, "<10m"),
+            (.hard, "2026-10-17T12:00:00.000Z", 84.27757184, 9.53182114, 84, "review", 1, "3mo"),
+            (.good, "2026-11-06T12:00:00.000Z", 104.22021241, 9.30291137, 104, "review", 1, "3mo"),
+            (.easy, "2026-12-20T12:00:00.000Z", 147.89289417, 9.0740016, 148, "review", 1, "5mo"),
+        ]
+        let card = makeCard(queueState: "review", scheduler: matureScheduler)
+
+        for expectation in expectations {
+            let schedule = card.reviewSchedule(expectation.rating, at: reviewedAt)
+            let reviewed = card.applyingReview(expectation.rating, at: reviewedAt)
+
+            XCTAssertEqual(schedule.dueAt, try date(expectation.due))
+            XCTAssertEqual(schedule.queueState, expectation.queueState)
+            XCTAssertEqual(schedule.intervalLabel, expectation.label)
+            XCTAssertEqual(schedule.schedulerState["stability"], .number(expectation.stability))
+            XCTAssertEqual(schedule.schedulerState["difficulty"], .number(expectation.difficulty))
+            XCTAssertEqual(
+                schedule.schedulerState["scheduled_days"],
+                .number(expectation.scheduledDays)
+            )
+            XCTAssertEqual(schedule.schedulerState["elapsed_days"], .number(163))
+            XCTAssertEqual(schedule.schedulerState["reps"], .number(13))
+            XCTAssertEqual(schedule.schedulerState["lapses"], .number(expectation.lapses))
+            XCTAssertEqual(reviewed.state.dueAt, schedule.dueAt)
+            XCTAssertEqual(reviewed.state.scheduler, schedule.schedulerState)
+            XCTAssertEqual(
+                reviewed.state.failedAt != nil,
+                expectation.rating == .again
+            )
+        }
+    }
+
+    func testNewCardRatingsMatchTsFSRSAndLearningOS() throws {
+        let reviewedAt = try date("2026-07-25T12:00:00.000Z")
+        let card = makeCard(
+            queueState: "new",
+            scheduler: .object([
+                "due": .string("2026-07-25T12:00:00.000Z"),
+                // Older learning-os rows seeded non-zero memory for new cards.
+                "stability": .number(0.1),
+                "difficulty": .number(5),
+                "elapsed_days": .number(0),
+                "scheduled_days": .number(0),
+                "learning_steps": .number(0),
+                "reps": .number(0),
+                "lapses": .number(0),
+                "state": .number(0),
+                "last_review": .null,
+            ])
         )
-        let expectations: [(ReviewRating, TimeInterval, String, Bool)] = [
-            (.again, 10 * 60, "relearning", true),
-            (.hard, 24 * 60 * 60, "review", false),
-            (.good, 3 * 24 * 60 * 60, "review", false),
-            (.easy, 7 * 24 * 60 * 60, "review", false),
+        let expectations: [(
+            rating: ReviewRating,
+            due: String,
+            stability: Double,
+            difficulty: Double,
+            learningSteps: Double,
+            scheduledDays: Double,
+            queueState: String
+        )] = [
+            (.again, "2026-07-25T12:01:00.000Z", 0.212, 6.4133, 0, 0, "learning"),
+            (.hard, "2026-07-25T12:06:00.000Z", 1.2931, 5.11217071, 0, 0, "learning"),
+            (.good, "2026-07-25T12:10:00.000Z", 2.3065, 2.11810397, 1, 0, "learning"),
+            (.easy, "2026-08-02T12:00:00.000Z", 8.2956, 1, 0, 8, "review"),
         ]
 
-        for (rating, interval, queueState, isFailed) in expectations {
-            let reviewed = makeCard(queueState: "review").applyingReview(
-                rating,
-                at: reviewedAt
-            )
+        for expectation in expectations {
+            let reviewed = card.applyingReview(expectation.rating, at: reviewedAt)
 
-            XCTAssertEqual(reviewed.state.dueAt, reviewedAt.addingTimeInterval(interval))
-            XCTAssertEqual(reviewed.state.queueState, queueState)
-            XCTAssertEqual(reviewed.state.failedAt != nil, isFailed)
-            XCTAssertEqual(reviewed.state.scheduler?["reps"], .number(3))
+            XCTAssertEqual(reviewed.state.dueAt, try date(expectation.due))
+            XCTAssertEqual(reviewed.state.queueState, expectation.queueState)
+            XCTAssertEqual(reviewed.state.scheduler?["stability"], .number(expectation.stability))
+            XCTAssertEqual(reviewed.state.scheduler?["difficulty"], .number(expectation.difficulty))
             XCTAssertEqual(
-                reviewed.state.scheduler?["lapses"],
-                .number(rating == .again ? 2 : 1)
+                reviewed.state.scheduler?["learning_steps"],
+                .number(expectation.learningSteps)
             )
+            XCTAssertEqual(
+                reviewed.state.scheduler?["scheduled_days"],
+                .number(expectation.scheduledDays)
+            )
+            XCTAssertEqual(reviewed.state.introducedAt, reviewedAt)
         }
     }
 
-    func testHardKeepsNewAndRelearningCardsInLearning() {
+    func testHardKeepsLearningAndRelearningState() {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
-        for queueState in ["new", "learning", "relearning"] {
-            let reviewed = makeCard(queueState: queueState).applyingReview(
-                .hard,
-                at: reviewedAt
-            )
-            XCTAssertEqual(reviewed.state.queueState, "learning")
-        }
-    }
+        let learning = makeCard(
+            queueState: "learning",
+            scheduler: learningScheduler(state: 1)
+        ).applyingReview(.hard, at: reviewedAt)
+        let relearning = makeCard(
+            queueState: "relearning",
+            scheduler: learningScheduler(state: 3)
+        ).applyingReview(.hard, at: reviewedAt)
 
-    func testFirstReviewIntroducesNewCard() {
-        let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
-        let reviewed = makeCard(queueState: "new").applyingReview(
-            .good,
-            at: reviewedAt
+        XCTAssertEqual(learning.state.queueState, "learning")
+        XCTAssertEqual(relearning.state.queueState, "relearning")
+        XCTAssertEqual(
+            learning.state.dueAt,
+            reviewedAt.addingTimeInterval(6 * 60)
         )
-
-        XCTAssertEqual(reviewed.state.introducedAt, reviewedAt)
+        XCTAssertEqual(
+            relearning.state.dueAt,
+            reviewedAt.addingTimeInterval(15 * 60)
+        )
     }
 
-    func testSchedulerStateUsesBackendRoundingAndNumericDefaults() {
+    func testHardUsesTheSameSixMinuteDelayAfterAdvancingToTheSecondLearningStep() {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let card = makeCard(
-            queueState: "review",
+            queueState: "learning",
             scheduler: .object([
-                "last_review": .string(
-                    reviewedAt.addingTimeInterval(-36 * 60 * 60).studyTestISO8601
-                ),
-                "stability": .null,
-                "difficulty": .string("invalid"),
-                "learning_steps": .null,
+                "due": .string("2027-01-15T08:00:00.000Z"),
+                "stability": .number(2.3065),
+                "difficulty": .number(2.11810397),
+                "elapsed_days": .number(0),
+                "scheduled_days": .number(0),
+                "learning_steps": .number(1),
+                "reps": .number(1),
+                "lapses": .number(0),
+                "state": .number(1),
+                "last_review": .string("2027-01-15T07:50:00.000Z"),
             ])
         )
 
         let reviewed = card.applyingReview(.hard, at: reviewedAt)
 
-        XCTAssertEqual(reviewed.state.scheduler?["elapsed_days"], .number(2))
-        XCTAssertEqual(reviewed.state.scheduler?["scheduled_days"], .number(1))
-        XCTAssertEqual(reviewed.state.scheduler?["stability"], .number(0.1))
-        XCTAssertEqual(reviewed.state.scheduler?["difficulty"], .number(5))
-        XCTAssertEqual(reviewed.state.scheduler?["learning_steps"], .number(0))
+        XCTAssertEqual(reviewed.state.queueState, "learning")
+        XCTAssertEqual(reviewed.state.dueAt, reviewedAt.addingTimeInterval(6 * 60))
+        XCTAssertEqual(reviewed.state.scheduler?["learning_steps"], .number(1))
+        XCTAssertEqual(reviewed.state.scheduler?["stability"], .number(2.3065))
+        XCTAssertEqual(reviewed.state.scheduler?["difficulty"], .number(4.75285849))
+    }
+
+    func testElapsedDaysUsesUtcCalendarDays() throws {
+        let reviewedAt = try date("2026-07-25T00:01:00.000Z")
+        let lastReview = try date("2026-07-24T23:59:00.000Z")
+        let card = makeCard(
+            queueState: "review",
+            scheduler: .object([
+                "last_review": .string(format(lastReview)),
+                "stability": .number(10),
+                "difficulty": .number(5),
+                "learning_steps": .number(0),
+                "reps": .number(2),
+                "lapses": .number(0),
+                "state": .number(2),
+            ])
+        )
+
+        let reviewed = card.applyingReview(.good, at: reviewedAt)
+
+        XCTAssertEqual(reviewed.state.scheduler?["elapsed_days"], .number(1))
+    }
+
+    private var matureScheduler: JSONValue {
+        .object([
+            "due": .string("2026-04-12T00:00:00.000Z"),
+            "stability": .number(54.1885),
+            "difficulty": .number(9.317),
+            "elapsed_days": .number(59),
+            "scheduled_days": .number(59),
+            "learning_steps": .number(0),
+            "reps": .number(12),
+            "lapses": .number(1),
+            "state": .number(2),
+            "last_review": .string("2026-02-12T13:01:42.000Z"),
+        ])
+    }
+
+    private func learningScheduler(state: Double) -> JSONValue {
+        .object([
+            "due": .string("2027-01-15T08:00:00.000Z"),
+            "stability": .number(state == 1 ? 2.3065 : 5),
+            "difficulty": .number(state == 1 ? 4 : 6),
+            "elapsed_days": .number(0),
+            "scheduled_days": .number(0),
+            "learning_steps": .number(0),
+            "reps": .number(state == 1 ? 1 : 5),
+            "lapses": .number(state == 1 ? 0 : 1),
+            "state": .number(state),
+            "last_review": .string("2027-01-15T07:50:00.000Z"),
+        ])
     }
 
     private func makeCard(
         queueState: String,
-        scheduler: JSONValue = .object([
-            "reps": .number(2),
-            "lapses": .number(1),
-        ])
+        scheduler: JSONValue
     ) -> StudyCard {
         StudyCard(
             id: "01J00000000000000000000020",
@@ -102,12 +224,16 @@ final class StudyReviewSchedulingTests: XCTestCase {
             updatedAt: .now
         )
     }
-}
 
-private extension Date {
-    var studyTestISO8601: String {
+    private func date(_ value: String) throws -> Date {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: self)
+        return try XCTUnwrap(formatter.date(from: value))
+    }
+
+    private func format(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
