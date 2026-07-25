@@ -10,7 +10,14 @@ final class DailyAudioStore {
 
     private(set) var practices: [DailyAudioPractice] = []
     private(set) var isLoading = false
+    private(set) var isLoadingMore = false
+    private(set) var total = 0
+    private(set) var nextCursor: String?
     private(set) var errorMessage: String?
+
+    var hasMore: Bool {
+        nextCursor != nil
+    }
 
     init(
         initialUserID: Int? = nil,
@@ -32,6 +39,7 @@ final class DailyAudioStore {
         mediaCache.activate(userID: userID)
         errorMessage = nil
         loadLocal(userID: userID)
+        total = practices.count
     }
 
     func deactivate() {
@@ -39,6 +47,9 @@ final class DailyAudioStore {
         practices = []
         errorMessage = nil
         isLoading = false
+        isLoadingMore = false
+        total = 0
+        nextCursor = nil
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -60,15 +71,55 @@ final class DailyAudioStore {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            // learning-os deliberately resolves the resource collection directly for
-            // ConvoLab compatibility; this endpoint does not use Laravel's data envelope.
-            let response: [DailyAudioPractice] = try await api.request(
-                "/api/daily-audio-practice"
+            let response: DailyAudioPracticePage = try await api.request(
+                "/api/daily-audio-practice",
+                query: [
+                    URLQueryItem(name: "paginated", value: "1"),
+                    URLQueryItem(name: "cursor", value: "0"),
+                    URLQueryItem(name: "limit", value: "14"),
+                ]
             )
             guard activeUserID == userID else { return }
-            practices = response.sorted { $0.createdAt > $1.createdAt }
-            try persist(practices, userID: userID)
+            practices = orderedPractices(response.items)
+            total = response.total
+            nextCursor = response.nextCursor
+            try persist(response.items, userID: userID)
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadMore() async {
+        guard
+            let userID = activeUserID,
+            let cursor = nextCursor,
+            !isLoading,
+            !isLoadingMore
+        else {
+            return
+        }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        do {
+            let response: DailyAudioPracticePage = try await api.request(
+                "/api/daily-audio-practice",
+                query: [
+                    URLQueryItem(name: "paginated", value: "1"),
+                    URLQueryItem(name: "cursor", value: cursor),
+                    URLQueryItem(name: "limit", value: "14"),
+                ]
+            )
+            guard activeUserID == userID else { return }
+            let existingIDs = Set(practices.map(\.id))
+            practices.append(contentsOf: response.items.filter { !existingIDs.contains($0.id) })
+            practices = orderedPractices(practices)
+            total = response.total
+            nextCursor = response.nextCursor
+            try persist(response.items, userID: userID)
+            errorMessage = nil
+        } catch {
+            guard activeUserID == userID else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -89,8 +140,13 @@ final class DailyAudioStore {
                 )
             )
             guard activeUserID == userID else { return }
+            let wasAlreadyLoaded = practices.contains { $0.id == response.id }
             practices.removeAll { $0.id == response.id }
             practices.insert(response, at: 0)
+            if !wasAlreadyLoaded {
+                total += 1
+            }
+            nextCursor = practices.count < total ? String(practices.count) : nil
             try persist([response], userID: userID)
         } catch {
             errorMessage = error.localizedDescription
@@ -154,7 +210,7 @@ final class DailyAudioStore {
             }
             practices.removeAll { $0.id == practice.id }
             practices.append(practice)
-            practices.sort { $0.createdAt > $1.createdAt }
+            practices = orderedPractices(practices)
             try persist([practice], userID: userID)
             return detailedTrack
         } catch {
@@ -275,6 +331,18 @@ final class DailyAudioStore {
         )
         practices = ((try? context.fetch(descriptor)) ?? []).compactMap {
             try? StorageCodec.decoder.decode(DailyAudioPractice.self, from: $0.payload)
+        }
+        practices = orderedPractices(practices)
+    }
+
+    private func orderedPractices(
+        _ values: [DailyAudioPractice]
+    ) -> [DailyAudioPractice] {
+        values.sorted {
+            if $0.practiceDate != $1.practiceDate {
+                return $0.practiceDate > $1.practiceDate
+            }
+            return $0.id > $1.id
         }
     }
 }

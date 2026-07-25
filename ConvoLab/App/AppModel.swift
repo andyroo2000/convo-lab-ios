@@ -75,8 +75,11 @@ final class AppModel {
         await refreshAuthenticatedData()
     }
 
-    func applicationDidBecomeActive() {
+    func applicationDidBecomeActive() async {
         study.activateOfflineDueCards()
+        if case .signedIn = auth.state {
+            await study.synchronizeIfNeeded(maxAge: .seconds(300))
+        }
     }
 
     func logout() async {

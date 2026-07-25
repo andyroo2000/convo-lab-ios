@@ -183,6 +183,9 @@ final class StudyStore {
     private(set) var isRefreshingNewCardQueue = false
     private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
+    private(set) var studySettings: StudySettings?
+    private(set) var isUpdatingStudySettings = false
+    private(set) var studySettingsErrorMessage: String?
     private(set) var knownKanji: Set<Character> = []
     private(set) var manualKnownKanji: Set<Character> = []
     private(set) var knownKanjiVersion = -1
@@ -243,6 +246,9 @@ final class StudyStore {
         isRefreshingNewCardQueue = false
         manualDrafts = []
         overview = nil
+        studySettings = nil
+        isUpdatingStudySettings = false
+        studySettingsErrorMessage = nil
         knownKanji = []
         manualKnownKanji = []
         knownKanjiVersion = -1
@@ -471,6 +477,18 @@ final class StudyStore {
         }
     }
 
+    func synchronizeIfNeeded(maxAge: Duration) async {
+        guard syncStatus != .syncing else { return }
+        let components = maxAge.components
+        let maxAgeSeconds = TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        if let lastSyncAt, Date.now.timeIntervalSince(lastSyncAt) < maxAgeSeconds {
+            activateOfflineDueCards()
+            return
+        }
+        await synchronize()
+    }
+
     func refreshSession() async throws {
         guard let userID = activeUserID else { return }
         let timeZone = TimeZone.current.identifier
@@ -489,6 +507,7 @@ final class StudyStore {
                 && seenCardIDs.insert(card.id).inserted
         })
         overview = session.overview
+        studySettings = StudySettings(newCardsPerDay: session.overview.newCardsPerDay)
         cards = activeCards
         apply(pendingReviewState)
         try persist(cards: activeCards, userID: userID)
@@ -498,6 +517,51 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    func refreshStudySettings() async {
+        guard activeUserID != nil else { return }
+        do {
+            let response: StudySettings = try await api.request("/api/study/settings")
+            studySettings = response
+            studySettingsErrorMessage = nil
+        } catch {
+            studySettingsErrorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func updateNewCardsPerDay(_ value: Int) async -> Bool {
+        guard activeUserID != nil, (0...1_000).contains(value) else { return false }
+        isUpdatingStudySettings = true
+        studySettingsErrorMessage = nil
+        defer { isUpdatingStudySettings = false }
+
+        do {
+            let response: StudySettings = try await api.request(
+                "/api/study/settings",
+                method: "PATCH",
+                body: UpdateStudySettingsRequest(newCardsPerDay: value)
+            )
+            studySettings = response
+            if let current = overview {
+                overview = StudyOverview(
+                    dueCount: current.dueCount,
+                    newCount: current.newCount,
+                    reviewCount: current.reviewCount,
+                    newCardsPerDay: response.newCardsPerDay,
+                    newCardsAvailableToday: current.newCardsAvailableToday,
+                    failedCount: current.failedCount
+                )
+            }
+            // The server may now admit a different set of new cards and build a
+            // different offline reserve. Force the next Study-page entry to refresh.
+            lastSyncAt = nil
+            return true
+        } catch {
+            studySettingsErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func refreshNewCardQueue() async throws {
@@ -560,7 +624,7 @@ final class StudyStore {
                         URLQueryItem(name: "domain", value: "flashcards"),
                         URLQueryItem(name: "resource_type", value: "card"),
                         URLQueryItem(name: "after_checkpoint", value: String(checkpoint)),
-                        URLQueryItem(name: "per_page", value: "100"),
+                        URLQueryItem(name: "per_page", value: "50"),
                     ]
                 )
                 guard activeUserID == userID else { return }

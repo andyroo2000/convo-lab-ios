@@ -10,6 +10,18 @@ struct SettingsView: View {
     @State private var showingProfileEditor = false
     @State private var showingPasswordEditor = false
     @State private var showingAccountDeletion = false
+    @State private var newCardsPerDay: Int
+    @State private var studySettingsSaved = false
+
+    init(model: AppModel, user: CurrentUser) {
+        self.model = model
+        self.user = user
+        _newCardsPerDay = State(
+            initialValue: model.study.studySettings?.newCardsPerDay
+                ?? model.study.overview?.newCardsPerDay
+                ?? 20
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -44,6 +56,42 @@ struct SettingsView: View {
                     Text("Playback positions are stored only on this device.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Stepper(
+                        "New cards per day: \(newCardsPerDay)",
+                        value: $newCardsPerDay,
+                        in: 0...1_000
+                    )
+                    .onChange(of: newCardsPerDay) {
+                        studySettingsSaved = false
+                    }
+
+                    Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
+                        Task {
+                            studySettingsSaved = await model.study
+                                .updateNewCardsPerDay(newCardsPerDay)
+                        }
+                    }
+                    .disabled(model.study.isUpdatingStudySettings)
+
+                    if studySettingsSaved {
+                        Label("Study settings saved", systemImage: "checkmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.green)
+                    }
+                    if let error = model.study.studySettingsErrorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Study")
+                } footer: {
+                    Text(
+                        "This controls how many unseen cards can be introduced each day across the web and iOS apps."
+                    )
                 }
 
                 Section("Integrations") {
@@ -123,6 +171,12 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .task {
+                await model.study.refreshStudySettings()
+                if let settings = model.study.studySettings {
+                    newCardsPerDay = settings.newCardsPerDay
+                }
+            }
             .confirmationDialog(
                 "Disconnect WaniKani?",
                 isPresented: $confirmingWaniKaniDisconnect,

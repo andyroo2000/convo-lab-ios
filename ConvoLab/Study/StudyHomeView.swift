@@ -22,7 +22,7 @@ struct StudyHomeView: View {
                         NavigationLink {
                             StudySessionView(store: store, player: player)
                         } label: {
-                            Label("Start \(store.cards.count)-card session", systemImage: "play.fill")
+                            Label("Begin Study Session", systemImage: "play.fill")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding()
@@ -52,14 +52,19 @@ struct StudyHomeView: View {
             .refreshable {
                 await store.synchronize()
             }
+            .onAppear {
+                Task {
+                    await store.synchronizeIfNeeded(maxAge: .seconds(60))
+                }
+            }
         }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             metric(title: "Failed", value: store.sessionCounts.failedDue)
-            metric(title: "Due", value: store.overview?.dueCount ?? store.cards.count)
-            metric(title: "New", value: store.overview?.newCount ?? 0)
+            metric(title: "Due", value: store.sessionCounts.reviewRemaining)
+            metric(title: "New", value: store.sessionCounts.newRemaining)
         }
     }
 

@@ -337,6 +337,14 @@ struct StudyOverview: Codable, Sendable {
     }
 }
 
+struct StudySettings: Codable, Equatable, Sendable {
+    let newCardsPerDay: Int
+}
+
+struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
+    let newCardsPerDay: Int
+}
+
 struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     struct State: Codable, Hashable, Sendable {
         let dueAt: Date?
@@ -538,6 +546,13 @@ struct DailyAudioPractice: Codable, Identifiable, Sendable {
     let createdAt: Date
     let updatedAt: Date
     let tracks: [DailyAudioTrack]
+}
+
+struct DailyAudioPracticePage: Codable, Sendable {
+    let items: [DailyAudioPractice]
+    let total: Int
+    let limit: Int
+    let nextCursor: String?
 }
 
 struct DailyAudioTrack: Codable, Identifiable, Sendable {

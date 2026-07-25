@@ -4388,6 +4388,10 @@ final class StudyStoreTests: XCTestCase {
                     queryItems?.first(where: { $0.name == "after_checkpoint" })?.value,
                     "1234"
                 )
+                XCTAssertEqual(
+                    queryItems?.first(where: { $0.name == "per_page" })?.value,
+                    "50"
+                )
                 data = Data(
                     """
                     {"data":[{"checkpoint":1235,"resource_id":"\(serverCardID)","operation":"update"}],
@@ -4450,6 +4454,70 @@ final class StudyStoreTests: XCTestCase {
             1_235
         )
         XCTAssertEqual(store.syncStatus, .idle)
+
+        await store.synchronizeIfNeeded(maxAge: .seconds(60))
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/sync/feed",
+                "/api/study/cards/\(serverCardID)",
+                "/api/study/known-kanji",
+                "/api/study/session/start",
+                "/api/study/offline-reserve",
+            ],
+            "A recent successful sync should suppress redundant Study-page refreshes."
+        )
+    }
+
+    @MainActor
+    func testStudySettingsRefreshAndUpdateUseCompatibilityPayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            if request.httpMethod == "PATCH" {
+                let body = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
+                )
+                XCTAssertEqual(body, ["newCardsPerDay": 24])
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"newCardsPerDay":24}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"newCardsPerDay":12}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshStudySettings()
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
+
+        let saved = await store.updateNewCardsPerDay(24)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+        XCTAssertNil(store.studySettingsErrorMessage)
     }
 
     @MainActor
