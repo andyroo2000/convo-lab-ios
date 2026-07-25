@@ -172,6 +172,75 @@ final class AccountIsolationTests: XCTestCase {
         Self.retainedObservableStores.append(dailyAudio)
     }
 
+    func testLegacyUnscopedRowsAreClaimedByTheRestoredAccount() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        try insertCard(id: "legacy-card", userID: 0, into: container)
+        try insertPractice(id: "legacy-practice", userID: 0, into: container)
+        container.mainContext.insert(PendingMutation(
+            kind: "cardUpdate",
+            userID: 0,
+            resourceID: "legacy-card",
+            payload: Data()
+        ))
+        container.mainContext.insert(CachedMediaRecord(
+            remoteURL: "legacy-media",
+            userID: 0,
+            relativePath: "legacy.mp3",
+            byteCount: 1,
+            category: "active-study"
+        ))
+        try container.mainContext.save()
+
+        try Persistence.claimLegacyLocalData(for: 42, context: container.mainContext)
+
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 42, in: container), 1)
+        XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 42, in: container), 1)
+        XCTAssertEqual(try localRecordCount(CachedMediaRecord.self, userID: 42, in: container), 1)
+        XCTAssertEqual(
+            try localRecordCount(LocalDailyAudioPractice.self, userID: 42, in: container),
+            1
+        )
+        XCTAssertEqual(try localRecordCount(LocalCardRecord.self, userID: 0, in: container), 0)
+        XCTAssertEqual(try localRecordCount(PendingMutation.self, userID: 0, in: container), 0)
+    }
+
+    func testDeletingMediaWhileDownloadIsInFlightCannotResurrectIt() async throws {
+        let gate = AccountIsolationGate()
+        let client = makeClient { request in
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("late audio".utf8)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let remoteURL = URL(string: "/api/study/media/late")!
+        let download = Task {
+            try await cache.download(remoteURL, category: "offline-study")
+        }
+        for _ in 0..<100 where !gate.hasStarted {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+
+        try cache.deleteLocalData(userID: 1)
+        gate.release()
+        _ = try? await download.value
+
+        XCTAssertNil(cache.localURL(for: remoteURL))
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            0
+        )
+    }
+
     private func insertCard(
         id: String,
         userID: Int,
@@ -286,6 +355,38 @@ private final class AccountIsolationCounter: @unchecked Sendable {
         lock.withLock {
             value += 1
             return value
+        }
+    }
+}
+
+private final class AccountIsolationGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var started = false
+    private var released = false
+
+    var hasStarted: Bool {
+        condition.withLock { started }
+    }
+
+    func markStarted() {
+        condition.withLock {
+            started = true
+            condition.broadcast()
+        }
+    }
+
+    func waitForRelease() {
+        condition.lock()
+        while !released {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func release() {
+        condition.withLock {
+            released = true
+            condition.broadcast()
         }
     }
 }

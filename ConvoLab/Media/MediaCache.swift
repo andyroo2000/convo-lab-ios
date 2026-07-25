@@ -123,6 +123,15 @@ final class MediaCache {
         defer { activeDownloads -= 1 }
 
         let (temporaryURL, response) = try await api.download(remoteURL)
+        do {
+            try Task.checkCancellation()
+            guard activeUserID == userID else {
+                throw CancellationError()
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
         let mimeExtension = response.mimeType.flatMap(Self.fileExtension(for:))
         let remoteExtension = remoteURL.pathExtension.isEmpty ? nil : remoteURL.pathExtension
         let fileExtension = mimeExtension ?? remoteExtension ?? "bin"
@@ -325,10 +334,6 @@ final class MediaCache {
             )
         )
         for record in records {
-            let taskKey = "\(userID):\(record.remoteURL)"
-            guard inFlightDownloads[taskKey] == nil, inFlightRefreshes[taskKey] == nil else {
-                continue
-            }
             try? FileManager.default.removeItem(
                 at: rootURL.appending(path: record.relativePath)
             )

@@ -105,6 +105,19 @@ final class AppModel {
 
     private func refreshAuthenticatedData() async {
         guard case let .signedIn(user) = auth.state else { return }
+        // Rows created by pre-account-scoping builds receive SwiftData's zero default
+        // during lightweight migration. The first restored signed-in account owns
+        // those cards and, critically, any unsent mutation outbox entries.
+        do {
+            try Persistence.claimLegacyLocalData(
+                for: user.id,
+                context: container.mainContext
+            )
+        } catch {
+            // Leave zero-scoped rows untouched so a later activation can retry
+            // instead of loading or discarding only part of the legacy outbox.
+            return
+        }
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)

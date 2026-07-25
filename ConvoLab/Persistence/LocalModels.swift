@@ -116,6 +116,43 @@ final class LocalKnownKanjiSnapshot {
 }
 
 enum Persistence {
+    static func claimLegacyLocalData(
+        for userID: Int,
+        context: ModelContext
+    ) throws {
+        let legacyCards = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 0 }
+            )
+        )
+        let legacyMutations = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.userID == 0 }
+            )
+        )
+        let legacyMedia = try context.fetch(
+            FetchDescriptor<CachedMediaRecord>(
+                predicate: #Predicate { $0.userID == 0 }
+            )
+        )
+        let legacyPractices = try context.fetch(
+            FetchDescriptor<LocalDailyAudioPractice>(
+                predicate: #Predicate { $0.userID == 0 }
+            )
+        )
+        legacyCards.forEach { $0.userID = userID }
+        legacyMutations.forEach { $0.userID = userID }
+        legacyMedia.forEach { $0.userID = userID }
+        legacyPractices.forEach { $0.userID = userID }
+        if !legacyCards.isEmpty
+            || !legacyMutations.isEmpty
+            || !legacyMedia.isEmpty
+            || !legacyPractices.isEmpty
+        {
+            try context.save()
+        }
+    }
+
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         let schema = Schema([
             LocalCardRecord.self,
