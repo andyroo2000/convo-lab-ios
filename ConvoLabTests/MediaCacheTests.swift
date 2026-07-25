@@ -229,6 +229,130 @@ final class MediaCacheTests: XCTestCase {
         XCTAssertEqual(available, [MediaCache.stableCacheKey(for: remoteURL)])
         XCTAssertEqual(record.lastAccessedAt, previousAccess)
     }
+
+    @MainActor
+    func testDownloadedByteCountExcludesDeferredDeletionRecords() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: .shared
+        )
+        let cache = MediaCache(api: client, context: container.mainContext)
+        container.mainContext.insert(
+            CachedMediaRecord(
+                remoteURL: "active",
+                relativePath: "active.mp3",
+                byteCount: 10,
+                category: "daily-audio"
+            )
+        )
+        container.mainContext.insert(
+            CachedMediaRecord(
+                remoteURL: "retired",
+                relativePath: "retired.mp3",
+                byteCount: 20,
+                category: "deferred-deletion"
+            )
+        )
+        try container.mainContext.save()
+
+        XCTAssertEqual(cache.totalByteCount, 10)
+    }
+
+    @MainActor
+    func testDeferredDeletionRecordIsNotServedAsCacheHit() async throws {
+        let requestCounter = LockedCounter()
+        MockURLProtocol.handler = { request in
+            let version = requestCounter.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio-\(version)".utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(api: client, context: container.mainContext)
+        let remoteURL = URL(string: "/api/daily-audio/track")!
+        let retiredKey = "daily-audio:track:1"
+        _ = try await cache.download(
+            remoteURL,
+            category: "daily-audio",
+            cacheKey: retiredKey
+        )
+        try cache.removeCachedItems(
+            category: "daily-audio",
+            cacheKeyPrefix: "daily-audio:track",
+            keeping: "daily-audio:track:2"
+        )
+
+        XCTAssertNil(cache.localURL(for: remoteURL, cacheKey: retiredKey))
+        XCTAssertTrue(cache.cachedKeys(for: [URL(string: retiredKey)!]).isEmpty)
+
+        let refreshedURL = try await cache.download(
+            remoteURL,
+            category: "daily-audio",
+            cacheKey: retiredKey
+        )
+
+        XCTAssertEqual(requestCounter.current, 2)
+        XCTAssertEqual(
+            try String(contentsOf: refreshedURL, encoding: .utf8),
+            "audio-2"
+        )
+    }
+
+    @MainActor
+    func testInitializationPurgesDeferredDeletionFromPreviousLaunch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        let rootURL = applicationSupport.appending(
+            path: "OfflineMedia",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        let filename = "\(UUID().uuidString).mp3"
+        let fileURL = rootURL.appending(path: filename)
+        try Data("retired".utf8).write(to: fileURL)
+        let record = CachedMediaRecord(
+            remoteURL: "retired-from-previous-launch",
+            relativePath: filename,
+            byteCount: 7,
+            category: "deferred-deletion"
+        )
+        record.lastAccessedAt = .distantPast
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: .shared
+        )
+
+        _ = MediaCache(api: client, context: container.mainContext)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<CachedMediaRecord>()
+            ),
+            0
+        )
+    }
 }
 
 private actor MediaDownloadCompletion {

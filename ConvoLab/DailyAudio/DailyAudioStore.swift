@@ -61,11 +61,13 @@ final class DailyAudioStore {
         for track in practice.tracks {
             guard let raw = track.audioUrl, let remote = URL(string: raw) else { continue }
             do {
+                let cacheKey = cacheKey(for: track)
                 _ = try await mediaCache.download(
                     remote,
                     category: "daily-audio",
-                    cacheKey: "daily-audio:\(track.id)"
+                    cacheKey: cacheKey
                 )
+                try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -74,20 +76,43 @@ final class DailyAudioStore {
 
     func playableURL(for track: DailyAudioTrack) async -> URL? {
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
-        let cacheKey = "daily-audio:\(track.id)"
+        let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
             return local
         }
         do {
-            return try await mediaCache.download(
+            let local = try await mediaCache.download(
                 remote,
                 category: "daily-audio",
                 cacheKey: cacheKey
             )
+            try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
+            return local
         } catch {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    private func cacheKey(for track: DailyAudioTrack) -> String {
+        // learning-os advances the track's updatedAt on every regeneration
+        // transition (reset, generation claim, and ready), making it the
+        // canonical asset revision for client caches.
+        let revision = Int64((track.updatedAt.timeIntervalSince1970 * 1_000).rounded())
+        return "daily-audio:\(track.id):\(revision)"
+    }
+
+    private func removePreviousCachedRevisions(
+        of track: DailyAudioTrack,
+        keeping cacheKey: String
+    ) throws {
+        try mediaCache.removeCachedItems(
+            category: "daily-audio",
+            // The prefix intentionally omits the revision separator so it also
+            // retires the unversioned key written by older app builds.
+            cacheKeyPrefix: "daily-audio:\(track.id)",
+            keeping: cacheKey
+        )
     }
 
     private func persist(_ practices: [DailyAudioPractice]) throws {
