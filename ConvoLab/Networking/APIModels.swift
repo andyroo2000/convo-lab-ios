@@ -567,6 +567,38 @@ struct DailyAudioPracticePage: Codable, Sendable {
     let total: Int
     let limit: Int
     let nextCursor: String?
+
+    init(
+        items: [DailyAudioPractice],
+        total: Int,
+        limit: Int,
+        nextCursor: String?
+    ) {
+        self.items = items
+        self.total = total
+        self.limit = limit
+        self.nextCursor = nextCursor
+    }
+
+    init(from decoder: Decoder) throws {
+        if var legacy = try? decoder.unkeyedContainer() {
+            var practices: [DailyAudioPractice] = []
+            while !legacy.isAtEnd {
+                practices.append(try legacy.decode(DailyAudioPractice.self))
+            }
+            items = practices
+            total = practices.count
+            limit = practices.count
+            nextCursor = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([DailyAudioPractice].self, forKey: .items)
+        total = try container.decode(Int.self, forKey: .total)
+        limit = try container.decode(Int.self, forKey: .limit)
+        nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+    }
 }
 
 struct DailyAudioTrack: Codable, Identifiable, Sendable {

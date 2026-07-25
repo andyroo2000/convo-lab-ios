@@ -62,6 +62,43 @@ final class MediaCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingBatchEndpointDoesNotFloodLegacyServerWithIndividualRequests() async throws {
+        let requestCounter = LockedCounter()
+        MockURLProtocol.handler = { request in
+            _ = requestCounter.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 404,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Not Found"}"#.utf8)
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let urls = (0..<20).map { offset in
+            let id = ClientIdentifier.ulid(
+                date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
+            )
+
+            return URL(string: "/api/study/media/\(id)")!
+        }
+
+        await cache.prepare(urls: urls, category: "offline-study")
+
+        XCTAssertEqual(requestCounter.current, 1)
+        XCTAssertTrue(cache.cachedKeys(for: urls).isEmpty)
+    }
+
+    @MainActor
     func testChangingSignatureReusesStableMediaCacheEntry() async throws {
         let requestCounter = LockedCounter()
         MockURLProtocol.handler = { request in

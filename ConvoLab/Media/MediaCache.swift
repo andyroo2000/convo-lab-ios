@@ -213,6 +213,7 @@ final class MediaCache {
             return (url, id)
         }
         var preparedBatchKeys: Set<String> = []
+        var deferredBatchKeys: Set<String> = []
 
         for offset in stride(from: 0, to: batchable.count, by: Self.batchSize) {
             let end = min(offset + Self.batchSize, batchable.count)
@@ -252,6 +253,15 @@ final class MediaCache {
                         try? FileManager.default.removeItem(at: temporaryURL)
                     }
                 }
+            } catch let APIClientError.rejected(status, _)
+                where [404, 405, 429].contains(status)
+            {
+                // Production may not have the batch endpoint yet, or its media
+                // bucket may already be exhausted. Do not turn that condition
+                // into a burst of individual requests that starves sync calls.
+                deferredBatchKeys.formUnion(
+                    chunk.map { Self.stableCacheKey(for: $0.url) }
+                )
             } catch {
                 // Older servers and transient batch failures fall back to the
                 // individual download path, preserving rollout compatibility.
@@ -260,6 +270,7 @@ final class MediaCache {
 
         for url in uncachedURLs where
             !preparedBatchKeys.contains(Self.stableCacheKey(for: url))
+                && !deferredBatchKeys.contains(Self.stableCacheKey(for: url))
         {
             do {
                 _ = try await download(url, category: category)

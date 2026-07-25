@@ -79,6 +79,52 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
+    func testLegacyRootArrayStillRefreshesUntilPaginationBackendIsDeployed() async throws {
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/daily-audio-practice")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    [{
+                      "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
+                      "practiceDate": "2026-07-25",
+                      "status": "ready",
+                      "targetDurationMinutes": 30,
+                      "errorMessage": null,
+                      "createdAt": "2026-07-25T12:00:00.000Z",
+                      "updatedAt": "2026-07-25T12:00:00.000Z",
+                      "tracks": []
+                    }]
+                    """.utf8
+                )
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+
+        XCTAssertEqual(store.practices.count, 1)
+        XCTAssertEqual(store.total, 1)
+        XCTAssertFalse(store.hasMore)
+        XCTAssertNil(store.errorMessage)
+    }
+
     func testLoadMoreAppendsDistinctEarlierDailyAudioPages() async throws {
         let firstID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e01"
         let secondID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e02"
