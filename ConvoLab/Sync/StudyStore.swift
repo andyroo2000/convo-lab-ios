@@ -521,7 +521,7 @@ final class StudyStore {
                     query: [
                         URLQueryItem(name: "domain", value: "flashcards"),
                         URLQueryItem(name: "resource_type", value: "card"),
-                        URLQueryItem(name: "after_checkpoint", value: checkpoint.formatted()),
+                        URLQueryItem(name: "after_checkpoint", value: String(checkpoint)),
                         URLQueryItem(name: "per_page", value: "100"),
                     ]
                 )

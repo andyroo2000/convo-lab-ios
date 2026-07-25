@@ -4258,6 +4258,10 @@ final class StudyStoreTests: XCTestCase {
     @MainActor
     func testSynchronizationPullsCanonicalInboundCardAndAdvancesCheckpoint() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(
+            LocalSyncState(userID: 1, cardCheckpoint: 1_234)
+        )
+        try container.mainContext.save()
         let serverCard = makeCard(
             id: "01J00000000000000000000AA",
             expression: "受信"
@@ -4285,10 +4289,18 @@ final class StudyStoreTests: XCTestCase {
             let data: Data
             switch path {
             case "/api/sync/feed":
+                let queryItems = URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems
+                XCTAssertEqual(
+                    queryItems?.first(where: { $0.name == "after_checkpoint" })?.value,
+                    "1234"
+                )
                 data = Data(
                     """
-                    {"data":[{"checkpoint":7,"resource_id":"\(serverCardID)","operation":"update"}],
-                    "meta":{"next_checkpoint":7,"has_more":false}}
+                    {"data":[{"checkpoint":1235,"resource_id":"\(serverCardID)","operation":"update"}],
+                    "meta":{"next_checkpoint":1235,"has_more":false}}
                     """.utf8
                 )
             case "/api/study/cards/\(serverCardID)":
@@ -4344,7 +4356,7 @@ final class StudyStoreTests: XCTestCase {
             try XCTUnwrap(
                 container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
             ).cardCheckpoint,
-            7
+            1_235
         )
         XCTAssertEqual(store.syncStatus, .idle)
     }

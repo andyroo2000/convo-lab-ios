@@ -51,7 +51,9 @@ struct RegistrationRequest: Encodable {
     let deviceName: String
 
     enum CodingKeys: String, CodingKey {
-        case name, email, password, inviteCode
+        // The Convo Lab compatibility API intentionally keeps inviteCode camel-cased.
+        case name, email, password
+        case inviteCode = "inviteCode"
         case deviceName = "device_name"
     }
 }
@@ -232,6 +234,14 @@ struct StudyOfflineReserve: Decodable, Sendable {
     let reserveDays: Int
     let generatedAt: Date
     let horizonEndsAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        // The Study compatibility controller emits these fields in camel case.
+        case cards
+        case reserveDays = "reserveDays"
+        case generatedAt = "generatedAt"
+        case horizonEndsAt = "horizonEndsAt"
+    }
 }
 
 struct SyncFeedPage: Decodable, Sendable {
