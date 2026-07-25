@@ -61,11 +61,13 @@ final class DailyAudioStore {
         for track in practice.tracks {
             guard let raw = track.audioUrl, let remote = URL(string: raw) else { continue }
             do {
+                let cacheKey = cacheKey(for: track)
                 _ = try await mediaCache.download(
                     remote,
                     category: "daily-audio",
-                    cacheKey: cacheKey(for: track)
+                    cacheKey: cacheKey
                 )
+                try removePreviousCachedRevisions(of: track, keeping: cacheKey)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -76,14 +78,17 @@ final class DailyAudioStore {
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
         let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
+            try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             return local
         }
         do {
-            return try await mediaCache.download(
+            let local = try await mediaCache.download(
                 remote,
                 category: "daily-audio",
                 cacheKey: cacheKey
             )
+            try removePreviousCachedRevisions(of: track, keeping: cacheKey)
+            return local
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -93,6 +98,17 @@ final class DailyAudioStore {
     private func cacheKey(for track: DailyAudioTrack) -> String {
         let revision = Int64((track.updatedAt.timeIntervalSince1970 * 1_000).rounded())
         return "daily-audio:\(track.id):\(revision)"
+    }
+
+    private func removePreviousCachedRevisions(
+        of track: DailyAudioTrack,
+        keeping cacheKey: String
+    ) throws {
+        try mediaCache.removeCachedItems(
+            category: "daily-audio",
+            cacheKeyPrefix: "daily-audio:\(track.id):",
+            keeping: cacheKey
+        )
     }
 
     private func persist(_ practices: [DailyAudioPractice]) throws {

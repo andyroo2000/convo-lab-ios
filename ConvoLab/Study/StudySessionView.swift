@@ -15,6 +15,7 @@ struct StudySessionView: View {
     @State private var undoActions: [StudyUndoAction] = []
     @State private var isUndoing = false
     @State private var undoErrorMessage: String?
+    @State private var answerRestoredByUndoCardID: String?
 
     private var card: StudyCard? { store.cards.first }
 
@@ -99,10 +100,19 @@ struct StudySessionView: View {
                 Task { await undoLastAction() }
             }
         }
+        .accessibilityAction(named: Text("Undo Last Study Action")) {
+            Task { await undoLastAction() }
+        }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: card?.id) {
+        .onChange(of: card?.id) { _, newCardID in
             player.stop()
+            if let restoredCardID = answerRestoredByUndoCardID {
+                answerRestoredByUndoCardID = nil
+                if newCardID?.lowercased() == restoredCardID.lowercased() {
+                    return
+                }
+            }
             guard !isUndoing else { return }
             showingAnswer = false
             cardStartedAt = .now
@@ -396,6 +406,9 @@ struct StudySessionView: View {
         case let .grade(eventID, cardBefore):
             isUndoing = true
             defer { isUndoing = false }
+            if card?.id.lowercased() != cardBefore.id.lowercased() {
+                answerRestoredByUndoCardID = cardBefore.id
+            }
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 showingAnswer = true
@@ -403,6 +416,7 @@ struct StudySessionView: View {
                 didAutoplayAnswerForCardID = nil
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
+                answerRestoredByUndoCardID = nil
                 undoActions.append(action)
                 undoErrorMessage = error.localizedDescription
                 UINotificationFeedbackGenerator().notificationOccurred(.error)

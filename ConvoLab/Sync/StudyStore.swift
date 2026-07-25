@@ -1609,30 +1609,74 @@ final class StudyStore {
     }
 
     private func restoreReviewedCard(_ card: StudyCard) throws {
-        cards.removeAll { $0.id == card.id }
-        cards.insert(card, at: 0)
-        if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
-            libraryCards[index] = card
+        let record = try localCardRecord(forID: card.id)
+        let restoredCard = restoredCard(card, matching: record)
+        let normalizedID = restoredCard.id.lowercased()
+
+        cards.removeAll { $0.id.lowercased() == normalizedID }
+        cards.insert(restoredCard, at: 0)
+        if let index = libraryCards.firstIndex(
+            where: { $0.id.lowercased() == normalizedID }
+        ) {
+            libraryCards[index] = restoredCard
         } else {
-            libraryCards.append(card)
+            libraryCards.append(restoredCard)
         }
 
-        let cardID = card.id
-        var descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
-        )
-        descriptor.fetchLimit = 1
-        let payload = try StorageCodec.encoder.encode(card)
-        if let record = try context.fetch(descriptor).first {
+        let payload = try StorageCodec.encoder.encode(restoredCard)
+        if let record {
+            let wasLocallyUpdated = record.locallyUpdatedAt != nil
             record.payload = payload
             record.isInActiveSession = true
-            record.serverUpdatedAt = card.updatedAt
-            record.locallyUpdatedAt = nil
+            if !wasLocallyUpdated {
+                record.serverUpdatedAt = restoredCard.updatedAt
+            }
         } else {
-            context.insert(LocalCardRecord(card: card, queueIndex: 0, payload: payload))
+            context.insert(
+                LocalCardRecord(card: restoredCard, queueIndex: 0, payload: payload)
+            )
         }
         try persist(cards: cards)
         scheduleNextOfflineActivation()
+    }
+
+    private func restoredCard(
+        _ card: StudyCard,
+        matching record: LocalCardRecord?
+    ) -> StudyCard {
+        guard let record else { return card }
+        let localCard = try? StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: record.payload
+        )
+        guard record.id != card.id || record.locallyUpdatedAt != nil else {
+            return card
+        }
+
+        return StudyCard(
+            id: record.id,
+            syncId: card.syncId ?? localCard?.syncId,
+            noteId: card.noteId,
+            cardType: record.locallyUpdatedAt == nil
+                ? card.cardType
+                : localCard?.cardType ?? card.cardType,
+            prompt: record.locallyUpdatedAt == nil
+                ? card.prompt
+                : localCard?.prompt ?? card.prompt,
+            answer: record.locallyUpdatedAt == nil
+                ? card.answer
+                : localCard?.answer ?? card.answer,
+            state: card.state,
+            answerAudioSource: record.locallyUpdatedAt == nil
+                ? card.answerAudioSource
+                : localCard?.answerAudioSource ?? card.answerAudioSource,
+            createdAt: record.locallyUpdatedAt == nil
+                ? card.createdAt
+                : localCard?.createdAt ?? card.createdAt,
+            updatedAt: record.locallyUpdatedAt == nil
+                ? card.updatedAt
+                : localCard?.updatedAt ?? card.updatedAt
+        )
     }
 
     private func persist(cards: [StudyCard]) throws {
@@ -1711,32 +1755,32 @@ final class StudyStore {
     }
 
     private func currentLocalCard(for card: StudyCard) throws -> StudyCard {
-        let cardID = card.id
-        var exactDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.id == cardID }
-        )
-        exactDescriptor.fetchLimit = 1
         if
-            let record = try context.fetch(exactDescriptor).first,
-            let current = try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
-        {
-            return current
-        }
-
-        // learning-os canonicalizes client-generated ULIDs to lowercase. An editor
-        // can still hold the original snapshot while background sync renames the
-        // persisted record, so resolve that alias before saving.
-        let normalizedID = card.id.lowercased()
-        if
-            let record = try context.fetch(FetchDescriptor<LocalCardRecord>()).first(
-                where: { $0.id.lowercased() == normalizedID }
-            ),
+            let record = try localCardRecord(forID: card.id),
             let current = try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
         {
             return current
         }
 
         throw MissingLocalCardError()
+    }
+
+    private func localCardRecord(forID cardID: String) throws -> LocalCardRecord? {
+        var exactDescriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.id == cardID }
+        )
+        exactDescriptor.fetchLimit = 1
+        if let record = try context.fetch(exactDescriptor).first {
+            return record
+        }
+
+        // learning-os canonicalizes client-generated ULIDs to lowercase. An editor
+        // can still hold the original snapshot while background sync renames the
+        // persisted record, so resolve that alias before saving.
+        let normalizedID = cardID.lowercased()
+        return try context.fetch(FetchDescriptor<LocalCardRecord>()).first(
+            where: { $0.id.lowercased() == normalizedID }
+        )
     }
 
     private func updateLocalCard(

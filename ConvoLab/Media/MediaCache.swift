@@ -190,6 +190,30 @@ final class MediaCache {
         return availableKeys
     }
 
+    func removeCachedItems(
+        category: String,
+        cacheKeyPrefix: String,
+        keeping cacheKeyToKeep: String
+    ) throws {
+        let records = try context.fetch(FetchDescriptor<CachedMediaRecord>())
+        for record in records where
+            record.category == category
+                && record.remoteURL.hasPrefix(cacheKeyPrefix)
+                && record.remoteURL != cacheKeyToKeep
+        {
+            guard
+                inFlightDownloads[record.remoteURL] == nil,
+                inFlightRefreshes[record.remoteURL] == nil
+            else {
+                continue
+            }
+            let url = rootURL.appending(path: record.relativePath)
+            try? FileManager.default.removeItem(at: url)
+            context.delete(record)
+        }
+        try context.save()
+    }
+
     var totalByteCount: Int64 {
         let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
         return records.reduce(0) { $0 + $1.byteCount }

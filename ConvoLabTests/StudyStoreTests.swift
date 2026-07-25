@@ -4598,6 +4598,100 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoReviewReusesCanonicalRecordAndPreservesPendingEdit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let originalID = "01J0000000000000000000001W"
+        let canonicalID = originalID.lowercased()
+        let locallyEditedCard = makeCard(
+            id: originalID,
+            expression: "Local pending edit",
+            queueState: "review"
+        )
+        let dirtyAt = Date(timeIntervalSince1970: 1_000)
+        let record = LocalCardRecord(
+            card: locallyEditedCard,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(locallyEditedCard)
+        )
+        record.id = canonicalID
+        record.locallyUpdatedAt = dirtyAt
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        let serverCard = makeCard(
+            id: originalID,
+            expression: "Stale server expression",
+            queueState: "learning",
+            dueAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let cardJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(serverCard),
+                encoding: .utf8
+            )
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(overview),
+                encoding: .utf8
+            )
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "review-event-id",
+                      "card": \(cardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        try await store.undoReview(
+            eventID: "review-event-id",
+            cardBefore: locallyEditedCard
+        )
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>()
+        )
+        XCTAssertEqual(records.count, 1)
+        let restoredRecord = try XCTUnwrap(records.first)
+        XCTAssertEqual(restoredRecord.id, canonicalID)
+        XCTAssertEqual(restoredRecord.locallyUpdatedAt, dirtyAt)
+        let restoredCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: restoredRecord.payload
+        )
+        XCTAssertEqual(restoredCard.id, canonicalID)
+        XCTAssertEqual(restoredCard.promptText, "Local pending edit")
+        XCTAssertEqual(restoredCard.state, serverCard.state)
+        XCTAssertEqual(store.cards.first, restoredCard)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
