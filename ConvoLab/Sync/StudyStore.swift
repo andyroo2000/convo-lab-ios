@@ -1727,9 +1727,7 @@ final class StudyStore {
             newCardsAvailableToday: card.state.queueState == "new"
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
                 : current.newCardsAvailableToday,
-            failedCount: card.state.failedAt != nil
-                ? current.failedCount.map { max(0, $0 - 1) }
-                : current.failedCount
+            failedCount: current.failedCount
         )
     }
 

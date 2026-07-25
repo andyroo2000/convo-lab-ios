@@ -188,6 +188,76 @@ final class DailyAudioStoreTests: XCTestCase {
         )
     }
 
+    func testCreatePreservesTheServerIssuedPaginationCursor() async throws {
+        let firstPractice = """
+        {
+          "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e01",
+          "practiceDate": "2026-07-24",
+          "status": "ready",
+          "targetDurationMinutes": 30,
+          "errorMessage": null,
+          "createdAt": "2026-07-24T12:00:00.000Z",
+          "updatedAt": "2026-07-24T12:00:00.000Z",
+          "tracks": []
+        }
+        """
+        let createdPractice = """
+        {
+          "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e02",
+          "practiceDate": "2026-07-25",
+          "status": "generating",
+          "targetDurationMinutes": 30,
+          "errorMessage": null,
+          "createdAt": "2026-07-25T12:00:00.000Z",
+          "updatedAt": "2026-07-25T12:00:00.000Z",
+          "tracks": []
+        }
+        """
+        let client = makeClient { request in
+            let body = if request.httpMethod == "POST" {
+                Data(createdPractice.utf8)
+            } else {
+                Data(
+                    """
+                    {
+                      "items": [\(firstPractice)],
+                      "total": 20,
+                      "limit": 14,
+                      "nextCursor": "14"
+                    }
+                    """.utf8
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: request.httpMethod == "POST" ? 202 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+        await store.create()
+
+        XCTAssertEqual(store.nextCursor, "14")
+        XCTAssertEqual(store.total, 21)
+        XCTAssertEqual(store.practices.count, 2)
+    }
+
     func testRegeneratedTrackWithSameIDAndURLDownloadsItsNewRevision() async throws {
         let requestCounter = LockedCounter()
         let client = makeClient { request in

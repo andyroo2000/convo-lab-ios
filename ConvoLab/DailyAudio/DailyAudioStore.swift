@@ -146,7 +146,6 @@ final class DailyAudioStore {
             if !wasAlreadyLoaded {
                 total += 1
             }
-            nextCursor = practices.count < total ? String(practices.count) : nil
             try persist([response], userID: userID)
         } catch {
             errorMessage = error.localizedDescription

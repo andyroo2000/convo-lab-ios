@@ -3793,7 +3793,7 @@ final class StudyStoreTests: XCTestCase {
                 reviewCount: 0,
                 newCardsPerDay: 20,
                 newCardsAvailableToday: 0,
-                failedCount: 1
+                failedCount: 2
             ),
             cards: [failedCard]
         )
@@ -3837,13 +3837,13 @@ final class StudyStoreTests: XCTestCase {
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
         try await store.refreshSession()
-        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertEqual(store.sessionCounts.failedDue, 2)
 
         await store.recordReview(card: failedCard, rating: .good, duration: nil)
 
         XCTAssertEqual(
             store.sessionCounts,
-            StudySessionCounts(failedDue: 0, reviewRemaining: 0, newRemaining: 0)
+            StudySessionCounts(failedDue: 1, reviewRemaining: 0, newRemaining: 0)
         )
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertTrue(

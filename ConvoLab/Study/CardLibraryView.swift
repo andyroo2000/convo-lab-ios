@@ -379,6 +379,7 @@ struct CardEditorView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var stagedPhotoData: Data?
     @State private var stagedPhotoPreview: UIImage?
+    @State private var createdPhotoTarget: StudyCard?
     @State private var showingCamera = false
     @State private var errorMessage: String?
     @State private var independentImageAction: IndependentImageAction?
@@ -903,10 +904,14 @@ struct CardEditorView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            var photoTarget: StudyCard?
+            var photoTarget = createdPhotoTarget
             if let card {
                 try await store.updateCard(card, draft: draft)
                 photoTarget = card
+            } else if createdPhotoTarget != nil {
+                // Card creation already succeeded on an earlier save attempt.
+                // Retry only the photo upload so a transient failure cannot
+                // create a second card with a new client identifier.
             } else if let serverDraft {
                 try await store.createCard(
                     from: serverDraft,
@@ -923,6 +928,7 @@ struct CardEditorView: View {
                 )
             } else {
                 photoTarget = try await store.createCard(draft)
+                createdPhotoTarget = photoTarget
             }
             if let stagedPhotoData, let photoTarget {
                 _ = try await store.uploadImage(

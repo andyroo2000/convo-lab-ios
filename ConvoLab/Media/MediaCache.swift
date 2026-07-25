@@ -206,6 +206,7 @@ final class MediaCache {
     }
 
     func prepare(urls: [URL], category: String) async {
+        guard let userID = activeUserID else { return }
         let uniqueURLs = Array(Set(urls))
         let uncachedURLs = uniqueURLs.filter { localURL(for: $0) == nil }
         let batchable = uncachedURLs.compactMap { url -> (url: URL, id: String)? in
@@ -224,14 +225,14 @@ final class MediaCache {
                     method: "POST",
                     body: StudyMediaBatchRequest(ids: chunk.map(\.id))
                 )
+                guard activeUserID == userID else { return }
                 let urlsByID = Dictionary(
                     chunk.map { ($0.id.lowercased(), $0.url) },
                     uniquingKeysWith: { first, _ in first }
                 )
                 for item in response.items {
                     guard
-                        let remoteURL = urlsByID[item.id.lowercased()],
-                        let userID = activeUserID
+                        let remoteURL = urlsByID[item.id.lowercased()]
                     else {
                         continue
                     }

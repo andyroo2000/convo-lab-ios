@@ -99,6 +99,57 @@ final class MediaCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testBatchResponseCannotBeCachedUnderANewlyActivatedAccount() async throws {
+        let gate = LockedRequestGate()
+        let id = ClientIdentifier.ulid()
+        MockURLProtocol.handler = { request in
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: [
+                    "items": [[
+                        "id": id,
+                        "mimeType": "audio/mpeg",
+                        "data": Data("first-user-media".utf8).base64EncodedString(),
+                    ]],
+                ])
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let remoteURL = URL(string: "/api/study/media/\(id)")!
+
+        let preparation = Task {
+            await cache.prepare(urls: [remoteURL], category: "offline-study")
+        }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+        cache.activate(userID: 2)
+        gate.release()
+        await preparation.value
+
+        XCTAssertNil(cache.localURL(for: remoteURL))
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            0
+        )
+    }
+
+    @MainActor
     func testChangingSignatureReusesStableMediaCacheEntry() async throws {
         let requestCounter = LockedCounter()
         MockURLProtocol.handler = { request in
