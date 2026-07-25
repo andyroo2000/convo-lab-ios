@@ -146,6 +146,8 @@ final class StudyReviewSchedulingTests: XCTestCase {
         XCTAssertEqual(reviewed.state.queueState, "learning")
         XCTAssertEqual(reviewed.state.dueAt, reviewedAt.addingTimeInterval(6 * 60))
         XCTAssertEqual(reviewed.state.scheduler?["learning_steps"], .number(1))
+        XCTAssertEqual(reviewed.state.scheduler?["stability"], .number(2.3065))
+        XCTAssertEqual(reviewed.state.scheduler?["difficulty"], .number(4.75285849))
     }
 
     func testElapsedDaysUsesUtcCalendarDays() throws {

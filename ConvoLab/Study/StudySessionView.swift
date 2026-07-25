@@ -336,10 +336,6 @@ struct StudySessionView: View {
         Button {
             guard submittingReviewCardIDs.insert(card.id).inserted else { return }
             let reviewedAt = Date.now
-            reviewIntervalLabels[rating] = card.reviewSchedule(
-                rating,
-                at: reviewedAt
-            ).intervalLabel
             if rating == .again {
                 didAutoplayAnswerForCardID = nil
             }
