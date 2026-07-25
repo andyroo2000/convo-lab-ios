@@ -278,6 +278,8 @@ enum FSRSReviewScheduler {
         case 1:
             return (steps[0], 0)
         case 2:
+            // ts-fsrs bases Hard on the first two configured steps even after
+            // the card has advanced to a later learning step.
             let minutes = steps.count == 1
                 ? Int((Double(steps[0]) * 1.5).rounded())
                 : Int((Double(steps[0] + steps[1]) / 2).rounded())

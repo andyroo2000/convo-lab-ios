@@ -123,6 +123,31 @@ final class StudyReviewSchedulingTests: XCTestCase {
         )
     }
 
+    func testHardUsesTheSameSixMinuteDelayAfterAdvancingToTheSecondLearningStep() {
+        let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let card = makeCard(
+            queueState: "learning",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00.000Z"),
+                "stability": .number(2.3065),
+                "difficulty": .number(2.11810397),
+                "elapsed_days": .number(0),
+                "scheduled_days": .number(0),
+                "learning_steps": .number(1),
+                "reps": .number(1),
+                "lapses": .number(0),
+                "state": .number(1),
+                "last_review": .string("2027-01-15T07:50:00.000Z"),
+            ])
+        )
+
+        let reviewed = card.applyingReview(.hard, at: reviewedAt)
+
+        XCTAssertEqual(reviewed.state.queueState, "learning")
+        XCTAssertEqual(reviewed.state.dueAt, reviewedAt.addingTimeInterval(6 * 60))
+        XCTAssertEqual(reviewed.state.scheduler?["learning_steps"], .number(1))
+    }
+
     func testElapsedDaysUsesUtcCalendarDays() throws {
         let reviewedAt = try date("2026-07-25T00:01:00.000Z")
         let lastReview = try date("2026-07-24T23:59:00.000Z")

@@ -16,6 +16,7 @@ struct StudySessionView: View {
     @State private var isUndoing = false
     @State private var undoErrorMessage: String?
     @State private var answerRestoredByUndoCardID: String?
+    @State private var reviewIntervalLabels: [ReviewRating: String] = [:]
 
     private var card: StudyCard? { store.cards.first }
 
@@ -75,6 +76,7 @@ struct StudySessionView: View {
                     Button("Show Answer") {
                         player.stop()
                         pushUndo(.reveal(cardID: card.id))
+                        prepareReviewIntervalLabels(for: card)
                         showingAnswer = true
                         autoplayAnswerAudioIfReady(cardID: card.id)
                         Task {
@@ -115,6 +117,7 @@ struct StudySessionView: View {
             }
             guard !isUndoing else { return }
             showingAnswer = false
+            reviewIntervalLabels = [:]
             cardStartedAt = .now
             didAutoplayAnswerForCardID = nil
         }
@@ -349,7 +352,7 @@ struct StudySessionView: View {
             }
         } label: {
             VStack(spacing: 2) {
-                Text(card.reviewSchedule(rating, at: .now).intervalLabel)
+                Text(reviewIntervalLabels[rating] ?? "—")
                     .font(.caption.bold())
                 Text(title)
             }
@@ -359,6 +362,15 @@ struct StudySessionView: View {
         .tint(color)
         .frame(maxWidth: .infinity)
         .disabled(submittingReviewCardIDs.contains(card.id) || isUndoing)
+    }
+
+    private func prepareReviewIntervalLabels(
+        for card: StudyCard,
+        at reviewedAt: Date = .now
+    ) {
+        reviewIntervalLabels = Dictionary(uniqueKeysWithValues: ReviewRating.allCases.map {
+            ($0, card.reviewSchedule($0, at: reviewedAt).intervalLabel)
+        })
     }
 
     private func playAnswerAudio(cardID: String) {
@@ -411,6 +423,7 @@ struct StudySessionView: View {
             }
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
+                prepareReviewIntervalLabels(for: cardBefore)
                 showingAnswer = true
                 cardStartedAt = .now
                 didAutoplayAnswerForCardID = nil
