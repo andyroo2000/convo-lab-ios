@@ -3371,6 +3371,43 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineDueActivationDoesNotResurrectCaseCanonicalizedPendingDelete() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01j00000000000000000000018",
+            expression: "削除",
+            dueAt: .now
+        )
+        let record = LocalCardRecord(
+            card: card,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.isInActiveSession = false
+        container.mainContext.insert(record)
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardDelete",
+                resourceID: card.id.uppercased(),
+                payload: Data()
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(api: client, context: container.mainContext)
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        store.activateOfflineDueCards(at: .now)
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
     func testDueActivationTimerReactivatesCardWhileStoreRemainsOpen() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dueAt = Date.now.addingTimeInterval(1.5)

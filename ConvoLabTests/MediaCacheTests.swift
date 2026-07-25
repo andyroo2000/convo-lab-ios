@@ -229,6 +229,35 @@ final class MediaCacheTests: XCTestCase {
         XCTAssertEqual(available, [MediaCache.stableCacheKey(for: remoteURL)])
         XCTAssertEqual(record.lastAccessedAt, previousAccess)
     }
+
+    @MainActor
+    func testDownloadedByteCountExcludesDeferredDeletionRecords() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: .shared
+        )
+        let cache = MediaCache(api: client, context: container.mainContext)
+        container.mainContext.insert(
+            CachedMediaRecord(
+                remoteURL: "active",
+                relativePath: "active.mp3",
+                byteCount: 10,
+                category: "daily-audio"
+            )
+        )
+        container.mainContext.insert(
+            CachedMediaRecord(
+                remoteURL: "retired",
+                relativePath: "retired.mp3",
+                byteCount: 20,
+                category: "deferred-deletion"
+            )
+        )
+        try container.mainContext.save()
+
+        XCTAssertEqual(cache.totalByteCount, 10)
+    }
 }
 
 private actor MediaDownloadCompletion {

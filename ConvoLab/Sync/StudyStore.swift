@@ -422,14 +422,14 @@ final class StudyStore {
                 FetchDescriptor<PendingMutation>(
                     predicate: #Predicate { $0.kind == "cardDelete" }
                 )
-            )) ?? []).map(\.resourceID)
+            )) ?? []).map { $0.resourceID.lowercased() }
         )
         var activeCardIDs = Set(cards.map(\.id))
         var newlyDueCards: [StudyCard] = []
         var changed = false
 
         for record in records {
-            guard !pendingDeleteIDs.contains(record.id) else { continue }
+            guard !pendingDeleteIDs.contains(record.id.lowercased()) else { continue }
             guard
                 let card = try? StorageCodec.decoder.decode(
                     StudyCard.self,

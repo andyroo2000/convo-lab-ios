@@ -239,7 +239,13 @@ final class MediaCache {
     }
 
     var totalByteCount: Int64 {
-        let records = (try? context.fetch(FetchDescriptor<CachedMediaRecord>())) ?? []
+        let records = (try? context.fetch(
+            FetchDescriptor<CachedMediaRecord>(
+                predicate: #Predicate {
+                    $0.category != "deferred-deletion"
+                }
+            )
+        )) ?? []
         return records.reduce(0) { $0 + $1.byteCount }
     }
 
