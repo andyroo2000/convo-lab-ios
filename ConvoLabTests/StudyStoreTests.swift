@@ -4724,6 +4724,55 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoDoesNotResurrectCardWithPendingDelete() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001Y",
+            expression: "削除済み"
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardDelete",
+                resourceID: card.id.lowercased(),
+                payload: Data()
+            )
+        )
+        try container.mainContext.save()
+        let requestCount = LockedCounter()
+        let client = makeClient { _ in
+            _ = requestCount.next()
+            throw URLError(.badServerResponse)
+        }
+        let store = StudyStore(
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.undoReview(
+                eventID: "01J0000000000000000000001Z",
+                cardBefore: card
+            )
+            XCTFail("Expected undo to reject a pending card deletion.")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This card was deleted and cannot be restored."
+            )
+        }
+
+        XCTAssertEqual(requestCount.current, 0)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<LocalCardRecord>()
+            ).isEmpty
+        )
+    }
+
+    @MainActor
     func testUndoReviewReusesCanonicalRecordAndPreservesPendingEdit() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let originalID = "01J0000000000000000000001W"

@@ -76,6 +76,12 @@ final class StudyStore {
         }
     }
 
+    private struct DeletedCardUndoError: LocalizedError {
+        var errorDescription: String? {
+            "This card was deleted and cannot be restored."
+        }
+    }
+
     private struct MissingGeneratedAudioError: LocalizedError {
         var errorDescription: String? {
             "The server regenerated this card without returning playable audio."
@@ -591,6 +597,9 @@ final class StudyStore {
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
         if let reviewOutboxFlushTask {
             _ = try? await reviewOutboxFlushTask.value
+        }
+        guard try !hasPendingDelete(for: cardBefore.id) else {
+            throw DeletedCardUndoError()
         }
         if let pending = try pendingReview(eventID: eventID) {
             context.delete(pending)
@@ -1487,7 +1496,18 @@ final class StudyStore {
             }
         )
         descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
+        if try !context.fetch(descriptor).isEmpty {
+            return true
+        }
+
+        let normalizedID = cardID.lowercased()
+        return try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "cardDelete" }
+            )
+        ).contains {
+            $0.resourceID.lowercased() == normalizedID
+        }
     }
 
     private func hasPendingCreate(for cardID: String) throws -> Bool {
@@ -1632,6 +1652,9 @@ final class StudyStore {
     }
 
     private func restoreReviewedCard(_ card: StudyCard) throws {
+        guard try !hasPendingDelete(for: card.id) else {
+            throw DeletedCardUndoError()
+        }
         let record = try localCardRecord(forID: card.id)
         let restoredCard = restoredCard(card, matching: record)
         let normalizedID = restoredCard.id.lowercased()

@@ -199,7 +199,12 @@ final class MediaCache {
         cacheKeyPrefix: String,
         keeping cacheKeyToKeep: String
     ) throws {
-        let records = try context.fetch(FetchDescriptor<CachedMediaRecord>())
+        let desiredCategory = category
+        let records = try context.fetch(
+            FetchDescriptor<CachedMediaRecord>(
+                predicate: #Predicate { $0.category == desiredCategory }
+            )
+        )
         for record in records where
             record.category == category
                 && record.remoteURL.hasPrefix(cacheKeyPrefix)
