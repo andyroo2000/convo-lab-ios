@@ -470,7 +470,10 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            try await refreshOfflineReserve(userID: userID)
+            try await refreshOfflineReserve(
+                userID: userID,
+                clearingOtherRecords: refreshed
+            )
         } catch {
             firstError = firstError ?? error
         }
@@ -620,7 +623,10 @@ final class StudyStore {
         }
     }
 
-    private func refreshOfflineReserve(userID: Int) async throws {
+    private func refreshOfflineReserve(
+        userID: Int,
+        clearingOtherRecords: Bool
+    ) async throws {
         let reserve: StudyOfflineReserve = try await api.request(
             "/api/study/offline-reserve",
             method: "POST"
@@ -635,7 +641,7 @@ final class StudyStore {
         )
         markPrepared(
             cards: cards + reserve.cards,
-            clearingOtherRecords: true
+            clearingOtherRecords: clearingOtherRecords
         )
     }
 
@@ -683,7 +689,10 @@ final class StudyStore {
             guard activeUserID == userID else { return }
             try await refreshSession()
             guard activeUserID == userID else { return }
-            try await refreshOfflineReserve(userID: userID)
+            try await refreshOfflineReserve(
+                userID: userID,
+                clearingOtherRecords: true
+            )
         }
     }
 
