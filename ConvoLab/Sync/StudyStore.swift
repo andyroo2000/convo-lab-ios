@@ -3,6 +3,8 @@ import SwiftData
 
 @Observable
 final class StudyStore {
+    private static let maxIndividualCardResolutionsPerSyncPage = 3
+
     private static let reviewUploadBatchSize = 100
 
     private struct PendingReviewCardState: Codable {
@@ -641,7 +643,10 @@ final class StudyStore {
             urls: reserve.cards.flatMap(\.mediaURLs),
             category: "offline-study"
         )
-        markPrepared(cards: reserve.cards)
+        markPrepared(
+            cards: cards + reserve.cards,
+            clearingOtherRecords: true
+        )
     }
 
     private func pullCardChanges(userID: Int) async throws {
@@ -717,6 +722,13 @@ final class StudyStore {
                 }
             }
         }
+        let unresolvedEntries = entries.filter {
+            $0.operation != "delete"
+                && cardsByID[$0.resourceId.lowercased()] == nil
+        }
+        if unresolvedEntries.count > Self.maxIndividualCardResolutionsPerSyncPage {
+            throw MissingCardBatchItemError(cardID: unresolvedEntries[0].resourceId)
+        }
 
         for entry in entries {
             guard activeUserID == userID else { return }
@@ -725,10 +737,20 @@ final class StudyStore {
                 try removeServerCard(resourceID: entry.resourceId, userID: userID)
                 continue
             }
-            guard let card = cardsByID[normalizedID] else {
-                throw MissingCardBatchItemError(cardID: entry.resourceId)
+            if let card = cardsByID[normalizedID] {
+                try apply(card, userID: userID)
+                continue
             }
-            try apply(card, userID: userID)
+            do {
+                let card: StudyCard = try await api.request(
+                    "/api/study/cards/\(entry.resourceId)"
+                )
+                guard activeUserID == userID else { return }
+                try apply(card, userID: userID)
+            } catch APIClientError.rejected(status: 404, message: _) {
+                guard activeUserID == userID else { return }
+                try removeServerCard(resourceID: entry.resourceId, userID: userID)
+            }
         }
     }
 
@@ -2350,7 +2372,7 @@ final class StudyStore {
         try context.save()
     }
 
-    private func markPrepared(cards: [StudyCard]) {
+    private func markPrepared(cards: [StudyCard], clearingOtherRecords: Bool = false) {
         guard let userID = activeUserID else { return }
         let cardsByID = Dictionary(
             cards.map { ($0.id, $0) },
@@ -2363,7 +2385,12 @@ final class StudyStore {
             )
         )) ?? []
         for record in records {
-            guard let card = cardsByID[record.id] else { continue }
+            guard let card = cardsByID[record.id] else {
+                if clearingOtherRecords {
+                    record.mediaPreparedAt = nil
+                }
+                continue
+            }
             let isPrepared = card.mediaURLs.allSatisfy {
                 cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
             }

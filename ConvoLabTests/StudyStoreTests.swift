@@ -4678,21 +4678,21 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testPartialCardBatchResponsePreservesLocalCardAndCheckpoint() async throws {
+    func testPartialCardBatchResponseUsesBoundedResolutionBeforeAdvancingCheckpoint() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000002D",
             expression: "保持"
         )
         let cardID = card.id
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
+        let record = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
         )
+        record.mediaPreparedAt = .now
+        container.mainContext.insert(record)
         try container.mainContext.save()
         let emptySession = StudySession(
             overview: StudyOverview(
@@ -4708,6 +4708,7 @@ final class StudyStoreTests: XCTestCase {
             with: StorageCodec.encoder.encode(emptySession)
         )
         let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let individualRequestCount = LockedCounter()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             let data: Data
@@ -4722,6 +4723,18 @@ final class StudyStoreTests: XCTestCase {
                 )
             case "/api/study/cards/batch":
                 data = Data(#"{"cards":[]}"#.utf8)
+            case "/api/study/cards/\(cardID)":
+                let attempt = individualRequestCount.next()
+                let statusCode = attempt == 1 ? 500 : 404
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: statusCode,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Unavailable"}"#.utf8)
+                )
             case "/api/study/known-kanji":
                 data = Data(
                     #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
@@ -4760,6 +4773,7 @@ final class StudyStoreTests: XCTestCase {
         await store.synchronize()
 
         XCTAssertEqual(store.libraryCards.map(\.id), [cardID])
+        XCTAssertEqual(store.preparedCardCount, 0)
         XCTAssertEqual(
             try XCTUnwrap(
                 container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
@@ -4767,8 +4781,20 @@ final class StudyStoreTests: XCTestCase {
             0
         )
         guard case .failed = store.syncStatus else {
-            return XCTFail("A partial batch response should leave the sync page retryable.")
+            return XCTFail("A transient resolution failure should leave the sync page retryable.")
         }
+
+        await store.synchronize()
+
+        XCTAssertEqual(individualRequestCount.current, 2)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            1
+        )
+        XCTAssertEqual(store.syncStatus, .idle)
     }
 
     @MainActor
