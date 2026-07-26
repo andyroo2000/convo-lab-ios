@@ -128,6 +128,14 @@ final class StudyStore {
         }
     }
 
+    private struct MissingCardBatchItemError: LocalizedError {
+        let cardID: String
+
+        var errorDescription: String? {
+            "The server did not return card \(cardID) in its sync batch. Try syncing again."
+        }
+    }
+
     struct AnswerAudioRegenerationResult {
         let card: StudyCard
         let localURL: URL
@@ -713,12 +721,12 @@ final class StudyStore {
         for entry in entries {
             guard activeUserID == userID else { return }
             let normalizedID = entry.resourceId.lowercased()
-            guard
-                entry.operation != "delete",
-                let card = cardsByID[normalizedID]
-            else {
+            if entry.operation == "delete" {
                 try removeServerCard(resourceID: entry.resourceId, userID: userID)
                 continue
+            }
+            guard let card = cardsByID[normalizedID] else {
+                throw MissingCardBatchItemError(cardID: entry.resourceId)
             }
             try apply(card, userID: userID)
         }

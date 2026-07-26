@@ -4678,6 +4678,100 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPartialCardBatchResponsePreservesLocalCardAndCheckpoint() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000002D",
+            expression: "保持"
+        )
+        let cardID = card.id
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let emptySession = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(emptySession)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            let data: Data
+            switch path {
+            case "/api/sync/feed":
+                data = Data(
+                    """
+                    {"data":[
+                    {"checkpoint":1,"resource_id":"\(cardID)","operation":"update"}],
+                    "meta":{"next_checkpoint":1,"has_more":false}}
+                    """.utf8
+                )
+            case "/api/study/cards/batch":
+                data = Data(#"{"cards":[]}"#.utf8)
+            case "/api/study/known-kanji":
+                data = Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            case "/api/study/session/start":
+                data = sessionData
+            case "/api/study/offline-reserve":
+                data = Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                )
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        defer { store.deactivate() }
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.libraryCards.map(\.id), [cardID])
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            0
+        )
+        guard case .failed = store.syncStatus else {
+            return XCTFail("A partial batch response should leave the sync page retryable.")
+        }
+    }
+
+    @MainActor
     func testStudySettingsRefreshAndUpdateUseCompatibilityPayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in
