@@ -270,6 +270,14 @@ struct SyncFeedPage: Decodable, Sendable {
     let meta: Metadata
 }
 
+struct StudyCardBatchRequest: Encodable, Sendable {
+    let ids: [String]
+}
+
+struct StudyCardBatchResponse: Decodable, Sendable {
+    let cards: [StudyCard]
+}
+
 struct StudyOverview: Codable, Sendable {
     let dueCount: Int
     let failedCount: Int?

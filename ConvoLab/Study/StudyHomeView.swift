@@ -95,7 +95,7 @@ struct StudyHomeView: View {
                     .background(ConvoLabTheme.cyan.opacity(0.18), in: .capsule)
             }
 
-            let target = max(store.cards.count, store.fiveDayNewCardTarget)
+            let target = store.offlineReadinessTarget
             ProgressView(value: Double(min(store.preparedCardCount, target)), total: Double(max(target, 1)))
                 .tint(ConvoLabTheme.cyan)
 

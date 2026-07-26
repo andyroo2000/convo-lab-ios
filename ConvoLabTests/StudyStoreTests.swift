@@ -4412,8 +4412,21 @@ final class StudyStoreTests: XCTestCase {
             id: "01J00000000000000000000AA",
             expression: "受信"
         )
+        let secondServerCard = makeCard(
+            id: "01J00000000000000000000AB",
+            expression: "一括"
+        )
         let serverCardID = serverCard.id
-        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let secondServerCardID = secondServerCard.id
+        let serverCardObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(serverCard)
+        )
+        let secondServerCardObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(secondServerCard)
+        )
+        let serverCardBatchData = try JSONSerialization.data(
+            withJSONObject: ["cards": [serverCardObject, secondServerCardObject]]
+        )
         let emptySession = StudySession(
             overview: StudyOverview(
                 dueCount: 0,
@@ -4449,12 +4462,19 @@ final class StudyStoreTests: XCTestCase {
                 )
                 data = Data(
                     """
-                    {"data":[{"checkpoint":1235,"resource_id":"\(serverCardID)","operation":"update"}],
-                    "meta":{"next_checkpoint":1235,"has_more":false}}
+                    {"data":[
+                    {"checkpoint":1235,"resource_id":"\(serverCardID)","operation":"update"},
+                    {"checkpoint":1236,"resource_id":"\(secondServerCardID)","operation":"create"}],
+                    "meta":{"next_checkpoint":1236,"has_more":false}}
                     """.utf8
                 )
-            case "/api/study/cards/\(serverCardID)":
-                data = serverCardData
+            case "/api/study/cards/batch":
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: [String]]
+                )
+                XCTAssertEqual(body, ["ids": [serverCardID, secondServerCardID]])
+                data = serverCardBatchData
             case "/api/study/known-kanji":
                 data = Data(
                     #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
@@ -4495,18 +4515,18 @@ final class StudyStoreTests: XCTestCase {
             paths.values,
             [
                 "/api/sync/feed",
-                "/api/study/cards/\(serverCardID)",
+                "/api/study/cards/batch",
                 "/api/study/known-kanji",
                 "/api/study/session/start",
                 "/api/study/offline-reserve",
             ]
         )
-        XCTAssertEqual(store.libraryCards.map(\.id), [serverCardID])
+        XCTAssertEqual(Set(store.libraryCards.map(\.id)), Set([serverCardID, secondServerCardID]))
         XCTAssertEqual(
             try XCTUnwrap(
                 container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
             ).cardCheckpoint,
-            1_235
+            1_236
         )
         XCTAssertEqual(store.syncStatus, .idle)
 
@@ -4516,13 +4536,48 @@ final class StudyStoreTests: XCTestCase {
             paths.values,
             [
                 "/api/sync/feed",
-                "/api/study/cards/\(serverCardID)",
+                "/api/study/cards/batch",
                 "/api/study/known-kanji",
                 "/api/study/session/start",
                 "/api/study/offline-reserve",
             ],
             "A recent successful sync should suppress redundant Study-page refreshes."
         )
+    }
+
+    @MainActor
+    func testOfflineReadinessCountsPreparedReserveCardsOutsideActiveSession() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000002B",
+            expression: "予備"
+        )
+        let record = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.isInActiveSession = false
+        record.mediaPreparedAt = .now
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let client = makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        defer { store.deactivate() }
+
+        XCTAssertEqual(store.preparedCardCount, 1)
     }
 
     @MainActor
@@ -4753,6 +4808,10 @@ final class StudyStoreTests: XCTestCase {
         )
         let serverCardID = serverCard.id
         let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let serverCardObject = try JSONSerialization.jsonObject(with: serverCardData)
+        let serverCardBatchData = try JSONSerialization.data(
+            withJSONObject: ["cards": [serverCardObject]]
+        )
         let gate = LockedRequestGate()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
@@ -4772,7 +4831,7 @@ final class StudyStoreTests: XCTestCase {
                         """.utf8
                     )
                 )
-            case "/api/study/cards/\(serverCardID)":
+            case "/api/study/cards/batch":
                 gate.markStarted()
                 gate.waitForRelease()
                 return (
@@ -4782,7 +4841,7 @@ final class StudyStoreTests: XCTestCase {
                         httpVersion: nil,
                         headerFields: ["Content-Type": "application/json"]
                     )!,
-                    serverCardData
+                    serverCardBatchData
                 )
             default:
                 throw URLError(.badServerResponse)

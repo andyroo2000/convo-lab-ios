@@ -298,6 +298,13 @@ final class StudyStore {
         (overview?.newCardsPerDay ?? 0) * 5
     }
 
+    var offlineReadinessTarget: Int {
+        sessionCounts.offlineReadinessTarget(
+            loadedCardCount: cards.count,
+            fiveDayNewCardTarget: fiveDayNewCardTarget
+        )
+    }
+
     var sessionCounts: StudySessionCounts {
         StudySessionCounts.calculate(
             cards: cards,
@@ -405,7 +412,7 @@ final class StudyStore {
         guard let userID = activeUserID else { return 0 }
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate {
-                $0.userID == userID && $0.isInActiveSession && $0.mediaPreparedAt != nil
+                $0.userID == userID && $0.mediaPreparedAt != nil
             }
         )
         return (try? context.fetchCount(descriptor)) ?? 0
@@ -645,11 +652,9 @@ final class StudyStore {
                     ]
                 )
                 guard activeUserID == userID else { return }
-                for entry in page.data {
-                    try await apply(entry, userID: userID)
-                }
+                try await apply(page.data, userID: userID)
                 // An account switch can happen while an individual card fetch is
-                // suspended. Never acknowledge the page unless every entry was
+                // suspended. Never acknowledge the page unless every card was
                 // durably applied for the account that requested it.
                 guard activeUserID == userID else { return }
                 checkpoint = page.meta.nextCheckpoint
@@ -672,31 +677,59 @@ final class StudyStore {
         }
     }
 
-    private func apply(_ entry: SyncFeedPage.Entry, userID: Int) async throws {
+    private func apply(_ entries: [SyncFeedPage.Entry], userID: Int) async throws {
         guard activeUserID == userID else { return }
-        if entry.operation == "delete" {
-            try removeServerCard(resourceID: entry.resourceId, userID: userID)
-            return
+        var requestedCardIDs: [String] = []
+        var seenCardIDs: Set<String> = []
+        for entry in entries where entry.operation != "delete" {
+            let normalizedID = entry.resourceId.lowercased()
+            if seenCardIDs.insert(normalizedID).inserted {
+                requestedCardIDs.append(entry.resourceId)
+            }
         }
 
-        do {
-            let card: StudyCard = try await api.request(
-                "/api/study/cards/\(entry.resourceId)"
+        let serverCards: [StudyCard]
+        if requestedCardIDs.isEmpty {
+            serverCards = []
+        } else {
+            let response: StudyCardBatchResponse = try await api.request(
+                "/api/study/cards/batch",
+                method: "POST",
+                body: StudyCardBatchRequest(ids: requestedCardIDs)
             )
             guard activeUserID == userID else { return }
-            let hasPendingReview = try pendingReviewState().cardIDs.contains(card.id)
-            let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
-            let merged = try acknowledgedCard(
-                card,
-                preservingPendingReview: hasPendingReview,
-                preservingPendingEdit: hasPendingEdit
-            )
-            try updateLocalCard(merged, markedDirty: hasPendingEdit, serverUpdatedAt: card.updatedAt)
-            try context.save()
-        } catch APIClientError.rejected(status: 404, message: _) {
-            guard activeUserID == userID else { return }
-            try removeServerCard(resourceID: entry.resourceId, userID: userID)
+            serverCards = response.cards
         }
+        let cardsByID = Dictionary(
+            serverCards.map { ($0.reviewCardID.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        for entry in entries {
+            guard activeUserID == userID else { return }
+            let normalizedID = entry.resourceId.lowercased()
+            guard
+                entry.operation != "delete",
+                let card = cardsByID[normalizedID]
+            else {
+                try removeServerCard(resourceID: entry.resourceId, userID: userID)
+                continue
+            }
+            try apply(card, userID: userID)
+        }
+    }
+
+    private func apply(_ card: StudyCard, userID: Int) throws {
+        guard activeUserID == userID else { return }
+        let hasPendingReview = try pendingReviewState().cardIDs.contains(card.id)
+        let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
+        let merged = try acknowledgedCard(
+            card,
+            preservingPendingReview: hasPendingReview,
+            preservingPendingEdit: hasPendingEdit
+        )
+        try updateLocalCard(merged, markedDirty: hasPendingEdit, serverUpdatedAt: card.updatedAt)
+        try context.save()
     }
 
     private func syncState(userID: Int) throws -> LocalSyncState {
@@ -2873,6 +2906,17 @@ struct StudySessionCounts: Equatable {
 
     var hasRemainingStudy: Bool {
         failedDue > 0 || reviewRemaining > 0 || newRemaining > 0
+    }
+
+    func offlineReadinessTarget(
+        loadedCardCount: Int,
+        fiveDayNewCardTarget: Int
+    ) -> Int {
+        max(
+            loadedCardCount,
+            failedDue + reviewRemaining,
+            fiveDayNewCardTarget
+        )
     }
 
     static func calculate(
