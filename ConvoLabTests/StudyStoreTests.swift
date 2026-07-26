@@ -4581,6 +4581,103 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingCardBatchEndpointFailsOnceWithoutIndividualFallbackRequests() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCardID = "01J0000000000000000000002C"
+        let emptySession = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(emptySession)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            let statusCode: Int
+            let data: Data
+            switch path {
+            case "/api/sync/feed":
+                statusCode = 200
+                data = Data(
+                    """
+                    {"data":[
+                    {"checkpoint":1,"resource_id":"\(serverCardID)","operation":"update"}],
+                    "meta":{"next_checkpoint":1,"has_more":false}}
+                    """.utf8
+                )
+            case "/api/study/cards/batch":
+                statusCode = 404
+                data = Data(#"{"message":"Not Found"}"#.utf8)
+            case "/api/study/known-kanji":
+                statusCode = 200
+                data = Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            case "/api/study/session/start":
+                statusCode = 200
+                data = sessionData
+            case "/api/study/offline-reserve":
+                statusCode = 200
+                data = Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                )
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        defer { store.deactivate() }
+
+        await store.synchronize()
+
+        XCTAssertEqual(
+            paths.values.count(where: { $0 == "/api/study/cards/batch" }),
+            1
+        )
+        XCTAssertFalse(
+            paths.values.contains(where: {
+                $0.hasPrefix("/api/study/cards/") && $0 != "/api/study/cards/batch"
+            })
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            0
+        )
+        guard case .failed = store.syncStatus else {
+            return XCTFail("The unavailable batch endpoint should fail this sync attempt.")
+        }
+    }
+
+    @MainActor
     func testStudySettingsRefreshAndUpdateUseCompatibilityPayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

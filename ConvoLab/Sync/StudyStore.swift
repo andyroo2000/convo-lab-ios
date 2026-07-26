@@ -700,10 +700,15 @@ final class StudyStore {
             guard activeUserID == userID else { return }
             serverCards = response.cards
         }
-        let cardsByID = Dictionary(
-            serverCards.map { ($0.reviewCardID.lowercased(), $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        var cardsByID: [String: StudyCard] = [:]
+        for card in serverCards {
+            for identifier in [card.id, card.reviewCardID] {
+                let normalizedID = identifier.lowercased()
+                if cardsByID[normalizedID] == nil {
+                    cardsByID[normalizedID] = card
+                }
+            }
+        }
 
         for entry in entries {
             guard activeUserID == userID else { return }
