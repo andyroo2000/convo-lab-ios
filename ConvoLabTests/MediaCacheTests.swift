@@ -59,6 +59,26 @@ final class MediaCacheTests: XCTestCase {
             try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
             45
         )
+
+        let additionalURLs = (45..<50).map { offset in
+            let id = ClientIdentifier.ulid(
+                date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
+            )
+            return URL(string: "/api/study/media/\(id)")!
+        }
+
+        await cache.prepare(urls: urls + additionalURLs, category: "offline-study")
+
+        XCTAssertEqual(
+            paths.values,
+            Array(repeating: "/api/study/media/batch", count: 4)
+        )
+        XCTAssertEqual(batchSizes.values.sorted(), ["20", "20", "5", "5"])
+        XCTAssertEqual(cache.cachedKeys(for: urls + additionalURLs).count, 50)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+            50
+        )
     }
 
     @MainActor

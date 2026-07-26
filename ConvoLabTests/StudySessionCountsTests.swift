@@ -20,6 +20,22 @@ final class StudySessionCountsTests: XCTestCase {
         )
     }
 
+    func testOfflineReadinessTargetUsesAuthoritativeDueBacklogBeyondLoadedCards() {
+        let counts = StudySessionCounts(
+            failedDue: 8,
+            reviewRemaining: 380,
+            newRemaining: 0
+        )
+
+        XCTAssertEqual(
+            counts.offlineReadinessTarget(
+                loadedCardCount: 300,
+                fiveDayNewCardTarget: 100
+            ),
+            388
+        )
+    }
+
     func testOverviewDecodesAuthoritativeFailedCount() throws {
         let overview = try StorageCodec.decoder.decode(
             StudyOverview.self,
