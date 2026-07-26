@@ -4678,13 +4678,19 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testPartialCardBatchResponseUsesBoundedResolutionBeforeAdvancingCheckpoint() async throws {
+    func testPartialCardBatchResponseResolvesWholePageWithoutPermanentRetryWedge() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000002D",
             expression: "保持"
         )
         let cardID = card.id
+        let omittedCardIDs = [
+            cardID,
+            "01J0000000000000000000002E",
+            "01J0000000000000000000002F",
+            "01J0000000000000000000002G",
+        ]
         let record = LocalCardRecord(
             card: card,
             userID: 1,
@@ -4714,16 +4720,20 @@ final class StudyStoreTests: XCTestCase {
             let data: Data
             switch path {
             case "/api/sync/feed":
+                let entries = omittedCardIDs.enumerated().map { index, resourceID in
+                    """
+                    {"checkpoint":\(index + 1),"resource_id":"\(resourceID)","operation":"update"}
+                    """
+                }.joined(separator: ",")
                 data = Data(
                     """
-                    {"data":[
-                    {"checkpoint":1,"resource_id":"\(cardID)","operation":"update"}],
-                    "meta":{"next_checkpoint":1,"has_more":false}}
+                    {"data":[\(entries)],
+                    "meta":{"next_checkpoint":4,"has_more":false}}
                     """.utf8
                 )
             case "/api/study/cards/batch":
                 data = Data(#"{"cards":[]}"#.utf8)
-            case "/api/study/cards/\(cardID)":
+            case let path where path.hasPrefix("/api/study/cards/"):
                 let attempt = individualRequestCount.next()
                 let statusCode = attempt == 1 ? 500 : 404
                 return (
@@ -4786,13 +4796,13 @@ final class StudyStoreTests: XCTestCase {
 
         await store.synchronize()
 
-        XCTAssertEqual(individualRequestCount.current, 2)
+        XCTAssertEqual(individualRequestCount.current, 5)
         XCTAssertTrue(store.libraryCards.isEmpty)
         XCTAssertEqual(
             try XCTUnwrap(
                 container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
             ).cardCheckpoint,
-            1
+            4
         )
         XCTAssertEqual(store.syncStatus, .idle)
     }

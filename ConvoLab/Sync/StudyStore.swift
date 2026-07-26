@@ -3,8 +3,6 @@ import SwiftData
 
 @Observable
 final class StudyStore {
-    private static let maxIndividualCardResolutionsPerSyncPage = 3
-
     private static let reviewUploadBatchSize = 100
 
     private struct PendingReviewCardState: Codable {
@@ -127,14 +125,6 @@ final class StudyStore {
     private struct PendingDraftCommitError: LocalizedError {
         var errorDescription: String? {
             "This draft may already have created a card. Retry Create Card or sync before deleting it."
-        }
-    }
-
-    private struct MissingCardBatchItemError: LocalizedError {
-        let cardID: String
-
-        var errorDescription: String? {
-            "The server did not return card \(cardID) in its sync batch. Try syncing again."
         }
     }
 
@@ -665,7 +655,7 @@ final class StudyStore {
                     ]
                 )
                 guard activeUserID == userID else { return }
-                try await apply(page.data, userID: userID)
+                let usedIndividualResolution = try await apply(page.data, userID: userID)
                 // An account switch can happen while an individual card fetch is
                 // suspended. Never acknowledge the page unless every card was
                 // durably applied for the account that requested it.
@@ -674,6 +664,13 @@ final class StudyStore {
                 state.cardCheckpoint = checkpoint
                 state.updatedAt = .now
                 try context.save()
+                // A partial-but-successful batch response is anomalous. Resolve
+                // at most this 50-card feed page, persist its checkpoint, and
+                // leave any later pages for the next sync rather than recreating
+                // an unbounded legacy per-card request loop.
+                if usedIndividualResolution {
+                    return
+                }
                 guard page.meta.hasMore else { break }
             }
         } catch APIClientError.rejected(status: 409, message: _) {
@@ -690,8 +687,8 @@ final class StudyStore {
         }
     }
 
-    private func apply(_ entries: [SyncFeedPage.Entry], userID: Int) async throws {
-        guard activeUserID == userID else { return }
+    private func apply(_ entries: [SyncFeedPage.Entry], userID: Int) async throws -> Bool {
+        guard activeUserID == userID else { return false }
         var requestedCardIDs: [String] = []
         var seenCardIDs: Set<String> = []
         for entry in entries where entry.operation != "delete" {
@@ -710,7 +707,7 @@ final class StudyStore {
                 method: "POST",
                 body: StudyCardBatchRequest(ids: requestedCardIDs)
             )
-            guard activeUserID == userID else { return }
+            guard activeUserID == userID else { return false }
             serverCards = response.cards
         }
         var cardsByID: [String: StudyCard] = [:]
@@ -722,16 +719,10 @@ final class StudyStore {
                 }
             }
         }
-        let unresolvedEntries = entries.filter {
-            $0.operation != "delete"
-                && cardsByID[$0.resourceId.lowercased()] == nil
-        }
-        if unresolvedEntries.count > Self.maxIndividualCardResolutionsPerSyncPage {
-            throw MissingCardBatchItemError(cardID: unresolvedEntries[0].resourceId)
-        }
+        var usedIndividualResolution = false
 
         for entry in entries {
-            guard activeUserID == userID else { return }
+            guard activeUserID == userID else { return false }
             let normalizedID = entry.resourceId.lowercased()
             if entry.operation == "delete" {
                 try removeServerCard(resourceID: entry.resourceId, userID: userID)
@@ -741,17 +732,19 @@ final class StudyStore {
                 try apply(card, userID: userID)
                 continue
             }
+            usedIndividualResolution = true
             do {
                 let card: StudyCard = try await api.request(
                     "/api/study/cards/\(entry.resourceId)"
                 )
-                guard activeUserID == userID else { return }
+                guard activeUserID == userID else { return false }
                 try apply(card, userID: userID)
             } catch APIClientError.rejected(status: 404, message: _) {
-                guard activeUserID == userID else { return }
+                guard activeUserID == userID else { return false }
                 try removeServerCard(resourceID: entry.resourceId, userID: userID)
             }
         }
+        return usedIndividualResolution
     }
 
     private func apply(_ card: StudyCard, userID: Int) throws {
