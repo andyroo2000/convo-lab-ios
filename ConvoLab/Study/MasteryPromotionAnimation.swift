@@ -21,6 +21,9 @@ struct MasteryPromotionAnimation: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
+                ConvoLabTheme.cream
+                    .ignoresSafeArea()
+
                 cloud
                     .frame(width: 154, height: 96)
                     .position(x: geometry.size.width / 2, y: 65)
@@ -42,8 +45,9 @@ struct MasteryPromotionAnimation: View {
                     .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
-        .allowsHitTesting(false)
+        .ignoresSafeArea()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(announcement)
         .task(id: "\(label)|\(level)") {
