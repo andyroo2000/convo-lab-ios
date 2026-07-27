@@ -5484,6 +5484,67 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testMasteryPromotionRemainsVisibleAfterTheReviewedCardAdvances() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001U",
+            expression: "復習",
+            scheduler: .object([
+                "due": .string("2026-04-12T00:00:00.000Z"),
+                "stability": .number(54.1885),
+                "difficulty": .number(9.317),
+                "elapsed_days": .number(59),
+                "scheduled_days": .number(59),
+                "learning_steps": .number(0),
+                "reps": .number(12),
+                "lapses": .number(1),
+                "state": .number(2),
+                "last_review": .string("2026-02-12T13:01:42.000Z"),
+            ])
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+
+        _ = await store.recordReview(card: card, rating: .good, duration: nil)
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.masteryPromotion?.level, StudyMasteryLevel.enlightened.rawValue)
+    }
+
+    @MainActor
     func testUndoReviewRemovesPendingOfflineEventAndRestoresCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
@@ -6086,7 +6147,8 @@ final class StudyStoreTests: XCTestCase {
         expression: String,
         mediaURL: String? = nil,
         queueState: String = "review",
-        dueAt: Date? = nil
+        dueAt: Date? = nil,
+        scheduler: JSONValue? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -6103,7 +6165,7 @@ final class StudyStoreTests: XCTestCase {
                 introducedAt: nil,
                 failedAt: nil,
                 queueState: queueState,
-                scheduler: nil,
+                scheduler: scheduler,
                 source: .object([:])
             ),
             answerAudioSource: "missing",

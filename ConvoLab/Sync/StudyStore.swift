@@ -1057,6 +1057,9 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
+            // A promotion remains visible over the next card until it is dismissed or
+            // that card is answered. Clearing here avoids both stale and invisible banners.
+            masteryPromotion = nil
             // Compare the same local FSRS projection on both sides. The server annotation
             // belongs to the pre-review state and cannot describe this optimistic review.
             let oldLevel = card.fsrsMasteryLevel

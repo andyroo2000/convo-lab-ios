@@ -181,7 +181,6 @@ struct StudySessionView: View {
         }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
-            store.dismissMasteryPromotion()
             if let restoredCardID = answerRestoredByUndoCardID {
                 if newCardID?.lowercased() == restoredCardID.lowercased() {
                     answerRestoredByUndoCardID = nil
