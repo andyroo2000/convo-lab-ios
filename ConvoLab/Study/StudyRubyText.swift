@@ -2,6 +2,24 @@ import CoreText
 import SwiftUI
 import UIKit
 
+private final class StudyRubyUITextView: UITextView {
+    override func copy(_ sender: Any?) {
+        guard selectedRange.location != NSNotFound, selectedRange.length > 0 else {
+            super.copy(sender)
+            return
+        }
+
+        let selectedText = (attributedText.string as NSString)
+            .substring(with: selectedRange)
+            .removingStudyRubyLayoutControls
+        UIPasteboard.general.string = selectedText
+    }
+
+    override func text(in range: UITextRange) -> String? {
+        super.text(in: range)?.removingStudyRubyLayoutControls
+    }
+}
+
 struct StudyRubyDocument: Equatable {
     private static let annotationExpression = try? NSRegularExpression(
         pattern:
@@ -156,7 +174,7 @@ struct StudyRubyText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = StudyRubyUITextView()
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
@@ -200,7 +218,7 @@ struct StudyRubyText: UIViewRepresentable {
     }
 }
 
-private extension StudyRubyDocument {
+extension StudyRubyDocument {
     func attributedString(
         pointSize: CGFloat,
         weight: UIFont.Weight,
@@ -232,7 +250,11 @@ private extension StudyRubyDocument {
                 output.append(NSAttributedString(string: text, attributes: baseAttributes))
             case let .ruby(base, reading):
                 let annotated = NSMutableAttributedString(
-                    string: base,
+                    // Japanese line breaking normally permits a wrap between
+                    // any two ideographs. Keep a multi-character ruby base
+                    // together so Core Text never splits the base across lines
+                    // and silently drops its reading.
+                    string: base.joinedWithWordJoiners,
                     attributes: baseAttributes
                 )
                 let annotation = CTRubyAnnotationCreateWithAttributes(
@@ -257,6 +279,12 @@ private extension StudyRubyDocument {
     }
 }
 
+extension String {
+    var removingStudyRubyLayoutControls: String {
+        replacingOccurrences(of: "\u{2060}", with: "")
+    }
+}
+
 private extension Character {
     var isKana: Bool {
         unicodeScalars.allSatisfy { scalar in
@@ -277,6 +305,11 @@ private extension Character {
 }
 
 private extension String {
+    var joinedWithWordJoiners: String {
+        guard count > 1 else { return self }
+        return map(String.init).joined(separator: "\u{2060}")
+    }
+
     var containsKanjiOrIterationMark: Bool {
         contains { $0.isKanji || $0 == "々" }
     }
