@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import ConvoLab
 
 @MainActor
@@ -104,5 +105,28 @@ final class StudyRubyTextTests: XCTestCase {
         )
 
         XCTAssertEqual(document.segments, [.text("時々")])
+    }
+
+    func testMultiCharacterRubyBaseCannotWrapInsideTheAnnotatedWord() {
+        let document = StudyRubyDocument.parse(
+            "多[おお]くの経験[けいけん]豊[ゆた]かな人",
+            knownKanji: ["多"]
+        )
+
+        let rendered = document.attributedString(
+            pointSize: 38,
+            weight: .semibold,
+            color: .label,
+            alignment: .center
+        )
+
+        XCTAssertEqual(
+            rendered.string,
+            "多くの経\u{2060}験豊かな人"
+        )
+        XCTAssertEqual(
+            rendered.string.replacingOccurrences(of: "\u{2060}", with: ""),
+            document.plainText
+        )
     }
 }

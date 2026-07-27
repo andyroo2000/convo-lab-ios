@@ -200,7 +200,7 @@ struct StudyRubyText: UIViewRepresentable {
     }
 }
 
-private extension StudyRubyDocument {
+extension StudyRubyDocument {
     func attributedString(
         pointSize: CGFloat,
         weight: UIFont.Weight,
@@ -232,7 +232,11 @@ private extension StudyRubyDocument {
                 output.append(NSAttributedString(string: text, attributes: baseAttributes))
             case let .ruby(base, reading):
                 let annotated = NSMutableAttributedString(
-                    string: base,
+                    // Japanese line breaking normally permits a wrap between
+                    // any two ideographs. Keep a multi-character ruby base
+                    // together so Core Text never splits the base across lines
+                    // and silently drops its reading.
+                    string: base.joinedWithWordJoiners,
                     attributes: baseAttributes
                 )
                 let annotation = CTRubyAnnotationCreateWithAttributes(
@@ -277,6 +281,11 @@ private extension Character {
 }
 
 private extension String {
+    var joinedWithWordJoiners: String {
+        guard count > 1 else { return self }
+        return map(String.init).joined(separator: "\u{2060}")
+    }
+
     var containsKanjiOrIterationMark: Bool {
         contains { $0.isKanji || $0 == "々" }
     }
