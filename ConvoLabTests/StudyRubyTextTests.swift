@@ -162,7 +162,12 @@ final class StudyRubyTextTests: XCTestCase {
 
     func testTextKit2ViewActuallyDrawsRubyAnnotation() {
         let document = StudyRubyDocument.parse(
-            "経験[けいけん]",
+            """
+            営業[えいぎょう]する
+            研究[けんきゅう]
+            講義[こうぎ]
+            友[とも]だちは東京[とうきょう]に引[ひ]っ越[こ]しました。
+            """,
             knownKanji: []
         )
         let rubyText = document.attributedString(
@@ -176,20 +181,25 @@ final class StudyRubyTextTests: XCTestCase {
             NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
             range: NSRange(location: 0, length: plainText.length)
         )
+        let rubyImage = renderedImage(for: rubyText)
+        let attachment = XCTAttachment(image: rubyImage)
+        attachment.name = "TextKit 2 furigana visual reference"
+        attachment.lifetime = .keepAlways
+        add(attachment)
 
         XCTAssertNotEqual(
-            renderedPNG(for: rubyText),
-            renderedPNG(for: plainText),
+            rubyImage.pngData(),
+            renderedImage(for: plainText).pngData(),
             "The TextKit 2 view must draw the ruby glyphs, not merely retain their attribute."
         )
     }
 
-    private func renderedPNG(for text: NSAttributedString) -> Data? {
+    private func renderedImage(for text: NSAttributedString) -> UIImage {
         let view = UITextView(usingTextLayoutManager: true)
         let delegate = StudyRubyLineBreakDelegate()
         delegate.updateRubyRanges(in: text)
         view.textLayoutManager?.delegate = delegate
-        view.frame = CGRect(x: 0, y: 0, width: 320, height: 160)
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 430)
         view.backgroundColor = .white
         view.textContainerInset = UIEdgeInsets(top: 48, left: 0, bottom: 0, right: 0)
         view.textContainer.lineFragmentPadding = 0
@@ -198,6 +208,6 @@ final class StudyRubyTextTests: XCTestCase {
 
         return UIGraphicsImageRenderer(bounds: view.bounds).image { context in
             view.layer.render(in: context.cgContext)
-        }.pngData()
+        }
     }
 }
