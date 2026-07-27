@@ -163,21 +163,19 @@ struct StudySessionView: View {
                 try? await store.refreshSession()
             }
         }
-        .overlay(alignment: .top) {
+        .overlay {
             if let promotion = store.masteryPromotion {
-                VStack(spacing: 4) {
-                    Text("\(promotion.label) reached \(promotion.level.capitalized)")
-                        .font(.headline)
-                    if let stability = promotion.stability {
-                        Text("FSRS stability is now \(Int(stability.rounded())) days.")
-                            .font(.caption)
+                MasteryPromotionAnimation(
+                    label: promotion.label,
+                    level: promotion.level
+                ) {
+                    guard store.masteryPromotion?.label == promotion.label,
+                          store.masteryPromotion?.level == promotion.level else {
+                        return
                     }
-                    Button("Dismiss") { store.dismissMasteryPromotion() }
-                        .font(.caption.bold())
+                    store.dismissMasteryPromotion()
                 }
-                .padding()
-                .background(.green.opacity(0.16), in: .rect(cornerRadius: 16))
-                .padding(.horizontal)
+                .id("\(promotion.label)|\(promotion.level)")
             }
         }
         .onChange(of: card?.id) { _, newCardID in
