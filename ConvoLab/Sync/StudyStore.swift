@@ -1057,8 +1057,10 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
-            let oldLevel = card.effectiveMasteryLevel
-            let newLevel = updatedCard.effectiveMasteryLevel
+            // Compare the same local FSRS projection on both sides. The server annotation
+            // belongs to the pre-review state and cannot describe this optimistic review.
+            let oldLevel = card.fsrsMasteryLevel
+            let newLevel = updatedCard.fsrsMasteryLevel
             if rating != .again, newLevel.rank > oldLevel.rank {
                 masteryPromotion = (
                     label: card.presentation.back.heading
@@ -2331,6 +2333,9 @@ final class StudyStore {
         let record = try localCardRecord(forID: card.id)
         let restoredCard = restoredCard(card, matching: record)
         let normalizedID = restoredCard.id.lowercased()
+        sessionCompletedCardIDs = Set(
+            sessionCompletedCardIDs.filter { $0.lowercased() != normalizedID }
+        )
 
         cards.removeAll { $0.id.lowercased() == normalizedID }
         cards.insert(restoredCard, at: 0)

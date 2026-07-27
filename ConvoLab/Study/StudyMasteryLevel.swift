@@ -25,6 +25,13 @@ extension StudyCard {
         if let masteryLevel, let level = StudyMasteryLevel(rawValue: masteryLevel) {
             return level
         }
+        return fsrsMasteryLevel
+    }
+
+    var fsrsMasteryLevel: StudyMasteryLevel {
+        if ["new", "learning", "relearning"].contains(state.queueState) {
+            return .apprentice
+        }
         let stability = fsrsStability ?? 0
         switch stability {
         case 365...: return .burned

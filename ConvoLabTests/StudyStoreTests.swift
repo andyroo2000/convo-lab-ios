@@ -5427,6 +5427,63 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoReviewRestoresFrozenSessionProgress() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001T",
+            expression: "進捗"
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertEqual(store.sessionProgress, 1)
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+    }
+
+    @MainActor
     func testUndoReviewRemovesPendingOfflineEventAndRestoresCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

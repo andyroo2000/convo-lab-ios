@@ -99,6 +99,15 @@ final class StudyReviewSchedulingTests: XCTestCase {
         }
     }
 
+    func testPromotionComparisonUsesFsrsProjectionOnBothSides() throws {
+        let reviewedAt = try date("2026-07-25T12:00:00.000Z")
+        let card = makeCard(queueState: "review", scheduler: matureScheduler)
+        let reviewed = card.applyingReview(.good, at: reviewedAt)
+
+        XCTAssertEqual(card.fsrsMasteryLevel, .master)
+        XCTAssertEqual(reviewed.fsrsMasteryLevel, .enlightened)
+    }
+
     func testHardKeepsLearningAndRelearningState() {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
