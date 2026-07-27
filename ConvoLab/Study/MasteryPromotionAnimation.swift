@@ -87,12 +87,16 @@ struct MasteryPromotionAnimation: View {
     @MainActor
     private func runAnimation() async {
         if reduceMotion {
+            itemPosition = 1
+            itemScale = 0.66
             withAnimation(.easeOut(duration: 0.2)) {
                 cloudOpacity = 1
+                itemOpacity = 1
             }
             guard await pause(for: .milliseconds(900)) else { return }
             withAnimation(.easeIn(duration: 0.25)) {
                 cloudOpacity = 0
+                itemOpacity = 0
             }
             guard await pause(for: .milliseconds(260)) else { return }
             onFinished()

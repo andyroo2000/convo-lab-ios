@@ -203,7 +203,12 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
-    private(set) var masteryPromotion: (label: String, level: String, stability: Double?)?
+    private(set) var masteryPromotion: (
+        id: UUID,
+        label: String,
+        level: String,
+        stability: Double?
+    )?
 
     var sessionProgress: Double {
         guard sessionInitialCardCount > 0 else { return 0 }
@@ -1079,6 +1084,7 @@ final class StudyStore {
             let newLevel = updatedCard.fsrsMasteryLevel
             if rating != .again, newLevel.rank > oldLevel.rank {
                 masteryPromotion = (
+                    id: UUID(),
                     label: card.presentation.back.heading
                         ?? card.presentation.front.heading
                         ?? "This item",

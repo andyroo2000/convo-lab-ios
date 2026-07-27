@@ -169,13 +169,12 @@ struct StudySessionView: View {
                     label: promotion.label,
                     level: promotion.level
                 ) {
-                    guard store.masteryPromotion?.label == promotion.label,
-                          store.masteryPromotion?.level == promotion.level else {
+                    guard store.masteryPromotion?.id == promotion.id else {
                         return
                     }
                     store.dismissMasteryPromotion()
                 }
-                .id("\(promotion.label)|\(promotion.level)")
+                .id(promotion.id)
             }
         }
         .onChange(of: card?.id) { _, newCardID in
