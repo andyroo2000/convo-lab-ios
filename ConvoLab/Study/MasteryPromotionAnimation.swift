@@ -20,13 +20,17 @@ struct MasteryPromotionAnimation: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let cloudCenterY = Self.cloudCenterY(
+                safeAreaTop: geometry.safeAreaInsets.top
+            )
+
             ZStack {
                 ConvoLabTheme.cream
                     .ignoresSafeArea()
 
                 cloud
                     .frame(width: 154, height: 96)
-                    .position(x: geometry.size.width / 2, y: 65)
+                    .position(x: geometry.size.width / 2, y: cloudCenterY)
                     .opacity(cloudOpacity)
 
                 Text(label)
@@ -39,7 +43,10 @@ struct MasteryPromotionAnimation: View {
                     .scaleEffect(itemScale)
                     .position(
                         x: geometry.size.width / 2,
-                        y: itemY(in: geometry.size.height)
+                        y: itemY(
+                            in: geometry.size.height,
+                            cloudCenterY: cloudCenterY
+                        )
                     )
                     .opacity(itemOpacity)
                     .accessibilityHidden(true)
@@ -77,10 +84,14 @@ struct MasteryPromotionAnimation: View {
         }
     }
 
-    private func itemY(in height: CGFloat) -> CGFloat {
+    static func cloudCenterY(safeAreaTop: CGFloat) -> CGFloat {
+        max(118, safeAreaTop + 56)
+    }
+
+    private func itemY(in height: CGFloat, cloudCenterY: CGFloat) -> CGFloat {
         let start = max(220, height * 0.52)
-        let pause = CGFloat(137)
-        let absorbed = CGFloat(72)
+        let pause = cloudCenterY + 72
+        let absorbed = cloudCenterY + 7
 
         if itemPosition <= 1 {
             return start + (pause - start) * itemPosition
@@ -93,49 +104,49 @@ struct MasteryPromotionAnimation: View {
         if reduceMotion {
             itemPosition = 1
             itemScale = 0.66
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.easeOut(duration: 0.1)) {
                 cloudOpacity = 1
                 itemOpacity = 1
             }
-            guard await pause(for: .milliseconds(900)) else { return }
-            withAnimation(.easeIn(duration: 0.25)) {
+            guard await pause(for: .milliseconds(450)) else { return }
+            withAnimation(.easeIn(duration: 0.125)) {
                 cloudOpacity = 0
                 itemOpacity = 0
             }
-            guard await pause(for: .milliseconds(260)) else { return }
+            guard await pause(for: .milliseconds(130)) else { return }
             onFinished()
             return
         }
 
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.11)) {
             cloudOpacity = 1
             itemOpacity = 1
         }
-        guard await pause(for: .milliseconds(170)) else { return }
+        guard await pause(for: .milliseconds(85)) else { return }
 
-        withAnimation(.easeInOut(duration: 0.58)) {
+        withAnimation(.easeInOut(duration: 0.29)) {
             itemPosition = 1
             itemScale = 0.66
         }
-        guard await pause(for: .milliseconds(1_500)) else { return }
+        guard await pause(for: .milliseconds(750)) else { return }
 
-        withAnimation(.easeIn(duration: 0.2)) {
+        withAnimation(.easeIn(duration: 0.1)) {
             itemPosition = 2
             itemScale = 0.04
             itemOpacity = 0
             cloudLineWidth = 6
         }
-        guard await pause(for: .milliseconds(210)) else { return }
+        guard await pause(for: .milliseconds(105)) else { return }
 
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.11)) {
             cloudLineWidth = 2
         }
-        guard await pause(for: .milliseconds(280)) else { return }
+        guard await pause(for: .milliseconds(140)) else { return }
 
-        withAnimation(.easeIn(duration: 0.28)) {
+        withAnimation(.easeIn(duration: 0.14)) {
             cloudOpacity = 0
         }
-        guard await pause(for: .milliseconds(290)) else { return }
+        guard await pause(for: .milliseconds(145)) else { return }
         onFinished()
     }
 
