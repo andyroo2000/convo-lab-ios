@@ -132,11 +132,8 @@ enum FSRSReviewScheduler {
         if seconds < 24 * 60 * 60 {
             return "\(Int((seconds / (60 * 60)).rounded()))h"
         }
-        if seconds < 30 * 24 * 60 * 60 {
-            return "\(Int((seconds / (24 * 60 * 60)).rounded()))d"
-        }
         if seconds < 365 * 24 * 60 * 60 {
-            return "\(Int((seconds / (30 * 24 * 60 * 60)).rounded()))mo"
+            return "\(Int((seconds / (24 * 60 * 60)).rounded()))d"
         }
         return "\(Int((seconds / (365 * 24 * 60 * 60)).rounded()))y"
     }

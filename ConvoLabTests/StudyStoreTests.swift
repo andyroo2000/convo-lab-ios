@@ -3765,6 +3765,63 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLessonRefreshUsesDedicatedEndpointAndStartsFrozenBatchProgress() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = [
+            makeCard(
+                id: "01J00000000000000000000014",
+                expression: "営業する",
+                queueState: "new"
+            ),
+            makeCard(
+                id: "01J00000000000000000000015",
+                expression: "講義",
+                queueState: "new"
+            ),
+        ]
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 3,
+                newCount: 8,
+                reviewCount: 3,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 8,
+                lessonBatchSize: 2
+            ),
+            cards: lessonCards
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshLessons()
+
+        XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
+        XCTAssertEqual(store.sessionKind, "lessons")
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.sessionInitialCardCount, 2)
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(
@@ -4816,7 +4873,10 @@ final class StudyStoreTests: XCTestCase {
                 let body = try XCTUnwrap(
                     JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
                 )
-                XCTAssertEqual(body, ["newCardsPerDay": 24])
+                XCTAssertEqual(body, [
+                    "lessonBatchSize": 5,
+                    "newCardsPerDay": 24,
+                ])
                 return (
                     HTTPURLResponse(
                         url: request.url!,
@@ -4850,6 +4910,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
 
         let saved = await store.updateNewCardsPerDay(24)
         XCTAssertTrue(saved)
@@ -5363,6 +5424,133 @@ final class StudyStoreTests: XCTestCase {
             from: eventData
         )
         XCTAssertEqual(review.durationMilliseconds, 750)
+    }
+
+    @MainActor
+    func testUndoReviewRestoresFrozenSessionProgress() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001T",
+            expression: "進捗"
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertEqual(store.sessionProgress, 1)
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+    }
+
+    @MainActor
+    func testMasteryPromotionRemainsVisibleAfterTheReviewedCardAdvances() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001U",
+            expression: "復習",
+            scheduler: .object([
+                "due": .string("2026-04-12T00:00:00.000Z"),
+                "stability": .number(54.1885),
+                "difficulty": .number(9.317),
+                "elapsed_days": .number(59),
+                "scheduled_days": .number(59),
+                "learning_steps": .number(0),
+                "reps": .number(12),
+                "lapses": .number(1),
+                "state": .number(2),
+                "last_review": .string("2026-02-12T13:01:42.000Z"),
+            ])
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/session/start" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshSession()
+
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.masteryPromotion?.level, StudyMasteryLevel.enlightened.rawValue)
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertNil(store.masteryPromotion)
     }
 
     @MainActor
@@ -5968,7 +6156,8 @@ final class StudyStoreTests: XCTestCase {
         expression: String,
         mediaURL: String? = nil,
         queueState: String = "review",
-        dueAt: Date? = nil
+        dueAt: Date? = nil,
+        scheduler: JSONValue? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -5985,7 +6174,7 @@ final class StudyStoreTests: XCTestCase {
                 introducedAt: nil,
                 failedAt: nil,
                 queueState: queueState,
-                scheduler: nil,
+                scheduler: scheduler,
                 source: .object([:])
             ),
             answerAudioSource: "missing",

@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var showingPasswordEditor = false
     @State private var showingAccountDeletion = false
     @State private var newCardsPerDay: Int
+    @State private var lessonBatchSize: Int
     @State private var studySettingsSaved = false
 
     init(model: AppModel, user: CurrentUser) {
@@ -20,6 +21,11 @@ struct SettingsView: View {
             initialValue: model.study.studySettings?.newCardsPerDay
                 ?? model.study.overview?.newCardsPerDay
                 ?? 20
+        )
+        _lessonBatchSize = State(
+            initialValue: model.study.studySettings?.lessonBatchSize
+                ?? model.study.overview?.lessonBatchSize
+                ?? 5
         )
     }
 
@@ -67,11 +73,22 @@ struct SettingsView: View {
                     .onChange(of: newCardsPerDay) {
                         studySettingsSaved = false
                     }
+                    Stepper(
+                        "Cards per lesson: \(lessonBatchSize)",
+                        value: $lessonBatchSize,
+                        in: 3...10
+                    )
+                    .onChange(of: lessonBatchSize) {
+                        studySettingsSaved = false
+                    }
 
                     Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
                         Task {
                             studySettingsSaved = await model.study
-                                .updateNewCardsPerDay(newCardsPerDay)
+                                .updateStudySettings(
+                                    newCardsPerDay: newCardsPerDay,
+                                    lessonBatchSize: lessonBatchSize
+                                )
                         }
                     }
                     .disabled(model.study.isUpdatingStudySettings)
@@ -90,7 +107,7 @@ struct SettingsView: View {
                     Text("Study")
                 } footer: {
                     Text(
-                        "This controls how many unseen cards can be introduced each day across the web and iOS apps."
+                        "The daily limit is your allowance. Cards per lesson controls the preview-and-quiz batch size."
                     )
                 }
 
@@ -175,6 +192,7 @@ struct SettingsView: View {
                 await model.study.refreshStudySettings()
                 if let settings = model.study.studySettings {
                     newCardsPerDay = settings.newCardsPerDay
+                    lessonBatchSize = settings.lessonBatchSize
                 }
             }
             .confirmationDialog(

@@ -2,8 +2,14 @@ import SwiftUI
 import UIKit
 
 struct StudySessionView: View {
+    enum Mode {
+        case reviews
+        case lessons
+    }
+
     let store: StudyStore
     let player: StudyAudioPlayer
+    let mode: Mode
 
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
@@ -17,12 +23,27 @@ struct StudySessionView: View {
     @State private var undoErrorMessage: String?
     @State private var answerRestoredByUndoCardID: String?
     @State private var reviewIntervalLabels: [ReviewRating: String] = [:]
+    @State private var lessonPreview = true
+    @State private var loadingLessons = false
+
+    init(store: StudyStore, player: StudyAudioPlayer, mode: Mode = .reviews) {
+        self.store = store
+        self.player = player
+        self.mode = mode
+        _lessonPreview = State(initialValue: mode == .lessons)
+    }
 
     private var card: StudyCard? { store.cards.first }
 
     var body: some View {
         VStack(spacing: 22) {
-            if let card {
+            ProgressView(value: store.sessionProgress)
+                .tint(.green)
+                .accessibilityLabel("Session progress")
+
+            if mode == .lessons, lessonPreview {
+                lessonPreviewContent
+            } else if let card {
                 let presentation = card.presentation
                 HStack(spacing: 8) {
                     if showingAnswer,
@@ -88,7 +109,19 @@ struct StudySessionView: View {
                     .controlSize(.large)
                 }
             } else {
-                if store.sessionCounts.hasRemainingStudy {
+                if mode == .lessons {
+                    ContentUnavailableView {
+                        Label("Lesson complete", systemImage: "checkmark.seal.fill")
+                    } description: {
+                        Text("This batch is now in FSRS learning.")
+                    } actions: {
+                        Button("Learn Another Batch") {
+                            Task { await loadLessonBatch() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                    }
+                } else if store.sessionCounts.hasRemainingReviews {
                     ContentUnavailableView {
                         Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
                     } description: {
@@ -122,6 +155,30 @@ struct StudySessionView: View {
         }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if mode == .lessons {
+                await loadLessonBatch()
+            } else {
+                try? await store.refreshSession()
+            }
+        }
+        .overlay(alignment: .top) {
+            if let promotion = store.masteryPromotion {
+                VStack(spacing: 4) {
+                    Text("\(promotion.label) reached \(promotion.level.capitalized)")
+                        .font(.headline)
+                    if let stability = promotion.stability {
+                        Text("FSRS stability is now \(Int(stability.rounded())) days.")
+                            .font(.caption)
+                    }
+                    Button("Dismiss") { store.dismissMasteryPromotion() }
+                        .font(.caption.bold())
+                }
+                .padding()
+                .background(.green.opacity(0.16), in: .rect(cornerRadius: 16))
+                .padding(.horizontal)
+            }
+        }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
             if let restoredCardID = answerRestoredByUndoCardID {
@@ -169,6 +226,71 @@ struct StudySessionView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(undoErrorMessage ?? "The last study action could not be undone.")
+        }
+    }
+
+    @ViewBuilder
+    private var lessonPreviewContent: some View {
+        if loadingLessons {
+            ProgressView("Loading lesson…")
+                .frame(maxHeight: .infinity)
+        } else if store.cards.isEmpty {
+            ContentUnavailableView(
+                "No new cards available",
+                systemImage: "sparkles",
+                description: Text("You’ve reached today’s limit or cleared the queue.")
+            )
+        } else {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Preview this lesson")
+                        .font(.title2.bold())
+                    Text("Study this batch first. The quiz contains only these cards.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    ForEach(store.cards) { previewCard in
+                        VStack(spacing: 8) {
+                            if let heading = previewCard.presentation.back.heading
+                                ?? previewCard.presentation.front.heading
+                            {
+                                StudyRubyText(
+                                    heading,
+                                    knownKanji: store.knownKanji,
+                                    pointSize: 28,
+                                    weight: .semibold
+                                )
+                            }
+                            ForEach(previewCard.presentation.back.textBlocks.prefix(2)) { block in
+                                Text(block.text)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.white.opacity(0.8), in: .rect(cornerRadius: 16))
+                    }
+                    Button("Start Quiz") {
+                        lessonPreview = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                    .controlSize(.large)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func loadLessonBatch() async {
+        guard !loadingLessons else { return }
+        loadingLessons = true
+        lessonPreview = true
+        defer { loadingLessons = false }
+        do {
+            try await store.refreshLessons()
+        } catch {
+            // StudyStore's normal sync surfaces connectivity errors on the home screen.
         }
     }
 

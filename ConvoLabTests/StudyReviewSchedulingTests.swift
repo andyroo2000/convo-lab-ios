@@ -16,9 +16,9 @@ final class StudyReviewSchedulingTests: XCTestCase {
             label: String
         )] = [
             (.again, "2026-07-25T12:10:00.000Z", 3.31374859, 9.76073091, 0, "relearning", 2, "<10m"),
-            (.hard, "2026-10-17T12:00:00.000Z", 84.27757184, 9.53182114, 84, "review", 1, "3mo"),
-            (.good, "2026-11-06T12:00:00.000Z", 104.22021241, 9.30291137, 104, "review", 1, "3mo"),
-            (.easy, "2026-12-20T12:00:00.000Z", 147.89289417, 9.0740016, 148, "review", 1, "5mo"),
+            (.hard, "2026-10-17T12:00:00.000Z", 84.27757184, 9.53182114, 84, "review", 1, "84d"),
+            (.good, "2026-11-06T12:00:00.000Z", 104.22021241, 9.30291137, 104, "review", 1, "104d"),
+            (.easy, "2026-12-20T12:00:00.000Z", 147.89289417, 9.0740016, 148, "review", 1, "148d"),
         ]
         let card = makeCard(queueState: "review", scheduler: matureScheduler)
 
@@ -97,6 +97,15 @@ final class StudyReviewSchedulingTests: XCTestCase {
             )
             XCTAssertEqual(reviewed.state.introducedAt, reviewedAt)
         }
+    }
+
+    func testPromotionComparisonUsesFsrsProjectionOnBothSides() throws {
+        let reviewedAt = try date("2026-07-25T12:00:00.000Z")
+        let card = makeCard(queueState: "review", scheduler: matureScheduler)
+        let reviewed = card.applyingReview(.good, at: reviewedAt)
+
+        XCTAssertEqual(card.fsrsMasteryLevel, .master)
+        XCTAssertEqual(reviewed.fsrsMasteryLevel, .enlightened)
     }
 
     func testHardKeepsLearningAndRelearningState() {
