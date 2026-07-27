@@ -62,7 +62,7 @@ struct StudySessionView: View {
                     }
                     sessionMetric(
                         label: "Failed",
-                        value: store.sessionCounts.failedDue,
+                        value: store.sessionFailureCount,
                         color: ConvoLabTheme.coral
                     )
                     sessionMetric(
@@ -78,7 +78,7 @@ struct StudySessionView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(
-                    "\(store.sessionCounts.failedDue) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
+                    "\(store.sessionFailureCount) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
                 )
 
                 Spacer()
