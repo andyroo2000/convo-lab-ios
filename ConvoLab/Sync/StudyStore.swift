@@ -214,6 +214,11 @@ final class StudyStore {
         sessionFailedCardIDs.count
     }
 
+    func beginSessionFailureTracking() {
+        sessionFailedCardIDs = []
+        sessionFailureWasPresentByEventID = [:]
+    }
+
     init(
         initialUserID: Int? = nil,
         api: APIClient,
@@ -548,8 +553,6 @@ final class StudyStore {
         sessionKind = "reviews"
         sessionInitialCardCount = activeCards.count
         sessionCompletedCardIDs = []
-        sessionFailedCardIDs = []
-        sessionFailureWasPresentByEventID = [:]
         masteryPromotion = nil
         apply(pendingReviewState)
         try persist(cards: activeCards, userID: userID)
@@ -587,8 +590,6 @@ final class StudyStore {
         sessionKind = "lessons"
         sessionInitialCardCount = lessonCards.count
         sessionCompletedCardIDs = []
-        sessionFailedCardIDs = []
-        sessionFailureWasPresentByEventID = [:]
         masteryPromotion = nil
         try persist(cards: lessonCards, userID: userID)
         loadLibraryCards(userID: userID)

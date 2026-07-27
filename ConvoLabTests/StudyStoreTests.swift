@@ -5497,11 +5497,25 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.sessionProgress, 1)
         XCTAssertEqual(store.sessionFailureCount, 1)
 
+        try await store.refreshSession()
+        XCTAssertEqual(store.sessionFailureCount, 1)
+
         try await store.undoReview(eventID: eventID, cardBefore: card)
 
         XCTAssertEqual(store.sessionProgress, 0)
         XCTAssertEqual(store.sessionFailureCount, 0)
         XCTAssertEqual(store.cards.map(\.id), [card.id])
+
+        await store.recordReview(card: card, rating: .again, duration: nil)
+        XCTAssertEqual(store.sessionFailureCount, 1)
+        let secondCard = makeCard(
+            id: "01J0000000000000000000001V",
+            expression: "失敗"
+        )
+        await store.recordReview(card: secondCard, rating: .again, duration: nil)
+        XCTAssertEqual(store.sessionFailureCount, 2)
+        store.beginSessionFailureTracking()
+        XCTAssertEqual(store.sessionFailureCount, 0)
     }
 
     @MainActor
