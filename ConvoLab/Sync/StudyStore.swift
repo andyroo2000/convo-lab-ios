@@ -176,6 +176,7 @@ final class StudyStore {
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
+    @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
 
     private(set) var cards: [StudyCard] = []
@@ -200,12 +201,22 @@ final class StudyStore {
     private(set) var lastSyncAt: Date?
     private(set) var sessionInitialCardCount = 0
     private(set) var sessionCompletedCardIDs: Set<String> = []
+    private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
     private(set) var masteryPromotion: (label: String, level: String, stability: Double?)?
 
     var sessionProgress: Double {
         guard sessionInitialCardCount > 0 else { return 0 }
         return min(1, Double(sessionCompletedCardIDs.count) / Double(sessionInitialCardCount))
+    }
+
+    var sessionFailureCount: Int {
+        sessionFailedCardIDs.count
+    }
+
+    func beginSessionFailureTracking() {
+        sessionFailedCardIDs = []
+        sessionFailureWasPresentByEventID = [:]
     }
 
     init(
@@ -268,10 +279,12 @@ final class StudyStore {
         newlyFailedCardIDs = []
         retainedFailedCardIDs = []
         resolvedFailedCardIDs = []
+        sessionFailureWasPresentByEventID = [:]
         syncStatus = .idle
         lastSyncAt = nil
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
+        sessionFailedCardIDs = []
         sessionKind = "reviews"
         masteryPromotion = nil
     }
@@ -1089,6 +1102,12 @@ final class StudyStore {
             }
             try context.save()
             queuedLocally = true
+            sessionFailureWasPresentByEventID[event.id] = sessionFailedCardIDs.contains(card.id)
+            if rating == .again {
+                sessionFailedCardIDs.insert(card.id)
+            } else {
+                sessionFailedCardIDs.remove(card.id)
+            }
             var pendingState = PendingReviewState(
                 newlyFailedCardIDs: newlyFailedCardIDs,
                 retainedFailedCardIDs: retainedFailedCardIDs,
@@ -1128,6 +1147,7 @@ final class StudyStore {
             context.delete(pending)
             try restoreReviewedCard(cardBefore)
             apply(try pendingReviewState())
+            restoreSessionFailure(for: cardBefore.id, before: eventID)
             return
         }
 
@@ -1143,6 +1163,18 @@ final class StudyStore {
         try restoreReviewedCard(response.card)
         overview = response.overview
         apply(try pendingReviewState())
+        restoreSessionFailure(for: cardBefore.id, before: eventID)
+    }
+
+    private func restoreSessionFailure(for cardID: String, before eventID: String) {
+        guard let wasPresent = sessionFailureWasPresentByEventID.removeValue(forKey: eventID) else {
+            return
+        }
+        if wasPresent {
+            sessionFailedCardIDs.insert(cardID)
+        } else {
+            sessionFailedCardIDs.remove(cardID)
+        }
     }
 
     func createCard(

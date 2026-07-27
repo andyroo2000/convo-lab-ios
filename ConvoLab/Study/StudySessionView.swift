@@ -62,7 +62,7 @@ struct StudySessionView: View {
                     }
                     sessionMetric(
                         label: "Failed",
-                        value: store.sessionCounts.failedDue,
+                        value: store.sessionFailureCount,
                         color: ConvoLabTheme.coral
                     )
                     sessionMetric(
@@ -78,7 +78,7 @@ struct StudySessionView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(
-                    "\(store.sessionCounts.failedDue) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
+                    "\(store.sessionFailureCount) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
                 )
 
                 Spacer()
@@ -159,6 +159,7 @@ struct StudySessionView: View {
             if mode == .lessons {
                 await loadLessonBatch()
             } else {
+                store.beginSessionFailureTracking()
                 try? await store.refreshSession()
             }
         }
@@ -286,6 +287,7 @@ struct StudySessionView: View {
         guard !loadingLessons else { return }
         loadingLessons = true
         lessonPreview = true
+        store.beginSessionFailureTracking()
         defer { loadingLessons = false }
         do {
             try await store.refreshLessons()

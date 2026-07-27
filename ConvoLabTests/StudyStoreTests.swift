@@ -3603,24 +3603,38 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(againDueAt, firstReviewAt.addingTimeInterval(10 * 60))
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertEqual(store.sessionFailureCount, 1)
 
         store.activateOfflineDueCards(at: againDueAt.addingTimeInterval(-1))
         XCTAssertTrue(store.cards.isEmpty)
 
         store.activateOfflineDueCards(at: againDueAt)
-        let relearningCard = try XCTUnwrap(store.cards.first)
-        XCTAssertEqual(relearningCard.state.queueState, "relearning")
-        XCTAssertNotNil(relearningCard.state.failedAt)
+        let firstRetryCard = try XCTUnwrap(store.cards.first)
+        XCTAssertEqual(firstRetryCard.state.queueState, "relearning")
+        XCTAssertNotNil(firstRetryCard.state.failedAt)
 
         await store.recordReview(
-            card: relearningCard,
-            rating: .good,
+            card: firstRetryCard,
+            rating: .again,
             duration: nil,
             reviewedAt: againDueAt
         )
 
+        XCTAssertEqual(store.sessionFailureCount, 1)
+        let secondRetryDueAt = try XCTUnwrap(store.libraryCards.first?.state.dueAt)
+        store.activateOfflineDueCards(at: secondRetryDueAt)
+        let secondRetryCard = try XCTUnwrap(store.cards.first)
+
+        await store.recordReview(
+            card: secondRetryCard,
+            rating: .good,
+            duration: nil,
+            reviewedAt: secondRetryDueAt
+        )
+
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.sessionCounts.failedDue, 0)
+        XCTAssertEqual(store.sessionFailureCount, 0)
 
         let relaunched = StudyStore(initialUserID: 1,
             api: client,
@@ -3629,9 +3643,10 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertTrue(relaunched.cards.isEmpty)
         XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
+        XCTAssertEqual(relaunched.sessionFailureCount, 0)
 
         let goodDueAt = try XCTUnwrap(relaunched.libraryCards.first?.state.dueAt)
-        XCTAssertEqual(goodDueAt, againDueAt.addingTimeInterval(24 * 60 * 60))
+        XCTAssertEqual(goodDueAt, secondRetryDueAt.addingTimeInterval(24 * 60 * 60))
         relaunched.activateOfflineDueCards(at: goodDueAt)
         XCTAssertEqual(relaunched.cards.map(\.id), [card.id])
         XCTAssertEqual(relaunched.cards.first?.state.queueState, "review")
@@ -5439,7 +5454,8 @@ final class StudyStoreTests: XCTestCase {
                 newCount: 0,
                 reviewCount: 1,
                 newCardsPerDay: 20,
-                newCardsAvailableToday: 0
+                newCardsAvailableToday: 0,
+                failedCount: 2
             ),
             cards: [card]
         )
@@ -5469,18 +5485,37 @@ final class StudyStoreTests: XCTestCase {
         )
         try await store.refreshSession()
 
+        XCTAssertEqual(store.sessionCounts.failedDue, 2)
+        XCTAssertEqual(store.sessionFailureCount, 0)
+
         let recordedEventID = await store.recordReview(
             card: card,
-            rating: .good,
+            rating: .again,
             duration: nil
         )
         let eventID = try XCTUnwrap(recordedEventID)
         XCTAssertEqual(store.sessionProgress, 1)
+        XCTAssertEqual(store.sessionFailureCount, 1)
+
+        try await store.refreshSession()
+        XCTAssertEqual(store.sessionFailureCount, 1)
 
         try await store.undoReview(eventID: eventID, cardBefore: card)
 
         XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.sessionFailureCount, 0)
         XCTAssertEqual(store.cards.map(\.id), [card.id])
+
+        await store.recordReview(card: card, rating: .again, duration: nil)
+        XCTAssertEqual(store.sessionFailureCount, 1)
+        let secondCard = makeCard(
+            id: "01J0000000000000000000001V",
+            expression: "失敗"
+        )
+        await store.recordReview(card: secondCard, rating: .again, duration: nil)
+        XCTAssertEqual(store.sessionFailureCount, 2)
+        store.beginSessionFailureTracking()
+        XCTAssertEqual(store.sessionFailureCount, 0)
     }
 
     @MainActor
