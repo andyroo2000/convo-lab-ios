@@ -125,8 +125,15 @@ final class StudyRubyTextTests: XCTestCase {
             "多くの経\u{2060}験豊かな人"
         )
         XCTAssertEqual(
-            rendered.string.replacingOccurrences(of: "\u{2060}", with: ""),
+            rendered.string.removingStudyRubyLayoutControls,
             document.plainText
+        )
+    }
+
+    func testRubyLayoutControlsAreRemovedFromUserFacingText() {
+        XCTAssertEqual(
+            "多くの経\u{2060}験豊かな人".removingStudyRubyLayoutControls,
+            "多くの経験豊かな人"
         )
     }
 }

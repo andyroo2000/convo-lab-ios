@@ -2,6 +2,24 @@ import CoreText
 import SwiftUI
 import UIKit
 
+private final class StudyRubyUITextView: UITextView {
+    override func copy(_ sender: Any?) {
+        guard selectedRange.location != NSNotFound, selectedRange.length > 0 else {
+            super.copy(sender)
+            return
+        }
+
+        let selectedText = (attributedText.string as NSString)
+            .substring(with: selectedRange)
+            .removingStudyRubyLayoutControls
+        UIPasteboard.general.string = selectedText
+    }
+
+    override func text(in range: UITextRange) -> String? {
+        super.text(in: range)?.removingStudyRubyLayoutControls
+    }
+}
+
 struct StudyRubyDocument: Equatable {
     private static let annotationExpression = try? NSRegularExpression(
         pattern:
@@ -156,7 +174,7 @@ struct StudyRubyText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = StudyRubyUITextView()
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
@@ -258,6 +276,12 @@ extension StudyRubyDocument {
             }
         }
         return output
+    }
+}
+
+extension String {
+    var removingStudyRubyLayoutControls: String {
+        replacingOccurrences(of: "\u{2060}", with: "")
     }
 }
 
