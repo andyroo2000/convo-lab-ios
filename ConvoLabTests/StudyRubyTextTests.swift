@@ -137,27 +137,67 @@ final class StudyRubyTextTests: XCTestCase {
             "経験[けいけん]豊富[ほうふ]",
             knownKanji: []
         )
-        let textStorage = NSTextStorage(attributedString: document.attributedString(
+        let attributedText = document.attributedString(
             pointSize: 38,
             weight: .semibold,
             color: .label,
             alignment: .center
-        ))
-        let layoutManager = NSLayoutManager()
-        textStorage.addLayoutManager(layoutManager)
+        )
         let delegate = StudyRubyLineBreakDelegate()
+        delegate.updateRubyRanges(in: attributedText)
 
-        XCTAssertFalse(delegate.layoutManager(
-            layoutManager,
-            shouldBreakLineByWordBeforeCharacterAt: 1
-        ))
-        XCTAssertTrue(delegate.layoutManager(
-            layoutManager,
-            shouldBreakLineByWordBeforeCharacterAt: 2
-        ))
-        XCTAssertFalse(delegate.layoutManager(
-            layoutManager,
-            shouldBreakLineByWordBeforeCharacterAt: 3
-        ))
+        XCTAssertFalse(delegate.shouldBreakLine(beforeCharacterAt: 1))
+        XCTAssertTrue(delegate.shouldBreakLine(beforeCharacterAt: 2))
+        XCTAssertFalse(delegate.shouldBreakLine(beforeCharacterAt: 3))
+    }
+
+    func testRubyTextViewStaysOnTextKit2() {
+        let view = UITextView(usingTextLayoutManager: true)
+        let delegate = StudyRubyLineBreakDelegate()
+        view.textLayoutManager?.delegate = delegate
+
+        XCTAssertNotNil(view.textLayoutManager)
+        XCTAssertTrue(view.textLayoutManager?.delegate === delegate)
+    }
+
+    func testTextKit2ViewActuallyDrawsRubyAnnotation() {
+        let document = StudyRubyDocument.parse(
+            "経験[けいけん]",
+            knownKanji: []
+        )
+        let rubyText = document.attributedString(
+            pointSize: 38,
+            weight: .semibold,
+            color: .black,
+            alignment: .center
+        )
+        let plainText = NSMutableAttributedString(attributedString: rubyText)
+        plainText.removeAttribute(
+            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
+            range: NSRange(location: 0, length: plainText.length)
+        )
+
+        XCTAssertNotEqual(
+            renderedPNG(for: rubyText),
+            renderedPNG(for: plainText),
+            "The TextKit 2 view must draw the ruby glyphs, not merely retain their attribute."
+        )
+    }
+
+    private func renderedPNG(for text: NSAttributedString) -> Data? {
+        let view = UITextView(usingTextLayoutManager: true)
+        let delegate = StudyRubyLineBreakDelegate()
+        delegate.updateRubyRanges(in: text)
+        view.textLayoutManager?.delegate = delegate
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 160)
+        view.backgroundColor = .white
+        view.textContainerInset = UIEdgeInsets(top: 48, left: 0, bottom: 0, right: 0)
+        view.textContainer.lineFragmentPadding = 0
+        view.attributedText = text
+        view.layoutIfNeeded()
+
+        return UIGraphicsImageRenderer(bounds: view.bounds).image { context in
+            view.layer.render(in: context.cgContext)
+        }.pngData()
     }
 }
