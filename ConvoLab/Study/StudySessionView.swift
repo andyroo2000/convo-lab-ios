@@ -163,20 +163,6 @@ struct StudySessionView: View {
                 try? await store.refreshSession()
             }
         }
-        .overlay {
-            if let promotion = store.masteryPromotion {
-                MasteryPromotionAnimation(
-                    label: promotion.label,
-                    level: promotion.level
-                ) {
-                    guard store.masteryPromotion?.id == promotion.id else {
-                        return
-                    }
-                    store.dismissMasteryPromotion()
-                }
-                .id(promotion.id)
-            }
-        }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
             if let restoredCardID = answerRestoredByUndoCardID {

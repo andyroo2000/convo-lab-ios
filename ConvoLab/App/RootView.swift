@@ -44,5 +44,19 @@ private struct MainTabView: View {
             }
         }
         .tint(ConvoLabTheme.navy)
+        .overlay {
+            if let promotion = model.study.masteryPromotion {
+                MasteryPromotionAnimation(
+                    label: promotion.label,
+                    level: promotion.level
+                ) {
+                    guard model.study.masteryPromotion?.id == promotion.id else {
+                        return
+                    }
+                    model.study.dismissMasteryPromotion()
+                }
+                .id(promotion.id)
+            }
+        }
     }
 }
