@@ -9,6 +9,9 @@ struct StudyHomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     header
+                    studyActions
+                    learningReadiness
+                    masterySpread
                     readiness
 
                     if store.cards.isEmpty, store.sessionCounts.hasRemainingStudy {
@@ -25,24 +28,6 @@ struct StudyHomeView: View {
                             .disabled(store.syncStatus == .syncing)
                         }
                         .padding(.vertical, 48)
-                    } else if store.cards.isEmpty {
-                        ContentUnavailableView(
-                            "You’re caught up",
-                            systemImage: "sparkles",
-                            description: Text("Sync when you’re online to check for newly due cards.")
-                        )
-                        .padding(.vertical, 48)
-                    } else {
-                        NavigationLink {
-                            StudySessionView(store: store, player: player)
-                        } label: {
-                            Label("Begin Study Session", systemImage: "play.fill")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ConvoLabTheme.navy)
                     }
                 }
                 .padding()
@@ -71,6 +56,118 @@ struct StudyHomeView: View {
                     await store.synchronizeIfNeeded(maxAge: .seconds(60))
                 }
             }
+        }
+    }
+
+    private var studyActions: some View {
+        HStack(spacing: 12) {
+            NavigationLink {
+                StudySessionView(store: store, player: player, mode: .reviews)
+            } label: {
+                Label("Reviews", systemImage: "rectangle.stack.fill")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(ConvoLabTheme.navy)
+            .disabled(
+                store.sessionCounts.reviewRemaining == 0
+                    && store.sessionCounts.failedDue == 0
+            )
+
+            NavigationLink {
+                StudySessionView(store: store, player: player, mode: .lessons)
+            } label: {
+                Label("Lessons", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(store.sessionCounts.newRemaining == 0)
+        }
+    }
+
+    @ViewBuilder
+    private var learningReadiness: some View {
+        if let recommendation = store.overview?.learningReadiness {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Learning readiness", systemImage: readinessIcon(recommendation.recommendation))
+                    .font(.headline)
+                Text(readinessTitle(recommendation.recommendation))
+                    .font(.title3.bold())
+                if recommendation.sufficientData, let recall = recommendation.recentRecall {
+                    Text(
+                        "Recent recall is \(Int((recall * 100).rounded()))%. "
+                            + "\(recommendation.apprenticeCount) Apprentice cards need reinforcement, "
+                            + "with \(recommendation.projectedSevenDayReviews) reviews projected over seven days."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(
+                        "Building a recommendation from your first 30 answers "
+                            + "(\(recommendation.sampleSize) so far)."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                Text("This is advice, not a lock. Lessons always remain available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Suggested next lesson: \(recommendation.suggestedBatchSize) cards.")
+                    .font(.caption.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
+        }
+    }
+
+    @ViewBuilder
+    private var masterySpread: some View {
+        if let spread = store.overview?.masterySpread {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Item Spread")
+                    .font(.headline)
+                masteryRow("Apprentice", count: spread.apprentice, color: .pink)
+                masteryRow("Guru", count: spread.guru, color: .purple)
+                masteryRow("Master", count: spread.master, color: .blue)
+                masteryRow("Enlightened", count: spread.enlightened, color: .orange)
+                masteryRow("Burned", count: spread.burned, color: .green)
+                Text("Levels are derived from FSRS stability; Burned cards still follow FSRS.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
+        }
+    }
+
+    private func masteryRow(_ title: String, count: Int, color: Color) -> some View {
+        HStack {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(title)
+            Spacer()
+            Text(count, format: .number).monospacedDigit()
+        }
+        .font(.subheadline)
+    }
+
+    private func readinessTitle(_ recommendation: String) -> String {
+        switch recommendation {
+        case "pause": "Reviews first recommended"
+        case "caution": "Add new cards carefully"
+        default: "Good time to learn"
+        }
+    }
+
+    private func readinessIcon(_ recommendation: String) -> String {
+        switch recommendation {
+        case "pause": "pause.circle.fill"
+        case "caution": "exclamationmark.triangle.fill"
+        default: "checkmark.circle.fill"
         }
     }
 

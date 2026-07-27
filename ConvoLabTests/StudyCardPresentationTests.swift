@@ -399,7 +399,7 @@ final class StudyCardPresentationTests: XCTestCase {
                 dueAt: now.addingTimeInterval(104 * 24 * 60 * 60),
                 reviewedAt: now
             ),
-            "3mo"
+            "104d"
         )
         XCTAssertEqual(
             FSRSReviewScheduler.intervalLabel(

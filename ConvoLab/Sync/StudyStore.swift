@@ -198,6 +198,15 @@ final class StudyStore {
     private(set) var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
+    private(set) var sessionInitialCardCount = 0
+    private(set) var sessionCompletedCardIDs: Set<String> = []
+    private(set) var sessionKind = "reviews"
+    private(set) var masteryPromotion: (label: String, level: String, stability: Double?)?
+
+    var sessionProgress: Double {
+        guard sessionInitialCardCount > 0 else { return 0 }
+        return min(1, Double(sessionCompletedCardIDs.count) / Double(sessionInitialCardCount))
+    }
 
     init(
         initialUserID: Int? = nil,
@@ -261,6 +270,10 @@ final class StudyStore {
         resolvedFailedCardIDs = []
         syncStatus = .idle
         lastSyncAt = nil
+        sessionInitialCardCount = 0
+        sessionCompletedCardIDs = []
+        sessionKind = "reviews"
+        masteryPromotion = nil
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -519,8 +532,15 @@ final class StudyStore {
                 && seenCardIDs.insert(card.id).inserted
         })
         overview = session.overview
-        studySettings = StudySettings(newCardsPerDay: session.overview.newCardsPerDay)
+        studySettings = StudySettings(
+            newCardsPerDay: session.overview.newCardsPerDay,
+            lessonBatchSize: session.overview.lessonBatchSize
+        )
         cards = activeCards
+        sessionKind = "reviews"
+        sessionInitialCardCount = activeCards.count
+        sessionCompletedCardIDs = []
+        masteryPromotion = nil
         apply(pendingReviewState)
         try persist(cards: activeCards, userID: userID)
         loadLibraryCards(userID: userID)
@@ -529,6 +549,40 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    func refreshLessons() async throws {
+        guard let userID = activeUserID else { return }
+        let timeZone = TimeZone.current.identifier
+        let response: StudySessionResponse = try await api.request(
+            "/api/study/lessons/start",
+            method: "POST",
+            body: ["time_zone": timeZone]
+        )
+        let session = response.session
+        guard activeUserID == userID else { return }
+        let pendingReviewState = try pendingReviewState()
+        var seenCardIDs: Set<String> = []
+        let lessonCards = try session.cards.filter { card in
+            try !hasPendingDelete(for: card.id)
+                && !pendingReviewState.cardIDs.contains(card.id)
+                && seenCardIDs.insert(card.id).inserted
+        }
+        overview = session.overview
+        studySettings = StudySettings(
+            newCardsPerDay: session.overview.newCardsPerDay,
+            lessonBatchSize: session.overview.lessonBatchSize
+        )
+        cards = lessonCards
+        sessionKind = "lessons"
+        sessionInitialCardCount = lessonCards.count
+        sessionCompletedCardIDs = []
+        masteryPromotion = nil
+        try persist(cards: lessonCards, userID: userID)
+        loadLibraryCards(userID: userID)
+        let mediaURLs = lessonCards.flatMap(\.mediaURLs)
+        await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
+        markPrepared(cards: lessonCards)
     }
 
     func refreshStudySettings() async {
@@ -546,7 +600,19 @@ final class StudyStore {
 
     @discardableResult
     func updateNewCardsPerDay(_ value: Int) async -> Bool {
-        guard let userID = activeUserID, (0...1_000).contains(value) else { return false }
+        await updateStudySettings(
+            newCardsPerDay: value,
+            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5
+        )
+    }
+
+    @discardableResult
+    func updateStudySettings(newCardsPerDay: Int, lessonBatchSize: Int) async -> Bool {
+        guard
+            let userID = activeUserID,
+            (0...1_000).contains(newCardsPerDay),
+            (3...10).contains(lessonBatchSize)
+        else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
         defer {
@@ -559,7 +625,10 @@ final class StudyStore {
             let response: StudySettings = try await api.request(
                 "/api/study/settings",
                 method: "PATCH",
-                body: UpdateStudySettingsRequest(newCardsPerDay: value)
+                body: UpdateStudySettingsRequest(
+                    newCardsPerDay: newCardsPerDay,
+                    lessonBatchSize: lessonBatchSize
+                )
             )
             guard activeUserID == userID else { return false }
             studySettings = response
@@ -570,7 +639,10 @@ final class StudyStore {
                     reviewCount: current.reviewCount,
                     newCardsPerDay: response.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
-                    failedCount: current.failedCount
+                    failedCount: current.failedCount,
+                    lessonBatchSize: response.lessonBatchSize,
+                    masterySpread: current.masterySpread,
+                    learningReadiness: current.learningReadiness
                 )
             }
             // The server may now admit a different set of new cards and build a
@@ -984,6 +1056,18 @@ final class StudyStore {
             )
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
+            sessionCompletedCardIDs.insert(card.id)
+            let oldLevel = card.effectiveMasteryLevel
+            let newLevel = updatedCard.effectiveMasteryLevel
+            if rating != .again, newLevel.rank > oldLevel.rank {
+                masteryPromotion = (
+                    label: card.presentation.back.heading
+                        ?? card.presentation.front.heading
+                        ?? "This item",
+                    level: newLevel.rawValue,
+                    stability: updatedCard.fsrsStability
+                )
+            }
             let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
             if let record = try context.fetch(descriptor).first {
                 record.payload = updatedPayload
@@ -1812,8 +1896,15 @@ final class StudyStore {
             newCardsAvailableToday: card.state.queueState == "new"
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
                 : current.newCardsAvailableToday,
-            failedCount: current.failedCount
+            failedCount: current.failedCount,
+            lessonBatchSize: current.lessonBatchSize,
+            masterySpread: current.masterySpread,
+            learningReadiness: current.learningReadiness
         )
+    }
+
+    func dismissMasteryPromotion() {
+        masteryPromotion = nil
     }
 
     private func flushCardOutbox() async throws {
@@ -2977,9 +3068,12 @@ struct StudySessionCounts: Equatable {
         )
         let pendingFailedCardIDs = retainedFailedCardIDs.union(newlyFailedCardIDs)
         let localFailedCount = loadedFailedCardIDs.union(pendingFailedCardIDs).count
-        let newRemaining = cards.count(where: {
+        let loadedNewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
+        let newRemaining = overview?.newCardsAvailableToday
+            ?? overview?.newCount
+            ?? loadedNewRemaining
         let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
         })

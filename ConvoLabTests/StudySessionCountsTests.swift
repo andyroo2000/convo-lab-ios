@@ -54,6 +54,49 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         XCTAssertEqual(overview.failedCount, 2)
+        XCTAssertEqual(overview.lessonBatchSize, 5)
+    }
+
+    func testOverviewDecodesLearningReadinessAndMasterySpread() throws {
+        let overview = try StorageCodec.decoder.decode(
+            StudyOverview.self,
+            from: Data(
+                #"""
+                {
+                  "dueCount": 8,
+                  "failedCount": 2,
+                  "newCount": 4,
+                  "reviewCount": 6,
+                  "newCardsPerDay": 20,
+                  "newCardsAvailableToday": 4,
+                  "lessonBatchSize": 8,
+                  "masterySpread": {
+                    "apprentice": 4,
+                    "guru": 3,
+                    "master": 2,
+                    "enlightened": 1,
+                    "burned": 5
+                  },
+                  "learningReadiness": {
+                    "recommendation": "caution",
+                    "sampleSize": 50,
+                    "sufficientData": true,
+                    "recentRecall": 0.84,
+                    "targetRecall": 0.9,
+                    "dueBacklog": 10,
+                    "apprenticeCount": 4,
+                    "projectedSevenDayReviews": 22,
+                    "suggestedBatchSize": 4
+                  }
+                }
+                """#.utf8
+            )
+        )
+
+        XCTAssertEqual(overview.lessonBatchSize, 8)
+        XCTAssertEqual(overview.masterySpread?.burned, 5)
+        XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
+        XCTAssertEqual(overview.learningReadiness?.suggestedBatchSize, 4)
     }
 
     func testCountsMatchDesktopFailedQueuedAndNewSemantics() {
@@ -76,8 +119,26 @@ final class StudySessionCountsTests: XCTestCase {
 
         XCTAssertEqual(
             counts,
-            StudySessionCounts(failedDue: 1, reviewRemaining: 2, newRemaining: 1)
+            StudySessionCounts(failedDue: 1, reviewRemaining: 2, newRemaining: 0)
         )
+    }
+
+    func testLessonAvailabilityIsNotLimitedToReviewSessionCards() {
+        let overview = StudyOverview(
+            dueCount: 5,
+            newCount: 12,
+            reviewCount: 5,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: 6,
+            failedCount: 0
+        )
+
+        let counts = StudySessionCounts.calculate(
+            cards: [makeCard(id: "review", queueState: "review")],
+            overview: overview
+        )
+
+        XCTAssertEqual(counts.newRemaining, 6)
     }
 
     func testAuthoritativeDueCountIsNotLimitedToLoadedSessionCards() {

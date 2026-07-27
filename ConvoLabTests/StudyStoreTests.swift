@@ -3765,6 +3765,63 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLessonRefreshUsesDedicatedEndpointAndStartsFrozenBatchProgress() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = [
+            makeCard(
+                id: "01J00000000000000000000014",
+                expression: "営業する",
+                queueState: "new"
+            ),
+            makeCard(
+                id: "01J00000000000000000000015",
+                expression: "講義",
+                queueState: "new"
+            ),
+        ]
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 3,
+                newCount: 8,
+                reviewCount: 3,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 8,
+                lessonBatchSize: 2
+            ),
+            cards: lessonCards
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshLessons()
+
+        XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
+        XCTAssertEqual(store.sessionKind, "lessons")
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.sessionInitialCardCount, 2)
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(
@@ -4816,7 +4873,10 @@ final class StudyStoreTests: XCTestCase {
                 let body = try XCTUnwrap(
                     JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
                 )
-                XCTAssertEqual(body, ["newCardsPerDay": 24])
+                XCTAssertEqual(body, [
+                    "lessonBatchSize": 5,
+                    "newCardsPerDay": 24,
+                ])
                 return (
                     HTTPURLResponse(
                         url: request.url!,
@@ -4850,6 +4910,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
 
         let saved = await store.updateNewCardsPerDay(24)
         XCTAssertTrue(saved)
