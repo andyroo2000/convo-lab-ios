@@ -29,7 +29,10 @@ struct MasteryPromotionAnimation: View {
                     .ignoresSafeArea()
 
                 cloud
-                    .frame(width: 154, height: 96)
+                    .frame(
+                        width: Self.cloudSize.width,
+                        height: Self.cloudSize.height
+                    )
                     .position(x: geometry.size.width / 2, y: cloudCenterY)
                     .opacity(cloudOpacity)
 
@@ -84,8 +87,10 @@ struct MasteryPromotionAnimation: View {
         }
     }
 
+    static let cloudSize = CGSize(width: 210, height: 112)
+
     static func cloudCenterY(safeAreaTop: CGFloat) -> CGFloat {
-        max(118, safeAreaTop + 56)
+        max(126, safeAreaTop + cloudSize.height / 2 + 8)
     }
 
     private func itemY(in height: CGFloat, cloudCenterY: CGFloat) -> CGFloat {
@@ -109,6 +114,7 @@ struct MasteryPromotionAnimation: View {
                 itemOpacity = 1
             }
             guard await pause(for: .milliseconds(450)) else { return }
+            guard await pause(for: .seconds(1)) else { return }
             withAnimation(.easeIn(duration: 0.125)) {
                 cloudOpacity = 0
                 itemOpacity = 0
@@ -142,6 +148,7 @@ struct MasteryPromotionAnimation: View {
             cloudLineWidth = 2
         }
         guard await pause(for: .milliseconds(140)) else { return }
+        guard await pause(for: .seconds(1)) else { return }
 
         withAnimation(.easeIn(duration: 0.14)) {
             cloudOpacity = 0

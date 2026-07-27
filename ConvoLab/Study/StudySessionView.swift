@@ -307,7 +307,12 @@ struct StudySessionView: View {
                     remoteURL: audioURL,
                     trackID: "study-prompt-\(cardID)",
                     label: face.isMediaLed ? "Replay prompt audio" : "Play prompt audio",
-                    autoplay: card?.id == cardID && card?.shouldAutoplayPromptAudio == true,
+                    autoplay: Self.shouldAutoplayPromptAudio(
+                        cardID: cardID,
+                        currentCardID: card?.id,
+                        cardAllowsAutoplay: card?.shouldAutoplayPromptAudio == true,
+                        hasMasteryPromotion: store.masteryPromotion != nil
+                    ),
                     store: store,
                     player: player
                 )
@@ -514,6 +519,17 @@ struct StudySessionView: View {
         playAnswerAudio(cardID: cardID)
     }
 
+    static func shouldAutoplayPromptAudio(
+        cardID: String,
+        currentCardID: String?,
+        cardAllowsAutoplay: Bool,
+        hasMasteryPromotion: Bool
+    ) -> Bool {
+        cardID == currentCardID
+            && cardAllowsAutoplay
+            && !hasMasteryPromotion
+    }
+
     private func pushUndo(_ action: StudyUndoAction) {
         undoActions.append(action)
         if undoActions.count > 50 {
@@ -614,7 +630,7 @@ private struct StudyCardAudioButton: View {
                 ? "Audio is not available offline."
                 : "Plays downloaded study audio."
         )
-        .task(id: trackID) {
+        .task(id: "\(trackID)|autoplay:\(autoplay)") {
             didAttemptLoad = false
             localURL = nil
             let resolvedURL = await store.playableMediaURL(for: remoteURL)
