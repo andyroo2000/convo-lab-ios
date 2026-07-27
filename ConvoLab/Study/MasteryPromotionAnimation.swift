@@ -27,7 +27,7 @@ struct MasteryPromotionAnimation: View {
                     .opacity(cloudOpacity)
 
                 Text(label)
-                    .font(.system(size: 29, weight: .bold, design: .rounded))
+                    .font(.system(.title2, design: .rounded, weight: .bold))
                     .foregroundStyle(ConvoLabTheme.navy)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -65,7 +65,7 @@ struct MasteryPromotionAnimation: View {
                 )
 
             Text(level.uppercased())
-                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                .font(.system(.headline, design: .rounded, weight: .heavy))
                 .tracking(1.5)
                 .foregroundStyle(ConvoLabTheme.navy)
                 .offset(y: 5)

@@ -206,8 +206,7 @@ final class StudyStore {
     private(set) var masteryPromotion: (
         id: UUID,
         label: String,
-        level: String,
-        stability: Double?
+        level: String
     )?
 
     var sessionProgress: Double {
@@ -1088,8 +1087,7 @@ final class StudyStore {
                     label: card.presentation.back.heading
                         ?? card.presentation.front.heading
                         ?? "This item",
-                    level: newLevel.rawValue,
-                    stability: updatedCard.fsrsStability
+                    level: newLevel.rawValue
                 )
             }
             let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
