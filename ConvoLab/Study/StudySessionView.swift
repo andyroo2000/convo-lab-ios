@@ -121,7 +121,7 @@ struct StudySessionView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.green)
                     }
-                } else if store.sessionCounts.hasRemainingStudy {
+                } else if store.sessionCounts.hasRemainingReviews {
                     ContentUnavailableView {
                         Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
                     } description: {

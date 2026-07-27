@@ -14,7 +14,7 @@ struct StudyHomeView: View {
                     masterySpread
                     readiness
 
-                    if store.cards.isEmpty, store.sessionCounts.hasRemainingStudy {
+                    if store.cards.isEmpty, store.sessionCounts.hasRemainingReviews {
                         ContentUnavailableView {
                             Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
                         } description: {

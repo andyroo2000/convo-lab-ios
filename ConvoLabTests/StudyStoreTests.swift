@@ -5538,10 +5538,19 @@ final class StudyStoreTests: XCTestCase {
         )
         try await store.refreshSession()
 
-        _ = await store.recordReview(card: card, rating: .good, duration: nil)
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
 
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.masteryPromotion?.level, StudyMasteryLevel.enlightened.rawValue)
+
+        try await store.undoReview(eventID: eventID, cardBefore: card)
+
+        XCTAssertNil(store.masteryPromotion)
     }
 
     @MainActor

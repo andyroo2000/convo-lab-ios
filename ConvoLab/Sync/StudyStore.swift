@@ -2336,6 +2336,7 @@ final class StudyStore {
         let record = try localCardRecord(forID: card.id)
         let restoredCard = restoredCard(card, matching: record)
         let normalizedID = restoredCard.id.lowercased()
+        masteryPromotion = nil
         sessionCompletedCardIDs = Set(
             sessionCompletedCardIDs.filter { $0.lowercased() != normalizedID }
         )
@@ -3045,8 +3046,12 @@ struct StudySessionCounts: Equatable {
     let reviewRemaining: Int
     let newRemaining: Int
 
+    var hasRemainingReviews: Bool {
+        failedDue > 0 || reviewRemaining > 0
+    }
+
     var hasRemainingStudy: Bool {
-        failedDue > 0 || reviewRemaining > 0 || newRemaining > 0
+        hasRemainingReviews || newRemaining > 0
     }
 
     func offlineReadinessTarget(

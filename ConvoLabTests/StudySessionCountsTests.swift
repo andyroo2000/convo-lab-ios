@@ -20,6 +20,17 @@ final class StudySessionCountsTests: XCTestCase {
         )
     }
 
+    func testNewLessonAvailabilityDoesNotClaimMoreReviewsAreReady() {
+        let counts = StudySessionCounts(
+            failedDue: 0,
+            reviewRemaining: 0,
+            newRemaining: 1
+        )
+
+        XCTAssertFalse(counts.hasRemainingReviews)
+        XCTAssertTrue(counts.hasRemainingStudy)
+    }
+
     func testOfflineReadinessTargetUsesAuthoritativeDueBacklogBeyondLoadedCards() {
         let counts = StudySessionCounts(
             failedDue: 8,
