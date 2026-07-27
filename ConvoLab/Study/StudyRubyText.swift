@@ -2,28 +2,43 @@ import CoreText
 import SwiftUI
 import UIKit
 
-final class StudyRubyLineBreakDelegate: NSObject, NSLayoutManagerDelegate {
-    func layoutManager(
-        _ layoutManager: NSLayoutManager,
-        shouldBreakLineByWordBeforeCharacterAt charIndex: Int
+final class StudyRubyLineBreakDelegate: NSObject, NSTextLayoutManagerDelegate {
+    private var rubyRanges: [NSRange] = []
+
+    func updateRubyRanges(in attributedString: NSAttributedString) {
+        rubyRanges.removeAll(keepingCapacity: true)
+        attributedString.enumerateAttribute(
+            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
+            in: NSRange(location: 0, length: attributedString.length)
+        ) { value, range, _ in
+            if value != nil {
+                rubyRanges.append(range)
+            }
+        }
+    }
+
+    func shouldBreakLine(beforeCharacterAt charIndex: Int) -> Bool {
+        !rubyRanges.contains { range in
+            charIndex > range.location && charIndex < NSMaxRange(range)
+        }
+    }
+
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager,
+        shouldBreakLineBefore location: any NSTextLocation,
+        hyphenating: Bool
     ) -> Bool {
         guard
-            charIndex > 0,
-            let textStorage = layoutManager.textStorage,
-            charIndex < textStorage.length
+            let contentManager = textLayoutManager.textContentManager
         else {
             return true
         }
 
-        var rubyRange = NSRange()
-        let ruby = textStorage.attribute(
-            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
-            at: charIndex,
-            effectiveRange: &rubyRange
+        let charIndex = contentManager.offset(
+            from: contentManager.documentRange.location,
+            to: location
         )
-        // Keep the annotation as one untouched Core Text run for correct
-        // centering, but reject line breaks inside its multi-character base.
-        return ruby == nil || charIndex == rubyRange.location
+        return shouldBreakLine(beforeCharacterAt: charIndex)
     }
 }
 
@@ -185,12 +200,12 @@ struct StudyRubyText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = UITextView(usingTextLayoutManager: true)
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
         view.isSelectable = true
-        view.layoutManager.delegate = context.coordinator
+        view.textLayoutManager?.delegate = context.coordinator
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -207,12 +222,14 @@ struct StudyRubyText: UIViewRepresentable {
             bottom: document.hasRuby ? scaledPointSize * 0.08 : 0,
             right: 0
         )
-        view.attributedText = document.attributedString(
+        let attributedText = document.attributedString(
             pointSize: pointSize,
             weight: weight,
             color: color,
             alignment: alignment
         )
+        context.coordinator.updateRubyRanges(in: attributedText)
+        view.attributedText = attributedText
         view.textAlignment = alignment
         view.accessibilityLabel = document.plainText
     }
