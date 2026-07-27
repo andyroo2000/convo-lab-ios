@@ -2,21 +2,28 @@ import CoreText
 import SwiftUI
 import UIKit
 
-private final class StudyRubyUITextView: UITextView {
-    override func copy(_ sender: Any?) {
-        guard selectedRange.location != NSNotFound, selectedRange.length > 0 else {
-            super.copy(sender)
-            return
+final class StudyRubyLineBreakDelegate: NSObject, NSLayoutManagerDelegate {
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldBreakLineByWordBeforeCharacterAt charIndex: Int
+    ) -> Bool {
+        guard
+            charIndex > 0,
+            let textStorage = layoutManager.textStorage,
+            charIndex < textStorage.length
+        else {
+            return true
         }
 
-        let selectedText = (attributedText.string as NSString)
-            .substring(with: selectedRange)
-            .removingStudyRubyLayoutControls
-        UIPasteboard.general.string = selectedText
-    }
-
-    override func text(in range: UITextRange) -> String? {
-        super.text(in: range)?.removingStudyRubyLayoutControls
+        var rubyRange = NSRange()
+        let ruby = textStorage.attribute(
+            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
+            at: charIndex,
+            effectiveRange: &rubyRange
+        )
+        // Keep the annotation as one untouched Core Text run for correct
+        // centering, but reject line breaks inside its multi-character base.
+        return ruby == nil || charIndex == rubyRange.location
     }
 }
 
@@ -173,12 +180,17 @@ struct StudyRubyText: UIViewRepresentable {
         self.alignment = alignment
     }
 
+    func makeCoordinator() -> StudyRubyLineBreakDelegate {
+        StudyRubyLineBreakDelegate()
+    }
+
     func makeUIView(context: Context) -> UITextView {
-        let view = StudyRubyUITextView()
+        let view = UITextView()
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
         view.isSelectable = true
+        view.layoutManager.delegate = context.coordinator
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -250,11 +262,7 @@ extension StudyRubyDocument {
                 output.append(NSAttributedString(string: text, attributes: baseAttributes))
             case let .ruby(base, reading):
                 let annotated = NSMutableAttributedString(
-                    // Japanese line breaking normally permits a wrap between
-                    // any two ideographs. Keep a multi-character ruby base
-                    // together so Core Text never splits the base across lines
-                    // and silently drops its reading.
-                    string: base.joinedWithWordJoiners,
+                    string: base,
                     attributes: baseAttributes
                 )
                 let annotation = CTRubyAnnotationCreateWithAttributes(
@@ -279,12 +287,6 @@ extension StudyRubyDocument {
     }
 }
 
-extension String {
-    var removingStudyRubyLayoutControls: String {
-        replacingOccurrences(of: "\u{2060}", with: "")
-    }
-}
-
 private extension Character {
     var isKana: Bool {
         unicodeScalars.allSatisfy { scalar in
@@ -305,11 +307,6 @@ private extension Character {
 }
 
 private extension String {
-    var joinedWithWordJoiners: String {
-        guard count > 1 else { return self }
-        return map(String.init).joined(separator: "\u{2060}")
-    }
-
     var containsKanjiOrIterationMark: Bool {
         contains { $0.isKanji || $0 == "々" }
     }
