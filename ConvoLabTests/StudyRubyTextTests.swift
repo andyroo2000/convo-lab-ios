@@ -107,7 +107,7 @@ final class StudyRubyTextTests: XCTestCase {
         XCTAssertEqual(document.segments, [.text("時々")])
     }
 
-    func testMultiCharacterRubyBaseCannotWrapInsideTheAnnotatedWord() {
+    func testMultiCharacterRubyBaseRemainsOneContinuousAnnotation() {
         let document = StudyRubyDocument.parse(
             "多[おお]くの経験[けいけん]豊[ゆた]かな人",
             knownKanji: ["多"]
@@ -120,20 +120,44 @@ final class StudyRubyTextTests: XCTestCase {
             alignment: .center
         )
 
-        XCTAssertEqual(
-            rendered.string,
-            "多くの経\u{2060}験豊かな人"
-        )
-        XCTAssertEqual(
-            rendered.string.removingStudyRubyLayoutControls,
-            document.plainText
-        )
+        XCTAssertEqual(rendered.string, document.plainText)
+
+        let experienceRange = (rendered.string as NSString).range(of: "経験")
+        var effectiveRange = NSRange()
+        XCTAssertNotNil(rendered.attribute(
+            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
+            at: experienceRange.location,
+            effectiveRange: &effectiveRange
+        ))
+        XCTAssertEqual(effectiveRange, experienceRange)
     }
 
-    func testRubyLayoutControlsAreRemovedFromUserFacingText() {
-        XCTAssertEqual(
-            "多くの経\u{2060}験豊かな人".removingStudyRubyLayoutControls,
-            "多くの経験豊かな人"
+    func testLineBreakDelegateRejectsBreakInsideRubyRange() {
+        let document = StudyRubyDocument.parse(
+            "経験[けいけん]豊富[ほうふ]",
+            knownKanji: []
         )
+        let textStorage = NSTextStorage(attributedString: document.attributedString(
+            pointSize: 38,
+            weight: .semibold,
+            color: .label,
+            alignment: .center
+        ))
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let delegate = StudyRubyLineBreakDelegate()
+
+        XCTAssertFalse(delegate.layoutManager(
+            layoutManager,
+            shouldBreakLineByWordBeforeCharacterAt: 1
+        ))
+        XCTAssertTrue(delegate.layoutManager(
+            layoutManager,
+            shouldBreakLineByWordBeforeCharacterAt: 2
+        ))
+        XCTAssertFalse(delegate.layoutManager(
+            layoutManager,
+            shouldBreakLineByWordBeforeCharacterAt: 3
+        ))
     }
 }
