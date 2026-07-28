@@ -234,6 +234,9 @@ final class StudyStore {
         lessonSessionIsPresented = false
         if sessionKind == "lessons" {
             sessionKind = "reviews"
+            if let userID = activeUserID {
+                try? persist(cards: [], userID: userID)
+            }
             cards = []
             sessionInitialCardCount = 0
             sessionCompletedCardIDs = []

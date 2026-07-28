@@ -3880,6 +3880,7 @@ final class StudyStoreTests: XCTestCase {
         )
 
         store.endLessonSessionPresentation()
+        XCTAssertTrue(store.cards.isEmpty)
         let refreshedAfterLeaving = try await store.refreshSessionPreservingActiveLessons()
 
         XCTAssertTrue(refreshedAfterLeaving)
