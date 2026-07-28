@@ -269,9 +269,6 @@ struct DailyAudioPlayerView: View {
         }
         resolvedURL = url
         isPreparing = false
-        if !player.isCurrent(track.id) {
-            player.play(url: url, trackID: track.id, title: track.title)
-        }
     }
 
     private func togglePlayback() {

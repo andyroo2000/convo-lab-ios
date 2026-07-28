@@ -1,10 +1,25 @@
 import SwiftUI
 
 struct DailyAudioView: View {
+    private enum SwipeDirection {
+        case earlier
+        case later
+    }
+
     let store: DailyAudioStore
     let player: AudioPlayer
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedPracticeID: String?
     @State private var confirmingRegeneration = false
+    @State private var dragOffset = CGFloat.zero
+    @State private var cardWidth = CGFloat(360)
+    @State private var isSettlingSwipe = false
+    @State private var preparingTrackID: String?
+    @State private var suppressTrackInteractions = false
+    @State private var trackInteractionResetTask: Task<Void, Never>?
+    @State private var selectedPlayerTrack: DailyAudioTrack?
+
+    private let dayCardSpacing = CGFloat(16)
 
     private var selectedPractice: DailyAudioPractice? {
         guard let selectedPracticeID else { return store.practices.first }
@@ -18,6 +33,28 @@ struct DailyAudioView: View {
 
     private var todayIsGenerating: Bool {
         todayPractice?.status == "generating"
+    }
+
+    private var selectedPracticeIndex: Int? {
+        guard let selectedPractice else { return nil }
+        return store.practices.firstIndex { $0.id == selectedPractice.id }
+    }
+
+    private var earlierPractice: DailyAudioPractice? {
+        guard
+            let selectedPracticeIndex,
+            store.practices.indices.contains(selectedPracticeIndex + 1)
+        else {
+            return nil
+        }
+        return store.practices[selectedPracticeIndex + 1]
+    }
+
+    private var laterPractice: DailyAudioPractice? {
+        guard let selectedPracticeIndex, selectedPracticeIndex > 0 else {
+            return nil
+        }
+        return store.practices[selectedPracticeIndex - 1]
     }
 
     var body: some View {
@@ -42,14 +79,9 @@ struct DailyAudioView: View {
                     }
 
                     if let practice = selectedPractice {
-                        practiceCard(practice)
+                        swipeablePracticeStack(practice)
                     }
 
-                    if store.practices.count > 1 {
-                        Text(dayNavigationHint)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 .padding()
             }
@@ -74,6 +106,24 @@ struct DailyAudioView: View {
                 Button("Keep Existing Audio", role: .cancel) {}
             } message: {
                 Text("This will overwrite today’s existing audio drills. Previously downloaded versions may need to be downloaded again.")
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { selectedPlayerTrack != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            selectedPlayerTrack = nil
+                        }
+                    }
+                )
+            ) {
+                if let selectedPlayerTrack {
+                    DailyAudioPlayerView(
+                        track: selectedPlayerTrack,
+                        store: store,
+                        player: player
+                    )
+                }
             }
         }
     }
@@ -114,12 +164,50 @@ struct DailyAudioView: View {
         .background(ConvoLabTheme.cyan.opacity(0.16), in: .rect(cornerRadius: 20))
     }
 
+    private func swipeablePracticeStack(_ practice: DailyAudioPractice) -> some View {
+        ZStack {
+            if let earlierPractice {
+                practiceCard(earlierPractice)
+                    .offset(x: displayedDragOffset - cardTravelDistance)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+
+            if let laterPractice {
+                practiceCard(laterPractice)
+                    .offset(x: displayedDragOffset + cardTravelDistance)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+
+            practiceCard(practice)
+                .offset(x: displayedDragOffset)
+                .zIndex(1)
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        cardWidth = max(geometry.size.width, 1)
+                    }
+                    .onChange(of: geometry.size.width) { _, width in
+                        cardWidth = max(width, 1)
+                    }
+            }
+        }
+        .clipped()
+        .simultaneousGesture(daySwipeGesture)
+    }
+
     private func practiceCard(_ practice: DailyAudioPractice) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(practice.practiceDate)
+                    Text(Self.relativePracticeDate(practice.practiceDate))
                         .font(.headline)
+                        .accessibilityLabel(
+                            "\(Self.relativePracticeDate(practice.practiceDate)), \(practice.practiceDate)"
+                        )
                     Text(practice.status.capitalized)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -127,11 +215,29 @@ struct DailyAudioView: View {
                 Spacer()
                 if practice.status == "ready" {
                     Button {
+                        guard
+                            !suppressTrackInteractions,
+                            !store.isDownloaded(practice)
+                        else {
+                            return
+                        }
                         Task { await store.download(practice) }
                     } label: {
-                        Image(systemName: "arrow.down.circle")
+                        practiceDownloadButton(practice)
                     }
-                    .accessibilityLabel("Download for Offline")
+                    .buttonStyle(.plain)
+                    .disabled(
+                        store.practiceDownloadProgress[practice.id] != nil
+                            || store.isDownloaded(practice)
+                    )
+                    .allowsHitTesting(!suppressTrackInteractions)
+                    .accessibilityLabel(
+                        store.isDownloaded(practice)
+                            ? "Downloaded for Offline"
+                            : store.practiceDownloadProgress[practice.id] != nil
+                                ? "Downloading for Offline"
+                                : "Download for Offline"
+                    )
                 } else if practice.status == "generating" {
                     ProgressView()
                 }
@@ -144,16 +250,6 @@ struct DailyAudioView: View {
         .padding()
         .background(.white.opacity(0.76), in: .rect(cornerRadius: 20))
         .contentShape(.rect)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    if value.translation.width > 50 {
-                        showEarlierPractice()
-                    } else if value.translation.width < -50 {
-                        showLaterPractice()
-                    }
-                }
-        )
         .accessibilityAction(named: Text("Show Earlier Day")) {
             showEarlierPractice()
         }
@@ -162,35 +258,114 @@ struct DailyAudioView: View {
         }
     }
 
+    @ViewBuilder
+    private func practiceDownloadButton(_ practice: DailyAudioPractice) -> some View {
+        if let progress = store.practiceDownloadProgress[practice.id] {
+            ZStack {
+                Circle()
+                    .stroke(ConvoLabTheme.navy.opacity(0.16), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: max(progress, 0.04))
+                    .stroke(
+                        ConvoLabTheme.cyan,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 26, height: 26)
+        } else if store.isDownloaded(practice) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.green)
+        } else {
+            Image(systemName: "arrow.down.circle")
+                .font(.title3)
+        }
+    }
+
     private func trackRow(_ track: DailyAudioTrack) -> some View {
-        Group {
+        HStack(spacing: 14) {
             if track.audioUrl != nil, track.status == "ready" {
-                NavigationLink {
-                    DailyAudioPlayerView(track: track, store: store, player: player)
+                Button {
+                    guard !suppressTrackInteractions else { return }
+                    Task { await toggleTrackPlayback(track) }
                 } label: {
-                    trackRowLabel(track, isPlayable: true)
+                    ZStack {
+                        Circle()
+                            .fill(ConvoLabTheme.cyan.opacity(0.16))
+                            .frame(width: 44, height: 44)
+                        if preparingTrackID == track.id {
+                            ProgressView()
+                                .tint(ConvoLabTheme.navy)
+                        } else {
+                            Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                                ? "pause.fill"
+                                : "play.fill")
+                                .foregroundStyle(ConvoLabTheme.navy)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens the audio player")
+                .disabled(preparingTrackID != nil)
+                .allowsHitTesting(!suppressTrackInteractions)
+                .accessibilityLabel(
+                    player.isCurrent(track.id) && player.isPlaying
+                        ? "Pause \(track.title)"
+                        : "Play \(track.title)"
+                )
+
+                Button {
+                    guard !suppressTrackInteractions else { return }
+                    selectedPlayerTrack = track
+                } label: {
+                    trackNavigationLabel(track)
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(!suppressTrackInteractions)
+                .accessibilityHint("Opens Now Playing")
             } else {
-                trackRowLabel(track, isPlayable: false)
+                unavailableTrackRow(track)
             }
         }
         .padding(.vertical, 4)
+        .contentShape(.rect)
     }
 
-    private func trackRowLabel(
-        _ track: DailyAudioTrack,
-        isPlayable: Bool
-    ) -> some View {
+    private func trackNavigationLabel(_ track: DailyAudioTrack) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.headline)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                Text(track.formattedDuration)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if store.isDownloading(track) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Downloading")
+            } else if store.isDownloaded(track) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Downloaded")
+            }
+            Image(systemName: "chevron.right")
+                .font(.caption.bold())
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(.rect)
+    }
+
+    private func unavailableTrackRow(_ track: DailyAudioTrack) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
                     .fill(ConvoLabTheme.cyan.opacity(0.16))
                     .frame(width: 44, height: 44)
-                Image(systemName: player.isCurrent(track.id) && player.isPlaying
-                    ? "waveform"
-                    : "play.fill")
+                Image(systemName: "waveform.slash")
                     .foregroundStyle(ConvoLabTheme.navy)
             }
 
@@ -204,11 +379,7 @@ struct DailyAudioView: View {
             }
             Spacer()
 
-            if isPlayable {
-                Image(systemName: "chevron.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(.tertiary)
-            } else if track.status == "generating" || track.status == "draft" {
+            if track.status == "generating" || track.status == "draft" {
                 ProgressView()
             } else {
                 Image(systemName: "exclamationmark.circle")
@@ -218,47 +389,215 @@ struct DailyAudioView: View {
         .contentShape(.rect)
     }
 
-    private var dayNavigationHint: String {
-        guard let selectedPractice,
-              let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id })
-        else {
-            return ""
+    private func toggleTrackPlayback(_ track: DailyAudioTrack) async {
+        if player.isCurrent(track.id) {
+            player.toggle()
+            return
         }
-        return index > 0
-            ? "Swipe right for earlier days or left for later days."
-            : "Swipe right for earlier days."
+
+        preparingTrackID = track.id
+        defer {
+            if preparingTrackID == track.id {
+                preparingTrackID = nil
+            }
+        }
+        let detailedTrack = await store.detailedTrack(for: track) ?? track
+        guard
+            preparingTrackID == track.id,
+            let url = await store.playableURL(for: detailedTrack)
+        else {
+            return
+        }
+        player.play(url: url, trackID: track.id, title: track.title)
+    }
+
+    private var displayedDragOffset: CGFloat {
+        if dragOffset > 0, earlierPractice == nil {
+            return Self.rubberBand(dragOffset)
+        }
+        if dragOffset < 0, laterPractice == nil {
+            return Self.rubberBand(dragOffset)
+        }
+        return dragOffset
+    }
+
+    private var cardTravelDistance: CGFloat {
+        cardWidth + dayCardSpacing
+    }
+
+    private var daySwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard
+                    !isSettlingSwipe,
+                    abs(value.translation.width) > abs(value.translation.height)
+                else {
+                    return
+                }
+                trackInteractionResetTask?.cancel()
+                trackInteractionResetTask = nil
+                suppressTrackInteractions = true
+                dragOffset = value.translation.width
+            }
+            .onEnded { value in
+                guard !isSettlingSwipe else { return }
+                restoreTrackInteractionsAfterSwipe()
+                let horizontal = value.translation.width
+                let predicted = value.predictedEndTranslation.width
+                guard abs(horizontal) > abs(value.translation.height) else {
+                    snapCardBack()
+                    return
+                }
+
+                if max(horizontal, predicted) > 70 {
+                    if let earlierPractice {
+                        completeSwipe(to: earlierPractice.id, direction: .earlier)
+                    } else if store.hasMore {
+                        showEarlierPractice()
+                    } else {
+                        snapCardBack()
+                    }
+                } else if min(horizontal, predicted) < -70, let laterPractice {
+                    completeSwipe(to: laterPractice.id, direction: .later)
+                } else {
+                    snapCardBack()
+                }
+            }
+    }
+
+    private func completeSwipe(to id: String, direction: SwipeDirection) {
+        guard !isSettlingSwipe else { return }
+        if player.isPlaying {
+            player.toggle()
+        }
+        if reduceMotion {
+            selectedPracticeID = id
+            dragOffset = 0
+            return
+        }
+
+        isSettlingSwipe = true
+        let destination = direction == .earlier ? cardTravelDistance : -cardTravelDistance
+        withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
+            dragOffset = destination
+        } completion: {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if store.practices.contains(where: { $0.id == id }) {
+                    selectedPracticeID = id
+                }
+                dragOffset = 0
+                isSettlingSwipe = false
+            }
+        }
+    }
+
+    private func restoreTrackInteractionsAfterSwipe() {
+        trackInteractionResetTask?.cancel()
+        trackInteractionResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            suppressTrackInteractions = false
+            trackInteractionResetTask = nil
+        }
+    }
+
+    private func snapCardBack() {
+        guard dragOffset != 0 else { return }
+        if reduceMotion {
+            dragOffset = 0
+        } else {
+            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
+                dragOffset = 0
+            }
+        }
     }
 
     private func showEarlierPractice() {
+        guard !isSettlingSwipe else { return }
         guard let selectedPractice,
               let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id })
         else {
             return
         }
         if store.practices.indices.contains(index + 1) {
-            selectedPracticeID = store.practices[index + 1].id
+            completeSwipe(to: store.practices[index + 1].id, direction: .earlier)
         } else if store.hasMore {
+            isSettlingSwipe = true
             Task {
                 await store.loadMore()
                 guard let currentIndex = store.practices.firstIndex(where: {
                     $0.id == selectedPractice.id
                 }), store.practices.indices.contains(currentIndex + 1)
                 else {
+                    isSettlingSwipe = false
+                    snapCardBack()
                     return
                 }
-                selectedPracticeID = store.practices[currentIndex + 1].id
+                isSettlingSwipe = false
+                completeSwipe(
+                    to: store.practices[currentIndex + 1].id,
+                    direction: .earlier
+                )
             }
+        } else {
+            snapCardBack()
         }
     }
 
     private func showLaterPractice() {
+        guard !isSettlingSwipe else { return }
         guard let selectedPractice,
               let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id }),
               index > 0
         else {
+            snapCardBack()
             return
         }
-        selectedPracticeID = store.practices[index - 1].id
+        completeSwipe(to: store.practices[index - 1].id, direction: .later)
+    }
+
+    private static func rubberBand(_ offset: CGFloat) -> CGFloat {
+        let direction: CGFloat = offset < 0 ? -1 : 1
+        return direction * min(pow(abs(offset), 0.72) * 1.8, 42)
+    }
+
+    static func relativePracticeDate(
+        _ practiceDate: String,
+        relativeTo referenceDate: Date = .now
+    ) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.calendar = .current
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = .current
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let date = dateFormatter.date(from: practiceDate) else {
+            return practiceDate
+        }
+
+        let calendar = Calendar.current
+        let dayDifference = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: referenceDate),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+        if dayDifference == 0 {
+            return "Today"
+        }
+        if dayDifference == -1 {
+            return "Yesterday"
+        }
+        if dayDifference == 1 {
+            return "Tomorrow"
+        }
+        let relativeFormatter = RelativeDateTimeFormatter()
+        relativeFormatter.dateTimeStyle = .named
+        relativeFormatter.unitsStyle = .spellOut
+        return relativeFormatter.localizedString(
+            from: DateComponents(day: dayDifference)
+        ).capitalized
     }
 
     private static var todayPracticeDate: String {

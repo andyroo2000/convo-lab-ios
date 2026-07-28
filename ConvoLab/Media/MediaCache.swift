@@ -325,8 +325,12 @@ final class MediaCache {
     }
 
     func cachedKeys(for remoteURLs: [URL]) -> Set<String> {
-        guard let userID = activeUserID else { return [] }
         let desiredKeys = Set(remoteURLs.map(Self.stableCacheKey(for:)))
+        return cachedKeys(forCacheKeys: desiredKeys)
+    }
+
+    func cachedKeys(forCacheKeys desiredKeys: Set<String>) -> Set<String> {
+        guard let userID = activeUserID else { return [] }
         guard !desiredKeys.isEmpty else { return [] }
 
         let records = (try? context.fetch(

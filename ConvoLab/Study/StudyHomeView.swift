@@ -112,9 +112,6 @@ struct StudyHomeView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                Text("This is advice, not a lock. Lessons always remain available.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,10 +192,10 @@ struct StudyHomeView: View {
             let target = store.offlineReadinessTarget
             ProgressView(value: Double(min(store.preparedCardCount, target)), total: Double(max(target, 1)))
                 .tint(ConvoLabTheme.cyan)
-
-            Text(readinessDescription(target: target))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .accessibilityLabel("Offline readiness")
+                .accessibilityValue(
+                    "\(min(store.preparedCardCount, target)) of \(target) cards ready"
+                )
 
             syncStatus
         }
@@ -211,7 +208,7 @@ struct StudyHomeView: View {
         switch store.syncStatus {
         case .idle:
             if let lastSyncAt = store.lastSyncAt {
-                Text("Last synced \(lastSyncAt, format: .relative(presentation: .named))")
+                Text("Last sync: \(lastSyncAt, format: .relative(presentation: .named))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -227,10 +224,6 @@ struct StudyHomeView: View {
                 .font(.caption)
                 .foregroundStyle(.red)
         }
-    }
-
-    private func readinessDescription(target: Int) -> String {
-        "\(store.preparedCardCount) of \(target) planned cards are ready offline. Cards with audio or images count only after every file downloads."
     }
 
     private func metric(title: String, value: Int) -> some View {
