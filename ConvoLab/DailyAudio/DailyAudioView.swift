@@ -469,12 +469,13 @@ struct DailyAudioView: View {
         let destination = direction == .earlier ? cardTravelDistance : -cardTravelDistance
         withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
             dragOffset = destination
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+        } completion: {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                selectedPracticeID = id
+                if store.practices.contains(where: { $0.id == id }) {
+                    selectedPracticeID = id
+                }
                 dragOffset = 0
                 isSettlingSwipe = false
             }
