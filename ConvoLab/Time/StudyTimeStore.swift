@@ -32,7 +32,7 @@ final class StudyTimeStore {
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         activeUserID = userID
-        loadLocalSessions()
+        loadLocalSessions(recoverAbandonedAutomatic: true)
     }
 
     func deactivate() async {
@@ -258,7 +258,7 @@ final class StudyTimeStore {
         }
     }
 
-    private func loadLocalSessions() {
+    private func loadLocalSessions(recoverAbandonedAutomatic: Bool = false) {
         guard let userID = activeUserID else { return }
         let descriptor = FetchDescriptor<LocalStudyActivitySession>(
             predicate: #Predicate { $0.userID == userID },
@@ -268,7 +268,8 @@ final class StudyTimeStore {
         sessions = records.compactMap(\.session)
         if let running = records.first(where: { $0.endedAt == nil }) {
             active = running.activeSession
-            if let active,
+            if recoverAbandonedAutomatic,
+               let active,
                active.source == .automatic,
                Date.now.timeIntervalSince(active.startedAt) > Self.automaticRecoveryLimit
             {

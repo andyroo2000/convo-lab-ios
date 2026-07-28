@@ -84,6 +84,41 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(records.first?.endedAt)
     }
 
+    func testForegroundSynchronizationDoesNotRecoverALiveAutomaticSession() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        let startedAt = Date.now.addingTimeInterval(-10 * 60)
+        store.activate(userID: 42)
+        store.start(
+            activity: .dailyAudio,
+            source: .automatic,
+            name: "Daily drill",
+            at: startedAt
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.active?.activity, .dailyAudio)
+        XCTAssertEqual(store.active?.startedAt, startedAt)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertNil(record.endedAt)
+        XCTAssertFalse(record.syncPending)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
