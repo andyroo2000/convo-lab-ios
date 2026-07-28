@@ -361,7 +361,6 @@ final class StudyStore {
         StudySessionCounts.calculate(
             cards: cards,
             overview: overview,
-            newlyFailedCardIDs: newlyFailedCardIDs,
             retainedFailedCardIDs: retainedFailedCardIDs,
             resolvedFailedCardIDs: resolvedFailedCardIDs
         )
@@ -719,6 +718,7 @@ final class StudyStore {
                     newCardsPerDay: response.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
                     failedCount: current.failedCount,
+                    failedDueCount: current.failedDueCount,
                     lessonBatchSize: response.lessonBatchSize,
                     masterySpread: current.masterySpread,
                     learningReadiness: current.learningReadiness
@@ -2002,6 +2002,9 @@ final class StudyStore {
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
                 : current.newCardsAvailableToday,
             failedCount: current.failedCount,
+            failedDueCount: card.state.failedAt != nil && card.state.queueState != "new"
+                ? current.failedDueCount.map { max(0, $0 - 1) }
+                : current.failedDueCount,
             lessonBatchSize: current.lessonBatchSize,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
@@ -3168,19 +3171,22 @@ struct StudySessionCounts: Equatable {
     static func calculate(
         cards: [StudyCard],
         overview: StudyOverview?,
-        newlyFailedCardIDs: Set<String> = [],
         retainedFailedCardIDs: Set<String> = [],
         resolvedFailedCardIDs: Set<String> = []
     ) -> StudySessionCounts {
-        let loadedFailedCardIDs = Set(
-            cards.lazy.filter { $0.state.failedAt != nil }.map(\.id)
+        let loadedFailedDueCardIDs = Set(
+            cards.lazy.filter {
+                $0.state.failedAt != nil
+                    && ($0.state.dueAt.map { $0 <= Date.now } ?? true)
+            }.map(\.id)
         )
-        let authoritativeFailedCount = max(
+        let pendingReviewedFailedCardIDs = retainedFailedCardIDs
+            .union(resolvedFailedCardIDs)
+        let authoritativeFailedDueCount = max(
             0,
-            (overview?.failedCount ?? 0) - resolvedFailedCardIDs.count
+            (overview?.failedDueCount ?? overview?.failedCount ?? 0)
+                - pendingReviewedFailedCardIDs.count
         )
-        let pendingFailedCardIDs = retainedFailedCardIDs.union(newlyFailedCardIDs)
-        let localFailedCount = loadedFailedCardIDs.union(pendingFailedCardIDs).count
         let loadedNewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
@@ -3193,10 +3199,7 @@ struct StudySessionCounts: Equatable {
             ?? loadedReviewRemaining
 
         return StudySessionCounts(
-            failedDue: max(
-                authoritativeFailedCount + newlyFailedCardIDs.count,
-                localFailedCount
-            ),
+            failedDue: max(authoritativeFailedDueCount, loadedFailedDueCardIDs.count),
             reviewRemaining: reviewRemaining,
             newRemaining: newRemaining
         )

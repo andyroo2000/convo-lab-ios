@@ -3735,7 +3735,7 @@ final class StudyStoreTests: XCTestCase {
         let againDueAt = try XCTUnwrap(store.libraryCards.first?.state.dueAt)
         XCTAssertEqual(againDueAt, firstReviewAt.addingTimeInterval(10 * 60))
         XCTAssertTrue(store.cards.isEmpty)
-        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertEqual(store.sessionCounts.failedDue, 0)
         XCTAssertEqual(store.sessionFailureCount, 1)
 
         store.activateOfflineDueCards(at: againDueAt.addingTimeInterval(-1))
@@ -3809,7 +3809,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.recordReview(card: card, rating: .again, duration: nil)
 
-        XCTAssertEqual(store.sessionCounts.failedDue, 1)
+        XCTAssertEqual(store.sessionCounts.failedDue, 0)
         XCTAssertTrue(store.cards.isEmpty)
 
         let relaunched = StudyStore(initialUserID: 1,
@@ -3817,7 +3817,7 @@ final class StudyStoreTests: XCTestCase {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
         XCTAssertTrue(relaunched.cards.isEmpty)
 
         let staleSession = StudySession(
@@ -3851,7 +3851,7 @@ final class StudyStoreTests: XCTestCase {
         try await relaunched.refreshSession()
 
         XCTAssertTrue(relaunched.cards.isEmpty)
-        XCTAssertEqual(relaunched.sessionCounts.failedDue, 1)
+        XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
     }
 
     @MainActor
