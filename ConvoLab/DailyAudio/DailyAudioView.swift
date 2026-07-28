@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct DailyAudioView: View {
+    private enum NavigationDirection {
+        case earlier
+        case later
+    }
+
     let store: DailyAudioStore
     let player: AudioPlayer
     @State private var selectedPracticeID: String?
     @State private var confirmingRegeneration = false
+    @State private var navigationDirection = NavigationDirection.earlier
 
     private var selectedPractice: DailyAudioPractice? {
         guard let selectedPracticeID else { return store.practices.first }
@@ -42,7 +48,12 @@ struct DailyAudioView: View {
                     }
 
                     if let practice = selectedPractice {
-                        practiceCard(practice)
+                        ZStack {
+                            practiceCard(practice)
+                                .id(practice.id)
+                                .transition(practiceTransition)
+                        }
+                        .clipped()
                     }
 
                     if store.practices.count > 1 {
@@ -229,6 +240,28 @@ struct DailyAudioView: View {
             : "Swipe right for earlier days."
     }
 
+    private var practiceTransition: AnyTransition {
+        switch navigationDirection {
+        case .earlier:
+            return .asymmetric(
+                insertion: .move(edge: .leading).combined(with: .opacity),
+                removal: .move(edge: .trailing).combined(with: .opacity)
+            )
+        case .later:
+            return .asymmetric(
+                insertion: .move(edge: .trailing).combined(with: .opacity),
+                removal: .move(edge: .leading).combined(with: .opacity)
+            )
+        }
+    }
+
+    private func selectPractice(_ id: String, direction: NavigationDirection) {
+        navigationDirection = direction
+        withAnimation(.snappy(duration: 0.38, extraBounce: 0.05)) {
+            selectedPracticeID = id
+        }
+    }
+
     private func showEarlierPractice() {
         guard let selectedPractice,
               let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id })
@@ -236,7 +269,7 @@ struct DailyAudioView: View {
             return
         }
         if store.practices.indices.contains(index + 1) {
-            selectedPracticeID = store.practices[index + 1].id
+            selectPractice(store.practices[index + 1].id, direction: .earlier)
         } else if store.hasMore {
             Task {
                 await store.loadMore()
@@ -246,7 +279,7 @@ struct DailyAudioView: View {
                 else {
                     return
                 }
-                selectedPracticeID = store.practices[currentIndex + 1].id
+                selectPractice(store.practices[currentIndex + 1].id, direction: .earlier)
             }
         }
     }
@@ -258,7 +291,7 @@ struct DailyAudioView: View {
         else {
             return
         }
-        selectedPracticeID = store.practices[index - 1].id
+        selectPractice(store.practices[index - 1].id, direction: .later)
     }
 
     private static var todayPracticeDate: String {
