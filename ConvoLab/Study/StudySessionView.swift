@@ -65,6 +65,7 @@ struct StudySessionView: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(ConvoLabTheme.navy)
+                        .disabled(store.masteryAnimation != nil)
                         .accessibilityLabel("Edit card")
                         .accessibilityIdentifier("StudyAnswerEditButton")
                     }

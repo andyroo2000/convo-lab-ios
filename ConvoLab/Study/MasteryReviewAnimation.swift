@@ -168,7 +168,9 @@ struct MasteryReviewAnimation: View {
     static let railHeight = CGFloat(76)
 
     static func railCenterY(availableHeight: CGFloat) -> CGFloat {
-        min(max(railHeight / 2 + 12, availableHeight * 0.26), availableHeight * 0.42)
+        let minimumCenter = railHeight / 2 + 12
+        let maximumCenter = max(minimumCenter, availableHeight * 0.42)
+        return min(max(minimumCenter, availableHeight * 0.26), maximumCenter)
     }
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {

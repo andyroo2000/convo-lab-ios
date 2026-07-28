@@ -12,6 +12,11 @@ final class MasteryReviewAnimationTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(railTop, 12)
         XCTAssertLessThan(railTop, availableHeight / 2)
+
+        let compactRailTop = MasteryReviewAnimation.railCenterY(
+            availableHeight: 100
+        ) - MasteryReviewAnimation.railHeight / 2
+        XCTAssertGreaterThanOrEqual(compactRailTop, 12)
     }
 
     @MainActor
