@@ -4,19 +4,21 @@ import XCTest
 
 final class MasteryReviewAnimationTests: XCTestCase {
     @MainActor
-    func testRailStaysNearTheTopOfTheCardOverlay() {
-        let availableHeight = CGFloat(600)
-        let railTop = MasteryReviewAnimation.railCenterY(
-            availableHeight: availableHeight
-        ) - MasteryReviewAnimation.railHeight / 2
+    func testRailAndItemFitInsideCompactFeedbackLane() {
+        let railTop = MasteryReviewAnimation.railCenterY
+            - MasteryReviewAnimation.railHeight / 2
+        let railBottom = MasteryReviewAnimation.railCenterY
+            + MasteryReviewAnimation.railHeight / 2
 
-        XCTAssertGreaterThanOrEqual(railTop, 12)
-        XCTAssertLessThan(railTop, availableHeight / 2)
-
-        let compactRailTop = MasteryReviewAnimation.railCenterY(
-            availableHeight: 100
-        ) - MasteryReviewAnimation.railHeight / 2
-        XCTAssertGreaterThanOrEqual(compactRailTop, 12)
+        XCTAssertGreaterThanOrEqual(railTop, 0)
+        XCTAssertLessThan(
+            railBottom,
+            MasteryReviewAnimation.feedbackLaneHeight
+        )
+        XCTAssertLessThan(
+            MasteryReviewAnimation.itemCenterY,
+            MasteryReviewAnimation.feedbackLaneHeight
+        )
     }
 
     @MainActor

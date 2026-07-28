@@ -44,14 +44,11 @@ struct MasteryReviewAnimation: View {
             let windowWidth = min(geometry.size.width * 0.84, 360)
 
             ZStack {
-                ConvoLabTheme.cream
-                    .opacity(0.78)
-
                 masteryRail(segmentWidth: segmentWidth, windowWidth: windowWidth)
                     .frame(width: windowWidth, height: Self.railHeight)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(availableHeight: geometry.size.height)
+                        y: Self.railCenterY
                     )
                     .opacity(railOpacity)
 
@@ -64,20 +61,20 @@ struct MasteryReviewAnimation: View {
                     .foregroundStyle(passed ? Color.green : Color.red)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(availableHeight: geometry.size.height) + 58
+                        y: Self.resultCenterY
                     )
                     .opacity(railOpacity)
                     .accessibilityHidden(true)
                 }
 
                 Text(label)
-                    .font(.system(.title2, design: .rounded, weight: .bold))
+                    .font(.system(.headline, design: .rounded, weight: .bold))
                     .foregroundStyle(ConvoLabTheme.navy)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.42)
-                    .frame(maxWidth: min(geometry.size.width * 0.82, 480))
-                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.58)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.32)
+                    .frame(maxWidth: min(geometry.size.width * 0.82, 420))
+                    .position(x: geometry.size.width / 2, y: Self.itemCenterY)
                     .opacity(itemOpacity)
                     .accessibilityHidden(true)
             }
@@ -142,7 +139,7 @@ struct MasteryReviewAnimation: View {
             Rectangle()
                 .fill(color)
                 .frame(height: 5)
-                .offset(y: 43)
+                .offset(y: 34)
 
             if index == toIndex, !passed {
                 Circle()
@@ -150,7 +147,7 @@ struct MasteryReviewAnimation: View {
                     .frame(width: 30, height: 30)
                     .scaleEffect(failureHaloScale)
                     .opacity(failureHaloOpacity)
-                    .offset(y: 31)
+                    .offset(y: 22)
             }
 
             Circle()
@@ -161,17 +158,15 @@ struct MasteryReviewAnimation: View {
                         .stroke(ConvoLabTheme.cream, lineWidth: 4)
                 }
                 .scaleEffect(index == toIndex ? nodeScale : 1)
-                .offset(y: 36)
+                .offset(y: 27)
         }
     }
 
-    static let railHeight = CGFloat(76)
-
-    static func railCenterY(availableHeight: CGFloat) -> CGFloat {
-        let minimumCenter = railHeight / 2 + 12
-        let maximumCenter = max(minimumCenter, availableHeight * 0.42)
-        return min(max(minimumCenter, availableHeight * 0.26), maximumCenter)
-    }
+    static let feedbackLaneHeight = CGFloat(88)
+    static let railHeight = CGFloat(56)
+    static let railCenterY = CGFloat(28)
+    static let resultCenterY = CGFloat(57)
+    static let itemCenterY = CGFloat(74)
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {
         min(max(availableWidth * 0.48, 150), 190)

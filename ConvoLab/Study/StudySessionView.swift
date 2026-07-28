@@ -37,74 +37,28 @@ struct StudySessionView: View {
     private var card: StudyCard? {
         store.masteryAnimation?.card ?? store.cards.first
     }
-    private var remainingCount: Int {
-        mode == .lessons
-            ? store.cards.count
-            : store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining
-    }
-
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 10) {
             ProgressView(value: store.sessionProgress)
                 .tint(.green)
                 .accessibilityLabel("Session progress")
+
+            masteryFeedbackLane
 
             if mode == .lessons, lessonPreview {
                 lessonPreviewContent
             } else if let card {
                 let presentation = card.presentation
-                HStack(spacing: 8) {
-                    if showingAnswer,
-                       StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                        Button {
-                            player.stop()
-                            editingCard = card
-                        } label: {
-                            Image(systemName: "pencil")
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(ConvoLabTheme.navy)
-                        .disabled(store.masteryAnimation != nil)
-                        .accessibilityLabel("Edit card")
-                        .accessibilityIdentifier("StudyAnswerEditButton")
-                    }
-                    sessionMetric(
-                        label: "Remaining",
-                        value: remainingCount,
-                        color: ConvoLabTheme.navy
-                    )
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(remainingCount) cards remaining")
+                VStack {
+                    Spacer()
 
-                ZStack {
-                    VStack {
-                        Spacer()
-
-                        if showingAnswer {
-                            answerFace(presentation.back, card: card)
-                        } else {
-                            promptFace(presentation.front, cardID: card.id)
-                        }
-
-                        Spacer()
+                    if showingAnswer {
+                        answerFace(presentation.back, card: card)
+                    } else {
+                        promptFace(presentation.front, cardID: card.id)
                     }
 
-                    if let animation = store.masteryAnimation {
-                        MasteryReviewAnimation(
-                            label: animation.label,
-                            fromLevel: animation.fromLevel,
-                            toLevel: animation.toLevel,
-                            passed: animation.passed
-                        ) {
-                            guard store.masteryAnimation?.id == animation.id else {
-                                return
-                            }
-                            store.dismissMasteryAnimation()
-                        }
-                        .id(animation.id)
-                    }
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -328,19 +282,6 @@ struct StudySessionView: View {
         }
     }
 
-    private func sessionMetric(label: String, value: Int, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value, format: .number)
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(color)
-            Text(label.uppercased())
-                .font(.caption2.bold())
-                .tracking(1)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     @ViewBuilder
     private func promptFace(_ face: StudyCardPresentation.Face, cardID: String) -> some View {
         VStack(spacing: 18) {
@@ -553,6 +494,52 @@ struct StudySessionView: View {
                 || isUndoing
                 || store.masteryAnimation != nil
         )
+    }
+
+    @ViewBuilder
+    private var masteryFeedbackLane: some View {
+        if mode == .reviews || !lessonPreview {
+            ZStack {
+                Color.clear
+
+                if let card,
+                   showingAnswer,
+                   store.masteryAnimation == nil,
+                   StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                    HStack {
+                        Button {
+                            player.stop()
+                            editingCard = card
+                        } label: {
+                            Image(systemName: "pencil")
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(ConvoLabTheme.navy)
+                        .accessibilityLabel("Edit card")
+                        .accessibilityIdentifier("StudyAnswerEditButton")
+
+                        Spacer()
+                    }
+                }
+
+                if let animation = store.masteryAnimation {
+                    MasteryReviewAnimation(
+                        label: animation.label,
+                        fromLevel: animation.fromLevel,
+                        toLevel: animation.toLevel,
+                        passed: animation.passed
+                    ) {
+                        guard store.masteryAnimation?.id == animation.id else {
+                            return
+                        }
+                        store.dismissMasteryAnimation()
+                    }
+                    .id(animation.id)
+                }
+            }
+            .frame(height: MasteryReviewAnimation.feedbackLaneHeight)
+        }
     }
 
     private func prepareReviewIntervalLabels(
