@@ -35,6 +35,11 @@ struct StudySessionView: View {
     }
 
     private var card: StudyCard? { store.cards.first }
+    private var remainingCount: Int {
+        mode == .lessons
+            ? store.cards.count
+            : store.sessionCounts.reviewRemaining
+    }
 
     var body: some View {
         VStack(spacing: 22) {
@@ -63,12 +68,12 @@ struct StudySessionView: View {
                     }
                     sessionMetric(
                         label: "Remaining",
-                        value: store.cards.count,
+                        value: remainingCount,
                         color: ConvoLabTheme.navy
                     )
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(store.cards.count) cards remaining")
+                .accessibilityLabel("\(remainingCount) cards remaining")
 
                 Spacer()
 

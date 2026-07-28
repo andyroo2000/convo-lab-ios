@@ -495,7 +495,7 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            try await refreshSession()
+            try await refreshSessionPreservingActiveLessons()
             refreshed = true
         } catch {
             firstError = firstError ?? error
@@ -568,6 +568,13 @@ final class StudyStore {
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         markPrepared(cards: activeCards)
+    }
+
+    /// A foreground sync must not replace a frozen lesson batch with review cards.
+    /// The lesson remains stable until the user finishes it or explicitly leaves it.
+    func refreshSessionPreservingActiveLessons() async throws {
+        guard sessionKind != "lessons" else { return }
+        try await refreshSession()
     }
 
     func refreshLessons() async throws {
