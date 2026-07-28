@@ -11,6 +11,7 @@ struct CardLibraryView: View {
 
     let store: StudyStore
     let player: StudyAudioPlayer
+    let timeStore: StudyTimeStore?
     @State private var collectionMode: CollectionMode = .queue
     @State private var searchText = ""
     @State private var showingCreate = false
@@ -63,13 +64,31 @@ struct CardLibraryView: View {
                 }
             }
             .sheet(isPresented: $showingCreate) {
-                CardEditorView(store: store, player: player, card: nil, serverDraft: nil)
+                CardEditorView(
+                    store: store,
+                    player: player,
+                    card: nil,
+                    serverDraft: nil,
+                    timeStore: timeStore
+                )
             }
             .sheet(item: $selectedCard) { card in
-                CardEditorView(store: store, player: player, card: card, serverDraft: nil)
+                CardEditorView(
+                    store: store,
+                    player: player,
+                    card: card,
+                    serverDraft: nil,
+                    timeStore: timeStore
+                )
             }
             .sheet(item: $selectedDraft) { draft in
-                CardEditorView(store: store, player: player, card: nil, serverDraft: draft)
+                CardEditorView(
+                    store: store,
+                    player: player,
+                    card: nil,
+                    serverDraft: draft,
+                    timeStore: timeStore
+                )
             }
             .alert("Could not delete card", isPresented: $showingDeletionError) {
                 Button("OK", role: .cancel) {}
@@ -353,6 +372,8 @@ struct CardEditorView: View {
     let player: StudyAudioPlayer
     let card: StudyCard?
     let serverDraft: StudyManualCardDraft?
+    let timeStore: StudyTimeStore?
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var draft: StudyCardDraft
     @State private var clientDraftID: String
@@ -389,12 +410,14 @@ struct CardEditorView: View {
         store: StudyStore,
         player: StudyAudioPlayer,
         card: StudyCard?,
-        serverDraft: StudyManualCardDraft?
+        serverDraft: StudyManualCardDraft?,
+        timeStore: StudyTimeStore? = nil
     ) {
         self.store = store
         self.player = player
         self.card = card
         self.serverDraft = serverDraft
+        self.timeStore = timeStore
         let initialDraft = if let card {
             StudyCardDraft(card: card)
         } else if let serverDraft {
@@ -520,6 +543,16 @@ struct CardEditorView: View {
             .task(id: card?.id) {
                 await loadCurrentMedia()
             }
+            .onAppear {
+                startTimeTracking()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    startTimeTracking()
+                } else {
+                    timeStore?.stop(activity: .cardCreation)
+                }
+            }
             .onChange(of: store.manualDrafts.map(\.id)) { _, draftIDs in
                 guard let serverDraft else { return }
                 if !draftIDs.contains(serverDraft.id),
@@ -529,6 +562,7 @@ struct CardEditorView: View {
                 }
             }
             .onDisappear {
+                timeStore?.stop(activity: .cardCreation)
                 audioRegenerationTask?.cancel()
                 audioRegenerationTask = nil
                 imageRegenerationTask?.cancel()
@@ -568,6 +602,14 @@ struct CardEditorView: View {
 
     private var isBusy: Bool {
         isSaving || isRegeneratingAudio || isRegeneratingImage
+    }
+
+    private func startTimeTracking() {
+        timeStore?.start(
+            activity: .cardCreation,
+            source: .automatic,
+            name: "Card creator"
+        )
     }
 
     private var isDraftCommitPending: Bool {
@@ -904,6 +946,7 @@ struct CardEditorView: View {
         isSaving = true
         defer { isSaving = false }
         do {
+            var didCreateCard = false
             var photoTarget = createdPhotoTarget
             if let card {
                 try await store.updateCard(card, draft: draft)
@@ -920,6 +963,7 @@ struct CardEditorView: View {
                     previewAudioRole: previewAudioRole,
                     previewImage: previewImage
                 )
+                didCreateCard = true
             } else if [.audioRecognition, .productionImage].contains(creationKind) {
                 try await store.queueManualDraft(
                     creationKind: creationKind,
@@ -929,6 +973,7 @@ struct CardEditorView: View {
             } else {
                 photoTarget = try await store.createCard(draft)
                 createdPhotoTarget = photoTarget
+                didCreateCard = true
             }
             if let stagedPhotoData, let photoTarget {
                 _ = try await store.uploadImage(
@@ -936,6 +981,9 @@ struct CardEditorView: View {
                     jpegData: stagedPhotoData,
                     placement: draft.imagePlacement
                 )
+            }
+            if didCreateCard {
+                timeStore?.addCreatedCards()
             }
             dismiss()
         } catch {

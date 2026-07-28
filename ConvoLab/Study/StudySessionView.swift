@@ -10,6 +10,8 @@ struct StudySessionView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let mode: Mode
+    let timeStore: StudyTimeStore?
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
@@ -26,10 +28,16 @@ struct StudySessionView: View {
     @State private var lessonPreviewIndex = 0
     @State private var loadingLessons = false
 
-    init(store: StudyStore, player: StudyAudioPlayer, mode: Mode = .reviews) {
+    init(
+        store: StudyStore,
+        player: StudyAudioPlayer,
+        mode: Mode = .reviews,
+        timeStore: StudyTimeStore? = nil
+    ) {
         self.store = store
         self.player = player
         self.mode = mode
+        self.timeStore = timeStore
         _lessonPreview = State(initialValue: mode == .lessons)
     }
 
@@ -142,6 +150,7 @@ struct StudySessionView: View {
             }
         }
         .task {
+            startTimeTracking()
             if mode == .lessons {
                 store.beginLessonSessionPresentation()
                 await loadLessonBatch()
@@ -163,6 +172,13 @@ struct StudySessionView: View {
             cardStartedAt = .now
             didAutoplayAnswerForCardID = nil
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                startTimeTracking()
+            } else {
+                timeStore?.stop(activity: .cardReview)
+            }
+        }
         .task(id: card?.presentation.back.audioURL) {
             answerAudioLocalURL = nil
             didAttemptAnswerAudioLoad = false
@@ -176,18 +192,22 @@ struct StudySessionView: View {
             }
         }
         .onDisappear {
+            timeStore?.stop(activity: .cardReview)
             player.stop()
             store.dismissMasteryAnimation()
             if mode == .lessons {
                 store.endLessonSessionPresentation()
             }
         }
-        .sheet(item: $editingCard) { card in
+        .sheet(item: $editingCard, onDismiss: {
+            startTimeTracking()
+        }) { card in
             CardEditorView(
                 store: store,
                 player: player,
                 card: card,
-                serverDraft: nil
+                serverDraft: nil,
+                timeStore: timeStore
             )
         }
         .alert(
@@ -201,6 +221,14 @@ struct StudySessionView: View {
         } message: {
             Text(undoErrorMessage ?? "The last study action could not be undone.")
         }
+    }
+
+    private func startTimeTracking() {
+        timeStore?.start(
+            activity: .cardReview,
+            source: .automatic,
+            name: mode == .lessons ? "Lessons" : "Card reviews"
+        )
     }
 
     @ViewBuilder

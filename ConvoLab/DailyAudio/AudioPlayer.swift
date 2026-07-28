@@ -11,11 +11,17 @@ final class AudioPlayer {
     private var currentTitle = ""
     private var wasPlayingBeforeInterruption = false
     private var onWillStartPlayback: @MainActor () -> Void = {}
+    private var onPlaybackStateChanged: @MainActor (Bool, String) -> Void = { _, _ in }
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var completionObserver: NSObjectProtocol?
 
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet {
+            guard oldValue != isPlaying else { return }
+            onPlaybackStateChanged(isPlaying, currentTitle)
+        }
+    }
     private(set) var elapsed: Double = 0
     private(set) var duration: Double = 0
 
@@ -55,7 +61,6 @@ final class AudioPlayer {
     }
 
     func play(url: URL, trackID: String, title: String) {
-        isPlaying = true
         onWillStartPlayback()
         activateAudioSession()
         if currentTrackID != trackID {
@@ -67,6 +72,7 @@ final class AudioPlayer {
                 player.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
             }
         }
+        isPlaying = true
         player.play()
         updateNowPlaying()
     }
@@ -84,10 +90,10 @@ final class AudioPlayer {
     func stop() {
         player.pause()
         persistPosition()
+        isPlaying = false
         player.replaceCurrentItem(with: nil)
         currentTrackID = nil
         currentTitle = ""
-        isPlaying = false
         elapsed = 0
         duration = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -103,6 +109,12 @@ final class AudioPlayer {
 
     func setPlaybackStartHandler(_ handler: @escaping @MainActor () -> Void) {
         onWillStartPlayback = handler
+    }
+
+    func setPlaybackStateHandler(
+        _ handler: @escaping @MainActor (Bool, String) -> Void
+    ) {
+        onPlaybackStateChanged = handler
     }
 
     private func activateAudioSession() {

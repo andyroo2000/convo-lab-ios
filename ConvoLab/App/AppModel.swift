@@ -4,6 +4,7 @@ import SwiftData
 @Observable
 final class AppModel {
     let container: ModelContainer
+    let studyTimeContainer: ModelContainer
     let api: APIClient
     let auth: AuthStore
     let mediaCache: MediaCache
@@ -11,6 +12,7 @@ final class AppModel {
     let dailyAudio: DailyAudioStore
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
+    let studyTime: StudyTimeStore
     let isUsingEphemeralStorage: Bool
     @ObservationIgnored private var shouldClaimLegacyData = false
 
@@ -29,13 +31,26 @@ final class AppModel {
                 fatalError("Unable to initialize persistent or recovery storage: \(error)")
             }
         }
+        let timeContainer: ModelContainer
+        do {
+            timeContainer = try StudyTimePersistence.makeContainer()
+        } catch {
+            do {
+                timeContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+            } catch {
+                fatalError("Unable to initialize study time storage: \(error)")
+            }
+        }
         let api = APIClient(baseURL: configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
+        let studyTime = StudyTimeStore(api: api, context: timeContainer.mainContext)
 
         self.container = container
+        studyTimeContainer = timeContainer
         self.api = api
         auth = AuthStore(api: api)
         self.mediaCache = mediaCache
+        self.studyTime = studyTime
         study = StudyStore(api: api, context: container.mainContext, mediaCache: mediaCache)
         dailyAudio = DailyAudioStore(
             api: api,
@@ -50,6 +65,17 @@ final class AppModel {
         )
         audioPlayer.setPlaybackStartHandler { [weak studyAudioPlayer] in
             studyAudioPlayer?.stop()
+        }
+        audioPlayer.setPlaybackStateHandler { [weak studyTime] isPlaying, title in
+            if isPlaying {
+                studyTime?.start(
+                    activity: .dailyAudio,
+                    source: .automatic,
+                    name: title.isEmpty ? "Daily Audio" : title
+                )
+            } else {
+                studyTime?.stop(activity: .dailyAudio)
+            }
         }
         self.audioPlayer = audioPlayer
         self.studyAudioPlayer = studyAudioPlayer
@@ -78,7 +104,9 @@ final class AppModel {
     func applicationDidBecomeActive() async {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
-            await study.synchronizeIfNeeded(maxAge: .seconds(300))
+            async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
+            async let timeSync: Void = studyTime.synchronize()
+            _ = await (studySync, timeSync)
         }
     }
 
@@ -87,6 +115,7 @@ final class AppModel {
         studyAudioPlayer.stop()
         study.deactivate()
         dailyAudio.deactivate()
+        studyTime.deactivate()
         mediaCache.deactivate()
         await auth.logout()
     }
@@ -108,10 +137,12 @@ final class AppModel {
         studyAudioPlayer.stop()
         study.deactivate()
         dailyAudio.deactivate()
+        studyTime.deactivate()
         mediaCache.deactivate()
         try? mediaCache.deleteLocalData(userID: user.id)
         try? dailyAudio.deleteLocalData(userID: user.id)
         try? study.deleteLocalData(userID: user.id)
+        try? studyTime.deleteLocalData(userID: user.id)
         return true
     }
 
@@ -137,8 +168,10 @@ final class AppModel {
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
+        studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Void = dailyAudio.refresh()
-        _ = await (studySync, audioRefresh)
+        async let timeSync: Void = studyTime.synchronize()
+        _ = await (studySync, audioRefresh, timeSync)
     }
 }

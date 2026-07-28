@@ -27,17 +27,22 @@ private struct MainTabView: View {
             Tab("Study", systemImage: "rectangle.stack.fill") {
                 StudyHomeView(
                     store: model.study,
-                    player: model.studyAudioPlayer
+                    player: model.studyAudioPlayer,
+                    timeStore: model.studyTime
                 )
             }
             Tab("Cards", systemImage: "square.and.pencil") {
                 CardLibraryView(
                     store: model.study,
-                    player: model.studyAudioPlayer
+                    player: model.studyAudioPlayer,
+                    timeStore: model.studyTime
                 )
             }
             Tab("Daily Audio", systemImage: "headphones") {
                 DailyAudioView(store: model.dailyAudio, player: model.audioPlayer)
+            }
+            Tab("Time", systemImage: "clock.fill") {
+                StudyTimeView(store: model.studyTime)
             }
             Tab("Settings", systemImage: "gearshape.fill") {
                 SettingsView(model: model, user: user)

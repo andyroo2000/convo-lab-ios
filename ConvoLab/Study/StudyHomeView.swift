@@ -3,6 +3,7 @@ import SwiftUI
 struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
+    let timeStore: StudyTimeStore?
 
     var body: some View {
         NavigationStack {
@@ -62,7 +63,12 @@ struct StudyHomeView: View {
     private var studyActions: some View {
         HStack(spacing: 12) {
             NavigationLink {
-                StudySessionView(store: store, player: player, mode: .reviews)
+                StudySessionView(
+                    store: store,
+                    player: player,
+                    mode: .reviews,
+                    timeStore: timeStore
+                )
             } label: {
                 Label("Reviews", systemImage: "rectangle.stack.fill")
                     .frame(maxWidth: .infinity)
@@ -76,7 +82,12 @@ struct StudyHomeView: View {
             )
 
             NavigationLink {
-                StudySessionView(store: store, player: player, mode: .lessons)
+                StudySessionView(
+                    store: store,
+                    player: player,
+                    mode: .lessons,
+                    timeStore: timeStore
+                )
             } label: {
                 Label("Lessons", systemImage: "sparkles")
                     .frame(maxWidth: .infinity)
