@@ -81,6 +81,13 @@ struct StudyTimeView: View {
                     }
                 }
 
+                if let syncErrorMessage = store.syncErrorMessage {
+                    Section("Sync") {
+                        Label(syncErrorMessage, systemImage: "exclamationmark.icloud")
+                            .foregroundStyle(.red)
+                    }
+                }
+
                 Section("Recent") {
                     if weekSessions.isEmpty {
                         ContentUnavailableView(
@@ -173,7 +180,7 @@ private struct StudyTimeEntryView: View {
                     }
                 }
                 TextField("Name", text: $name)
-                DatePicker("Started", selection: $startedAt)
+                DatePicker("Started", selection: $startedAt, in: ...Date.now)
                 Stepper("\(minutes) minutes", value: $minutes, in: 1...1_440, step: 5)
                 Toggle("Add to my calendar", isOn: $addToCalendar)
                 if let errorMessage {

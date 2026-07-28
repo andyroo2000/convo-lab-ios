@@ -156,7 +156,7 @@ final class StudyTimeStore {
                     predicate: #Predicate { $0.userID == userID }
                 )
             )
-            let recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
+            var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
                 records, record in
                 if records[record.clientSessionID] == nil {
                     records[record.clientSessionID] = record
@@ -166,7 +166,9 @@ final class StudyTimeStore {
                 if let record = recordsByID[session.clientSessionId] {
                     record.apply(session)
                 } else {
-                    context.insert(LocalStudyActivitySession(session: session, userID: userID))
+                    let record = LocalStudyActivitySession(session: session, userID: userID)
+                    context.insert(record)
+                    recordsByID[session.clientSessionId] = record
                 }
             }
             try context.save()

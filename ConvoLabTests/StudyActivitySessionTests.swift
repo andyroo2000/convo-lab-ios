@@ -119,6 +119,50 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(record.syncPending)
     }
 
+    func testSynchronizationDeduplicatesRepeatedRemoteClientSessionIDs() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let remoteSession: [String: Any] = [
+            "id": "remote-session-1",
+            "clientSessionId": "018f22d2-6d38-7000-8000-000000000008",
+            "category": "immerse",
+            "activity": "tv",
+            "source": "manual",
+            "name": "Drama",
+            "startedAt": "2026-07-28T20:00:00Z",
+            "endedAt": "2026-07-28T20:30:00Z",
+            "durationMs": 1_800_000,
+        ]
+        let responseData = try JSONSerialization.data(
+            withJSONObject: [remoteSession, remoteSession]
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.synchronize()
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(
+            store.sessions.first?.clientSessionId,
+            "018f22d2-6d38-7000-8000-000000000008"
+        )
+    }
+
     func testColdLaunchCapsAnAbandonedAutomaticSessionAtFiveMinutes() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let startedAt = Date.now.addingTimeInterval(-10 * 60)

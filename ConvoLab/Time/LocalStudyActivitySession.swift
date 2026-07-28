@@ -3,6 +3,7 @@ import SwiftData
 
 @Model
 final class LocalStudyActivitySession {
+    #Unique<LocalStudyActivitySession>([\.userID, \.clientSessionID])
     var clientSessionID: String
     var userID: Int
     var serverID: String?
