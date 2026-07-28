@@ -22,7 +22,6 @@ struct StudySessionView: View {
     @State private var isUndoing = false
     @State private var undoErrorMessage: String?
     @State private var answerRestoredByUndoCardID: String?
-    @State private var reviewIntervalLabels: [ReviewRating: String] = [:]
     @State private var lessonPreview = true
     @State private var lessonPreviewIndex = 0
     @State private var loadingLessons = false
@@ -68,7 +67,6 @@ struct StudySessionView: View {
                     Button("Show Answer") {
                         player.stop()
                         pushUndo(.reveal(cardID: card.id))
-                        prepareReviewIntervalLabels(for: card)
                         showingAnswer = true
                         autoplayAnswerAudioIfReady(cardID: card.id)
                         Task {
@@ -162,7 +160,6 @@ struct StudySessionView: View {
             }
             guard !isUndoing else { return }
             showingAnswer = false
-            reviewIntervalLabels = [:]
             cardStartedAt = .now
             didAutoplayAnswerForCardID = nil
         }
@@ -473,7 +470,6 @@ struct StudySessionView: View {
                 didAutoplayAnswerForCardID = nil
                 store.retryLessonCard(card)
                 showingAnswer = false
-                reviewIntervalLabels = [:]
                 cardStartedAt = .now
                 return
             }
@@ -496,12 +492,8 @@ struct StudySessionView: View {
                 submittingReviewCardIDs.remove(card.id)
             }
         } label: {
-            VStack(spacing: 2) {
-                Text(reviewIntervalLabels[rating] ?? "—")
-                    .font(.caption.bold())
-                Text(title)
-            }
-            .frame(maxWidth: .infinity)
+            Text(title)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .tint(color)
@@ -536,15 +528,6 @@ struct StudySessionView: View {
             }
             .frame(height: MasteryReviewAnimation.feedbackLaneHeight)
         }
-    }
-
-    private func prepareReviewIntervalLabels(
-        for card: StudyCard,
-        at reviewedAt: Date = .now
-    ) {
-        reviewIntervalLabels = Dictionary(uniqueKeysWithValues: ReviewRating.allCases.map {
-            ($0, card.reviewSchedule($0, at: reviewedAt).intervalLabel)
-        })
     }
 
     private func playAnswerAudio(cardID: String) {
@@ -609,7 +592,6 @@ struct StudySessionView: View {
             }
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
-                prepareReviewIntervalLabels(for: cardBefore)
                 showingAnswer = true
                 cardStartedAt = .now
                 didAutoplayAnswerForCardID = nil
