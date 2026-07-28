@@ -43,6 +43,15 @@ final class MasteryReviewAnimationTests: XCTestCase {
             MasteryReviewAnimation.announcement(
                 label: "復習",
                 fromIndex: StudyMasteryLevel.master.rank,
+                toIndex: StudyMasteryLevel.guru.rank,
+                passed: true
+            ),
+            "復習 is now Guru."
+        )
+        XCTAssertEqual(
+            MasteryReviewAnimation.announcement(
+                label: "復習",
+                fromIndex: StudyMasteryLevel.master.rank,
                 toIndex: StudyMasteryLevel.master.rank,
                 passed: false
             ),
@@ -56,6 +65,18 @@ final class MasteryReviewAnimationTests: XCTestCase {
                 passed: false
             ),
             "復習 dropped to Apprentice."
+        )
+    }
+
+    @MainActor
+    func testReducedMotionKeepsAStaticPassOrFailSignal() {
+        XCTAssertEqual(
+            MasteryReviewAnimation.reducedMotionStatus(passed: true),
+            "Passed"
+        )
+        XCTAssertEqual(
+            MasteryReviewAnimation.reducedMotionStatus(passed: false),
+            "Try again"
         )
     }
 

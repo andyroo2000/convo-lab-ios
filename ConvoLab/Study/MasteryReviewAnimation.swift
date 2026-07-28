@@ -55,6 +55,21 @@ struct MasteryReviewAnimation: View {
                     )
                     .opacity(railOpacity)
 
+                if reduceMotion {
+                    Label(
+                        Self.reducedMotionStatus(passed: passed),
+                        systemImage: passed ? "checkmark.circle.fill" : "xmark.circle.fill"
+                    )
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(passed ? Color.green : Color.red)
+                    .position(
+                        x: geometry.size.width / 2,
+                        y: Self.railCenterY(safeAreaTop: geometry.safeAreaInsets.top) + 58
+                    )
+                    .opacity(railOpacity)
+                    .accessibilityHidden(true)
+                }
+
                 Text(label)
                     .font(.system(.title2, design: .rounded, weight: .bold))
                     .foregroundStyle(ConvoLabTheme.navy)
@@ -187,7 +202,14 @@ struct MasteryReviewAnimation: View {
         if toIndex > fromIndex {
             return "\(label) advanced to \(destination)."
         }
+        if toIndex < fromIndex {
+            return "\(label) is now \(destination)."
+        }
         return "\(label) remains \(destination)."
+    }
+
+    static func reducedMotionStatus(passed: Bool) -> String {
+        passed ? "Passed" : "Try again"
     }
 
     @MainActor
