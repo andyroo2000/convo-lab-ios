@@ -515,6 +515,7 @@ struct DailyAudioView: View {
     }
 
     private func showEarlierPractice() {
+        guard !isSettlingSwipe else { return }
         guard let selectedPractice,
               let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id })
         else {
@@ -546,6 +547,7 @@ struct DailyAudioView: View {
     }
 
     private func showLaterPractice() {
+        guard !isSettlingSwipe else { return }
         guard let selectedPractice,
               let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id }),
               index > 0
