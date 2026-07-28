@@ -11,7 +11,6 @@ struct MasteryReviewAnimation: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var railOpacity = 0.0
-    @State private var itemOpacity = 0.0
     @State private var trackProgress = CGFloat.zero
     @State private var activeIndex = 0
     @State private var nodeScale = 1.0
@@ -52,6 +51,20 @@ struct MasteryReviewAnimation: View {
                     )
                     .opacity(railOpacity)
 
+                Text(levels[activeIndex].rawValue.uppercased())
+                    .font(.caption.weight(.bold))
+                    .tracking(1.1)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(width: windowWidth)
+                    .position(
+                        x: geometry.size.width / 2,
+                        y: Self.levelNameCenterY
+                    )
+                    .opacity(railOpacity)
+                    .accessibilityHidden(true)
+
                 if reduceMotion {
                     Label(
                         Self.reducedMotionStatus(passed: passed),
@@ -67,16 +80,6 @@ struct MasteryReviewAnimation: View {
                     .accessibilityHidden(true)
                 }
 
-                Text(label)
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                    .foregroundStyle(ConvoLabTheme.navy)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.32)
-                    .frame(maxWidth: min(geometry.size.width * 0.82, 420))
-                    .position(x: geometry.size.width / 2, y: Self.itemCenterY)
-                    .opacity(itemOpacity)
-                    .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -127,19 +130,10 @@ struct MasteryReviewAnimation: View {
     private func masterySegment(level: StudyMasteryLevel, index: Int) -> some View {
         let color = Self.color(for: level)
         return ZStack(alignment: .top) {
-            Text(level.rawValue.uppercased())
-                .font(.caption.weight(.bold))
-                .tracking(1.1)
-                .foregroundStyle(ConvoLabTheme.navy)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .opacity(index == activeIndex ? 1 : 0)
-                .padding(.horizontal, 4)
-
             Rectangle()
                 .fill(color)
                 .frame(height: 5)
-                .offset(y: 34)
+                .offset(y: Self.lineTop)
 
             if index == toIndex, !passed {
                 Circle()
@@ -147,7 +141,7 @@ struct MasteryReviewAnimation: View {
                     .frame(width: 30, height: 30)
                     .scaleEffect(failureHaloScale)
                     .opacity(failureHaloOpacity)
-                    .offset(y: 22)
+                    .offset(y: Self.failureHaloTop)
             }
 
             Circle()
@@ -158,15 +152,19 @@ struct MasteryReviewAnimation: View {
                         .stroke(ConvoLabTheme.cream, lineWidth: 4)
                 }
                 .scaleEffect(index == toIndex ? nodeScale : 1)
-                .offset(y: 27)
+                .offset(y: Self.nodeTop)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    static let feedbackLaneHeight = CGFloat(88)
-    static let railHeight = CGFloat(56)
-    static let railCenterY = CGFloat(28)
-    static let resultCenterY = CGFloat(57)
-    static let itemCenterY = CGFloat(74)
+    static let feedbackLaneHeight = CGFloat(68)
+    static let railHeight = CGFloat(68)
+    static let railCenterY = CGFloat(34)
+    static let levelNameCenterY = CGFloat(10)
+    static let resultCenterY = CGFloat(58)
+    static let lineTop = CGFloat(36)
+    static let failureHaloTop = CGFloat(23)
+    static let nodeTop = CGFloat(29)
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {
         min(max(availableWidth * 0.48, 150), 190)
@@ -217,12 +215,10 @@ struct MasteryReviewAnimation: View {
             activeIndex = toIndex
             withAnimation(.easeOut(duration: 0.1)) {
                 railOpacity = 1
-                itemOpacity = 1
             }
             guard await pause(for: .milliseconds(450)) else { return }
             withAnimation(.easeIn(duration: 0.15)) {
                 railOpacity = 0
-                itemOpacity = 0
             }
             guard await pause(for: .milliseconds(155)) else { return }
             onFinished()
@@ -231,7 +227,6 @@ struct MasteryReviewAnimation: View {
 
         withAnimation(.easeOut(duration: 0.12)) {
             railOpacity = 1
-            itemOpacity = 1
         }
         guard await pause(for: .milliseconds(220)) else { return }
 
@@ -297,7 +292,6 @@ struct MasteryReviewAnimation: View {
         guard await pause(for: .milliseconds(320)) else { return }
         withAnimation(.easeIn(duration: 0.18)) {
             railOpacity = 0
-            itemOpacity = 0
         }
         guard await pause(for: .milliseconds(185)) else { return }
         onFinished()

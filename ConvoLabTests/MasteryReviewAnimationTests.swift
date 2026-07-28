@@ -4,20 +4,30 @@ import XCTest
 
 final class MasteryReviewAnimationTests: XCTestCase {
     @MainActor
-    func testRailAndItemFitInsideCompactFeedbackLane() {
+    func testRailAndScaledNodesFitInsideCompactFeedbackLane() {
         let railTop = MasteryReviewAnimation.railCenterY
             - MasteryReviewAnimation.railHeight / 2
         let railBottom = MasteryReviewAnimation.railCenterY
             + MasteryReviewAnimation.railHeight / 2
+        let scaledNodeBottom = MasteryReviewAnimation.nodeTop
+            + 9
+            + (9 * 1.28)
+        let scaledFailureHaloBottom = MasteryReviewAnimation.failureHaloTop
+            + 15
+            + (15 * 1.65)
 
         XCTAssertGreaterThanOrEqual(railTop, 0)
-        XCTAssertLessThan(
+        XCTAssertLessThanOrEqual(
             railBottom,
             MasteryReviewAnimation.feedbackLaneHeight
         )
         XCTAssertLessThan(
-            MasteryReviewAnimation.itemCenterY,
-            MasteryReviewAnimation.feedbackLaneHeight
+            scaledNodeBottom,
+            MasteryReviewAnimation.railHeight
+        )
+        XCTAssertLessThan(
+            scaledFailureHaloBottom,
+            MasteryReviewAnimation.railHeight
         )
     }
 
