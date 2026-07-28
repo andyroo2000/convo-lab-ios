@@ -151,6 +151,7 @@ struct StudySessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if mode == .lessons {
+                store.beginLessonSessionPresentation()
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
@@ -185,6 +186,9 @@ struct StudySessionView: View {
         }
         .onDisappear {
             player.stop()
+            if mode == .lessons {
+                store.endLessonSessionPresentation()
+            }
         }
         .sheet(item: $editingCard) { card in
             CardEditorView(

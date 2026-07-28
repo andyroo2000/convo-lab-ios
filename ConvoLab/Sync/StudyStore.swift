@@ -203,6 +203,7 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
+    private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
         label: String,
@@ -223,6 +224,17 @@ final class StudyStore {
     func beginSessionFailureTracking() {
         sessionFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
+    }
+
+    func beginLessonSessionPresentation() {
+        lessonSessionIsPresented = true
+    }
+
+    func endLessonSessionPresentation() {
+        lessonSessionIsPresented = false
+        if sessionKind == "lessons" {
+            sessionKind = "reviews"
+        }
     }
 
     init(
@@ -573,7 +585,7 @@ final class StudyStore {
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
     func refreshSessionPreservingActiveLessons() async throws {
-        guard sessionKind != "lessons" else { return }
+        guard !lessonSessionIsPresented else { return }
         try await refreshSession()
     }
 

@@ -3824,7 +3824,9 @@ final class StudyStoreTests: XCTestCase {
                     Data(#"{"data":[]}"#.utf8)
                 )
             }
-            XCTAssertEqual(path, "/api/study/lessons/start")
+            XCTAssertTrue(
+                ["/api/study/lessons/start", "/api/study/session/start"].contains(path)
+            )
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -3842,6 +3844,7 @@ final class StudyStoreTests: XCTestCase {
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
+        store.beginLessonSessionPresentation()
         try await store.refreshLessons()
 
         XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
@@ -3873,6 +3876,19 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(
             paths.values,
             ["/api/study/lessons/start", "/api/card-review-events/batch"]
+        )
+
+        store.endLessonSessionPresentation()
+        try await store.refreshSessionPreservingActiveLessons()
+
+        XCTAssertEqual(store.sessionKind, "reviews")
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/lessons/start",
+                "/api/card-review-events/batch",
+                "/api/study/session/start",
+            ]
         )
     }
 
