@@ -45,17 +45,19 @@ private struct MainTabView: View {
         }
         .tint(ConvoLabTheme.navy)
         .overlay {
-            if let promotion = model.study.masteryPromotion {
-                MasteryPromotionAnimation(
-                    label: promotion.label,
-                    level: promotion.level
+            if let animation = model.study.masteryAnimation {
+                MasteryReviewAnimation(
+                    label: animation.label,
+                    fromLevel: animation.fromLevel,
+                    toLevel: animation.toLevel,
+                    passed: animation.passed
                 ) {
-                    guard model.study.masteryPromotion?.id == promotion.id else {
+                    guard model.study.masteryAnimation?.id == animation.id else {
                         return
                     }
-                    model.study.dismissMasteryPromotion()
+                    model.study.dismissMasteryAnimation()
                 }
-                .id(promotion.id)
+                .id(animation.id)
             }
         }
     }

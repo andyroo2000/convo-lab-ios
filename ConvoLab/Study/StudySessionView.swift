@@ -311,7 +311,7 @@ struct StudySessionView: View {
                         cardID: cardID,
                         currentCardID: card?.id,
                         cardAllowsAutoplay: card?.shouldAutoplayPromptAudio == true,
-                        hasMasteryPromotion: store.masteryPromotion != nil
+                        hasMasteryAnimation: store.masteryAnimation != nil
                     ),
                     store: store,
                     player: player
@@ -523,11 +523,11 @@ struct StudySessionView: View {
         cardID: String,
         currentCardID: String?,
         cardAllowsAutoplay: Bool,
-        hasMasteryPromotion: Bool
+        hasMasteryAnimation: Bool
     ) -> Bool {
         cardID == currentCardID
             && cardAllowsAutoplay
-            && !hasMasteryPromotion
+            && !hasMasteryAnimation
     }
 
     private func pushUndo(_ action: StudyUndoAction) {
