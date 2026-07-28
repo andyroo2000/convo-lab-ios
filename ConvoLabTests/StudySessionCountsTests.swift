@@ -57,6 +57,7 @@ final class StudySessionCountsTests: XCTestCase {
                   "failed_count": 2,
                   "new_count": 4,
                   "review_count": 6,
+                  "total_cards": 17,
                   "new_cards_per_day": 20,
                   "new_cards_available_today": 0
                 }
@@ -65,6 +66,7 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         XCTAssertEqual(overview.failedCount, 2)
+        XCTAssertEqual(overview.totalCards, 17)
         XCTAssertEqual(overview.lessonBatchSize, 5)
     }
 

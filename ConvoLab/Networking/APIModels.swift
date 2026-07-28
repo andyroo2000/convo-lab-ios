@@ -330,6 +330,7 @@ struct StudyOverview: Codable, Sendable {
         case legacyFailedCount = "failed_count"
         case legacyNewCount = "new_count"
         case legacyReviewCount = "review_count"
+        case legacyTotalCards = "total_cards"
         case legacyNewCardsPerDay = "new_cards_per_day"
         case legacyNewCardsAvailableToday = "new_cards_available_today"
     }
@@ -344,7 +345,9 @@ struct StudyOverview: Codable, Sendable {
             ?? container.decode(Int.self, forKey: .legacyNewCount)
         reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount)
             ?? container.decode(Int.self, forKey: .legacyReviewCount)
-        totalCards = try container.decodeIfPresent(Int.self, forKey: .totalCards) ?? 0
+        totalCards = try container.decodeIfPresent(Int.self, forKey: .totalCards)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyTotalCards)
+            ?? 0
         newCardsPerDay = try container.decodeIfPresent(Int.self, forKey: .newCardsPerDay)
             ?? container.decode(Int.self, forKey: .legacyNewCardsPerDay)
         newCardsAvailableToday = try container.decodeIfPresent(Int.self, forKey: .newCardsAvailableToday)

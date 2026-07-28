@@ -666,6 +666,7 @@ final class StudyStore {
                     dueCount: current.dueCount,
                     newCount: current.newCount,
                     reviewCount: current.reviewCount,
+                    totalCards: current.totalCards,
                     newCardsPerDay: response.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
                     failedCount: current.failedCount,
@@ -1945,6 +1946,7 @@ final class StudyStore {
                 ? max(0, current.newCount - 1)
                 : current.newCount,
             reviewCount: current.reviewCount,
+            totalCards: current.totalCards,
             newCardsPerDay: current.newCardsPerDay,
             newCardsAvailableToday: card.state.queueState == "new"
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
