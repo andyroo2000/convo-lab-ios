@@ -119,6 +119,67 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(record.syncPending)
     }
 
+    func testColdLaunchCapsAnAbandonedAutomaticSessionAtFiveMinutes() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let startedAt = Date.now.addingTimeInterval(-10 * 60)
+        let abandoned = StudyTimeStore.ActiveSession(
+            clientSessionID: "018f22d2-6d38-7000-8000-000000000004",
+            category: .review,
+            activity: .dailyAudio,
+            source: .automatic,
+            name: "Abandoned drill",
+            startedAt: startedAt,
+            cardsCreated: 0
+        )
+        container.mainContext.insert(
+            LocalStudyActivitySession(active: abandoned, userID: 42)
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            if request.httpMethod == "POST" {
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+                )
+                let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: sessions)
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+
+        store.activate(userID: 42)
+        await store.synchronize()
+
+        XCTAssertNil(store.active)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertEqual(record.durationMs, 300_000)
+        let endedAt = try XCTUnwrap(record.endedAt)
+        XCTAssertEqual(
+            endedAt.timeIntervalSince1970,
+            startedAt.addingTimeInterval(5 * 60).timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(record.syncPending)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

@@ -56,7 +56,11 @@ struct StudyTimeView: View {
                                         format: .time(pattern: .hourMinuteSecond)
                                     )
                                     .monospacedDigit()
+                                    .accessibilityHidden(true)
                                 }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(active.name ?? active.activity.title)
+                                .accessibilityValue("Timer running")
                                 Spacer()
                                 Button("Stop", role: .destructive) { store.stop() }
                                     .buttonStyle(.borderedProminent)
@@ -157,6 +161,7 @@ private struct StudyTimeEntryView: View {
     @State private var minutes = 30
     @State private var addToCalendar = false
     @State private var errorMessage: String?
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
@@ -180,8 +185,12 @@ private struct StudyTimeEntryView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
+                    Button {
+                        guard !isSaving else { return }
+                        isSaving = true
+                        errorMessage = nil
                         Task {
+                            defer { isSaving = false }
                             do {
                                 try await store.recordCompleted(
                                     activity: activity,
@@ -196,7 +205,14 @@ private struct StudyTimeEntryView: View {
                                 errorMessage = error.localizedDescription
                             }
                         }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Add")
+                        }
                     }
+                    .disabled(isSaving)
                 }
             }
         }
