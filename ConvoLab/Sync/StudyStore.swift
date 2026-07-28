@@ -553,7 +553,7 @@ final class StudyStore {
     }
 
     func loadNextReviewBatch() async {
-        guard activeUserID != nil, sessionKind == "reviews", cards.isEmpty else {
+        guard let userID = activeUserID, sessionKind == "reviews", cards.isEmpty else {
             return
         }
 
@@ -564,10 +564,11 @@ final class StudyStore {
         activateOfflineDueCards()
         if cards.isEmpty {
             await synchronize()
+            guard activeUserID == userID else { return }
             activateOfflineDueCards()
         }
 
-        guard !cards.isEmpty else { return }
+        guard activeUserID == userID, !cards.isEmpty else { return }
         sessionInitialCardCount = cards.count
         sessionCompletedCardIDs = []
         masteryAnimation = nil
