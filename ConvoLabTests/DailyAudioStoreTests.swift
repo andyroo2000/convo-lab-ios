@@ -23,7 +23,7 @@ final class DailyAudioStoreTests: XCTestCase {
             "title": "Recognition drill",
             "sortOrder": 0,
             "audioUrl": null,
-            "approxDurationSeconds": null,
+            "approxDurationSeconds": 95,
             "updatedAt": "2026-07-23T12:00:00.000Z"
           }]
         }
@@ -76,6 +76,7 @@ final class DailyAudioStoreTests: XCTestCase {
         await store.create()
         XCTAssertEqual(store.practices.count, 1)
         XCTAssertEqual(store.practices.first?.tracks.first?.mode, "drill")
+        XCTAssertEqual(store.practices.first?.tracks.first?.formattedDuration, "1:35")
         XCTAssertNil(store.errorMessage)
     }
 

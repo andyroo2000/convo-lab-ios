@@ -701,6 +701,19 @@ struct DailyAudioTrack: Codable, Identifiable, Sendable {
     let approxDurationSeconds: Double?
     let updatedAt: Date
 
+    var formattedDuration: String {
+        guard let approxDurationSeconds,
+              approxDurationSeconds.isFinite,
+              approxDurationSeconds >= 0
+        else {
+            return "Length unavailable"
+        }
+        let roundedSeconds = Int(approxDurationSeconds.rounded())
+        let minutes = roundedSeconds / 60
+        let seconds = roundedSeconds % 60
+        return "\(minutes):\(String(format: "%02d", seconds))"
+    }
+
     init(
         id: String,
         practiceId: String,
