@@ -2002,9 +2002,9 @@ final class StudyStore {
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
                 : current.newCardsAvailableToday,
             failedCount: current.failedCount,
-            failedDueCount: card.state.failedAt != nil && card.state.queueState != "new"
-                ? current.failedDueCount.map { max(0, $0 - 1) }
-                : current.failedDueCount,
+            // Pending-review state adjusts failedDueCount until the next authoritative
+            // refresh. Mutating it here as well would decrement a failed card twice.
+            failedDueCount: current.failedDueCount,
             lessonBatchSize: current.lessonBatchSize,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
