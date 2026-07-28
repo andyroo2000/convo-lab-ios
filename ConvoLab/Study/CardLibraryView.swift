@@ -133,7 +133,14 @@ struct CardLibraryView: View {
                         }
                     }
                 } header: {
-                    Text("Up Next")
+                    HStack {
+                        Text("Up Next")
+                        Spacer()
+                        Text("\(store.newCardQueueTotal.formatted()) queued")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                    }
                 } footer: {
                     if store.newCardQueueTotal > store.newCardQueue.count {
                         Text(
@@ -158,7 +165,7 @@ struct CardLibraryView: View {
                 }
 
                 if !filteredLibraryCards.isEmpty {
-                    Section("Cards") {
+                    Section {
                         ForEach(filteredLibraryCards) { card in
                             Group {
                                 if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
@@ -176,6 +183,15 @@ struct CardLibraryView: View {
                                     Task { await delete(card) }
                                 }
                             }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Cards")
+                            Spacer()
+                            Text("\(totalCardCount.formatted()) total")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
                         }
                     }
                 }
@@ -211,6 +227,11 @@ struct CardLibraryView: View {
             $0.promptText.localizedCaseInsensitiveContains(query)
                 || $0.answerText.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private var totalCardCount: Int {
+        store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
+            ?? store.libraryCards.count
     }
 
     private func queueRow(_ item: StudyNewCardQueueItem, number: Int) -> some View {
