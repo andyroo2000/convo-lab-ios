@@ -521,6 +521,7 @@ struct DailyAudioView: View {
                     $0.id == selectedPractice.id
                 }), store.practices.indices.contains(currentIndex + 1)
                 else {
+                    snapCardBack()
                     return
                 }
                 completeSwipe(

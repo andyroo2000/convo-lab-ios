@@ -166,7 +166,8 @@ final class DailyAudioStore {
     func download(_ practice: DailyAudioPractice) async {
         guard
             let userID = activeUserID,
-            practices.contains(where: { $0.id == practice.id })
+            practices.contains(where: { $0.id == practice.id }),
+            practiceDownloadProgress[practice.id] == nil
         else {
             return
         }

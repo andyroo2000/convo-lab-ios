@@ -447,6 +447,11 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertFalse(store.isDownloaded(firstTrack))
         XCTAssertEqual(store.practiceDownloadProgress[practice.id], 0)
 
+        let duplicateDownload = Task { await store.download(practice) }
+        await duplicateDownload.value
+        XCTAssertTrue(store.isDownloading(firstTrack))
+        XCTAssertEqual(store.practiceDownloadProgress[practice.id], 0)
+
         allowFirstDownload.signal()
         await download.value
 
