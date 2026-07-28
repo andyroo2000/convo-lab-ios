@@ -5519,7 +5519,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testMasteryPromotionRemainsVisibleAfterTheReviewedCardAdvances() async throws {
+    func testMasteryAnimationRemainsVisibleAfterTheReviewedCardAdvances() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000001U",
@@ -5581,11 +5581,56 @@ final class StudyStoreTests: XCTestCase {
         let eventID = try XCTUnwrap(recordedEventID)
 
         XCTAssertTrue(store.cards.isEmpty)
-        XCTAssertEqual(store.masteryPromotion?.level, StudyMasteryLevel.enlightened.rawValue)
+        XCTAssertEqual(
+            store.masteryAnimation?.fromLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+        XCTAssertEqual(
+            store.masteryAnimation?.toLevel,
+            StudyMasteryLevel.enlightened.rawValue
+        )
+        XCTAssertEqual(store.masteryAnimation?.passed, true)
 
         try await store.undoReview(eventID: eventID, cardBefore: card)
 
-        XCTAssertNil(store.masteryPromotion)
+        XCTAssertNil(store.masteryAnimation)
+
+        let sameStageEventID = await store.recordReview(
+            card: card,
+            rating: .hard,
+            duration: nil
+        )
+
+        XCTAssertEqual(store.masteryAnimation?.passed, true)
+        XCTAssertEqual(
+            store.masteryAnimation?.fromLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+        XCTAssertEqual(
+            store.masteryAnimation?.toLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+
+        try await store.undoReview(
+            eventID: try XCTUnwrap(sameStageEventID),
+            cardBefore: card
+        )
+
+        _ = await store.recordReview(
+            card: card,
+            rating: .again,
+            duration: nil
+        )
+
+        XCTAssertEqual(store.masteryAnimation?.passed, false)
+        XCTAssertEqual(
+            store.masteryAnimation?.fromLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+        XCTAssertEqual(
+            store.masteryAnimation?.toLevel,
+            StudyMasteryLevel.apprentice.rawValue
+        )
     }
 
     @MainActor

@@ -203,10 +203,12 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
-    private(set) var masteryPromotion: (
+    private(set) var masteryAnimation: (
         id: UUID,
         label: String,
-        level: String
+        fromLevel: String,
+        toLevel: String,
+        passed: Bool
     )?
 
     var sessionProgress: Double {
@@ -290,7 +292,7 @@ final class StudyStore {
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
         sessionKind = "reviews"
-        masteryPromotion = nil
+        masteryAnimation = nil
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -557,7 +559,7 @@ final class StudyStore {
         sessionKind = "reviews"
         sessionInitialCardCount = activeCards.count
         sessionCompletedCardIDs = []
-        masteryPromotion = nil
+        masteryAnimation = nil
         apply(pendingReviewState)
         try persist(cards: activeCards, userID: userID)
         loadLibraryCards(userID: userID)
@@ -594,7 +596,7 @@ final class StudyStore {
         sessionKind = "lessons"
         sessionInitialCardCount = lessonCards.count
         sessionCompletedCardIDs = []
-        masteryPromotion = nil
+        masteryAnimation = nil
         try persist(cards: lessonCards, userID: userID)
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
@@ -1074,22 +1076,22 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
-            // A promotion remains visible over the next card until it is dismissed or
-            // that card is answered. Clearing here avoids both stale and invisible banners.
-            masteryPromotion = nil
+            // The animation remains visible over the next card until it is dismissed or
+            // that card is answered. Clearing here avoids both stale and invisible overlays.
+            masteryAnimation = nil
             // Compare the same local FSRS projection on both sides. The server annotation
             // belongs to the pre-review state and cannot describe this optimistic review.
             let oldLevel = card.fsrsMasteryLevel
             let newLevel = updatedCard.fsrsMasteryLevel
-            if rating != .again, newLevel.rank > oldLevel.rank {
-                masteryPromotion = (
-                    id: UUID(),
-                    label: card.presentation.back.heading
-                        ?? card.presentation.front.heading
-                        ?? "This item",
-                    level: newLevel.rawValue
-                )
-            }
+            masteryAnimation = (
+                id: UUID(),
+                label: card.presentation.back.heading
+                    ?? card.presentation.front.heading
+                    ?? "This item",
+                fromLevel: oldLevel.rawValue,
+                toLevel: newLevel.rawValue,
+                passed: rating != .again
+            )
             let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
             if let record = try context.fetch(descriptor).first {
                 record.payload = updatedPayload
@@ -1944,8 +1946,8 @@ final class StudyStore {
         )
     }
 
-    func dismissMasteryPromotion() {
-        masteryPromotion = nil
+    func dismissMasteryAnimation() {
+        masteryAnimation = nil
     }
 
     private func flushCardOutbox() async throws {
@@ -2372,7 +2374,7 @@ final class StudyStore {
         let record = try localCardRecord(forID: card.id)
         let restoredCard = restoredCard(card, matching: record)
         let normalizedID = restoredCard.id.lowercased()
-        masteryPromotion = nil
+        masteryAnimation = nil
         sessionCompletedCardIDs = Set(
             sessionCompletedCardIDs.filter { $0.lowercased() != normalizedID }
         )
