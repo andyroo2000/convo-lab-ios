@@ -8,6 +8,7 @@ struct DailyAudioView: View {
 
     let store: DailyAudioStore
     let player: AudioPlayer
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedPracticeID: String?
     @State private var confirmingRegeneration = false
     @State private var navigationDirection = NavigationDirection.earlier
@@ -241,6 +242,9 @@ struct DailyAudioView: View {
     }
 
     private var practiceTransition: AnyTransition {
+        guard !reduceMotion else {
+            return .identity
+        }
         switch navigationDirection {
         case .earlier:
             return .asymmetric(
@@ -257,6 +261,10 @@ struct DailyAudioView: View {
 
     private func selectPractice(_ id: String, direction: NavigationDirection) {
         navigationDirection = direction
+        guard !reduceMotion else {
+            selectedPracticeID = id
+            return
+        }
         withAnimation(.snappy(duration: 0.38, extraBounce: 0.05)) {
             selectedPracticeID = id
         }
