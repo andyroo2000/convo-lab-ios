@@ -30,7 +30,12 @@ struct MasteryReviewAnimation: View {
     }
 
     private var announcement: String {
-        "\(label) is now \(levels[toIndex].rawValue.capitalized)"
+        Self.announcement(
+            label: label,
+            fromIndex: fromIndex,
+            toIndex: toIndex,
+            passed: passed
+        )
     }
 
     var body: some View {
@@ -164,6 +169,25 @@ struct MasteryReviewAnimation: View {
         case .enlightened: return .orange
         case .burned: return .green
         }
+    }
+
+    static func announcement(
+        label: String,
+        fromIndex: Int,
+        toIndex: Int,
+        passed: Bool
+    ) -> String {
+        let destination = StudyMasteryLevel.allCases[toIndex].rawValue.capitalized
+
+        if !passed {
+            return fromIndex == toIndex
+                ? "\(label) remains \(destination). Try again."
+                : "\(label) dropped to \(destination)."
+        }
+        if toIndex > fromIndex {
+            return "\(label) advanced to \(destination)."
+        }
+        return "\(label) remains \(destination)."
     }
 
     @MainActor

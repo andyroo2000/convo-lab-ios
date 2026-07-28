@@ -5595,6 +5595,27 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertNil(store.masteryAnimation)
 
+        let sameStageEventID = await store.recordReview(
+            card: card,
+            rating: .hard,
+            duration: nil
+        )
+
+        XCTAssertEqual(store.masteryAnimation?.passed, true)
+        XCTAssertEqual(
+            store.masteryAnimation?.fromLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+        XCTAssertEqual(
+            store.masteryAnimation?.toLevel,
+            StudyMasteryLevel.master.rawValue
+        )
+
+        try await store.undoReview(
+            eventID: try XCTUnwrap(sameStageEventID),
+            cardBefore: card
+        )
+
         _ = await store.recordReview(
             card: card,
             rating: .again,

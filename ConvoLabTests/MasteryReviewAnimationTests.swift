@@ -29,6 +29,37 @@ final class MasteryReviewAnimationTests: XCTestCase {
     }
 
     @MainActor
+    func testAnnouncementsDistinguishProgressAndFailure() {
+        XCTAssertEqual(
+            MasteryReviewAnimation.announcement(
+                label: "復習",
+                fromIndex: StudyMasteryLevel.master.rank,
+                toIndex: StudyMasteryLevel.enlightened.rank,
+                passed: true
+            ),
+            "復習 advanced to Enlightened."
+        )
+        XCTAssertEqual(
+            MasteryReviewAnimation.announcement(
+                label: "復習",
+                fromIndex: StudyMasteryLevel.master.rank,
+                toIndex: StudyMasteryLevel.master.rank,
+                passed: false
+            ),
+            "復習 remains Master. Try again."
+        )
+        XCTAssertEqual(
+            MasteryReviewAnimation.announcement(
+                label: "復習",
+                fromIndex: StudyMasteryLevel.master.rank,
+                toIndex: StudyMasteryLevel.apprentice.rank,
+                passed: false
+            ),
+            "復習 dropped to Apprentice."
+        )
+    }
+
+    @MainActor
     func testPromptAutoplayWaitsForMasteryAnimationToFinish() {
         let cardID = "next-card"
 
