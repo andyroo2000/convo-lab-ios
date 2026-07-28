@@ -45,13 +45,13 @@ struct MasteryReviewAnimation: View {
 
             ZStack {
                 ConvoLabTheme.cream
-                    .ignoresSafeArea()
+                    .opacity(0.78)
 
                 masteryRail(segmentWidth: segmentWidth, windowWidth: windowWidth)
                     .frame(width: windowWidth, height: Self.railHeight)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(safeAreaTop: geometry.safeAreaInsets.top)
+                        y: Self.railCenterY(availableHeight: geometry.size.height)
                     )
                     .opacity(railOpacity)
 
@@ -64,7 +64,7 @@ struct MasteryReviewAnimation: View {
                     .foregroundStyle(passed ? Color.green : Color.red)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(safeAreaTop: geometry.safeAreaInsets.top) + 58
+                        y: Self.railCenterY(availableHeight: geometry.size.height) + 58
                     )
                     .opacity(railOpacity)
                     .accessibilityHidden(true)
@@ -77,14 +77,13 @@ struct MasteryReviewAnimation: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.42)
                     .frame(maxWidth: min(geometry.size.width * 0.82, 480))
-                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.52)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.58)
                     .opacity(itemOpacity)
                     .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
-        .ignoresSafeArea()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(announcement)
         .task(id: "\(label)|\(fromLevel)|\(toLevel)|\(passed)") {
@@ -168,8 +167,10 @@ struct MasteryReviewAnimation: View {
 
     static let railHeight = CGFloat(76)
 
-    static func railCenterY(safeAreaTop: CGFloat) -> CGFloat {
-        max(96, safeAreaTop + railHeight / 2 + 12)
+    static func railCenterY(availableHeight: CGFloat) -> CGFloat {
+        let minimumCenter = railHeight / 2 + 12
+        let maximumCenter = max(minimumCenter, availableHeight * 0.42)
+        return min(max(minimumCenter, availableHeight * 0.26), maximumCenter)
     }
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {

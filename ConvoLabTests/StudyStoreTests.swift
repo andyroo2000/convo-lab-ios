@@ -5656,6 +5656,7 @@ final class StudyStoreTests: XCTestCase {
             store.masteryAnimation?.toLevel,
             StudyMasteryLevel.enlightened.rawValue
         )
+        XCTAssertEqual(store.masteryAnimation?.card.id, card.id)
         XCTAssertEqual(store.masteryAnimation?.passed, true)
 
         try await store.undoReview(eventID: eventID, cardBefore: card)

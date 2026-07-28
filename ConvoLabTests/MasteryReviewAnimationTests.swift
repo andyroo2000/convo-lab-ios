@@ -4,13 +4,19 @@ import XCTest
 
 final class MasteryReviewAnimationTests: XCTestCase {
     @MainActor
-    func testRailClearsDynamicIslandSafeArea() {
-        let safeAreaTop = CGFloat(62)
+    func testRailStaysNearTheTopOfTheCardOverlay() {
+        let availableHeight = CGFloat(600)
         let railTop = MasteryReviewAnimation.railCenterY(
-            safeAreaTop: safeAreaTop
+            availableHeight: availableHeight
         ) - MasteryReviewAnimation.railHeight / 2
 
-        XCTAssertGreaterThanOrEqual(railTop, safeAreaTop + 12)
+        XCTAssertGreaterThanOrEqual(railTop, 12)
+        XCTAssertLessThan(railTop, availableHeight / 2)
+
+        let compactRailTop = MasteryReviewAnimation.railCenterY(
+            availableHeight: 100
+        ) - MasteryReviewAnimation.railHeight / 2
+        XCTAssertGreaterThanOrEqual(compactRailTop, 12)
     }
 
     @MainActor
