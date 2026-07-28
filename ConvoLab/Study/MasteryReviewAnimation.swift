@@ -165,6 +165,9 @@ struct MasteryReviewAnimation: View {
     static let lineTop = CGFloat(36)
     static let failureHaloTop = CGFloat(23)
     static let nodeTop = CGFloat(29)
+    static let addedHoldMilliseconds: Int64 = 1_000
+    static let settledHoldMilliseconds: Int64 = 320 + addedHoldMilliseconds
+    static let reducedMotionHoldMilliseconds: Int64 = 450 + addedHoldMilliseconds
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {
         min(max(availableWidth * 0.48, 150), 190)
@@ -216,7 +219,9 @@ struct MasteryReviewAnimation: View {
             withAnimation(.easeOut(duration: 0.1)) {
                 railOpacity = 1
             }
-            guard await pause(for: .milliseconds(450)) else { return }
+            guard await pause(for: .milliseconds(Self.reducedMotionHoldMilliseconds)) else {
+                return
+            }
             withAnimation(.easeIn(duration: 0.15)) {
                 railOpacity = 0
             }
@@ -289,7 +294,7 @@ struct MasteryReviewAnimation: View {
             }
         }
 
-        guard await pause(for: .milliseconds(320)) else { return }
+        guard await pause(for: .milliseconds(Self.settledHoldMilliseconds)) else { return }
         withAnimation(.easeIn(duration: 0.18)) {
             railOpacity = 0
         }

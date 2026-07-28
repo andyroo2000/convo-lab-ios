@@ -126,6 +126,23 @@ struct StudySessionView: View {
         }
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let card,
+               showingAnswer,
+               store.masteryAnimation == nil,
+               StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        player.stop()
+                        editingCard = card
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("Edit card")
+                    .accessibilityIdentifier("StudyAnswerEditButton")
+                }
+            }
+        }
         .task {
             if mode == .lessons {
                 store.beginLessonSessionPresentation()
@@ -501,27 +518,6 @@ struct StudySessionView: View {
         if (mode == .reviews || !lessonPreview), card != nil {
             ZStack {
                 Color.clear
-
-                if let card,
-                   showingAnswer,
-                   store.masteryAnimation == nil,
-                   StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                    HStack {
-                        Button {
-                            player.stop()
-                            editingCard = card
-                        } label: {
-                            Image(systemName: "pencil")
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(ConvoLabTheme.navy)
-                        .accessibilityLabel("Edit card")
-                        .accessibilityIdentifier("StudyAnswerEditButton")
-
-                        Spacer()
-                    }
-                }
 
                 if let animation = store.masteryAnimation {
                     MasteryReviewAnimation(
