@@ -43,7 +43,7 @@ final class DailyAudioStore {
         errorMessage = nil
         loadLocal(userID: userID)
         total = practices.count
-        refreshDownloadedTrackIDs()
+        refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
     }
 
     func deactivate() {
@@ -91,7 +91,7 @@ final class DailyAudioStore {
             total = response.total
             nextCursor = response.nextCursor
             try persist(response.items, userID: userID)
-            refreshDownloadedTrackIDs()
+            refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -120,12 +120,13 @@ final class DailyAudioStore {
             )
             guard activeUserID == userID else { return }
             let existingIDs = Set(practices.map(\.id))
-            practices.append(contentsOf: response.items.filter { !existingIDs.contains($0.id) })
+            let newPractices = response.items.filter { !existingIDs.contains($0.id) }
+            practices.append(contentsOf: newPractices)
             practices = orderedPractices(practices)
             total = response.total
             nextCursor = response.nextCursor
             try persist(response.items, userID: userID)
-            refreshDownloadedTrackIDs()
+            refreshDownloadedTrackIDs(for: newPractices)
             errorMessage = nil
         } catch {
             guard activeUserID == userID else { return }
@@ -156,7 +157,7 @@ final class DailyAudioStore {
                 total += 1
             }
             try persist([response], userID: userID)
-            refreshDownloadedTrackIDs()
+            refreshDownloadedTrackIDs(for: [response])
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -169,11 +170,9 @@ final class DailyAudioStore {
         else {
             return
         }
-        let downloadableTracks = practice.tracks.filter {
-            $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
-        }
+        let downloadableTracks = downloadableTracks(in: practice)
         guard !downloadableTracks.isEmpty else { return }
-        refreshDownloadedTrackIDs()
+        refreshDownloadedTrackIDs(for: [practice])
         updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         defer {
             downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
@@ -215,9 +214,7 @@ final class DailyAudioStore {
     }
 
     func isDownloaded(_ practice: DailyAudioPractice) -> Bool {
-        let downloadableTracks = practice.tracks.filter {
-            $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
-        }
+        let downloadableTracks = downloadableTracks(in: practice)
         return !downloadableTracks.isEmpty
             && downloadableTracks.allSatisfy { downloadedTrackIDs.contains($0.id) }
     }
@@ -305,19 +302,31 @@ final class DailyAudioStore {
         return "daily-audio:\(track.id):\(revision)"
     }
 
-    private func refreshDownloadedTrackIDs() {
-        var cachedTrackIDs: Set<String> = []
+    private func downloadableTracks(in practice: DailyAudioPractice) -> [DailyAudioTrack] {
+        practice.tracks.filter {
+            $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
+        }
+    }
+
+    private func refreshDownloadedTrackIDs(
+        for practices: [DailyAudioPractice],
+        replacingExisting: Bool = false
+    ) {
+        if replacingExisting {
+            downloadedTrackIDs.removeAll()
+        } else {
+            downloadedTrackIDs.subtract(practices.flatMap(\.tracks).map(\.id))
+        }
         for track in practices.flatMap(\.tracks) {
             guard
                 let raw = track.audioUrl,
                 let remote = URL(string: raw),
-                mediaCache.localURL(for: remote, cacheKey: cacheKey(for: track)) != nil
+                mediaCache.isCached(remote, cacheKey: cacheKey(for: track))
             else {
                 continue
             }
-            cachedTrackIDs.insert(track.id)
+            downloadedTrackIDs.insert(track.id)
         }
-        downloadedTrackIDs = cachedTrackIDs
     }
 
     private func updateDownloadProgress(

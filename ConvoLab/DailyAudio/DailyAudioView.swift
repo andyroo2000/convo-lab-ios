@@ -16,6 +16,7 @@ struct DailyAudioView: View {
     @State private var isSettlingSwipe = false
     @State private var preparingTrackID: String?
     @State private var suppressTrackInteractions = false
+    @State private var trackInteractionResetTask: Task<Void, Never>?
     @State private var selectedPlayerTrack: DailyAudioTrack?
 
     private let dayCardSpacing = CGFloat(16)
@@ -425,6 +426,8 @@ struct DailyAudioView: View {
                 else {
                     return
                 }
+                trackInteractionResetTask?.cancel()
+                trackInteractionResetTask = nil
                 suppressTrackInteractions = true
                 dragOffset = value.translation.width
             }
@@ -483,8 +486,12 @@ struct DailyAudioView: View {
     }
 
     private func restoreTrackInteractionsAfterSwipe() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        trackInteractionResetTask?.cancel()
+        trackInteractionResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
             suppressTrackInteractions = false
+            trackInteractionResetTask = nil
         }
     }
 
@@ -542,7 +549,10 @@ struct DailyAudioView: View {
         return direction * min(pow(abs(offset), 0.72) * 1.8, 42)
     }
 
-    private static func relativePracticeDate(_ practiceDate: String) -> String {
+    static func relativePracticeDate(
+        _ practiceDate: String,
+        relativeTo referenceDate: Date = .now
+    ) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.calendar = .current
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
@@ -556,9 +566,18 @@ struct DailyAudioView: View {
         let calendar = Calendar.current
         let dayDifference = calendar.dateComponents(
             [.day],
-            from: calendar.startOfDay(for: .now),
+            from: calendar.startOfDay(for: referenceDate),
             to: calendar.startOfDay(for: date)
         ).day ?? 0
+        if dayDifference == 0 {
+            return "Today"
+        }
+        if dayDifference == -1 {
+            return "Yesterday"
+        }
+        if dayDifference == 1 {
+            return "Tomorrow"
+        }
         let relativeFormatter = RelativeDateTimeFormatter()
         relativeFormatter.dateTimeStyle = .named
         relativeFormatter.unitsStyle = .spellOut

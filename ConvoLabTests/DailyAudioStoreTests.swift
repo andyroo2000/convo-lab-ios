@@ -5,6 +5,28 @@ import XCTest
 
 @MainActor
 final class DailyAudioStoreTests: XCTestCase {
+    func testRelativePracticeDateNamesTodayAndNearbyDays() throws {
+        let formatter = DateFormatter()
+        formatter.calendar = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        let referenceDate = try XCTUnwrap(formatter.date(from: "2026-07-28"))
+
+        XCTAssertEqual(
+            DailyAudioView.relativePracticeDate("2026-07-28", relativeTo: referenceDate),
+            "Today"
+        )
+        XCTAssertEqual(
+            DailyAudioView.relativePracticeDate("2026-07-27", relativeTo: referenceDate),
+            "Yesterday"
+        )
+        XCTAssertEqual(
+            DailyAudioView.relativePracticeDate("2026-07-26", relativeTo: referenceDate),
+            "Two Days Ago"
+        )
+    }
+
     func testPaginatedListAndDirectCreateDecodeLearningOSCompatibilityPayloads() async throws {
         let practiceJSON = #"""
         {
