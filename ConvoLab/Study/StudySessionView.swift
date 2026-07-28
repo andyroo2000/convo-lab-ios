@@ -603,6 +603,7 @@ struct StudySessionView: View {
         guard
             !isUndoing,
             submittingReviewCardIDs.isEmpty,
+            store.masteryAnimation == nil,
             editingCard == nil,
             let action = undoActions.popLast()
         else {
