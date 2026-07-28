@@ -498,7 +498,7 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var masteryFeedbackLane: some View {
-        if mode == .reviews || !lessonPreview {
+        if (mode == .reviews || !lessonPreview), card != nil {
             ZStack {
                 Color.clear
 
