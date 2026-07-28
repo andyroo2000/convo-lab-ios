@@ -3890,6 +3890,13 @@ final class StudyStoreTests: XCTestCase {
                 "/api/study/session/start",
             ]
         )
+
+        store.beginLessonSessionPresentation()
+        store.deactivate()
+        store.activate(userID: 1)
+        try await store.refreshSessionPreservingActiveLessons()
+
+        XCTAssertEqual(paths.values.last, "/api/study/session/start")
     }
 
     @MainActor

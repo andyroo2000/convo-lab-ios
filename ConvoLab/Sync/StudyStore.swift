@@ -304,6 +304,7 @@ final class StudyStore {
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
         sessionKind = "reviews"
+        lessonSessionIsPresented = false
         masteryAnimation = nil
     }
 
@@ -808,7 +809,7 @@ final class StudyStore {
             state.updatedAt = .now
             try context.save()
             guard activeUserID == userID else { return }
-            try await refreshSession()
+            try await refreshSessionPreservingActiveLessons()
             guard activeUserID == userID else { return }
             try await refreshOfflineReserve(
                 userID: userID,
