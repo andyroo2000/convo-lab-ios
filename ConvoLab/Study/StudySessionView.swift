@@ -97,7 +97,7 @@ struct StudySessionView: View {
                         Text("Load the next study batch to keep going.")
                     } actions: {
                         Button("Load Next Study Batch") {
-                            Task { await store.synchronize() }
+                            Task { await store.loadNextReviewBatch() }
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(ConvoLabTheme.navy)
