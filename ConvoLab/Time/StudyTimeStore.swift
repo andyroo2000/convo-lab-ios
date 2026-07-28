@@ -35,9 +35,9 @@ final class StudyTimeStore {
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
 
-    func deactivate() async {
+    func deactivate(at date: Date = .now) async {
         if let active {
-            finish(active, at: .now, enqueueSync: false)
+            finish(active, at: date, enqueueSync: false)
         }
         await pushPending()
         activeUserID = nil

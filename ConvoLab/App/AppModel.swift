@@ -130,9 +130,19 @@ final class AppModel {
         guard case let .signedIn(user) = auth.state else {
             return false
         }
-        await studyTime.deactivate()
+        let interruptedSession = studyTime.active
+        let deletionStartedAt = Date.now
+        await studyTime.deactivate(at: deletionStartedAt)
         guard await auth.deleteAccount(currentPassword: currentPassword) else {
             studyTime.activate(userID: user.id)
+            if let interruptedSession {
+                studyTime.start(
+                    activity: interruptedSession.activity,
+                    source: interruptedSession.source,
+                    name: interruptedSession.name,
+                    at: deletionStartedAt
+                )
+            }
             return false
         }
         audioPlayer.stop()
