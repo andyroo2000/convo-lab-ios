@@ -47,7 +47,7 @@ final class StudySessionCountsTests: XCTestCase {
         )
     }
 
-    func testOverviewDecodesAuthoritativeFailedCount() throws {
+    func testOverviewDecodesAuthoritativeFailedCounts() throws {
         let overview = try StorageCodec.decoder.decode(
             StudyOverview.self,
             from: Data(
@@ -55,6 +55,7 @@ final class StudySessionCountsTests: XCTestCase {
                 {
                   "due_count": 8,
                   "failed_count": 2,
+                  "failed_due_count": 1,
                   "new_count": 4,
                   "review_count": 6,
                   "total_cards": 17,
@@ -66,6 +67,7 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         XCTAssertEqual(overview.failedCount, 2)
+        XCTAssertEqual(overview.failedDueCount, 1)
         XCTAssertEqual(overview.totalCards, 17)
         XCTAssertEqual(overview.lessonBatchSize, 5)
     }
@@ -127,7 +129,8 @@ final class StudySessionCountsTests: XCTestCase {
             reviewCount: 2,
             newCardsPerDay: 20,
             newCardsAvailableToday: 0,
-            failedCount: 1
+            failedCount: 1,
+            failedDueCount: 1
         )
 
         let counts = StudySessionCounts.calculate(cards: cards, overview: overview)
@@ -187,6 +190,24 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.newRemaining, 0)
     }
 
+    func testFutureLoadedFailureDoesNotClaimAReviewIsReady() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let futureFailure = makeCard(
+            id: "failed-future",
+            queueState: "relearning",
+            failedAt: now,
+            dueAt: now.addingTimeInterval(10 * 60)
+        )
+
+        let counts = StudySessionCounts.calculate(
+            cards: [futureFailure],
+            overview: nil,
+            at: now
+        )
+
+        XCTAssertEqual(counts.failedDue, 0)
+    }
+
     func testReviewedFailureOptimisticallyDecrementsAuthoritativeCount() {
         let overview = StudyOverview(
             dueCount: 2,
@@ -194,7 +215,8 @@ final class StudySessionCountsTests: XCTestCase {
             reviewCount: 0,
             newCardsPerDay: 20,
             newCardsAvailableToday: 0,
-            failedCount: 2
+            failedCount: 2,
+            failedDueCount: 2
         )
 
         let counts = StudySessionCounts.calculate(
@@ -206,22 +228,23 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.failedDue, 1)
     }
 
-    func testAgainKeepsAuthoritativeFailureVisibleWhileItWaitsForRelearning() {
+    func testFutureRelearningFailureDoesNotClaimAReviewIsReady() {
         let overview = StudyOverview(
             dueCount: 0,
             newCount: 0,
             reviewCount: 0,
             newCardsPerDay: 20,
             newCardsAvailableToday: 0,
-            failedCount: 1
+            failedCount: 1,
+            failedDueCount: 0
         )
 
         let counts = StudySessionCounts.calculate(cards: [], overview: overview)
 
-        XCTAssertEqual(counts.failedDue, 1)
+        XCTAssertEqual(counts.failedDue, 0)
     }
 
-    func testFirstTimeAgainIncrementsFailureCountBeforeServerSync() {
+    func testFirstTimeAgainDoesNotClaimAReviewIsReadyBeforeItsDueTime() {
         let overview = StudyOverview(
             dueCount: 4,
             newCount: 0,
@@ -233,24 +256,23 @@ final class StudySessionCountsTests: XCTestCase {
 
         let counts = StudySessionCounts.calculate(
             cards: [],
-            overview: overview,
-            newlyFailedCardIDs: ["new-failure"]
+            overview: overview
         )
 
-        XCTAssertEqual(counts.failedDue, 1)
+        XCTAssertEqual(counts.failedDue, 0)
     }
 
-    func testPendingRelearningFailureSurvivesOfflineRelaunchWithoutOverview() {
+    func testPendingFutureRelearningFailureDoesNotClaimAReviewIsReadyOffline() {
         let counts = StudySessionCounts.calculate(
             cards: [],
             overview: nil,
             retainedFailedCardIDs: ["existing-failure"]
         )
 
-        XCTAssertEqual(counts.failedDue, 1)
+        XCTAssertEqual(counts.failedDue, 0)
     }
 
-    func testRelearningFailureAddsToOtherLoadedFailuresWhileOffline() {
+    func testOnlyLoadedDueFailuresCountWhileOffline() {
         let cards = [
             makeCard(id: "failed-2", queueState: "relearning", failedAt: .now),
         ]
@@ -261,7 +283,7 @@ final class StudySessionCountsTests: XCTestCase {
             retainedFailedCardIDs: ["failed-1"]
         )
 
-        XCTAssertEqual(counts.failedDue, 2)
+        XCTAssertEqual(counts.failedDue, 1)
     }
 
     func testDuePendingFailureIsNotCountedTwiceWhenItReturnsToQueue() {
@@ -283,7 +305,8 @@ final class StudySessionCountsTests: XCTestCase {
     private func makeCard(
         id: String,
         queueState: String,
-        failedAt: Date? = nil
+        failedAt: Date? = nil,
+        dueAt: Date = .now
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -292,7 +315,7 @@ final class StudySessionCountsTests: XCTestCase {
             prompt: .object(["cueText": .string(id)]),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
-                dueAt: .now,
+                dueAt: dueAt,
                 introducedAt: .now,
                 failedAt: failedAt,
                 queueState: queueState,

@@ -281,6 +281,7 @@ struct StudyCardBatchResponse: Decodable, Sendable {
 struct StudyOverview: Codable, Sendable {
     let dueCount: Int
     let failedCount: Int?
+    let failedDueCount: Int?
     let newCount: Int
     let reviewCount: Int
     let totalCards: Int
@@ -298,12 +299,14 @@ struct StudyOverview: Codable, Sendable {
         newCardsPerDay: Int,
         newCardsAvailableToday: Int?,
         failedCount: Int? = nil,
+        failedDueCount: Int? = nil,
         lessonBatchSize: Int = 5,
         masterySpread: StudyMasterySpread? = nil,
         learningReadiness: StudyLearningReadiness? = nil
     ) {
         self.dueCount = dueCount
         self.failedCount = failedCount
+        self.failedDueCount = failedDueCount
         self.newCount = newCount
         self.reviewCount = reviewCount
         self.totalCards = totalCards
@@ -317,6 +320,7 @@ struct StudyOverview: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case dueCount
         case failedCount
+        case failedDueCount
         case newCount
         case reviewCount
         case totalCards
@@ -328,6 +332,7 @@ struct StudyOverview: Codable, Sendable {
 
         case legacyDueCount = "due_count"
         case legacyFailedCount = "failed_count"
+        case legacyFailedDueCount = "failed_due_count"
         case legacyNewCount = "new_count"
         case legacyReviewCount = "review_count"
         case legacyTotalCards = "total_cards"
@@ -341,6 +346,8 @@ struct StudyOverview: Codable, Sendable {
             ?? container.decode(Int.self, forKey: .legacyDueCount)
         failedCount = try container.decodeIfPresent(Int.self, forKey: .failedCount)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyFailedCount)
+        failedDueCount = try container.decodeIfPresent(Int.self, forKey: .failedDueCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .legacyFailedDueCount)
         newCount = try container.decodeIfPresent(Int.self, forKey: .newCount)
             ?? container.decode(Int.self, forKey: .legacyNewCount)
         reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount)
@@ -364,6 +371,7 @@ struct StudyOverview: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(dueCount, forKey: .dueCount)
         try container.encodeIfPresent(failedCount, forKey: .failedCount)
+        try container.encodeIfPresent(failedDueCount, forKey: .failedDueCount)
         try container.encode(newCount, forKey: .newCount)
         try container.encode(reviewCount, forKey: .reviewCount)
         try container.encode(totalCards, forKey: .totalCards)
