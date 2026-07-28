@@ -3834,6 +3834,12 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.sessionKind, "lessons")
         XCTAssertEqual(store.sessionProgress, 0)
         XCTAssertEqual(store.sessionInitialCardCount, 2)
+
+        store.retryLessonCard(lessonCards[0])
+
+        XCTAssertEqual(store.cards.map(\.id), [lessonCards[1].id, lessonCards[0].id])
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.cards.map(\.state.queueState), ["new", "new"])
     }
 
     @MainActor

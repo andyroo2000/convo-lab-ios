@@ -283,6 +283,7 @@ struct StudyOverview: Codable, Sendable {
     let failedCount: Int?
     let newCount: Int
     let reviewCount: Int
+    let totalCards: Int
     let newCardsPerDay: Int
     let newCardsAvailableToday: Int?
     let lessonBatchSize: Int
@@ -293,6 +294,7 @@ struct StudyOverview: Codable, Sendable {
         dueCount: Int,
         newCount: Int,
         reviewCount: Int,
+        totalCards: Int = 0,
         newCardsPerDay: Int,
         newCardsAvailableToday: Int?,
         failedCount: Int? = nil,
@@ -304,6 +306,7 @@ struct StudyOverview: Codable, Sendable {
         self.failedCount = failedCount
         self.newCount = newCount
         self.reviewCount = reviewCount
+        self.totalCards = totalCards
         self.newCardsPerDay = newCardsPerDay
         self.newCardsAvailableToday = newCardsAvailableToday
         self.lessonBatchSize = lessonBatchSize
@@ -316,6 +319,7 @@ struct StudyOverview: Codable, Sendable {
         case failedCount
         case newCount
         case reviewCount
+        case totalCards
         case newCardsPerDay
         case newCardsAvailableToday
         case lessonBatchSize
@@ -340,6 +344,7 @@ struct StudyOverview: Codable, Sendable {
             ?? container.decode(Int.self, forKey: .legacyNewCount)
         reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount)
             ?? container.decode(Int.self, forKey: .legacyReviewCount)
+        totalCards = try container.decodeIfPresent(Int.self, forKey: .totalCards) ?? 0
         newCardsPerDay = try container.decodeIfPresent(Int.self, forKey: .newCardsPerDay)
             ?? container.decode(Int.self, forKey: .legacyNewCardsPerDay)
         newCardsAvailableToday = try container.decodeIfPresent(Int.self, forKey: .newCardsAvailableToday)
@@ -358,6 +363,7 @@ struct StudyOverview: Codable, Sendable {
         try container.encodeIfPresent(failedCount, forKey: .failedCount)
         try container.encode(newCount, forKey: .newCount)
         try container.encode(reviewCount, forKey: .reviewCount)
+        try container.encode(totalCards, forKey: .totalCards)
         try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
         try container.encodeIfPresent(newCardsAvailableToday, forKey: .newCardsAvailableToday)
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)

@@ -115,9 +115,6 @@ struct StudyHomeView: View {
                 Text("This is advice, not a lock. Lessons always remain available.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Suggested next lesson: \(recommendation.suggestedBatchSize) cards.")
-                    .font(.caption.bold())
-                    .foregroundStyle(ConvoLabTheme.navy)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,9 +133,6 @@ struct StudyHomeView: View {
                 masteryRow("Master", count: spread.master, color: .blue)
                 masteryRow("Enlightened", count: spread.enlightened, color: .orange)
                 masteryRow("Burned", count: spread.burned, color: .green)
-                Text("Levels are derived from FSRS stability; Burned cards still follow FSRS.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .padding()
             .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
@@ -173,9 +167,15 @@ struct StudyHomeView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            metric(title: "Failed", value: store.sessionCounts.failedDue)
-            metric(title: "Due", value: store.sessionCounts.reviewRemaining)
-            metric(title: "New", value: store.sessionCounts.newRemaining)
+            metric(
+                title: "Due",
+                value: store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining
+            )
+            metric(
+                title: "Total",
+                value: store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
+                    ?? store.libraryCards.count
+            )
         }
     }
 

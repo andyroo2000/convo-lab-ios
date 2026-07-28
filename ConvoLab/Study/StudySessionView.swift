@@ -24,6 +24,7 @@ struct StudySessionView: View {
     @State private var answerRestoredByUndoCardID: String?
     @State private var reviewIntervalLabels: [ReviewRating: String] = [:]
     @State private var lessonPreview = true
+    @State private var lessonPreviewIndex = 0
     @State private var loadingLessons = false
 
     init(store: StudyStore, player: StudyAudioPlayer, mode: Mode = .reviews) {
@@ -61,25 +62,13 @@ struct StudySessionView: View {
                         .accessibilityIdentifier("StudyAnswerEditButton")
                     }
                     sessionMetric(
-                        label: "Failed",
-                        value: store.sessionFailureCount,
-                        color: ConvoLabTheme.coral
-                    )
-                    sessionMetric(
-                        label: "Queued",
-                        value: store.sessionCounts.reviewRemaining,
-                        color: .green
-                    )
-                    sessionMetric(
-                        label: "New",
-                        value: store.sessionCounts.newRemaining,
-                        color: .blue
+                        label: "Remaining",
+                        value: store.cards.count,
+                        color: ConvoLabTheme.navy
                     )
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(
-                    "\(store.sessionFailureCount) failed, \(store.sessionCounts.reviewRemaining) queued, \(store.sessionCounts.newRemaining) new"
-                )
+                .accessibilityLabel("\(store.cards.count) cards remaining")
 
                 Spacer()
 
@@ -220,9 +209,9 @@ struct StudySessionView: View {
                 .frame(maxHeight: .infinity)
         } else if store.cards.isEmpty {
             ContentUnavailableView(
-                "No new cards available",
+                "No cards waiting",
                 systemImage: "sparkles",
-                description: Text("You’ve reached today’s limit or cleared the queue.")
+                description: Text("There are no cards waiting for a lesson.")
             )
         } else {
             ScrollView {
@@ -232,8 +221,14 @@ struct StudySessionView: View {
                     Text("Study this batch first. The quiz contains only these cards.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    ForEach(store.cards) { previewCard in
+                    if store.cards.indices.contains(lessonPreviewIndex) {
+                        let previewCard = store.cards[lessonPreviewIndex]
                         VStack(spacing: 8) {
+                            Text(
+                                "Card \(lessonPreviewIndex + 1) of \(store.cards.count)"
+                            )
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
                             if let heading = previewCard.presentation.back.heading
                                 ?? previewCard.presentation.front.heading
                             {
@@ -254,11 +249,31 @@ struct StudySessionView: View {
                         .padding()
                         .background(.white.opacity(0.8), in: .rect(cornerRadius: 16))
                     }
-                    Button("Start Quiz") {
-                        lessonPreview = false
+                    HStack {
+                        Button("Previous") {
+                            lessonPreviewIndex = max(0, lessonPreviewIndex - 1)
+                        }
+                        .disabled(lessonPreviewIndex == 0)
+
+                        Spacer()
+
+                        if lessonPreviewIndex == store.cards.count - 1 {
+                            Button("Start Quiz") {
+                                lessonPreview = false
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        } else {
+                            Button("Next") {
+                                lessonPreviewIndex = min(
+                                    store.cards.count - 1,
+                                    lessonPreviewIndex + 1
+                                )
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
                     .controlSize(.large)
                 }
             }
@@ -270,6 +285,7 @@ struct StudySessionView: View {
         guard !loadingLessons else { return }
         loadingLessons = true
         lessonPreview = true
+        lessonPreviewIndex = 0
         store.beginSessionFailureTracking()
         defer { loadingLessons = false }
         do {
@@ -461,6 +477,15 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
+            if mode == .lessons, rating == .again {
+                player.stop()
+                didAutoplayAnswerForCardID = nil
+                store.retryLessonCard(card)
+                showingAnswer = false
+                reviewIntervalLabels = [:]
+                cardStartedAt = .now
+                return
+            }
             guard submittingReviewCardIDs.insert(card.id).inserted else { return }
             let reviewedAt = Date.now
             if rating == .again {

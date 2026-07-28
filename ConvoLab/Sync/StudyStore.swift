@@ -604,6 +604,16 @@ final class StudyStore {
         markPrepared(cards: lessonCards)
     }
 
+    func retryLessonCard(_ card: StudyCard) {
+        guard sessionKind == "lessons",
+              let index = cards.firstIndex(where: { $0.id == card.id })
+        else {
+            return
+        }
+        let retryCard = cards.remove(at: index)
+        cards.append(retryCard)
+    }
+
     func refreshStudySettings() async {
         guard let userID = activeUserID else { return }
         do {
@@ -3122,8 +3132,7 @@ struct StudySessionCounts: Equatable {
         let loadedNewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
-        let newRemaining = overview?.newCardsAvailableToday
-            ?? overview?.newCount
+        let newRemaining = overview?.newCount
             ?? loadedNewRemaining
         let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
