@@ -74,9 +74,14 @@ final class StudyTimeStore {
         try? context.save()
     }
 
-    func stop(activity expectedActivity: StudyActivityKind? = nil, at date: Date = .now) {
+    func stop(
+        activity expectedActivity: StudyActivityKind? = nil,
+        source expectedSource: StudyActivitySource? = nil,
+        at date: Date = .now
+    ) {
         guard let current = active,
-              expectedActivity == nil || current.activity == expectedActivity
+              expectedActivity == nil || current.activity == expectedActivity,
+              expectedSource == nil || current.source == expectedSource
         else {
             return
         }
@@ -99,17 +104,10 @@ final class StudyTimeStore {
         startedAt: Date,
         duration: TimeInterval,
         addToCalendar: Bool = false
-    ) async throws {
-        guard let userID = activeUserID else { return }
+    ) async throws -> String? {
+        guard let userID = activeUserID else { return nil }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
-        if addToCalendar {
-            try await StudyCalendarService.addEvent(
-                title: name ?? activity.title,
-                start: startedAt,
-                end: endedAt
-            )
-        }
         let session = ActiveSession(
             clientSessionID: UUID().uuidString.lowercased(),
             category: activity.category,
@@ -125,6 +123,17 @@ final class StudyTimeStore {
         try context.save()
         loadLocalSessions()
         await pushPending()
+        guard addToCalendar else { return nil }
+        do {
+            try await StudyCalendarService.addEvent(
+                title: name ?? activity.title,
+                start: startedAt,
+                end: endedAt
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     func synchronize() async {

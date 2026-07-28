@@ -74,7 +74,7 @@ final class AppModel {
                     name: title.isEmpty ? "Daily Audio" : title
                 )
             } else {
-                studyTime?.stop(activity: .dailyAudio)
+                studyTime?.stop(activity: .dailyAudio, source: .automatic)
             }
         }
         self.audioPlayer = audioPlayer

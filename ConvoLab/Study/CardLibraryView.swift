@@ -550,7 +550,7 @@ struct CardEditorView: View {
                 if phase == .active {
                     startTimeTracking()
                 } else {
-                    timeStore?.stop(activity: .cardCreation)
+                    timeStore?.stop(activity: .cardCreation, source: .automatic)
                 }
             }
             .onChange(of: store.manualDrafts.map(\.id)) { _, draftIDs in
@@ -562,7 +562,7 @@ struct CardEditorView: View {
                 }
             }
             .onDisappear {
-                timeStore?.stop(activity: .cardCreation)
+                timeStore?.stop(activity: .cardCreation, source: .automatic)
                 audioRegenerationTask?.cancel()
                 audioRegenerationTask = nil
                 imageRegenerationTask?.cancel()

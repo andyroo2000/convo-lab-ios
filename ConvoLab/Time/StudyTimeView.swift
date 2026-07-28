@@ -162,6 +162,7 @@ private struct StudyTimeEntryView: View {
     @State private var addToCalendar = false
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var entrySaved = false
 
     var body: some View {
         NavigationStack {
@@ -186,13 +187,17 @@ private struct StudyTimeEntryView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
+                        if entrySaved {
+                            dismiss()
+                            return
+                        }
                         guard !isSaving else { return }
                         isSaving = true
                         errorMessage = nil
                         Task {
                             defer { isSaving = false }
                             do {
-                                try await store.recordCompleted(
+                                let calendarWarning = try await store.recordCompleted(
                                     activity: activity,
                                     source: addToCalendar ? .calendar : .manual,
                                     name: name.nilIfBlank,
@@ -200,7 +205,14 @@ private struct StudyTimeEntryView: View {
                                     duration: TimeInterval(minutes * 60),
                                     addToCalendar: addToCalendar
                                 )
-                                dismiss()
+                                if let calendarWarning {
+                                    entrySaved = true
+                                    errorMessage =
+                                        "Study time was saved, but the calendar event was not added. "
+                                        + calendarWarning
+                                } else {
+                                    dismiss()
+                                }
                             } catch {
                                 errorMessage = error.localizedDescription
                             }
@@ -208,6 +220,8 @@ private struct StudyTimeEntryView: View {
                     } label: {
                         if isSaving {
                             ProgressView()
+                        } else if entrySaved {
+                            Text("Done")
                         } else {
                             Text("Add")
                         }

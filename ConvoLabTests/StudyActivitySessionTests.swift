@@ -180,6 +180,39 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(record.syncPending)
     }
 
+    func testAutomaticTeardownCannotStopAManualTimerWithTheSameActivity() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let body = try requestBody(request)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: sessions)
+            )
+        }
+        let store = StudyTimeStore(
+            api: client,
+            context: container.mainContext
+        )
+        store.activate(userID: 42)
+        store.start(activity: .cardCreation, source: .manual, name: "Deck work")
+
+        store.start(activity: .cardCreation, source: .automatic)
+        store.stop(activity: .cardCreation, source: .automatic)
+
+        XCTAssertEqual(store.active?.source, .manual)
+        XCTAssertEqual(store.active?.name, "Deck work")
+        await store.deactivate()
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral

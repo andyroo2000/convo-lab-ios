@@ -176,7 +176,7 @@ struct StudySessionView: View {
             if phase == .active {
                 startTimeTracking()
             } else {
-                timeStore?.stop(activity: .cardReview)
+                timeStore?.stop(activity: .cardReview, source: .automatic)
             }
         }
         .task(id: card?.presentation.back.audioURL) {
@@ -192,7 +192,7 @@ struct StudySessionView: View {
             }
         }
         .onDisappear {
-            timeStore?.stop(activity: .cardReview)
+            timeStore?.stop(activity: .cardReview, source: .automatic)
             player.stop()
             store.dismissMasteryAnimation()
             if mode == .lessons {
