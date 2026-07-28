@@ -190,6 +190,24 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.newRemaining, 0)
     }
 
+    func testFutureLoadedFailureDoesNotClaimAReviewIsReady() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let futureFailure = makeCard(
+            id: "failed-future",
+            queueState: "relearning",
+            failedAt: now,
+            dueAt: now.addingTimeInterval(10 * 60)
+        )
+
+        let counts = StudySessionCounts.calculate(
+            cards: [futureFailure],
+            overview: nil,
+            at: now
+        )
+
+        XCTAssertEqual(counts.failedDue, 0)
+    }
+
     func testReviewedFailureOptimisticallyDecrementsAuthoritativeCount() {
         let overview = StudyOverview(
             dueCount: 2,
@@ -287,7 +305,8 @@ final class StudySessionCountsTests: XCTestCase {
     private func makeCard(
         id: String,
         queueState: String,
-        failedAt: Date? = nil
+        failedAt: Date? = nil,
+        dueAt: Date = .now
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -296,7 +315,7 @@ final class StudySessionCountsTests: XCTestCase {
             prompt: .object(["cueText": .string(id)]),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
-                dueAt: .now,
+                dueAt: dueAt,
                 introducedAt: .now,
                 failedAt: failedAt,
                 queueState: queueState,

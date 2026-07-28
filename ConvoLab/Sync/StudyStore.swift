@@ -3172,12 +3172,13 @@ struct StudySessionCounts: Equatable {
         cards: [StudyCard],
         overview: StudyOverview?,
         retainedFailedCardIDs: Set<String> = [],
-        resolvedFailedCardIDs: Set<String> = []
+        resolvedFailedCardIDs: Set<String> = [],
+        at date: Date = .now
     ) -> StudySessionCounts {
         let loadedFailedDueCardIDs = Set(
             cards.lazy.filter {
                 $0.state.failedAt != nil
-                    && ($0.state.dueAt.map { $0 <= Date.now } ?? true)
+                    && ($0.state.dueAt.map { $0 <= date } ?? true)
             }.map(\.id)
         )
         let pendingReviewedFailedCardIDs = retainedFailedCardIDs
