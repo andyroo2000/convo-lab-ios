@@ -175,6 +175,10 @@ final class DailyAudioStore {
         guard !downloadableTracks.isEmpty else { return }
         refreshDownloadedTrackIDs()
         updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
+        defer {
+            downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
+            practiceDownloadProgress[practice.id] = nil
+        }
 
         for track in downloadableTracks {
             guard activeUserID == userID else { return }
@@ -200,8 +204,6 @@ final class DailyAudioStore {
             downloadingTrackIDs.remove(track.id)
             updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         }
-        downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
-        practiceDownloadProgress[practice.id] = nil
     }
 
     func isDownloaded(_ track: DailyAudioTrack) -> Bool {
@@ -214,7 +216,7 @@ final class DailyAudioStore {
 
     func isDownloaded(_ practice: DailyAudioPractice) -> Bool {
         let downloadableTracks = practice.tracks.filter {
-            $0.status == "ready" && $0.audioUrl != nil
+            $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
         }
         return !downloadableTracks.isEmpty
             && downloadableTracks.allSatisfy { downloadedTrackIDs.contains($0.id) }
