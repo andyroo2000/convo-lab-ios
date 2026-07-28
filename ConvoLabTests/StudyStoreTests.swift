@@ -3809,8 +3809,24 @@ final class StudyStoreTests: XCTestCase {
             with: StorageCodec.encoder.encode(session)
         )
         let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let paths = LockedRequestPaths()
         let client = makeClient { request in
-            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/card-review-events/batch" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 201,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"data":[]}"#.utf8)
+                )
+            }
+            XCTAssertTrue(
+                ["/api/study/lessons/start", "/api/study/session/start"].contains(path)
+            )
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -3828,12 +3844,63 @@ final class StudyStoreTests: XCTestCase {
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
 
+        store.beginLessonSessionPresentation()
         try await store.refreshLessons()
 
         XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
         XCTAssertEqual(store.sessionKind, "lessons")
         XCTAssertEqual(store.sessionProgress, 0)
         XCTAssertEqual(store.sessionInitialCardCount, 2)
+
+        store.retryLessonCard(lessonCards[0])
+
+        XCTAssertEqual(store.cards.map(\.id), [lessonCards[1].id, lessonCards[0].id])
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(store.cards.map(\.state.queueState), ["new", "new"])
+
+        let refreshedWhilePresented = try await store.refreshSessionPreservingActiveLessons()
+
+        XCTAssertFalse(refreshedWhilePresented)
+        XCTAssertEqual(paths.values, ["/api/study/lessons/start"])
+        XCTAssertEqual(store.sessionKind, "lessons")
+        XCTAssertEqual(store.cards.map(\.id), [lessonCards[1].id, lessonCards[0].id])
+
+        let eventID = await store.recordReview(
+            card: lessonCards[1],
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNotNil(eventID)
+        XCTAssertEqual(store.cards.map(\.id), [lessonCards[0].id])
+        XCTAssertEqual(store.sessionProgress, 0.5)
+        XCTAssertEqual(
+            paths.values,
+            ["/api/study/lessons/start", "/api/card-review-events/batch"]
+        )
+
+        store.endLessonSessionPresentation()
+        XCTAssertTrue(store.cards.isEmpty)
+        let refreshedAfterLeaving = try await store.refreshSessionPreservingActiveLessons()
+
+        XCTAssertTrue(refreshedAfterLeaving)
+        XCTAssertEqual(store.sessionKind, "reviews")
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/study/lessons/start",
+                "/api/card-review-events/batch",
+                "/api/study/session/start",
+            ]
+        )
+
+        store.beginLessonSessionPresentation()
+        store.deactivate()
+        store.activate(userID: 1)
+        let refreshedAfterReactivation = try await store.refreshSessionPreservingActiveLessons()
+
+        XCTAssertTrue(refreshedAfterReactivation)
+        XCTAssertEqual(paths.values.last, "/api/study/session/start")
     }
 
     @MainActor

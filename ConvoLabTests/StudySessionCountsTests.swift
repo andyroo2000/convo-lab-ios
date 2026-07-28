@@ -57,6 +57,7 @@ final class StudySessionCountsTests: XCTestCase {
                   "failed_count": 2,
                   "new_count": 4,
                   "review_count": 6,
+                  "total_cards": 17,
                   "new_cards_per_day": 20,
                   "new_cards_available_today": 0
                 }
@@ -65,6 +66,7 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         XCTAssertEqual(overview.failedCount, 2)
+        XCTAssertEqual(overview.totalCards, 17)
         XCTAssertEqual(overview.lessonBatchSize, 5)
     }
 
@@ -78,6 +80,7 @@ final class StudySessionCountsTests: XCTestCase {
                   "failedCount": 2,
                   "newCount": 4,
                   "reviewCount": 6,
+                  "totalCards": 42,
                   "newCardsPerDay": 20,
                   "newCardsAvailableToday": 4,
                   "lessonBatchSize": 8,
@@ -105,12 +108,13 @@ final class StudySessionCountsTests: XCTestCase {
         )
 
         XCTAssertEqual(overview.lessonBatchSize, 8)
+        XCTAssertEqual(overview.totalCards, 42)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.suggestedBatchSize, 4)
     }
 
-    func testCountsMatchDesktopFailedQueuedAndNewSemantics() {
+    func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {
         let cards = [
             makeCard(id: "failed", queueState: "relearning", failedAt: .now),
             makeCard(id: "review", queueState: "review"),
@@ -130,7 +134,7 @@ final class StudySessionCountsTests: XCTestCase {
 
         XCTAssertEqual(
             counts,
-            StudySessionCounts(failedDue: 1, reviewRemaining: 2, newRemaining: 0)
+            StudySessionCounts(failedDue: 1, reviewRemaining: 2, newRemaining: 1)
         )
     }
 
@@ -149,7 +153,7 @@ final class StudySessionCountsTests: XCTestCase {
             overview: overview
         )
 
-        XCTAssertEqual(counts.newRemaining, 6)
+        XCTAssertEqual(counts.newRemaining, 12)
     }
 
     func testAuthoritativeDueCountIsNotLimitedToLoadedSessionCards() {

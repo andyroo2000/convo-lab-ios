@@ -203,6 +203,7 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
+    private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
         label: String,
@@ -223,6 +224,23 @@ final class StudyStore {
     func beginSessionFailureTracking() {
         sessionFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
+    }
+
+    func beginLessonSessionPresentation() {
+        lessonSessionIsPresented = true
+    }
+
+    func endLessonSessionPresentation() {
+        lessonSessionIsPresented = false
+        if sessionKind == "lessons" {
+            sessionKind = "reviews"
+            if let userID = activeUserID {
+                try? persist(cards: [], userID: userID)
+            }
+            cards = []
+            sessionInitialCardCount = 0
+            sessionCompletedCardIDs = []
+        }
     }
 
     init(
@@ -292,6 +310,7 @@ final class StudyStore {
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
         sessionKind = "reviews"
+        lessonSessionIsPresented = false
         masteryAnimation = nil
     }
 
@@ -495,8 +514,7 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            try await refreshSession()
-            refreshed = true
+            refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
         }
@@ -570,6 +588,14 @@ final class StudyStore {
         markPrepared(cards: activeCards)
     }
 
+    /// A foreground sync must not replace a frozen lesson batch with review cards.
+    /// The lesson remains stable until the user finishes it or explicitly leaves it.
+    func refreshSessionPreservingActiveLessons() async throws -> Bool {
+        guard !lessonSessionIsPresented else { return false }
+        try await refreshSession()
+        return true
+    }
+
     func refreshLessons() async throws {
         guard let userID = activeUserID else { return }
         let timeZone = TimeZone.current.identifier
@@ -602,6 +628,16 @@ final class StudyStore {
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
         markPrepared(cards: lessonCards)
+    }
+
+    func retryLessonCard(_ card: StudyCard) {
+        guard sessionKind == "lessons",
+              let index = cards.firstIndex(where: { $0.id == card.id })
+        else {
+            return
+        }
+        let retryCard = cards.remove(at: index)
+        cards.append(retryCard)
     }
 
     func refreshStudySettings() async {
@@ -656,6 +692,7 @@ final class StudyStore {
                     dueCount: current.dueCount,
                     newCount: current.newCount,
                     reviewCount: current.reviewCount,
+                    totalCards: current.totalCards,
                     newCardsPerDay: response.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
                     failedCount: current.failedCount,
@@ -778,7 +815,7 @@ final class StudyStore {
             state.updatedAt = .now
             try context.save()
             guard activeUserID == userID else { return }
-            try await refreshSession()
+            _ = try await refreshSessionPreservingActiveLessons()
             guard activeUserID == userID else { return }
             try await refreshOfflineReserve(
                 userID: userID,
@@ -1935,6 +1972,7 @@ final class StudyStore {
                 ? max(0, current.newCount - 1)
                 : current.newCount,
             reviewCount: current.reviewCount,
+            totalCards: current.totalCards,
             newCardsPerDay: current.newCardsPerDay,
             newCardsAvailableToday: card.state.queueState == "new"
                 ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
@@ -3122,8 +3160,7 @@ struct StudySessionCounts: Equatable {
         let loadedNewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState == "new"
         })
-        let newRemaining = overview?.newCardsAvailableToday
-            ?? overview?.newCount
+        let newRemaining = overview?.newCount
             ?? loadedNewRemaining
         let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
