@@ -99,6 +99,13 @@ final class MasteryReviewAnimationTests: XCTestCase {
     }
 
     @MainActor
+    func testAnimationAddsOneSecondOfSettledHoldTime() {
+        XCTAssertEqual(MasteryReviewAnimation.addedHoldMilliseconds, 1_000)
+        XCTAssertEqual(MasteryReviewAnimation.settledHoldMilliseconds, 1_320)
+        XCTAssertEqual(MasteryReviewAnimation.reducedMotionHoldMilliseconds, 1_450)
+    }
+
+    @MainActor
     func testPromptAutoplayWaitsForMasteryAnimationToFinish() {
         let cardID = "next-card"
 
