@@ -25,6 +25,14 @@ final class AudioPlayer {
     private(set) var elapsed: Double = 0
     private(set) var duration: Double = 0
 
+    static func replacesPlayingTrack(
+        isPlaying: Bool,
+        currentTrackID: String?,
+        newTrackID: String
+    ) -> Bool {
+        isPlaying && currentTrackID != newTrackID
+    }
+
     init() {
         configureRemoteCommands()
         configureAudioNotifications()
@@ -63,6 +71,11 @@ final class AudioPlayer {
     func play(url: URL, trackID: String, title: String) {
         onWillStartPlayback()
         activateAudioSession()
+        let replacedPlayingTrack = Self.replacesPlayingTrack(
+            isPlaying: isPlaying,
+            currentTrackID: currentTrackID,
+            newTrackID: trackID
+        )
         if currentTrackID != trackID {
             currentTrackID = trackID
             currentTitle = title
@@ -73,6 +86,9 @@ final class AudioPlayer {
             }
         }
         isPlaying = true
+        if replacedPlayingTrack {
+            onPlaybackStateChanged(true, currentTitle)
+        }
         player.play()
         updateNowPlaying()
     }
