@@ -461,6 +461,9 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertTrue(store.isDownloaded(secondTrack))
         XCTAssertTrue(store.isDownloaded(practice))
         XCTAssertEqual(requestCounter.current, 2)
+
+        await store.download(practice)
+        XCTAssertEqual(requestCounter.current, 2)
     }
 
     func testOpeningPlayerLoadsAndPersistsDetailedTranscript() async throws {

@@ -215,13 +215,21 @@ struct DailyAudioView: View {
                 Spacer()
                 if practice.status == "ready" {
                     Button {
-                        guard !suppressTrackInteractions else { return }
+                        guard
+                            !suppressTrackInteractions,
+                            !store.isDownloaded(practice)
+                        else {
+                            return
+                        }
                         Task { await store.download(practice) }
                     } label: {
                         practiceDownloadButton(practice)
                     }
                     .buttonStyle(.plain)
-                    .disabled(store.practiceDownloadProgress[practice.id] != nil)
+                    .disabled(
+                        store.practiceDownloadProgress[practice.id] != nil
+                            || store.isDownloaded(practice)
+                    )
                     .allowsHitTesting(!suppressTrackInteractions)
                     .accessibilityLabel(
                         store.isDownloaded(practice)
@@ -515,15 +523,18 @@ struct DailyAudioView: View {
         if store.practices.indices.contains(index + 1) {
             completeSwipe(to: store.practices[index + 1].id, direction: .earlier)
         } else if store.hasMore {
+            isSettlingSwipe = true
             Task {
                 await store.loadMore()
                 guard let currentIndex = store.practices.firstIndex(where: {
                     $0.id == selectedPractice.id
                 }), store.practices.indices.contains(currentIndex + 1)
                 else {
+                    isSettlingSwipe = false
                     snapCardBack()
                     return
                 }
+                isSettlingSwipe = false
                 completeSwipe(
                     to: store.practices[currentIndex + 1].id,
                     direction: .earlier

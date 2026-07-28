@@ -78,24 +78,6 @@ final class MediaCache {
         return url
     }
 
-    func isCached(_ remoteURL: URL, cacheKey explicitCacheKey: String? = nil) -> Bool {
-        guard let userID = activeUserID else { return false }
-        let cacheKey = explicitCacheKey ?? Self.stableCacheKey(for: remoteURL)
-        var descriptor = FetchDescriptor<CachedMediaRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.remoteURL == cacheKey }
-        )
-        descriptor.fetchLimit = 1
-        guard
-            let record = try? context.fetch(descriptor).first,
-            record.category != Self.deferredDeletionCategory
-        else {
-            return false
-        }
-        return FileManager.default.fileExists(
-            atPath: rootURL.appending(path: record.relativePath).path
-        )
-    }
-
     @discardableResult
     func download(
         _ remoteURL: URL,
@@ -343,8 +325,12 @@ final class MediaCache {
     }
 
     func cachedKeys(for remoteURLs: [URL]) -> Set<String> {
-        guard let userID = activeUserID else { return [] }
         let desiredKeys = Set(remoteURLs.map(Self.stableCacheKey(for:)))
+        return cachedKeys(forCacheKeys: desiredKeys)
+    }
+
+    func cachedKeys(forCacheKeys desiredKeys: Set<String>) -> Set<String> {
+        guard let userID = activeUserID else { return [] }
         guard !desiredKeys.isEmpty else { return [] }
 
         let records = (try? context.fetch(

@@ -167,7 +167,8 @@ final class DailyAudioStore {
         guard
             let userID = activeUserID,
             practices.contains(where: { $0.id == practice.id }),
-            practiceDownloadProgress[practice.id] == nil
+            practiceDownloadProgress[practice.id] == nil,
+            !isDownloaded(practice)
         else {
             return
         }
@@ -318,15 +319,15 @@ final class DailyAudioStore {
         } else {
             downloadedTrackIDs.subtract(practices.flatMap(\.tracks).map(\.id))
         }
-        for track in practices.flatMap(\.tracks) {
-            guard
-                let raw = track.audioUrl,
-                let remote = URL(string: raw),
-                mediaCache.isCached(remote, cacheKey: cacheKey(for: track))
-            else {
-                continue
-            }
-            downloadedTrackIDs.insert(track.id)
+        let tracksAndKeys = practices
+            .flatMap(\.tracks)
+            .filter { $0.audioUrl.flatMap(URL.init(string:)) != nil }
+            .map { (track: $0, cacheKey: cacheKey(for: $0)) }
+        let cachedKeys = mediaCache.cachedKeys(
+            forCacheKeys: Set(tracksAndKeys.map { $0.cacheKey })
+        )
+        for item in tracksAndKeys where cachedKeys.contains(item.cacheKey) {
+            downloadedTrackIDs.insert(item.track.id)
         }
     }
 
