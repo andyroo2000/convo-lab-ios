@@ -493,7 +493,7 @@ struct StudySessionView: View {
             }
         } label: {
             Text(title)
-            .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .tint(color)
