@@ -38,7 +38,7 @@ struct StudySessionView: View {
     private var remainingCount: Int {
         mode == .lessons
             ? store.cards.count
-            : store.sessionCounts.reviewRemaining
+            : store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining
     }
 
     var body: some View {
