@@ -34,7 +34,9 @@ struct StudySessionView: View {
         _lessonPreview = State(initialValue: mode == .lessons)
     }
 
-    private var card: StudyCard? { store.cards.first }
+    private var card: StudyCard? {
+        store.masteryAnimation?.card ?? store.cards.first
+    }
     private var remainingCount: Int {
         mode == .lessons
             ? store.cards.count
@@ -75,15 +77,35 @@ struct StudySessionView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(remainingCount) cards remaining")
 
-                Spacer()
+                ZStack {
+                    VStack {
+                        Spacer()
 
-                if showingAnswer {
-                    answerFace(presentation.back, card: card)
-                } else {
-                    promptFace(presentation.front, cardID: card.id)
+                        if showingAnswer {
+                            answerFace(presentation.back, card: card)
+                        } else {
+                            promptFace(presentation.front, cardID: card.id)
+                        }
+
+                        Spacer()
+                    }
+
+                    if let animation = store.masteryAnimation {
+                        MasteryReviewAnimation(
+                            label: animation.label,
+                            fromLevel: animation.fromLevel,
+                            toLevel: animation.toLevel,
+                            passed: animation.passed
+                        ) {
+                            guard store.masteryAnimation?.id == animation.id else {
+                                return
+                            }
+                            store.dismissMasteryAnimation()
+                        }
+                        .id(animation.id)
+                    }
                 }
-
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if showingAnswer {
                     gradeButtons(card: card)
@@ -524,7 +546,11 @@ struct StudySessionView: View {
         .buttonStyle(.borderedProminent)
         .tint(color)
         .frame(maxWidth: .infinity)
-        .disabled(submittingReviewCardIDs.contains(card.id) || isUndoing)
+        .disabled(
+            submittingReviewCardIDs.contains(card.id)
+                || isUndoing
+                || store.masteryAnimation != nil
+        )
     }
 
     private func prepareReviewIntervalLabels(

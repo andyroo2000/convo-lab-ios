@@ -206,6 +206,7 @@ final class StudyStore {
     private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
+        card: StudyCard,
         label: String,
         fromLevel: String,
         toLevel: String,
@@ -1113,8 +1114,8 @@ final class StudyStore {
             descriptor.fetchLimit = 1
             let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
-            // The animation remains visible over the next card until it is dismissed or
-            // that card is answered. Clearing here avoids both stale and invisible overlays.
+            // The animation retains this reviewed card as its presentation snapshot until
+            // dismissal, while the queue can optimistically advance underneath it.
             masteryAnimation = nil
             // Compare the same local FSRS projection on both sides. The server annotation
             // belongs to the pre-review state and cannot describe this optimistic review.
@@ -1122,6 +1123,7 @@ final class StudyStore {
             let newLevel = updatedCard.fsrsMasteryLevel
             masteryAnimation = (
                 id: UUID(),
+                card: card,
                 label: card.presentation.back.heading
                     ?? card.presentation.front.heading
                     ?? "This item",
