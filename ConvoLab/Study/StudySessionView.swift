@@ -209,6 +209,7 @@ struct StudySessionView: View {
         }
         .onDisappear {
             player.stop()
+            store.dismissMasteryAnimation()
             if mode == .lessons {
                 store.endLessonSessionPresentation()
             }
