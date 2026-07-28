@@ -11,7 +11,6 @@ struct MasteryReviewAnimation: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var railOpacity = 0.0
-    @State private var itemOpacity = 0.0
     @State private var trackProgress = CGFloat.zero
     @State private var activeIndex = 0
     @State private var nodeScale = 1.0
@@ -44,16 +43,27 @@ struct MasteryReviewAnimation: View {
             let windowWidth = min(geometry.size.width * 0.84, 360)
 
             ZStack {
-                ConvoLabTheme.cream
-                    .opacity(0.78)
-
                 masteryRail(segmentWidth: segmentWidth, windowWidth: windowWidth)
                     .frame(width: windowWidth, height: Self.railHeight)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(availableHeight: geometry.size.height)
+                        y: Self.railCenterY
                     )
                     .opacity(railOpacity)
+
+                Text(levels[activeIndex].rawValue.uppercased())
+                    .font(.caption.weight(.bold))
+                    .tracking(1.1)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(width: windowWidth)
+                    .position(
+                        x: geometry.size.width / 2,
+                        y: Self.levelNameCenterY
+                    )
+                    .opacity(railOpacity)
+                    .accessibilityHidden(true)
 
                 if reduceMotion {
                     Label(
@@ -64,22 +74,12 @@ struct MasteryReviewAnimation: View {
                     .foregroundStyle(passed ? Color.green : Color.red)
                     .position(
                         x: geometry.size.width / 2,
-                        y: Self.railCenterY(availableHeight: geometry.size.height) + 58
+                        y: Self.resultCenterY
                     )
                     .opacity(railOpacity)
                     .accessibilityHidden(true)
                 }
 
-                Text(label)
-                    .font(.system(.title2, design: .rounded, weight: .bold))
-                    .foregroundStyle(ConvoLabTheme.navy)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.42)
-                    .frame(maxWidth: min(geometry.size.width * 0.82, 480))
-                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.58)
-                    .opacity(itemOpacity)
-                    .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -130,19 +130,10 @@ struct MasteryReviewAnimation: View {
     private func masterySegment(level: StudyMasteryLevel, index: Int) -> some View {
         let color = Self.color(for: level)
         return ZStack(alignment: .top) {
-            Text(level.rawValue.uppercased())
-                .font(.caption.weight(.bold))
-                .tracking(1.1)
-                .foregroundStyle(ConvoLabTheme.navy)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .opacity(index == activeIndex ? 1 : 0)
-                .padding(.horizontal, 4)
-
             Rectangle()
                 .fill(color)
                 .frame(height: 5)
-                .offset(y: 43)
+                .offset(y: Self.lineTop)
 
             if index == toIndex, !passed {
                 Circle()
@@ -150,7 +141,7 @@ struct MasteryReviewAnimation: View {
                     .frame(width: 30, height: 30)
                     .scaleEffect(failureHaloScale)
                     .opacity(failureHaloOpacity)
-                    .offset(y: 31)
+                    .offset(y: Self.failureHaloTop)
             }
 
             Circle()
@@ -161,17 +152,19 @@ struct MasteryReviewAnimation: View {
                         .stroke(ConvoLabTheme.cream, lineWidth: 4)
                 }
                 .scaleEffect(index == toIndex ? nodeScale : 1)
-                .offset(y: 36)
+                .offset(y: Self.nodeTop)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    static let railHeight = CGFloat(76)
-
-    static func railCenterY(availableHeight: CGFloat) -> CGFloat {
-        let minimumCenter = railHeight / 2 + 12
-        let maximumCenter = max(minimumCenter, availableHeight * 0.42)
-        return min(max(minimumCenter, availableHeight * 0.26), maximumCenter)
-    }
+    static let feedbackLaneHeight = CGFloat(68)
+    static let railHeight = CGFloat(68)
+    static let railCenterY = CGFloat(34)
+    static let levelNameCenterY = CGFloat(10)
+    static let resultCenterY = CGFloat(58)
+    static let lineTop = CGFloat(36)
+    static let failureHaloTop = CGFloat(23)
+    static let nodeTop = CGFloat(29)
 
     static func segmentWidth(for availableWidth: CGFloat) -> CGFloat {
         min(max(availableWidth * 0.48, 150), 190)
@@ -222,12 +215,10 @@ struct MasteryReviewAnimation: View {
             activeIndex = toIndex
             withAnimation(.easeOut(duration: 0.1)) {
                 railOpacity = 1
-                itemOpacity = 1
             }
             guard await pause(for: .milliseconds(450)) else { return }
             withAnimation(.easeIn(duration: 0.15)) {
                 railOpacity = 0
-                itemOpacity = 0
             }
             guard await pause(for: .milliseconds(155)) else { return }
             onFinished()
@@ -236,7 +227,6 @@ struct MasteryReviewAnimation: View {
 
         withAnimation(.easeOut(duration: 0.12)) {
             railOpacity = 1
-            itemOpacity = 1
         }
         guard await pause(for: .milliseconds(220)) else { return }
 
@@ -302,7 +292,6 @@ struct MasteryReviewAnimation: View {
         guard await pause(for: .milliseconds(320)) else { return }
         withAnimation(.easeIn(duration: 0.18)) {
             railOpacity = 0
-            itemOpacity = 0
         }
         guard await pause(for: .milliseconds(185)) else { return }
         onFinished()
