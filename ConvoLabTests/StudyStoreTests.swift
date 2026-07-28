@@ -3858,8 +3858,9 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.sessionProgress, 0)
         XCTAssertEqual(store.cards.map(\.state.queueState), ["new", "new"])
 
-        try await store.refreshSessionPreservingActiveLessons()
+        let refreshedWhilePresented = try await store.refreshSessionPreservingActiveLessons()
 
+        XCTAssertFalse(refreshedWhilePresented)
         XCTAssertEqual(paths.values, ["/api/study/lessons/start"])
         XCTAssertEqual(store.sessionKind, "lessons")
         XCTAssertEqual(store.cards.map(\.id), [lessonCards[1].id, lessonCards[0].id])
@@ -3879,8 +3880,9 @@ final class StudyStoreTests: XCTestCase {
         )
 
         store.endLessonSessionPresentation()
-        try await store.refreshSessionPreservingActiveLessons()
+        let refreshedAfterLeaving = try await store.refreshSessionPreservingActiveLessons()
 
+        XCTAssertTrue(refreshedAfterLeaving)
         XCTAssertEqual(store.sessionKind, "reviews")
         XCTAssertEqual(
             paths.values,
@@ -3894,8 +3896,9 @@ final class StudyStoreTests: XCTestCase {
         store.beginLessonSessionPresentation()
         store.deactivate()
         store.activate(userID: 1)
-        try await store.refreshSessionPreservingActiveLessons()
+        let refreshedAfterReactivation = try await store.refreshSessionPreservingActiveLessons()
 
+        XCTAssertTrue(refreshedAfterReactivation)
         XCTAssertEqual(paths.values.last, "/api/study/session/start")
     }
 

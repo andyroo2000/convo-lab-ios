@@ -234,6 +234,9 @@ final class StudyStore {
         lessonSessionIsPresented = false
         if sessionKind == "lessons" {
             sessionKind = "reviews"
+            cards = []
+            sessionInitialCardCount = 0
+            sessionCompletedCardIDs = []
         }
     }
 
@@ -508,8 +511,7 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            try await refreshSessionPreservingActiveLessons()
-            refreshed = true
+            refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
         }
@@ -585,9 +587,10 @@ final class StudyStore {
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
-    func refreshSessionPreservingActiveLessons() async throws {
-        guard !lessonSessionIsPresented else { return }
+    func refreshSessionPreservingActiveLessons() async throws -> Bool {
+        guard !lessonSessionIsPresented else { return false }
         try await refreshSession()
+        return true
     }
 
     func refreshLessons() async throws {
@@ -809,7 +812,7 @@ final class StudyStore {
             state.updatedAt = .now
             try context.save()
             guard activeUserID == userID else { return }
-            try await refreshSessionPreservingActiveLessons()
+            _ = try await refreshSessionPreservingActiveLessons()
             guard activeUserID == userID else { return }
             try await refreshOfflineReserve(
                 userID: userID,
