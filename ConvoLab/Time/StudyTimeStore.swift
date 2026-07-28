@@ -21,6 +21,8 @@ final class StudyTimeStore {
     private(set) var active: ActiveSession?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
+    private var synchronizationInFlight = false
+    private var pendingPushTask: Task<Void, Never>?
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -33,8 +35,11 @@ final class StudyTimeStore {
         loadLocalSessions()
     }
 
-    func deactivate() {
-        stop()
+    func deactivate() async {
+        if let active {
+            finish(active, at: .now, enqueueSync: false)
+        }
+        await pushPending()
         activeUserID = nil
         sessions = []
         active = nil
@@ -123,7 +128,9 @@ final class StudyTimeStore {
     }
 
     func synchronize() async {
-        guard let userID = activeUserID else { return }
+        guard let userID = activeUserID, !synchronizationInFlight else { return }
+        synchronizationInFlight = true
+        defer { synchronizationInFlight = false }
         await pushPending()
         let from = Calendar.current.date(byAdding: .day, value: -93, to: .now) ?? .distantPast
         do {
@@ -173,7 +180,11 @@ final class StudyTimeStore {
         try context.save()
     }
 
-    private func finish(_ current: ActiveSession, at date: Date) {
+    private func finish(
+        _ current: ActiveSession,
+        at date: Date,
+        enqueueSync: Bool = true
+    ) {
         guard let record = record(clientSessionID: current.clientSessionID) else {
             active = nil
             return
@@ -182,7 +193,9 @@ final class StudyTimeStore {
         active = nil
         try? context.save()
         loadLocalSessions()
-        Task { await pushPending() }
+        if enqueueSync {
+            Task { await pushPending() }
+        }
     }
 
     private func complete(
@@ -202,7 +215,21 @@ final class StudyTimeStore {
     }
 
     private func pushPending() async {
+        if let pendingPushTask {
+            await pendingPushTask.value
+            return
+        }
         guard let userID = activeUserID else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performPushPending(userID: userID)
+        }
+        pendingPushTask = task
+        await task.value
+        pendingPushTask = nil
+    }
+
+    private func performPushPending(userID: Int) async {
         do {
             let pending = try context.fetch(
                 FetchDescriptor<LocalStudyActivitySession>(

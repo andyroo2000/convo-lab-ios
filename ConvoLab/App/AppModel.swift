@@ -111,11 +111,11 @@ final class AppModel {
     }
 
     func logout() async {
+        await studyTime.deactivate()
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
         dailyAudio.deactivate()
-        studyTime.deactivate()
         mediaCache.deactivate()
         await auth.logout()
     }
@@ -130,14 +130,15 @@ final class AppModel {
         guard case let .signedIn(user) = auth.state else {
             return false
         }
+        await studyTime.deactivate()
         guard await auth.deleteAccount(currentPassword: currentPassword) else {
+            studyTime.activate(userID: user.id)
             return false
         }
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
         dailyAudio.deactivate()
-        studyTime.deactivate()
         mediaCache.deactivate()
         try? mediaCache.deleteLocalData(userID: user.id)
         try? dailyAudio.deleteLocalData(userID: user.id)
