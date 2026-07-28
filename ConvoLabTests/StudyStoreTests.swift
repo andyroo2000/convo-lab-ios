@@ -3495,6 +3495,139 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadNextReviewBatchPromotesNewlyDueOfflineReserveBeforeSyncing() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let futureCard = makeCard(
+            id: "01J00000000000000000000019",
+            expression: "次",
+            dueAt: Date.now.addingTimeInterval(60)
+        )
+        let record = LocalCardRecord(
+            card: futureCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(futureCard)
+        )
+        record.isInActiveSession = false
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let requestedPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            requestedPaths.append(request.url?.path ?? "")
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+
+        let readyCard = makeCard(
+            id: futureCard.id,
+            expression: "次",
+            dueAt: Date.now.addingTimeInterval(-1)
+        )
+        record.payload = try StorageCodec.encoder.encode(readyCard)
+        try container.mainContext.save()
+
+        await store.loadNextReviewBatch()
+
+        XCTAssertEqual(store.cards.map(\.id), [readyCard.id])
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertTrue(requestedPaths.values.isEmpty)
+        XCTAssertTrue(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testLoadNextReviewBatchFallsBackToServerWhenOfflineReserveIsEmpty() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(
+            id: "01J0000000000000000000001A",
+            expression: "同期",
+            dueAt: Date.now.addingTimeInterval(-1)
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: [serverCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(
+            withJSONObject: ["data": sessionObject]
+        )
+        let requestedPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            requestedPaths.append(path)
+            let data: Data
+            switch path {
+            case "/api/sync/feed":
+                data = Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                )
+            case "/api/study/known-kanji":
+                data = Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            case "/api/study/session/start":
+                data = sessionData
+            case "/api/study/offline-reserve":
+                data = Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                )
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.loadNextReviewBatch()
+
+        XCTAssertEqual(store.cards.map(\.id), [serverCard.id])
+        XCTAssertEqual(store.sessionProgress, 0)
+        XCTAssertEqual(
+            requestedPaths.values,
+            [
+                "/api/sync/feed",
+                "/api/study/known-kanji",
+                "/api/study/session/start",
+                "/api/study/offline-reserve",
+            ]
+        )
+    }
+
+    @MainActor
     func testOfflineDueActivationDoesNotResurrectCaseCanonicalizedPendingDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

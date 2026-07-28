@@ -552,6 +552,28 @@ final class StudyStore {
         await synchronize()
     }
 
+    func loadNextReviewBatch() async {
+        guard let userID = activeUserID, sessionKind == "reviews", cards.isEmpty else {
+            return
+        }
+
+        // The offline reserve may already contain cards that became due after the
+        // previous batch was loaded. Promote that delta before doing a full sync;
+        // otherwise refreshSession can replace the active markers before these
+        // locally ready cards ever reach the player.
+        activateOfflineDueCards()
+        if cards.isEmpty {
+            await synchronize()
+            guard activeUserID == userID else { return }
+            activateOfflineDueCards()
+        }
+
+        guard activeUserID == userID, !cards.isEmpty else { return }
+        sessionInitialCardCount = cards.count
+        sessionCompletedCardIDs = []
+        masteryAnimation = nil
+    }
+
     func refreshSession() async throws {
         guard let userID = activeUserID else { return }
         let timeZone = TimeZone.current.identifier
