@@ -172,7 +172,7 @@ final class StudyTimeStore {
         else {
             return
         }
-        record.isDeleted = true
+        record.isTombstone = true
         record.syncPending = true
         try context.save()
         loadLocalSessions()
@@ -211,7 +211,7 @@ final class StudyTimeStore {
             }
             for session in remote {
                 if let record = recordsByID[session.clientSessionId] {
-                    if !record.isDeleted, !record.syncPending {
+                    if !record.isTombstone, !record.syncPending {
                         record.apply(session)
                     }
                 } else {
@@ -304,7 +304,7 @@ final class StudyTimeStore {
             let deletions = try context.fetch(
                 FetchDescriptor<LocalStudyActivitySession>(
                     predicate: #Predicate {
-                        $0.userID == userID && $0.syncPending && $0.isDeleted
+                        $0.userID == userID && $0.syncPending && $0.isTombstone
                     }
                 )
             )
@@ -321,7 +321,7 @@ final class StudyTimeStore {
                     failures.append(error.localizedDescription)
                     continue
                 }
-                context.delete(record)
+                record.syncPending = false
                 deletedAny = true
             }
             if deletedAny {
@@ -332,7 +332,7 @@ final class StudyTimeStore {
                     predicate: #Predicate {
                         $0.userID == userID
                             && $0.syncPending
-                            && !$0.isDeleted
+                            && !$0.isTombstone
                             && $0.endedAt != nil
                     }
                 )
@@ -366,7 +366,7 @@ final class StudyTimeStore {
         )
         guard let records = try? context.fetch(descriptor) else { return }
         sessions = records.compactMap(\.session)
-        if let running = records.first(where: { !$0.isDeleted && $0.endedAt == nil }) {
+        if let running = records.first(where: { !$0.isTombstone && $0.endedAt == nil }) {
             active = running.activeSession
             if recoverAbandonedAutomatic,
                let active,
@@ -391,7 +391,7 @@ final class StudyTimeStore {
             }
         )
         descriptor.fetchLimit = 1
-        return try? context.fetch(descriptor).first
+        return try? context.fetch(descriptor).first(where: { !$0.isTombstone })
     }
 
     private func refreshAnalytics() async {

@@ -426,11 +426,13 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(store.sessions.first?.name, "iTalki lesson")
         try await store.delete(session: try XCTUnwrap(store.sessions.first))
         XCTAssertTrue(store.sessions.isEmpty)
-        XCTAssertTrue(
-            try container.mainContext.fetch(
-                FetchDescriptor<LocalStudyActivitySession>()
-            ).isEmpty
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
         )
+        XCTAssertEqual(records.count, 1)
+        let savedTombstone = try XCTUnwrap(records.first)
+        XCTAssertTrue(savedTombstone.isTombstone)
+        XCTAssertFalse(savedTombstone.syncPending)
     }
 
     func testFailedPushDoesNotLetStaleRemoteSessionOverwritePendingEdit() async throws {
@@ -488,7 +490,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let deletedSession = makeSession(source: .manual)
         let tombstone = LocalStudyActivitySession(session: deletedSession, userID: 42)
-        tombstone.isDeleted = true
+        tombstone.isTombstone = true
         tombstone.syncPending = true
         container.mainContext.insert(tombstone)
 
@@ -510,18 +512,32 @@ final class StudyActivitySessionTests: XCTestCase {
         pending.syncPending = true
         container.mainContext.insert(pending)
         try container.mainContext.save()
-        let pendingRemote: [String: Any] = [
-            "id": "server-session-2",
-            "clientSessionId": pendingID,
-            "category": "wanikani",
-            "activity": "wanikani_review",
-            "source": "manual",
-            "name": "Pending WaniKani",
-            "startedAt": pendingSession.startedAt.ISO8601Format(),
-            "endedAt": pendingSession.endedAt.ISO8601Format(),
-            "durationMs": 600_000,
-        ]
-        let pendingRemoteData = try JSONSerialization.data(withJSONObject: [pendingRemote])
+        let staleRemoteData = try JSONSerialization.data(
+            withJSONObject: [
+                [
+                    "id": deletedSession.id,
+                    "clientSessionId": deletedSession.clientSessionId,
+                    "category": deletedSession.category.rawValue,
+                    "activity": deletedSession.activity.rawValue,
+                    "source": deletedSession.source.rawValue,
+                    "name": deletedSession.name,
+                    "startedAt": deletedSession.startedAt.ISO8601Format(),
+                    "endedAt": deletedSession.endedAt.ISO8601Format(),
+                    "durationMs": deletedSession.durationMs,
+                ],
+                [
+                    "id": pendingSession.id,
+                    "clientSessionId": pendingSession.clientSessionId,
+                    "category": pendingSession.category.rawValue,
+                    "activity": pendingSession.activity.rawValue,
+                    "source": pendingSession.source.rawValue,
+                    "name": pendingSession.name,
+                    "startedAt": pendingSession.startedAt.ISO8601Format(),
+                    "endedAt": pendingSession.endedAt.ISO8601Format(),
+                    "durationMs": pendingSession.durationMs,
+                ],
+            ]
+        )
 
         let client = makeClient { request in
             switch (request.httpMethod, request.url?.path) {
@@ -558,7 +574,7 @@ final class StudyActivitySessionTests: XCTestCase {
                         httpVersion: nil,
                         headerFields: ["Content-Type": "application/json"]
                     )!,
-                    pendingRemoteData
+                    staleRemoteData
                 )
             case ("GET", "/api/study/activity-analytics"):
                 return try analyticsResponse(for: request)
@@ -575,9 +591,17 @@ final class StudyActivitySessionTests: XCTestCase {
         let records = try container.mainContext.fetch(
             FetchDescriptor<LocalStudyActivitySession>()
         )
-        XCTAssertEqual(records.count, 1)
-        XCTAssertEqual(records.first?.clientSessionID, pendingSession.clientSessionId)
-        XCTAssertFalse(try XCTUnwrap(records.first).syncPending)
+        XCTAssertEqual(records.count, 2)
+        let savedTombstone = try XCTUnwrap(
+            records.first { $0.clientSessionID == deletedSession.clientSessionId }
+        )
+        XCTAssertTrue(savedTombstone.isTombstone)
+        XCTAssertFalse(savedTombstone.syncPending)
+        XCTAssertFalse(
+            try XCTUnwrap(records.first { $0.clientSessionID == pendingSession.clientSessionId })
+                .syncPending
+        )
+        XCTAssertEqual(store.sessions, [pendingSession])
         XCTAssertNil(store.syncErrorMessage)
     }
 
@@ -585,7 +609,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let deletedSession = makeSession(source: .manual)
         let tombstone = LocalStudyActivitySession(session: deletedSession, userID: 42)
-        tombstone.isDeleted = true
+        tombstone.isTombstone = true
         tombstone.syncPending = true
         container.mainContext.insert(tombstone)
 

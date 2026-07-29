@@ -17,7 +17,7 @@ final class LocalStudyActivitySession {
     var audioPlaybackMs: Int?
     var cardsCreated: Int?
     var syncPending: Bool
-    var isDeleted: Bool = false
+    var isTombstone: Bool = false
 
     init(active: StudyTimeStore.ActiveSession, userID: Int) {
         clientSessionID = active.clientSessionID
@@ -30,7 +30,7 @@ final class LocalStudyActivitySession {
         durationMs = 0
         cardsCreated = active.cardsCreated
         syncPending = false
-        isDeleted = false
+        isTombstone = false
     }
 
     init(session: StudyActivitySession, userID: Int) {
@@ -47,11 +47,11 @@ final class LocalStudyActivitySession {
         audioPlaybackMs = session.audioPlaybackMs
         cardsCreated = session.cardsCreated
         syncPending = false
-        isDeleted = false
+        isTombstone = false
     }
 
     var session: StudyActivitySession? {
-        guard !isDeleted,
+        guard !isTombstone,
               let endedAt,
               let category = StudyActivityCategory(rawValue: category),
               let activity = StudyActivityKind(rawValue: activity),
@@ -75,7 +75,7 @@ final class LocalStudyActivitySession {
     }
 
     var activeSession: StudyTimeStore.ActiveSession? {
-        guard !isDeleted,
+        guard !isTombstone,
               endedAt == nil,
               let category = StudyActivityCategory(rawValue: category),
               let activity = StudyActivityKind(rawValue: activity),
@@ -106,7 +106,7 @@ final class LocalStudyActivitySession {
         audioPlaybackMs = session.audioPlaybackMs
         cardsCreated = session.cardsCreated
         syncPending = false
-        isDeleted = false
+        isTombstone = false
     }
 }
 
