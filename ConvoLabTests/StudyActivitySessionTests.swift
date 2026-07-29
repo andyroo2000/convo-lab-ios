@@ -170,6 +170,41 @@ final class StudyActivitySessionTests: XCTestCase {
         )
     }
 
+    func testSynchronizationDoesNotDeleteALocalSessionOmittedByRemoteRefresh() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let localSession = makeSession(source: .manual)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: localSession, userID: 42)
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
+            XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.synchronize()
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.clientSessionID, localSession.clientSessionId)
+        XCTAssertEqual(store.sessions, [localSession])
+    }
+
     func testColdLaunchCapsAnAbandonedAutomaticSessionAtFiveMinutes() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let startedAt = Date.now.addingTimeInterval(-10 * 60)

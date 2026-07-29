@@ -209,7 +209,6 @@ final class StudyTimeStore {
                     records[record.clientSessionID] = record
                 }
             }
-            let remoteIDs = Set(remote.map(\.clientSessionId))
             for session in remote {
                 if let record = recordsByID[session.clientSessionId] {
                     if !record.isDeleted, !record.syncPending {
@@ -220,18 +219,6 @@ final class StudyTimeStore {
                     context.insert(record)
                     recordsByID[session.clientSessionId] = record
                 }
-            }
-            for record in existing {
-                guard let endedAt = record.endedAt,
-                      !record.syncPending,
-                      !record.isDeleted,
-                      record.startedAt < to,
-                      endedAt > from,
-                      !remoteIDs.contains(record.clientSessionID)
-                else {
-                    continue
-                }
-                context.delete(record)
             }
             try context.save()
             loadLocalSessions()

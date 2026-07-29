@@ -188,7 +188,11 @@ private struct StudyRhythmChart: View {
     }
 
     private var axisDates: [Date] {
-        let step = analytics.key == .month ? 5 : 1
+        let step = switch analytics.key {
+        case .today: 4
+        case .month: 5
+        default: 1
+        }
         let lastIndex = analytics.buckets.count - 1
 
         return analytics.buckets.enumerated().compactMap { index, bucket in
