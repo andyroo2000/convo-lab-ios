@@ -8,6 +8,8 @@
 	<string>ConvoLab</string>
 	<key>NSCameraUsageDescription</key>
 	<string>ConvoLab uses the camera so you can add your own photos to study cards.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>ConvoLab can add completed or planned study sessions to your calendar, including synced Google calendars.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ConvoLab uses your photo library so you can add images to study cards.</string>
 	<key>UIUserInterfaceStyle</key>

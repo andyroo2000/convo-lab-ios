@@ -15,4 +15,28 @@ final class StudyAudioPlayerTests: XCTestCase {
             )
         )
     }
+
+    func testReplacingAPlayingTrackRequiresANewPlaybackEvent() {
+        XCTAssertTrue(
+            AudioPlayer.replacesPlayingTrack(
+                isPlaying: true,
+                currentTrackID: "track-a",
+                newTrackID: "track-b"
+            )
+        )
+        XCTAssertFalse(
+            AudioPlayer.replacesPlayingTrack(
+                isPlaying: true,
+                currentTrackID: "track-a",
+                newTrackID: "track-a"
+            )
+        )
+        XCTAssertFalse(
+            AudioPlayer.replacesPlayingTrack(
+                isPlaying: false,
+                currentTrackID: "track-a",
+                newTrackID: "track-b"
+            )
+        )
+    }
 }
