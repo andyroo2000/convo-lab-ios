@@ -212,7 +212,7 @@ final class StudyTimeStore {
             let remoteIDs = Set(remote.map(\.clientSessionId))
             for session in remote {
                 if let record = recordsByID[session.clientSessionId] {
-                    if !record.isDeleted {
+                    if !record.isDeleted, !record.syncPending {
                         record.apply(session)
                     }
                 } else {
@@ -321,10 +321,14 @@ final class StudyTimeStore {
                 )
             )
             for record in deletions {
-                let _: IgnoredResponse = try await api.request(
-                    "/api/study/activity-sessions/\(record.clientSessionID)",
-                    method: "DELETE"
-                )
+                do {
+                    let _: IgnoredResponse = try await api.request(
+                        "/api/study/activity-sessions/\(record.clientSessionID)",
+                        method: "DELETE"
+                    )
+                } catch APIClientError.rejected(status: 404, message: _) {
+                    // The server already forgot this retry-safe tombstone.
+                }
                 context.delete(record)
             }
             if !deletions.isEmpty {

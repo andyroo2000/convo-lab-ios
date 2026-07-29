@@ -398,6 +398,154 @@ final class StudyActivitySessionTests: XCTestCase {
         )
     }
 
+    func testFailedPushDoesNotLetStaleRemoteSessionOverwritePendingEdit() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let staleRemote = makeSession(source: .manual)
+        let local = LocalStudyActivitySession(session: staleRemote, userID: 42)
+        local.name = "Locally edited lesson"
+        local.syncPending = true
+        container.mainContext.insert(local)
+        try container.mainContext.save()
+
+        let client = makeClient { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/api/study/activity-sessions/batch"):
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"temporarily unavailable"}"#.utf8)
+                )
+            case ("GET", "/api/study/activity-sessions"):
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONEncoder().encode([staleRemote])
+                )
+            case ("GET", "/api/study/activity-analytics"):
+                return try analyticsResponse(for: request)
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.synchronize()
+
+        let saved = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertEqual(saved.name, "Locally edited lesson")
+        XCTAssertTrue(saved.syncPending)
+        XCTAssertNotNil(store.syncErrorMessage)
+    }
+
+    func testAlreadyDeletedTombstoneDoesNotBlockPendingUpdates() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let deletedSession = makeSession(source: .manual)
+        let tombstone = LocalStudyActivitySession(session: deletedSession, userID: 42)
+        tombstone.isDeleted = true
+        tombstone.syncPending = true
+        container.mainContext.insert(tombstone)
+
+        let pendingID = "018f22d2-6d38-7000-8000-000000000100"
+        let pendingSession = StudyActivitySession(
+            id: "server-session-2",
+            clientSessionId: pendingID,
+            category: .wanikani,
+            activity: .wanikaniReview,
+            source: .manual,
+            name: "Pending WaniKani",
+            startedAt: Date(timeIntervalSince1970: 1_753_736_400),
+            endedAt: Date(timeIntervalSince1970: 1_753_737_000),
+            durationMs: 600_000,
+            audioPlaybackMs: nil,
+            cardsCreated: nil
+        )
+        let pending = LocalStudyActivitySession(session: pendingSession, userID: 42)
+        pending.syncPending = true
+        container.mainContext.insert(pending)
+        try container.mainContext.save()
+        let pendingRemote: [String: Any] = [
+            "id": "server-session-2",
+            "clientSessionId": pendingID,
+            "category": "wanikani",
+            "activity": "wanikani_review",
+            "source": "manual",
+            "name": "Pending WaniKani",
+            "startedAt": pendingSession.startedAt.ISO8601Format(),
+            "endedAt": pendingSession.endedAt.ISO8601Format(),
+            "durationMs": 600_000,
+        ]
+        let pendingRemoteData = try JSONSerialization.data(withJSONObject: [pendingRemote])
+
+        let client = makeClient { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("DELETE", "/api/study/activity-sessions/\(deletedSession.clientSessionId)"):
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 404,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"not found"}"#.utf8)
+                )
+            case ("POST", "/api/study/activity-sessions/batch"):
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+                )
+                let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                XCTAssertEqual(sessions.first?["clientSessionId"] as? String, pendingID)
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: sessions)
+                )
+            case ("GET", "/api/study/activity-sessions"):
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    pendingRemoteData
+                )
+            case ("GET", "/api/study/activity-analytics"):
+                return try analyticsResponse(for: request)
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.synchronize()
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.clientSessionID, pendingSession.clientSessionId)
+        XCTAssertFalse(try XCTUnwrap(records.first).syncPending)
+        XCTAssertNil(store.syncErrorMessage)
+    }
+
     func testAutomaticSessionCannotBeDeletedLocally() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let automatic = makeSession(source: .automatic)
