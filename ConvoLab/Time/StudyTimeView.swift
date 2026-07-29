@@ -456,14 +456,21 @@ private struct StudyTimeEntryView: View {
                     let duration = durationWasAdjusted
                         ? TimeInterval(minutes * 60)
                         : TimeInterval(session.durationMs) / 1_000
-                    try await store.update(
+                    let calendarWarning = try await store.update(
                         session: session,
                         activity: activity,
                         name: name.nilIfBlank,
                         startedAt: startedAt,
                         duration: duration
                     )
-                    dismiss()
+                    if let calendarWarning {
+                        entrySaved = true
+                        errorMessage =
+                            "Study time was saved, but the linked calendar event "
+                            + "could not be updated. \(calendarWarning)"
+                    } else {
+                        dismiss()
+                    }
                 } else {
                     let calendarWarning = try await store.recordCompleted(
                         activity: activity,

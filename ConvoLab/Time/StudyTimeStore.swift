@@ -183,7 +183,7 @@ final class StudyTimeStore {
         name: String?,
         startedAt: Date,
         duration: TimeInterval
-    ) async throws {
+    ) async throws -> String? {
         guard session.source != .automatic else {
             throw StudyTimeStoreError.automaticSession
         }
@@ -198,15 +198,23 @@ final class StudyTimeStore {
         }
         let wasSyncPending = record.syncPending
         let wasTombstone = record.isTombstone
+        let previousCalendarEventIdentifier = record.calendarEventIdentifier
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
+        var calendarWarning: String?
         if let identifier = record.calendarEventIdentifier {
-            try await StudyCalendarService.updateEvent(
-                identifier: identifier,
-                title: name ?? activity.title,
-                start: startedAt,
-                end: endedAt
-            )
+            do {
+                try await StudyCalendarService.updateEvent(
+                    identifier: identifier,
+                    title: name ?? activity.title,
+                    start: startedAt,
+                    end: endedAt
+                )
+            } catch {
+                calendarWarning = error.localizedDescription
+                record.calendarEventIdentifier = nil
+                record.source = StudyActivitySource.manual.rawValue
+            }
         }
         localMutationGeneration += 1
         record.category = activity.category.rawValue
@@ -231,6 +239,7 @@ final class StudyTimeStore {
             record.apply(previousSession)
             record.syncPending = wasSyncPending
             record.isTombstone = wasTombstone
+            record.calendarEventIdentifier = previousCalendarEventIdentifier
             try? context.save()
             loadLocalSessions()
             throw error
@@ -238,6 +247,7 @@ final class StudyTimeStore {
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
+        return calendarWarning
     }
 
     func delete(session: StudyActivitySession) async throws {
