@@ -12,7 +12,8 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(StudyActivityKind.tv.category, .immerse)
         XCTAssertEqual(StudyActivityKind.podcast.category, .immerse)
         XCTAssertEqual(StudyActivityKind.reading.category, .immerse)
-        XCTAssertEqual(StudyActivityKind.conversation.category, .immerse)
+        XCTAssertEqual(StudyActivityKind.conversation.category, .conversation)
+        XCTAssertEqual(StudyActivityKind.wanikaniReview.category, .wanikani)
         XCTAssertEqual(StudyActivityKind.other.category, .immerse)
     }
 
@@ -87,6 +88,9 @@ final class StudyActivitySessionTests: XCTestCase {
     func testForegroundSynchronizationDoesNotRecoverALiveAutomaticSession() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
             XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
             return (
                 HTTPURLResponse(
@@ -136,6 +140,9 @@ final class StudyActivitySessionTests: XCTestCase {
             withJSONObject: [remoteSession, remoteSession]
         )
         let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
             XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
             return (
                 HTTPURLResponse(
@@ -195,6 +202,32 @@ final class StudyActivitySessionTests: XCTestCase {
                     try JSONSerialization.data(withJSONObject: sessions)
                 )
             }
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
+            if request.url?.path == "/api/study/activity-sessions" {
+                let recovered: [[String: Any]] = [[
+                    "id": "recovered-session",
+                    "clientSessionId": "018f22d2-6d38-7000-8000-000000000004",
+                    "category": "review",
+                    "activity": "daily_audio",
+                    "source": "automatic",
+                    "name": "Abandoned drill",
+                    "startedAt": startedAt.ISO8601Format(),
+                    "endedAt": startedAt.addingTimeInterval(5 * 60).ISO8601Format(),
+                    "durationMs": 300_000,
+                    "audioPlaybackMs": 300_000,
+                ]]
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: recovered)
+                )
+            }
             return (
                 HTTPURLResponse(
                     url: try XCTUnwrap(request.url),
@@ -219,7 +252,7 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(
             endedAt.timeIntervalSince1970,
             startedAt.addingTimeInterval(5 * 60).timeIntervalSince1970,
-            accuracy: 0.001
+            accuracy: 1
         )
         XCTAssertFalse(record.syncPending)
     }
@@ -257,6 +290,133 @@ final class StudyActivitySessionTests: XCTestCase {
         await store.deactivate()
     }
 
+    func testSynchronizationUsesRollingNinetyThreeDayWindowAndLoadsAnalytics() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                let components = try XCTUnwrap(
+                    URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+                )
+                XCTAssertNotNil(components.queryItems?.first { $0.name == "timezone" }?.value)
+                XCTAssertNotNil(components.queryItems?.first { $0.name == "weekStartsOn" }?.value)
+                return try analyticsResponse(for: request)
+            }
+
+            XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
+            let components = try XCTUnwrap(
+                URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+            )
+            let fromValue = try XCTUnwrap(
+                components.queryItems?.first { $0.name == "from" }?.value
+            )
+            let toValue = try XCTUnwrap(
+                components.queryItems?.first { $0.name == "to" }?.value
+            )
+            let from = try Date(fromValue, strategy: .iso8601)
+            let to = try Date(toValue, strategy: .iso8601)
+            XCTAssertEqual(to.timeIntervalSince(from), 93 * 86_400, accuracy: 0.001)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.analytics?.range(.week)?.totalMs, 3_600_000)
+        XCTAssertNil(store.syncErrorMessage)
+    }
+
+    func testManualSessionCanBeEditedAndDeleted() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let original = makeSession(source: .manual)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: original, userID: 42)
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/api/study/activity-sessions/batch"):
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+                )
+                let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                XCTAssertEqual(sessions.first?["activity"] as? String, "conversation")
+                XCTAssertEqual(sessions.first?["durationMs"] as? Int, 2_700_000)
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: sessions)
+                )
+            case ("DELETE", "/api/study/activity-sessions/\(original.clientSessionId)"):
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 204,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    Data()
+                )
+            case ("GET", "/api/study/activity-analytics"):
+                return try analyticsResponse(for: request)
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        try await store.update(
+            session: original,
+            activity: .conversation,
+            name: "iTalki lesson",
+            startedAt: original.startedAt,
+            duration: 45 * 60
+        )
+
+        XCTAssertEqual(store.sessions.first?.category, .conversation)
+        XCTAssertEqual(store.sessions.first?.name, "iTalki lesson")
+        try await store.delete(session: try XCTUnwrap(store.sessions.first))
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ).isEmpty
+        )
+    }
+
+    func testAutomaticSessionCannotBeDeletedLocally() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let automatic = makeSession(source: .automatic)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: automatic, userID: 42)
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTFail("Automatic deletion should not make a request: \(request)")
+            throw URLError(.badURL)
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        try await store.delete(session: automatic)
+
+        XCTAssertEqual(store.sessions, [automatic])
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
@@ -266,4 +426,69 @@ final class StudyActivitySessionTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
     }
+}
+
+private func makeSession(
+    source: StudyActivitySource
+) -> StudyActivitySession {
+    StudyActivitySession(
+        id: "server-session-1",
+        clientSessionId: "018f22d2-6d38-7000-8000-000000000099",
+        category: .immerse,
+        activity: .tv,
+        source: source,
+        name: "Drama",
+        startedAt: Date(timeIntervalSince1970: 1_753_732_800),
+        endedAt: Date(timeIntervalSince1970: 1_753_734_600),
+        durationMs: 1_800_000,
+        audioPlaybackMs: nil,
+        cardsCreated: nil
+    )
+}
+
+private func analyticsResponse(
+    for request: URLRequest
+) throws -> (HTTPURLResponse, Data) {
+    let body: [String: Any] = [
+        "generatedAt": "2026-07-28T20:00:00Z",
+        "timezone": "America/New_York",
+        "ranges": [
+            [
+                "key": "week",
+                "startsAt": "2026-07-27T04:00:00Z",
+                "endsAt": "2026-07-28T20:00:00Z",
+                "totalMs": 3_600_000,
+                "categories": [
+                    "review": 1_800_000,
+                    "create": 0,
+                    "immerse": 0,
+                    "conversation": 1_800_000,
+                    "wanikani": 0,
+                ],
+                "buckets": [
+                    [
+                        "startsAt": "2026-07-28T04:00:00Z",
+                        "endsAt": "2026-07-28T20:00:00Z",
+                        "totalMs": 3_600_000,
+                        "categories": [
+                            "review": 1_800_000,
+                            "create": 0,
+                            "immerse": 0,
+                            "conversation": 1_800_000,
+                            "wanikani": 0,
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]
+    return (
+        HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!,
+        try JSONSerialization.data(withJSONObject: body)
+    )
 }

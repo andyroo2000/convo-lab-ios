@@ -18,6 +18,7 @@ final class StudyTimeStore {
     private let api: APIClient
     private let context: ModelContext
     private(set) var sessions: [StudyActivitySession] = []
+    private(set) var analytics: StudyTimeAnalytics?
     private(set) var active: ActiveSession?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
@@ -42,6 +43,7 @@ final class StudyTimeStore {
         await pushPending()
         activeUserID = nil
         sessions = []
+        analytics = nil
         active = nil
         syncErrorMessage = nil
     }
@@ -123,6 +125,7 @@ final class StudyTimeStore {
         try context.save()
         loadLocalSessions()
         await pushPending()
+        await refreshAnalytics()
         guard addToCalendar else { return nil }
         do {
             try await StudyCalendarService.addEvent(
@@ -136,18 +139,62 @@ final class StudyTimeStore {
         }
     }
 
+    func update(
+        session: StudyActivitySession,
+        activity: StudyActivityKind,
+        name: String?,
+        startedAt: Date,
+        duration: TimeInterval
+    ) async throws {
+        guard session.source != .automatic,
+              let record = record(clientSessionID: session.clientSessionId)
+        else {
+            return
+        }
+        let boundedDuration = max(0, min(duration, 86_400))
+        record.category = activity.category.rawValue
+        record.activity = activity.rawValue
+        record.name = name
+        record.startedAt = startedAt
+        record.endedAt = startedAt.addingTimeInterval(boundedDuration)
+        record.durationMs = Int(boundedDuration * 1_000)
+        record.audioPlaybackMs = activity == .dailyAudio ? record.durationMs : nil
+        record.syncPending = true
+        try context.save()
+        loadLocalSessions()
+        await pushPending()
+        await refreshAnalytics()
+    }
+
+    func delete(session: StudyActivitySession) async throws {
+        guard session.source != .automatic,
+              let record = record(clientSessionID: session.clientSessionId)
+        else {
+            return
+        }
+        record.isDeleted = true
+        record.syncPending = true
+        try context.save()
+        loadLocalSessions()
+        await pushPending()
+        await refreshAnalytics()
+    }
+
     func synchronize() async {
         guard let userID = activeUserID, !synchronizationInFlight else { return }
         synchronizationInFlight = true
         defer { synchronizationInFlight = false }
         await pushPending()
-        let from = Calendar.current.date(byAdding: .day, value: -93, to: .now) ?? .distantPast
+        let pushFailure = syncErrorMessage
+        let to = Date.now.addingTimeInterval(60)
+        let from = to.addingTimeInterval(-93 * 86_400)
+        var failures = pushFailure.map { [$0] } ?? []
         do {
             let remote = try await api.request(
                 "/api/study/activity-sessions",
                 query: [
                     URLQueryItem(name: "from", value: from.ISO8601Format()),
-                    URLQueryItem(name: "to", value: Date.now.addingTimeInterval(86_400).ISO8601Format()),
+                    URLQueryItem(name: "to", value: to.ISO8601Format()),
                 ],
                 response: [StudyActivitySession].self
             )
@@ -162,21 +209,41 @@ final class StudyTimeStore {
                     records[record.clientSessionID] = record
                 }
             }
+            let remoteIDs = Set(remote.map(\.clientSessionId))
             for session in remote {
                 if let record = recordsByID[session.clientSessionId] {
-                    record.apply(session)
+                    if !record.isDeleted {
+                        record.apply(session)
+                    }
                 } else {
                     let record = LocalStudyActivitySession(session: session, userID: userID)
                     context.insert(record)
                     recordsByID[session.clientSessionId] = record
                 }
             }
+            for record in existing {
+                guard let endedAt = record.endedAt,
+                      !record.syncPending,
+                      !record.isDeleted,
+                      record.startedAt < to,
+                      endedAt > from,
+                      !remoteIDs.contains(record.clientSessionID)
+                else {
+                    continue
+                }
+                context.delete(record)
+            }
             try context.save()
-            syncErrorMessage = nil
             loadLocalSessions()
         } catch {
-            syncErrorMessage = error.localizedDescription
+            failures.append(error.localizedDescription)
         }
+        do {
+            analytics = try await fetchAnalytics()
+        } catch {
+            failures.append(error.localizedDescription)
+        }
+        syncErrorMessage = failures.first
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -186,6 +253,7 @@ final class StudyTimeStore {
         )
         if activeUserID == userID {
             sessions = []
+            analytics = nil
             active = nil
         }
         try context.save()
@@ -205,7 +273,10 @@ final class StudyTimeStore {
         try? context.save()
         loadLocalSessions()
         if enqueueSync {
-            Task { await pushPending() }
+            Task {
+                await pushPending()
+                await refreshAnalytics()
+            }
         }
     }
 
@@ -242,26 +313,47 @@ final class StudyTimeStore {
 
     private func performPushPending(userID: Int) async {
         do {
-            let pending = try context.fetch(
+            let deletions = try context.fetch(
                 FetchDescriptor<LocalStudyActivitySession>(
                     predicate: #Predicate {
-                        $0.userID == userID && $0.syncPending && $0.endedAt != nil
+                        $0.userID == userID && $0.syncPending && $0.isDeleted
                     }
                 )
             )
-            guard !pending.isEmpty else { return }
-            let payload = pending.compactMap(\.session)
-            let saved = try await api.request(
-                "/api/study/activity-sessions/batch",
-                method: "POST",
-                body: StudyActivityBatchRequest(sessions: payload),
-                response: [StudyActivitySession].self
-            )
-            let savedIDs = Set(saved.map(\.clientSessionId))
-            pending.filter { savedIDs.contains($0.clientSessionID) }.forEach {
-                $0.syncPending = false
+            for record in deletions {
+                let _: IgnoredResponse = try await api.request(
+                    "/api/study/activity-sessions/\(record.clientSessionID)",
+                    method: "DELETE"
+                )
+                context.delete(record)
             }
-            try context.save()
+            if !deletions.isEmpty {
+                try context.save()
+            }
+            let pending = try context.fetch(
+                FetchDescriptor<LocalStudyActivitySession>(
+                    predicate: #Predicate {
+                        $0.userID == userID
+                            && $0.syncPending
+                            && !$0.isDeleted
+                            && $0.endedAt != nil
+                    }
+                )
+            )
+            if !pending.isEmpty {
+                let payload = pending.compactMap(\.session)
+                let saved = try await api.request(
+                    "/api/study/activity-sessions/batch",
+                    method: "POST",
+                    body: StudyActivityBatchRequest(sessions: payload),
+                    response: [StudyActivitySession].self
+                )
+                let savedIDs = Set(saved.map(\.clientSessionId))
+                pending.filter { savedIDs.contains($0.clientSessionID) }.forEach {
+                    $0.syncPending = false
+                }
+                try context.save()
+            }
             syncErrorMessage = nil
             loadLocalSessions()
         } catch {
@@ -277,7 +369,7 @@ final class StudyTimeStore {
         )
         guard let records = try? context.fetch(descriptor) else { return }
         sessions = records.compactMap(\.session)
-        if let running = records.first(where: { $0.endedAt == nil }) {
+        if let running = records.first(where: { !$0.isDeleted && $0.endedAt == nil }) {
             active = running.activeSession
             if recoverAbandonedAutomatic,
                let active,
@@ -303,5 +395,27 @@ final class StudyTimeStore {
         )
         descriptor.fetchLimit = 1
         return try? context.fetch(descriptor).first
+    }
+
+    private func refreshAnalytics() async {
+        do {
+            analytics = try await fetchAnalytics()
+        } catch {
+            syncErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func fetchAnalytics() async throws -> StudyTimeAnalytics {
+        try await api.request(
+            "/api/study/activity-analytics",
+            query: [
+                URLQueryItem(name: "timezone", value: TimeZone.current.identifier),
+                URLQueryItem(
+                    name: "weekStartsOn",
+                    value: String(Calendar.current.firstWeekday)
+                ),
+            ],
+            response: StudyTimeAnalytics.self
+        )
     }
 }
