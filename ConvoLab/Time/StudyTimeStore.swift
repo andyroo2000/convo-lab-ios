@@ -3,12 +3,15 @@ import SwiftData
 
 private enum StudyTimeStoreError: LocalizedError {
     case automaticSession
+    case calendarEventUnavailable
     case sessionUnavailable
 
     var errorDescription: String? {
         switch self {
         case .automaticSession:
             "Automatically recorded study time cannot be changed."
+        case .calendarEventUnavailable:
+            "The linked calendar event is not available on this device."
         case .sessionUnavailable:
             "This study entry is no longer available. Refresh and try again."
         }
@@ -157,6 +160,11 @@ final class StudyTimeStore {
             }
             return nil
         } catch {
+            record.source = StudyActivitySource.manual.rawValue
+            record.syncPending = true
+            try? context.save()
+            loadLocalSessions()
+            await pushPending()
             return error.localizedDescription
         }
     }
@@ -173,6 +181,9 @@ final class StudyTimeStore {
         }
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable
+        }
+        if session.source == .calendar, record.calendarEventIdentifier == nil {
+            throw StudyTimeStoreError.calendarEventUnavailable
         }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
@@ -204,6 +215,9 @@ final class StudyTimeStore {
         }
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable
+        }
+        if session.source == .calendar, record.calendarEventIdentifier == nil {
+            throw StudyTimeStoreError.calendarEventUnavailable
         }
         if let identifier = record.calendarEventIdentifier {
             try await StudyCalendarService.deleteEvent(identifier: identifier)

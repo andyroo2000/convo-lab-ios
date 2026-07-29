@@ -726,6 +726,39 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(store.sessions, [automatic])
     }
 
+    func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let calendarSession = makeSession(source: .calendar)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: calendarSession, userID: 42)
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTFail("Unlinked calendar edit should not make a request: \(request)")
+            throw URLError(.badURL)
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        do {
+            try await store.update(
+                session: calendarSession,
+                activity: .conversation,
+                name: "Changed lesson",
+                startedAt: calendarSession.startedAt,
+                duration: 3_600
+            )
+            XCTFail("An unlinked calendar edit should be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The linked calendar event is not available on this device."
+            )
+        }
+
+        XCTAssertEqual(store.sessions, [calendarSession])
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
