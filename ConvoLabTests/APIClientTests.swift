@@ -375,8 +375,13 @@ final class APIClientTests: XCTestCase {
 
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+    typealias DeferredCompletion =
+        @Sendable (Result<(HTTPURLResponse, Data), Error>) -> Void
+    typealias DeferredHandler =
+        @Sendable (URLRequest, @escaping DeferredCompletion) -> Void
 
     nonisolated(unsafe) static var handler: Handler?
+    nonisolated(unsafe) static var deferredHandler: DeferredHandler?
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -387,6 +392,20 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
+        if let deferredHandler = Self.deferredHandler {
+            deferredHandler(request) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case let .success((response, data)):
+                    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                    client?.urlProtocol(self, didLoad: data)
+                    client?.urlProtocolDidFinishLoading(self)
+                case let .failure(error):
+                    client?.urlProtocol(self, didFailWithError: error)
+                }
+            }
+            return
+        }
         guard let handler = Self.handler else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown))
             return

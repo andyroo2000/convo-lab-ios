@@ -759,8 +759,117 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(store.sessions, [calendarSession])
     }
 
+    func testCompletedEditIsNotOverwrittenByAStaleInFlightRefresh() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let original = makeSession(source: .manual)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: original, userID: 42)
+        )
+        try container.mainContext.save()
+
+        let (getStarted, getStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseStaleGet, releaseStaleGetContinuation) = AsyncStream<Void>.makeStream()
+        let staleBody = try JSONSerialization.data(
+            withJSONObject: [
+                [
+                    "id": original.id,
+                    "clientSessionId": original.clientSessionId,
+                    "category": original.category.rawValue,
+                    "activity": original.activity.rawValue,
+                    "source": original.source.rawValue,
+                    "name": original.name,
+                    "startedAt": original.startedAt.ISO8601Format(),
+                    "endedAt": original.endedAt.ISO8601Format(),
+                    "durationMs": original.durationMs,
+                ],
+            ]
+        )
+        let client = makeDeferredClient { request, completion in
+            do {
+                switch (request.httpMethod, request.url?.path) {
+                case ("GET", "/api/study/activity-sessions"):
+                    getStartedContinuation.yield()
+                    Task {
+                        var releaseIterator = releaseStaleGet.makeAsyncIterator()
+                        _ = await releaseIterator.next()
+                        completion(.success((
+                            HTTPURLResponse(
+                                url: try XCTUnwrap(request.url),
+                                statusCode: 200,
+                                httpVersion: nil,
+                                headerFields: ["Content-Type": "application/json"]
+                            )!,
+                            staleBody
+                        )))
+                    }
+                case ("POST", "/api/study/activity-sessions/batch"):
+                    let json = try XCTUnwrap(
+                        JSONSerialization.jsonObject(
+                            with: requestBody(request)
+                        ) as? [String: Any]
+                    )
+                    let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url),
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        try JSONSerialization.data(withJSONObject: sessions)
+                    )))
+                case ("GET", "/api/study/activity-analytics"):
+                    completion(.success(try analyticsResponse(for: request)))
+                default:
+                    XCTFail(
+                        "Unexpected request: \(request.httpMethod ?? "") "
+                            + "\(request.url?.path ?? "")"
+                    )
+                    completion(.failure(URLError(.badURL)))
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        let syncTask = Task { await store.synchronize() }
+        var getStartedIterator = getStarted.makeAsyncIterator()
+        _ = await getStartedIterator.next()
+        defer { releaseStaleGetContinuation.yield() }
+
+        try await store.update(
+            session: original,
+            activity: .conversation,
+            name: "Edited lesson",
+            startedAt: original.startedAt,
+            duration: 45 * 60
+        )
+        releaseStaleGetContinuation.yield()
+        await syncTask.value
+
+        let saved = try XCTUnwrap(store.sessions.first)
+        XCTAssertEqual(saved.activity, .conversation)
+        XCTAssertEqual(saved.name, "Edited lesson")
+        XCTAssertEqual(saved.durationMs, 2_700_000)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://example.test")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    private func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(

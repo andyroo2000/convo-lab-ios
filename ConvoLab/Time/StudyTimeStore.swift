@@ -41,6 +41,7 @@ final class StudyTimeStore {
     private var activeUserID: Int?
     private var synchronizationInFlight = false
     private var pendingPushTask: Task<Void, Never>?
+    private var localMutationGeneration = 0
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -49,11 +50,13 @@ final class StudyTimeStore {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        localMutationGeneration += 1
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
 
     func deactivate(at date: Date = .now) async {
+        localMutationGeneration += 1
         if let active {
             finish(active, at: date, enqueueSync: false)
         }
@@ -89,6 +92,7 @@ final class StudyTimeStore {
             cardsCreated: 0
         )
         active = session
+        localMutationGeneration += 1
         context.insert(LocalStudyActivitySession(active: session, userID: userID))
         try? context.save()
     }
@@ -112,6 +116,7 @@ final class StudyTimeStore {
         current.cardsCreated += count
         active = current
         guard let record = record(clientSessionID: current.clientSessionID) else { return }
+        localMutationGeneration += 1
         record.cardsCreated = current.cardsCreated
         try? context.save()
     }
@@ -137,6 +142,7 @@ final class StudyTimeStore {
             cardsCreated: 0
         )
         let record = LocalStudyActivitySession(active: session, userID: userID)
+        localMutationGeneration += 1
         context.insert(record)
         complete(record, from: session, at: endedAt)
         try context.save()
@@ -160,6 +166,7 @@ final class StudyTimeStore {
             }
             return nil
         } catch {
+            localMutationGeneration += 1
             record.source = StudyActivitySource.manual.rawValue
             record.syncPending = true
             try? context.save()
@@ -195,6 +202,7 @@ final class StudyTimeStore {
                 end: endedAt
             )
         }
+        localMutationGeneration += 1
         record.category = activity.category.rawValue
         record.activity = activity.rawValue
         record.name = name
@@ -219,10 +227,7 @@ final class StudyTimeStore {
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
-        if let identifier = record.calendarEventIdentifier {
-            try await StudyCalendarService.deleteEvent(identifier: identifier)
-            record.calendarEventIdentifier = nil
-        }
+        localMutationGeneration += 1
         record.isTombstone = true
         record.syncPending = true
         try context.save()
@@ -239,6 +244,7 @@ final class StudyTimeStore {
         let pushFailure = syncErrorMessage
         let to = Date.now.addingTimeInterval(60)
         let from = to.addingTimeInterval(-93 * 86_400)
+        let requestMutationGeneration = localMutationGeneration
         var failures = pushFailure.map { [$0] } ?? []
         do {
             let remote = try await api.request(
@@ -249,30 +255,32 @@ final class StudyTimeStore {
                 ],
                 response: [StudyActivitySession].self
             )
-            let existing = try context.fetch(
-                FetchDescriptor<LocalStudyActivitySession>(
-                    predicate: #Predicate { $0.userID == userID }
+            if requestMutationGeneration == localMutationGeneration {
+                let existing = try context.fetch(
+                    FetchDescriptor<LocalStudyActivitySession>(
+                        predicate: #Predicate { $0.userID == userID }
+                    )
                 )
-            )
-            var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
-                records, record in
-                if records[record.clientSessionID] == nil {
-                    records[record.clientSessionID] = record
-                }
-            }
-            for session in remote {
-                if let record = recordsByID[session.clientSessionId] {
-                    if !record.isTombstone, !record.syncPending {
-                        record.apply(session)
+                var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
+                    records, record in
+                    if records[record.clientSessionID] == nil {
+                        records[record.clientSessionID] = record
                     }
-                } else {
-                    let record = LocalStudyActivitySession(session: session, userID: userID)
-                    context.insert(record)
-                    recordsByID[session.clientSessionId] = record
                 }
+                for session in remote {
+                    if let record = recordsByID[session.clientSessionId] {
+                        if !record.isTombstone, !record.syncPending {
+                            record.apply(session)
+                        }
+                    } else {
+                        let record = LocalStudyActivitySession(session: session, userID: userID)
+                        context.insert(record)
+                        recordsByID[session.clientSessionId] = record
+                    }
+                }
+                try context.save()
+                loadLocalSessions()
             }
-            try context.save()
-            loadLocalSessions()
         } catch {
             failures.append(error.localizedDescription)
         }
@@ -285,6 +293,7 @@ final class StudyTimeStore {
     }
 
     func deleteLocalData(userID: Int) throws {
+        localMutationGeneration += 1
         try context.delete(
             model: LocalStudyActivitySession.self,
             where: #Predicate { $0.userID == userID }
@@ -306,6 +315,7 @@ final class StudyTimeStore {
             active = nil
             return
         }
+        localMutationGeneration += 1
         complete(record, from: current, at: date)
         active = nil
         try? context.save()
@@ -361,6 +371,16 @@ final class StudyTimeStore {
             )
             var deletedAny = false
             for record in deletions {
+                if let identifier = record.calendarEventIdentifier {
+                    do {
+                        try await StudyCalendarService.deleteEvent(identifier: identifier)
+                        record.calendarEventIdentifier = nil
+                        try context.save()
+                    } catch {
+                        failures.append(error.localizedDescription)
+                        continue
+                    }
+                }
                 do {
                     let _: IgnoredResponse = try await api.request(
                         "/api/study/activity-sessions/\(record.clientSessionID)",
