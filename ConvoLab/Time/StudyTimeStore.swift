@@ -189,10 +189,12 @@ final class StudyTimeStore {
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable
         }
+        guard let previousSession = record.session else {
+            throw StudyTimeStoreError.sessionUnavailable
+        }
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
-        let previousSession = record.session
         let wasSyncPending = record.syncPending
         let wasTombstone = record.isTombstone
         let boundedDuration = max(0, min(duration, 86_400))
@@ -217,21 +219,19 @@ final class StudyTimeStore {
         do {
             try context.save()
         } catch {
-            if let previousSession {
-                if let identifier = record.calendarEventIdentifier {
-                    try? await StudyCalendarService.updateEvent(
-                        identifier: identifier,
-                        title: previousSession.name ?? previousSession.activity.title,
-                        start: previousSession.startedAt,
-                        end: previousSession.endedAt
-                    )
-                }
-                record.apply(previousSession)
-                record.syncPending = wasSyncPending
-                record.isTombstone = wasTombstone
-                try? context.save()
-                loadLocalSessions()
+            if let identifier = record.calendarEventIdentifier {
+                try? await StudyCalendarService.updateEvent(
+                    identifier: identifier,
+                    title: previousSession.name ?? previousSession.activity.title,
+                    start: previousSession.startedAt,
+                    end: previousSession.endedAt
+                )
             }
+            record.apply(previousSession)
+            record.syncPending = wasSyncPending
+            record.isTombstone = wasTombstone
+            try? context.save()
+            loadLocalSessions()
             throw error
         }
         loadLocalSessions()
@@ -405,17 +405,14 @@ final class StudyTimeStore {
                 if let identifier = record.calendarEventIdentifier {
                     do {
                         try await StudyCalendarService.deleteEvent(identifier: identifier)
-                    } catch {
-                        failures.append(error.localizedDescription)
-                        // Calendar access may have been revoked. The explicit
-                        // study-log deletion must still be allowed to finish.
-                    }
-                    record.calendarEventIdentifier = nil
-                    do {
+                        record.calendarEventIdentifier = nil
                         try context.save()
                     } catch {
+                        record.calendarEventIdentifier = identifier
                         failures.append(error.localizedDescription)
-                        continue
+                        // Calendar access may have been revoked. The explicit
+                        // study-log deletion must still be allowed to finish,
+                        // while retaining the identifier for a later retry.
                     }
                 }
                 do {
@@ -429,7 +426,7 @@ final class StudyTimeStore {
                     failures.append(error.localizedDescription)
                     continue
                 }
-                record.syncPending = false
+                record.syncPending = record.calendarEventIdentifier != nil
                 deletedAny = true
             }
             if deletedAny {
