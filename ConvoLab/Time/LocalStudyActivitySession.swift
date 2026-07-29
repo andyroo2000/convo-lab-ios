@@ -7,6 +7,7 @@ final class LocalStudyActivitySession {
     var clientSessionID: String
     var userID: Int
     var serverID: String?
+    // Retained for store compatibility; activity is the category source of truth.
     var category: String
     var activity: String
     var source: String

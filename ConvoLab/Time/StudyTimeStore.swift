@@ -193,6 +193,8 @@ final class StudyTimeStore {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
         let previousSession = record.session
+        let wasSyncPending = record.syncPending
+        let wasTombstone = record.isTombstone
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
         if let identifier = record.calendarEventIdentifier {
@@ -225,6 +227,8 @@ final class StudyTimeStore {
                     )
                 }
                 record.apply(previousSession)
+                record.syncPending = wasSyncPending
+                record.isTombstone = wasTombstone
                 try? context.save()
                 loadLocalSessions()
             }
@@ -245,10 +249,19 @@ final class StudyTimeStore {
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
+        let wasSyncPending = record.syncPending
+        let wasTombstone = record.isTombstone
         localMutationGeneration += 1
         record.isTombstone = true
         record.syncPending = true
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            record.isTombstone = wasTombstone
+            record.syncPending = wasSyncPending
+            loadLocalSessions()
+            throw error
+        }
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -392,7 +405,13 @@ final class StudyTimeStore {
                 if let identifier = record.calendarEventIdentifier {
                     do {
                         try await StudyCalendarService.deleteEvent(identifier: identifier)
-                        record.calendarEventIdentifier = nil
+                    } catch {
+                        failures.append(error.localizedDescription)
+                        // Calendar access may have been revoked. The explicit
+                        // study-log deletion must still be allowed to finish.
+                    }
+                    record.calendarEventIdentifier = nil
+                    do {
                         try context.save()
                     } catch {
                         failures.append(error.localizedDescription)
