@@ -187,6 +187,15 @@ private struct StudyRhythmChart: View {
         analytics.buckets.max { $0.totalMs < $1.totalMs }
     }
 
+    private var axisDates: [Date] {
+        let step = analytics.key == .month ? 5 : 1
+        let lastIndex = analytics.buckets.count - 1
+
+        return analytics.buckets.enumerated().compactMap { index, bucket in
+            index.isMultiple(of: step) || index == lastIndex ? bucket.startsAt : nil
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -242,10 +251,24 @@ private struct StudyRhythmChart: View {
                     }
                 }
             }
+            .chartXAxis {
+                AxisMarks(values: axisDates) { value in
+                    AxisGridLine()
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel {
+                            Text(axisLabel(date))
+                        }
+                    }
+                }
+            }
+            .chartXScale(range: .plotDimension(padding: 12))
             .frame(height: 210)
 
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 105), spacing: 8)],
+                columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                ],
                 alignment: .leading,
                 spacing: 8
             ) {
@@ -265,6 +288,21 @@ private struct StudyRhythmChart: View {
             }
         }
         .padding(.vertical, 8)
+    }
+
+    private func axisLabel(_ date: Date) -> String {
+        switch analytics.key {
+        case .today:
+            date.formatted(.dateTime.hour())
+        case .week:
+            date.formatted(.dateTime.weekday(.narrow))
+        case .month:
+            date.formatted(.dateTime.day())
+        case .year:
+            date.formatted(.dateTime.month(.narrow))
+        case .all:
+            date.formatted(.dateTime.year())
+        }
     }
 
     private func metric(_ title: String, milliseconds: Int) -> some View {
