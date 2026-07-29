@@ -299,6 +299,7 @@ final class StudyTimeStore {
     }
 
     private func performPushPending(userID: Int) async {
+        var failures: [String] = []
         do {
             let deletions = try context.fetch(
                 FetchDescriptor<LocalStudyActivitySession>(
@@ -307,6 +308,7 @@ final class StudyTimeStore {
                     }
                 )
             )
+            var deletedAny = false
             for record in deletions {
                 do {
                     let _: IgnoredResponse = try await api.request(
@@ -315,10 +317,14 @@ final class StudyTimeStore {
                     )
                 } catch APIClientError.rejected(status: 404, message: _) {
                     // The server already forgot this retry-safe tombstone.
+                } catch {
+                    failures.append(error.localizedDescription)
+                    continue
                 }
                 context.delete(record)
+                deletedAny = true
             }
-            if !deletions.isEmpty {
+            if deletedAny {
                 try context.save()
             }
             let pending = try context.fetch(
@@ -345,11 +351,11 @@ final class StudyTimeStore {
                 }
                 try context.save()
             }
-            syncErrorMessage = nil
-            loadLocalSessions()
         } catch {
-            syncErrorMessage = error.localizedDescription
+            failures.append(error.localizedDescription)
         }
+        syncErrorMessage = failures.first
+        loadLocalSessions()
     }
 
     private func loadLocalSessions(recoverAbandonedAutomatic: Bool = false) {
@@ -392,7 +398,9 @@ final class StudyTimeStore {
         do {
             analytics = try await fetchAnalytics()
         } catch {
-            syncErrorMessage = error.localizedDescription
+            if syncErrorMessage == nil {
+                syncErrorMessage = error.localizedDescription
+            }
         }
     }
 
