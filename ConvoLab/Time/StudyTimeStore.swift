@@ -39,7 +39,8 @@ final class StudyTimeStore {
     private(set) var active: ActiveSession?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
-    private var synchronizationInFlight = false
+    private var synchronizationTask: Task<Void, Never>?
+    private var synchronizingUserID: Int?
     private var pendingPushTask: Task<Void, Never>?
     private var localMutationGeneration = 0
 
@@ -268,9 +269,30 @@ final class StudyTimeStore {
     }
 
     func synchronize() async {
-        guard let userID = activeUserID, !synchronizationInFlight else { return }
-        synchronizationInFlight = true
-        defer { synchronizationInFlight = false }
+        guard let requestedUserID = activeUserID else { return }
+        if let synchronizationTask {
+            let inFlightUserID = synchronizingUserID
+            await synchronizationTask.value
+            guard activeUserID == requestedUserID else { return }
+            if inFlightUserID == requestedUserID {
+                return
+            }
+        }
+        guard activeUserID == requestedUserID else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performSynchronization(userID: requestedUserID)
+        }
+        synchronizationTask = task
+        synchronizingUserID = requestedUserID
+        await task.value
+        if synchronizingUserID == requestedUserID {
+            synchronizationTask = nil
+            synchronizingUserID = nil
+        }
+    }
+
+    private func performSynchronization(userID: Int) async {
         await pushPending()
         let pushFailure = syncErrorMessage
         let to = Date.now.addingTimeInterval(60)
@@ -316,11 +338,16 @@ final class StudyTimeStore {
             failures.append(error.localizedDescription)
         }
         do {
-            analytics = try await fetchAnalytics()
+            let fetchedAnalytics = try await fetchAnalytics()
+            if activeUserID == userID {
+                analytics = fetchedAnalytics
+            }
         } catch {
             failures.append(error.localizedDescription)
         }
-        syncErrorMessage = failures.first
+        if activeUserID == userID {
+            syncErrorMessage = failures.first
+        }
     }
 
     func deleteLocalData(userID: Int) throws {
