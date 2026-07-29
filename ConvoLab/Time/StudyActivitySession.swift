@@ -46,7 +46,7 @@ enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var category: StudyActivityCategory {
+    nonisolated var category: StudyActivityCategory {
         switch self {
         case .cardReview, .dailyAudio: .review
         case .cardCreation: .create

@@ -132,48 +132,48 @@ final class StudyTimeStore {
         guard let userID = activeUserID else { return nil }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
+        var effectiveSource = source
+        var calendarEventIdentifier: String?
+        var calendarWarning: String?
+        if addToCalendar {
+            do {
+                calendarEventIdentifier = try await StudyCalendarService.addEvent(
+                    title: name ?? activity.title,
+                    start: startedAt,
+                    end: endedAt
+                )
+                effectiveSource = .calendar
+            } catch {
+                effectiveSource = .manual
+                calendarWarning = error.localizedDescription
+            }
+        }
         let session = ActiveSession(
             clientSessionID: UUID().uuidString.lowercased(),
             category: activity.category,
             activity: activity,
-            source: source,
+            source: effectiveSource,
             name: name,
             startedAt: startedAt,
             cardsCreated: 0
         )
         let record = LocalStudyActivitySession(active: session, userID: userID)
+        record.calendarEventIdentifier = calendarEventIdentifier
         localMutationGeneration += 1
         context.insert(record)
         complete(record, from: session, at: endedAt)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            if let calendarEventIdentifier {
+                try? await StudyCalendarService.deleteEvent(identifier: calendarEventIdentifier)
+            }
+            throw error
+        }
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
-        guard addToCalendar else { return nil }
-        do {
-            let identifier = try await StudyCalendarService.addEvent(
-                title: name ?? activity.title,
-                start: startedAt,
-                end: endedAt
-            )
-            record.calendarEventIdentifier = identifier
-            do {
-                try context.save()
-            } catch {
-                try? await StudyCalendarService.deleteEvent(identifier: identifier)
-                record.calendarEventIdentifier = nil
-                throw error
-            }
-            return nil
-        } catch {
-            localMutationGeneration += 1
-            record.source = StudyActivitySource.manual.rawValue
-            record.syncPending = true
-            try? context.save()
-            loadLocalSessions()
-            await pushPending()
-            return error.localizedDescription
-        }
+        return calendarWarning
     }
 
     func update(

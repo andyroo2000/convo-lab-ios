@@ -54,7 +54,6 @@ final class LocalStudyActivitySession {
     var session: StudyActivitySession? {
         guard !isTombstone,
               let endedAt,
-              let category = StudyActivityCategory(rawValue: category),
               let activity = StudyActivityKind(rawValue: activity),
               let source = StudyActivitySource(rawValue: source)
         else {
@@ -63,7 +62,7 @@ final class LocalStudyActivitySession {
         return StudyActivitySession(
             id: serverID,
             clientSessionId: clientSessionID,
-            category: category,
+            category: activity.category,
             activity: activity,
             source: source,
             name: name,
@@ -78,7 +77,6 @@ final class LocalStudyActivitySession {
     var activeSession: StudyTimeStore.ActiveSession? {
         guard !isTombstone,
               endedAt == nil,
-              let category = StudyActivityCategory(rawValue: category),
               let activity = StudyActivityKind(rawValue: activity),
               let source = StudyActivitySource(rawValue: source)
         else {
@@ -86,7 +84,7 @@ final class LocalStudyActivitySession {
         }
         return StudyTimeStore.ActiveSession(
             clientSessionID: clientSessionID,
-            category: category,
+            category: activity.category,
             activity: activity,
             source: source,
             name: name,

@@ -17,6 +17,26 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(StudyActivityKind.other.category, .immerse)
     }
 
+    func testPersistedLegacyCategoryIsCanonicalizedFromActivity() throws {
+        let conversation = StudyActivitySession(
+            id: nil,
+            clientSessionId: "018f22d2-6d38-7000-8000-000000000002",
+            category: .conversation,
+            activity: .conversation,
+            source: .manual,
+            name: "Lesson",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            endedAt: Date(timeIntervalSince1970: 1_700_003_600),
+            durationMs: 3_600_000,
+            audioPlaybackMs: nil,
+            cardsCreated: nil
+        )
+        let record = LocalStudyActivitySession(session: conversation, userID: 42)
+        record.category = StudyActivityCategory.immerse.rawValue
+
+        XCTAssertEqual(try XCTUnwrap(record.session).category, .conversation)
+    }
+
     func testBatchEncodesRetrySafeClientIdentityAndOutputMetrics() throws {
         let session = StudyActivitySession(
             id: nil,
