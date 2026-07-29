@@ -192,6 +192,7 @@ final class StudyTimeStore {
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
+        let previousSession = record.session
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
         if let identifier = record.calendarEventIdentifier {
@@ -211,7 +212,24 @@ final class StudyTimeStore {
         record.durationMs = Int(boundedDuration * 1_000)
         record.audioPlaybackMs = activity == .dailyAudio ? record.durationMs : nil
         record.syncPending = true
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            if let previousSession {
+                if let identifier = record.calendarEventIdentifier {
+                    try? await StudyCalendarService.updateEvent(
+                        identifier: identifier,
+                        title: previousSession.name ?? previousSession.activity.title,
+                        start: previousSession.startedAt,
+                        end: previousSession.endedAt
+                    )
+                }
+                record.apply(previousSession)
+                try? context.save()
+                loadLocalSessions()
+            }
+            throw error
+        }
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
