@@ -1,6 +1,20 @@
 import Foundation
 import SwiftData
 
+private enum StudyTimeStoreError: LocalizedError {
+    case automaticSession
+    case sessionUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .automaticSession:
+            "Automatically recorded study time cannot be changed."
+        case .sessionUnavailable:
+            "This study entry is no longer available. Refresh and try again."
+        }
+    }
+}
+
 @Observable
 final class StudyTimeStore {
     private static let automaticRecoveryLimit: TimeInterval = 5 * 60
@@ -128,11 +142,19 @@ final class StudyTimeStore {
         await refreshAnalytics()
         guard addToCalendar else { return nil }
         do {
-            try await StudyCalendarService.addEvent(
+            let identifier = try await StudyCalendarService.addEvent(
                 title: name ?? activity.title,
                 start: startedAt,
                 end: endedAt
             )
+            record.calendarEventIdentifier = identifier
+            do {
+                try context.save()
+            } catch {
+                try? await StudyCalendarService.deleteEvent(identifier: identifier)
+                record.calendarEventIdentifier = nil
+                throw error
+            }
             return nil
         } catch {
             return error.localizedDescription
@@ -146,17 +168,27 @@ final class StudyTimeStore {
         startedAt: Date,
         duration: TimeInterval
     ) async throws {
-        guard session.source != .automatic,
-              let record = record(clientSessionID: session.clientSessionId)
-        else {
-            return
+        guard session.source != .automatic else {
+            throw StudyTimeStoreError.automaticSession
+        }
+        guard let record = record(clientSessionID: session.clientSessionId) else {
+            throw StudyTimeStoreError.sessionUnavailable
         }
         let boundedDuration = max(0, min(duration, 86_400))
+        let endedAt = startedAt.addingTimeInterval(boundedDuration)
+        if let identifier = record.calendarEventIdentifier {
+            try await StudyCalendarService.updateEvent(
+                identifier: identifier,
+                title: name ?? activity.title,
+                start: startedAt,
+                end: endedAt
+            )
+        }
         record.category = activity.category.rawValue
         record.activity = activity.rawValue
         record.name = name
         record.startedAt = startedAt
-        record.endedAt = startedAt.addingTimeInterval(boundedDuration)
+        record.endedAt = endedAt
         record.durationMs = Int(boundedDuration * 1_000)
         record.audioPlaybackMs = activity == .dailyAudio ? record.durationMs : nil
         record.syncPending = true
@@ -167,10 +199,15 @@ final class StudyTimeStore {
     }
 
     func delete(session: StudyActivitySession) async throws {
-        guard session.source != .automatic,
-              let record = record(clientSessionID: session.clientSessionId)
-        else {
-            return
+        guard session.source != .automatic else {
+            throw StudyTimeStoreError.automaticSession
+        }
+        guard let record = record(clientSessionID: session.clientSessionId) else {
+            throw StudyTimeStoreError.sessionUnavailable
+        }
+        if let identifier = record.calendarEventIdentifier {
+            try await StudyCalendarService.deleteEvent(identifier: identifier)
+            record.calendarEventIdentifier = nil
         }
         record.isTombstone = true
         record.syncPending = true

@@ -713,7 +713,15 @@ final class StudyActivitySessionTests: XCTestCase {
         let store = StudyTimeStore(api: client, context: container.mainContext)
         store.activate(userID: 42)
 
-        try await store.delete(session: automatic)
+        do {
+            try await store.delete(session: automatic)
+            XCTFail("Automatic deletion should be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Automatically recorded study time cannot be changed."
+            )
+        }
 
         XCTAssertEqual(store.sessions, [automatic])
     }

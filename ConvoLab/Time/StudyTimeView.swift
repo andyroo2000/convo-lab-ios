@@ -374,6 +374,7 @@ private struct StudyTimeEntryView: View {
     @State private var name: String
     @State private var startedAt: Date
     @State private var minutes: Int
+    @State private var durationWasAdjusted = false
     @State private var addToCalendar = false
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -398,7 +399,18 @@ private struct StudyTimeEntryView: View {
                 }
                 TextField("Name", text: $name)
                 DatePicker("Started", selection: $startedAt, in: ...Date.now)
-                Stepper("\(minutes) minutes", value: $minutes, in: 1...1_440, step: 5)
+                Stepper(
+                    "\(minutes) minutes",
+                    value: Binding(
+                        get: { minutes },
+                        set: {
+                            minutes = $0
+                            durationWasAdjusted = true
+                        }
+                    ),
+                    in: 1...1_440,
+                    step: 5
+                )
                 if session == nil {
                     Toggle("Add to my calendar", isOn: $addToCalendar)
                 }
@@ -441,12 +453,15 @@ private struct StudyTimeEntryView: View {
             defer { isSaving = false }
             do {
                 if let session {
+                    let duration = durationWasAdjusted
+                        ? TimeInterval(minutes * 60)
+                        : TimeInterval(session.durationMs) / 1_000
                     try await store.update(
                         session: session,
                         activity: activity,
                         name: name.nilIfBlank,
                         startedAt: startedAt,
-                        duration: TimeInterval(minutes * 60)
+                        duration: duration
                     )
                     dismiss()
                 } else {

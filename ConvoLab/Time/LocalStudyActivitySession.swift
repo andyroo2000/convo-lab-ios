@@ -16,6 +16,7 @@ final class LocalStudyActivitySession {
     var durationMs: Int
     var audioPlaybackMs: Int?
     var cardsCreated: Int?
+    var calendarEventIdentifier: String?
     var syncPending: Bool
     var isTombstone: Bool = false
 
