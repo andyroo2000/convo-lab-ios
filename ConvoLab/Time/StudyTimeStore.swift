@@ -496,7 +496,9 @@ final class StudyTimeStore {
         } catch {
             failures.append(error.localizedDescription)
         }
-        syncErrorMessage = failures.first
+        if activeUserID == userID {
+            syncErrorMessage = failures.first
+        }
         loadLocalSessions()
     }
 
@@ -537,10 +539,14 @@ final class StudyTimeStore {
     }
 
     private func refreshAnalytics() async {
+        guard let userID = activeUserID else { return }
         do {
-            analytics = try await fetchAnalytics()
+            let fetchedAnalytics = try await fetchAnalytics()
+            if activeUserID == userID {
+                analytics = fetchedAnalytics
+            }
         } catch {
-            if syncErrorMessage == nil {
+            if activeUserID == userID, syncErrorMessage == nil {
                 syncErrorMessage = error.localizedDescription
             }
         }
