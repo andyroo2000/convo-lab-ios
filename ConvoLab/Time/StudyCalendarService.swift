@@ -1,7 +1,7 @@
 import EventKit
 import Foundation
 
-private enum StudyCalendarError: LocalizedError {
+enum StudyCalendarError: LocalizedError {
     case accessDenied
     case noDefaultCalendar
     case eventNotFound
@@ -19,6 +19,8 @@ private enum StudyCalendarError: LocalizedError {
 }
 
 enum StudyCalendarService {
+    @MainActor private static let eventStore = EKEventStore()
+
     @MainActor
     static func addEvent(title: String, start: Date, end: Date) async throws -> String {
         let store = try await authorizedStore()
@@ -64,10 +66,9 @@ enum StudyCalendarService {
 
     @MainActor
     private static func authorizedStore() async throws -> EKEventStore {
-        let store = EKEventStore()
-        guard try await store.requestFullAccessToEvents() else {
+        guard try await eventStore.requestFullAccessToEvents() else {
             throw StudyCalendarError.accessDenied
         }
-        return store
+        return eventStore
     }
 }

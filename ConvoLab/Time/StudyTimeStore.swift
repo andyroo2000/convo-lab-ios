@@ -210,10 +210,18 @@ final class StudyTimeStore {
                     start: startedAt,
                     end: endedAt
                 )
-            } catch {
-                calendarWarning = error.localizedDescription
+            } catch StudyCalendarError.eventNotFound {
+                calendarWarning = StudyCalendarError.eventNotFound.localizedDescription
                 record.calendarEventIdentifier = nil
                 record.source = StudyActivitySource.manual.rawValue
+            } catch StudyCalendarError.accessDenied {
+                calendarWarning = StudyCalendarError.accessDenied.localizedDescription
+                record.calendarEventIdentifier = nil
+                record.source = StudyActivitySource.manual.rawValue
+            } catch {
+                // Retain the calendar link when EventKit reports a transient
+                // save failure so the user can retry the edit.
+                throw error
             }
         }
         localMutationGeneration += 1

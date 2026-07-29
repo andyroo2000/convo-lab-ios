@@ -29,6 +29,7 @@ struct StudyTimeView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .accessibilityLabel("Time span")
 
                     if let analytics = selectedAnalytics {
                         StudyRhythmChart(
