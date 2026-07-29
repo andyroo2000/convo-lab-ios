@@ -61,41 +61,53 @@ struct StudyHomeView: View {
     }
 
     private var studyActions: some View {
-        HStack(spacing: 12) {
-            NavigationLink {
-                StudySessionView(
-                    store: store,
-                    player: player,
-                    mode: .reviews,
-                    timeStore: timeStore
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                NavigationLink {
+                    StudySessionView(
+                        store: store,
+                        player: player,
+                        mode: .reviews,
+                        timeStore: timeStore
+                    )
+                } label: {
+                    Label("Reviews", systemImage: "rectangle.stack.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ConvoLabTheme.navy)
+                .disabled(
+                    store.sessionCounts.reviewRemaining == 0
+                        && store.sessionCounts.failedDue == 0
                 )
-            } label: {
-                Label("Reviews", systemImage: "rectangle.stack.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+
+                NavigationLink {
+                    StudySessionView(
+                        store: store,
+                        player: player,
+                        mode: .lessons,
+                        timeStore: timeStore
+                    )
+                } label: {
+                    Label("Lessons", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(store.sessionCounts.newRemaining == 0)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(ConvoLabTheme.navy)
-            .disabled(
-                store.sessionCounts.reviewRemaining == 0
-                    && store.sessionCounts.failedDue == 0
-            )
 
             NavigationLink {
-                StudySessionView(
-                    store: store,
-                    player: player,
-                    mode: .lessons,
-                    timeStore: timeStore
-                )
+                WaniKaniBrowserView(timeStore: timeStore)
             } label: {
-                Label("Lessons", systemImage: "sparkles")
+                Label("WaniKani Reviews", systemImage: "character.ja")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.green)
-            .disabled(store.sessionCounts.newRemaining == 0)
+            .tint(ConvoLabTheme.coral)
         }
     }
 
