@@ -7,6 +7,7 @@ final class LocalStudyActivitySession {
     var clientSessionID: String
     var userID: Int
     var serverID: String?
+    // Retained for store compatibility; activity is the category source of truth.
     var category: String
     var activity: String
     var source: String
@@ -16,7 +17,9 @@ final class LocalStudyActivitySession {
     var durationMs: Int
     var audioPlaybackMs: Int?
     var cardsCreated: Int?
+    var calendarEventIdentifier: String?
     var syncPending: Bool
+    var isTombstone: Bool = false
 
     init(active: StudyTimeStore.ActiveSession, userID: Int) {
         clientSessionID = active.clientSessionID
@@ -29,6 +32,7 @@ final class LocalStudyActivitySession {
         durationMs = 0
         cardsCreated = active.cardsCreated
         syncPending = false
+        isTombstone = false
     }
 
     init(session: StudyActivitySession, userID: Int) {
@@ -45,11 +49,12 @@ final class LocalStudyActivitySession {
         audioPlaybackMs = session.audioPlaybackMs
         cardsCreated = session.cardsCreated
         syncPending = false
+        isTombstone = false
     }
 
     var session: StudyActivitySession? {
-        guard let endedAt,
-              let category = StudyActivityCategory(rawValue: category),
+        guard !isTombstone,
+              let endedAt,
               let activity = StudyActivityKind(rawValue: activity),
               let source = StudyActivitySource(rawValue: source)
         else {
@@ -58,7 +63,7 @@ final class LocalStudyActivitySession {
         return StudyActivitySession(
             id: serverID,
             clientSessionId: clientSessionID,
-            category: category,
+            category: activity.category,
             activity: activity,
             source: source,
             name: name,
@@ -71,8 +76,8 @@ final class LocalStudyActivitySession {
     }
 
     var activeSession: StudyTimeStore.ActiveSession? {
-        guard endedAt == nil,
-              let category = StudyActivityCategory(rawValue: category),
+        guard !isTombstone,
+              endedAt == nil,
               let activity = StudyActivityKind(rawValue: activity),
               let source = StudyActivitySource(rawValue: source)
         else {
@@ -80,7 +85,7 @@ final class LocalStudyActivitySession {
         }
         return StudyTimeStore.ActiveSession(
             clientSessionID: clientSessionID,
-            category: category,
+            category: activity.category,
             activity: activity,
             source: source,
             name: name,
@@ -101,6 +106,7 @@ final class LocalStudyActivitySession {
         audioPlaybackMs = session.audioPlaybackMs
         cardsCreated = session.cardsCreated
         syncPending = false
+        isTombstone = false
     }
 }
 

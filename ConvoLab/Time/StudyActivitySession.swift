@@ -4,9 +4,19 @@ enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
     case review
     case create
     case immerse
+    case conversation
+    case wanikani
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .review: "Review"
+        case .create: "Create"
+        case .immerse: "Immerse"
+        case .conversation: "Conversation"
+        case .wanikani: "WaniKani"
+        }
+    }
 }
 
 enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
@@ -17,6 +27,7 @@ enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
     case podcast
     case reading
     case conversation
+    case wanikaniReview = "wanikani_review"
     case other
 
     var id: String { rawValue }
@@ -30,15 +41,18 @@ enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
         case .podcast: "Podcast"
         case .reading: "Reading"
         case .conversation: "Conversation"
+        case .wanikaniReview: "WaniKani reviews"
         case .other: "Other study"
         }
     }
 
-    var category: StudyActivityCategory {
+    nonisolated var category: StudyActivityCategory {
         switch self {
         case .cardReview, .dailyAudio: .review
         case .cardCreation: .create
-        case .tv, .podcast, .reading, .conversation, .other: .immerse
+        case .tv, .podcast, .reading, .other: .immerse
+        case .conversation: .conversation
+        case .wanikaniReview: .wanikani
         }
     }
 }
@@ -67,4 +81,62 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
 
 struct StudyActivityBatchRequest: Encodable {
     let sessions: [StudyActivitySession]
+}
+
+enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
+    case today
+    case week
+    case month
+    case year
+    case all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .today: "Today"
+        case .week: "Week"
+        case .month: "Month"
+        case .year: "Year"
+        case .all: "All"
+        }
+    }
+}
+
+struct StudyTimeAnalytics: Codable, Equatable {
+    let generatedAt: Date
+    let timezone: String
+    let ranges: [StudyTimeAnalyticsRange]
+
+    func range(_ key: StudyTimeRange) -> StudyTimeAnalyticsRange? {
+        ranges.first { $0.key == key }
+    }
+}
+
+struct StudyTimeAnalyticsRange: Codable, Equatable, Identifiable {
+    let key: StudyTimeRange
+    let startsAt: Date
+    let endsAt: Date
+    let totalMs: Int
+    let categories: [String: Int]
+    let buckets: [StudyTimeAnalyticsBucket]
+
+    var id: StudyTimeRange { key }
+
+    func duration(for category: StudyActivityCategory) -> Int {
+        categories[category.rawValue, default: 0]
+    }
+}
+
+struct StudyTimeAnalyticsBucket: Codable, Equatable, Identifiable {
+    let startsAt: Date
+    let endsAt: Date
+    let totalMs: Int
+    let categories: [String: Int]
+
+    var id: Date { startsAt }
+
+    func duration(for category: StudyActivityCategory) -> Int {
+        categories[category.rawValue, default: 0]
+    }
 }
