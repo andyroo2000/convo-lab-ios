@@ -454,6 +454,38 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(store.syncErrorMessage)
     }
 
+    func testPrefetchedAnalyticsCanBeSelectedWithoutChangingTheVisibleChartEarly() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        await store.synchronize()
+        let visibleAnchor = try XCTUnwrap(store.analytics?.anchorDate)
+        let nextAnchor = try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
+
+        let prefetched = await store.prefetchAnalytics(anchorDate: nextAnchor)
+
+        XCTAssertTrue(prefetched)
+        XCTAssertEqual(store.analytics?.anchorDate, visibleAnchor)
+        XCTAssertNotNil(store.cachedAnalytics(anchorDate: nextAnchor))
+
+        XCTAssertTrue(store.selectCachedAnalytics(anchorDate: nextAnchor))
+        XCTAssertEqual(store.analytics?.anchorDate, "2026-06-15")
+    }
+
     func testManualSessionCanBeEditedAndDeleted() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)
@@ -985,9 +1017,14 @@ private func makeSession(
 private func analyticsResponse(
     for request: URLRequest
 ) throws -> (HTTPURLResponse, Data) {
+    let requestURL = try XCTUnwrap(request.url)
+    let anchorDate = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?
+        .queryItems?
+        .first { $0.name == "anchorDate" }?
+        .value ?? "2026-07-28"
     let body: [String: Any] = [
         "generatedAt": "2026-07-28T20:00:00Z",
-        "anchorDate": "2026-07-28",
+        "anchorDate": anchorDate,
         "timezone": "America/New_York",
         "ranges": [
             [

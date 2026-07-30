@@ -177,21 +177,28 @@ struct StudyTimeView: View {
     private func swipeableAnalytics(
         _ analytics: StudyTimeAnalyticsRange
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if selectedRange != .all {
-                Text(periodLabel(analytics))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .contentTransition(.numericText())
+        let dragOffset = displayedAnalyticsDragOffset(analytics)
+        return ZStack {
+            if let previous = adjacentAnalytics(by: -1) {
+                analyticsPage(previous.range, generatedAt: previous.generatedAt)
+                    .offset(x: -analyticsCardWidth + dragOffset)
+                    .accessibilityHidden(true)
             }
 
-            StudyRhythmChart(
-                analytics: analytics,
+            analyticsPage(
+                analytics,
                 generatedAt: store.analytics?.generatedAt ?? .now
             )
+            .offset(x: dragOffset)
+
+            if canNavigateLater(from: analytics),
+               let next = adjacentAnalytics(by: 1)
+            {
+                analyticsPage(next.range, generatedAt: next.generatedAt)
+                    .offset(x: analyticsCardWidth + dragOffset)
+                    .accessibilityHidden(true)
+            }
         }
-        .offset(x: displayedAnalyticsDragOffset(analytics))
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -206,6 +213,9 @@ struct StudyTimeView: View {
         .clipped()
         .contentShape(Rectangle())
         .simultaneousGesture(analyticsSwipeGesture(analytics))
+        .task(id: "\(store.analytics?.anchorDate ?? "")-\(selectedRange.rawValue)") {
+            await prefetchAdjacentAnalytics(from: analytics)
+        }
         .accessibilityActions {
             if selectedRange != .all {
                 Button("Previous period") {
@@ -217,6 +227,48 @@ struct StudyTimeView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func analyticsPage(
+        _ analytics: StudyTimeAnalyticsRange,
+        generatedAt: Date
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if selectedRange != .all {
+                Text(periodLabel(analytics))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            StudyRhythmChart(analytics: analytics, generatedAt: generatedAt)
+        }
+    }
+
+    private func adjacentAnalytics(
+        by amount: Int
+    ) -> (range: StudyTimeAnalyticsRange, generatedAt: Date)? {
+        guard let anchor = shiftedAnalyticsAnchor(by: amount),
+              let cached = store.cachedAnalytics(anchorDate: anchor),
+              let range = cached.range(selectedRange)
+        else {
+            return nil
+        }
+        return (range, cached.generatedAt)
+    }
+
+    private func prefetchAdjacentAnalytics(
+        from analytics: StudyTimeAnalyticsRange
+    ) async {
+        guard selectedRange != .all else { return }
+        if let previousAnchor = shiftedAnalyticsAnchor(by: -1) {
+            _ = await store.prefetchAnalytics(anchorDate: previousAnchor)
+        }
+        if canNavigateLater(from: analytics),
+           let nextAnchor = shiftedAnalyticsAnchor(by: 1)
+        {
+            _ = await store.prefetchAnalytics(anchorDate: nextAnchor)
         }
     }
 
@@ -285,38 +337,33 @@ struct StudyTimeView: View {
         let navigationGeneration = analyticsNavigationGeneration
         let outgoingOffset = amount < 0 ? analyticsCardWidth : -analyticsCardWidth
 
-        if reduceMotion {
-            Task {
-                _ = await store.loadAnalytics(anchorDate: nextAnchor)
-                guard analyticsNavigationGeneration == navigationGeneration else { return }
+        Task {
+            var ready = store.cachedAnalytics(anchorDate: nextAnchor) != nil
+            if !ready {
+                ready = await store.prefetchAnalytics(anchorDate: nextAnchor)
+            }
+            guard analyticsNavigationGeneration == navigationGeneration else { return }
+            guard ready else {
+                snapAnalyticsBack()
+                isSettlingAnalyticsSwipe = false
+                return
+            }
+
+            if reduceMotion {
+                _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
                 analyticsDragOffset = 0
                 isSettlingAnalyticsSwipe = false
+                return
             }
-            return
-        }
 
-        withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
-            analyticsDragOffset = outgoingOffset
-        } completion: {
-            Task {
-                let loaded = await store.loadAnalytics(anchorDate: nextAnchor)
-                guard analyticsNavigationGeneration == navigationGeneration else { return }
-                guard loaded else {
-                    withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
-                        analyticsDragOffset = 0
-                    } completion: {
-                        isSettlingAnalyticsSwipe = false
-                    }
-                    return
-                }
+            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
+                analyticsDragOffset = outgoingOffset
+            } completion: {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    analyticsDragOffset = -outgoingOffset
-                }
-                withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
+                    _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
                     analyticsDragOffset = 0
-                } completion: {
                     isSettlingAnalyticsSwipe = false
                 }
             }
