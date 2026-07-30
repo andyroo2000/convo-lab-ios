@@ -108,6 +108,7 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
 
 struct StudyTimeAnalytics: Codable, Equatable {
     let generatedAt: Date
+    let anchorDate: String
     let timezone: String
     let ranges: [StudyTimeAnalyticsRange]
 

@@ -43,6 +43,10 @@ The Laravel server should report that it is listening on `http://127.0.0.1:8000`
 The release configuration points at the production ConvoLab edge, which forwards native
 API routes to learning-os.
 
+Builds installed on Andrew's physical devices must always use the production API. Use the
+Release configuration or explicitly override `API_BASE_URL` with
+`https://convo-lab.com`, and verify the built app's `Info.plist` before installing it.
+
 ## Build
 
 ```bash
