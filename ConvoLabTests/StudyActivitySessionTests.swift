@@ -7,7 +7,7 @@ import XCTest
 final class StudyActivitySessionTests: XCTestCase {
     func testActivitiesMapToOnePrimaryCategory() {
         XCTAssertEqual(StudyActivityKind.cardReview.category, .review)
-        XCTAssertEqual(StudyActivityKind.dailyAudio.category, .review)
+        XCTAssertEqual(StudyActivityKind.dailyAudio.category, .listen)
         XCTAssertEqual(StudyActivityKind.cardCreation.category, .create)
         XCTAssertEqual(StudyActivityKind.tv.category, .immerse)
         XCTAssertEqual(StudyActivityKind.podcast.category, .immerse)
@@ -230,7 +230,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let startedAt = Date.now.addingTimeInterval(-10 * 60)
         let abandoned = StudyTimeStore.ActiveSession(
             clientSessionID: "018f22d2-6d38-7000-8000-000000000004",
-            category: .review,
+            category: .listen,
             activity: .dailyAudio,
             source: .automatic,
             name: "Abandoned drill",
@@ -264,7 +264,7 @@ final class StudyActivitySessionTests: XCTestCase {
                 let recovered: [[String: Any]] = [[
                     "id": "recovered-session",
                     "clientSessionId": "018f22d2-6d38-7000-8000-000000000004",
-                    "category": "review",
+                    "category": "listen",
                     "activity": "daily_audio",
                     "source": "automatic",
                     "name": "Abandoned drill",
@@ -1140,6 +1140,7 @@ private func analyticsResponse(
                 "totalMs": 3_600_000,
                 "categories": [
                     "review": 1_800_000,
+                    "listen": 0,
                     "create": 0,
                     "immerse": 0,
                     "conversation": 1_800_000,
@@ -1152,6 +1153,7 @@ private func analyticsResponse(
                         "totalMs": 3_600_000,
                         "categories": [
                             "review": 1_800_000,
+                            "listen": 0,
                             "create": 0,
                             "immerse": 0,
                             "conversation": 1_800_000,

@@ -59,7 +59,7 @@ struct StudyTimeView: View {
                 } header: {
                     Text("Study Rhythm")
                 } footer: {
-                    Text("Audio drills count as Card review. iTalki and other lessons count as Conversation.")
+                    Text("Audio drills count as Listen. iTalki and other lessons count as Conversation.")
                 }
 
                 Section("Timer") {
@@ -812,6 +812,7 @@ private extension StudyActivityCategory {
     var chartColor: Color {
         switch self {
         case .review: .blue
+        case .listen: .cyan
         case .create: .orange
         case .immerse: .green
         case .conversation: .purple

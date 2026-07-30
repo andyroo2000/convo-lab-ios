@@ -2,6 +2,7 @@ import Foundation
 
 enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
     case review
+    case listen
     case create
     case immerse
     case conversation
@@ -11,6 +12,7 @@ enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .review: "Card review"
+        case .listen: "Listen"
         case .create: "Create"
         case .immerse: "Immerse"
         case .conversation: "Conversation"
@@ -48,7 +50,8 @@ enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
 
     nonisolated var category: StudyActivityCategory {
         switch self {
-        case .cardReview, .dailyAudio: .review
+        case .cardReview: .review
+        case .dailyAudio: .listen
         case .cardCreation: .create
         case .tv, .podcast, .reading, .other: .immerse
         case .conversation: .conversation
