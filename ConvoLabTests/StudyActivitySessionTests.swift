@@ -402,6 +402,53 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(store.syncErrorMessage)
     }
 
+    func testFailedAnchoredAnalyticsRequestPreservesCurrentChart() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                let components = try XCTUnwrap(
+                    URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+                )
+                let anchorDate = components.queryItems?
+                    .first { $0.name == "anchorDate" }?.value
+                if anchorDate == "2026-06-15" {
+                    return (
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url),
+                            statusCode: 500,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"Analytics unavailable"}"#.utf8)
+                    )
+                }
+                return try analyticsResponse(for: request)
+            }
+
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        await store.synchronize()
+        let currentAnalytics = try XCTUnwrap(store.analytics)
+
+        let loaded = await store.loadAnalytics(
+            anchorDate: try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
+        )
+
+        XCTAssertFalse(loaded)
+        XCTAssertEqual(store.analytics, currentAnalytics)
+        XCTAssertEqual(store.syncErrorMessage, "Analytics unavailable")
+    }
+
     func testManualSessionCanBeEditedAndDeleted() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)

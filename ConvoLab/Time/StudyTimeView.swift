@@ -11,6 +11,7 @@ struct StudyTimeView: View {
     @State private var analyticsDragOffset = CGFloat.zero
     @State private var analyticsCardWidth = CGFloat(360)
     @State private var isSettlingAnalyticsSwipe = false
+    @State private var analyticsNavigationGeneration = 0
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
@@ -36,6 +37,8 @@ struct StudyTimeView: View {
                     .labelsHidden()
                     .accessibilityLabel("Time span")
                     .onChange(of: selectedRange) {
+                        analyticsNavigationGeneration += 1
+                        isSettlingAnalyticsSwipe = false
                         analyticsAnchor = .now
                         analyticsDragOffset = 0
                         Task { await store.loadAnalytics(anchorDate: analyticsAnchor) }
@@ -274,11 +277,15 @@ struct StudyTimeView: View {
         }
 
         isSettlingAnalyticsSwipe = true
+        analyticsNavigationGeneration += 1
+        let navigationGeneration = analyticsNavigationGeneration
         let outgoingOffset = amount < 0 ? analyticsCardWidth : -analyticsCardWidth
 
         if reduceMotion {
             Task {
-                if await store.loadAnalytics(anchorDate: nextAnchor) {
+                let loaded = await store.loadAnalytics(anchorDate: nextAnchor)
+                guard analyticsNavigationGeneration == navigationGeneration else { return }
+                if loaded {
                     analyticsAnchor = nextAnchor
                 }
                 analyticsDragOffset = 0
@@ -291,7 +298,9 @@ struct StudyTimeView: View {
             analyticsDragOffset = outgoingOffset
         } completion: {
             Task {
-                if await store.loadAnalytics(anchorDate: nextAnchor) {
+                let loaded = await store.loadAnalytics(anchorDate: nextAnchor)
+                guard analyticsNavigationGeneration == navigationGeneration else { return }
+                if loaded {
                     analyticsAnchor = nextAnchor
                 }
                 var transaction = Transaction()

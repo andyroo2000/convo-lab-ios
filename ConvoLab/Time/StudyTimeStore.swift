@@ -43,6 +43,8 @@ final class StudyTimeStore {
     private var synchronizingUserID: Int?
     private var pendingPushTask: Task<Void, Never>?
     private var localMutationGeneration = 0
+    private var analyticsRequestGeneration = 0
+    private var requestedAnalyticsAnchor = Date.now
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -52,12 +54,16 @@ final class StudyTimeStore {
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         localMutationGeneration += 1
+        analyticsRequestGeneration += 1
+        requestedAnalyticsAnchor = .now
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
 
     func deactivate(at date: Date = .now) async {
         localMutationGeneration += 1
+        analyticsRequestGeneration += 1
+        requestedAnalyticsAnchor = .now
         if let active {
             finish(active, at: date, enqueueSync: false)
         }
@@ -311,6 +317,9 @@ final class StudyTimeStore {
     }
 
     private func performSynchronization(userID: Int) async {
+        analyticsRequestGeneration += 1
+        let analyticsGeneration = analyticsRequestGeneration
+        let analyticsAnchor = requestedAnalyticsAnchor
         await pushPending()
         let pushFailure = syncErrorMessage
         let to = Date.now.addingTimeInterval(60)
@@ -356,12 +365,16 @@ final class StudyTimeStore {
             failures.append(error.localizedDescription)
         }
         do {
-            let fetchedAnalytics = try await fetchAnalytics()
-            if activeUserID == userID {
+            let fetchedAnalytics = try await fetchAnalytics(anchorDate: analyticsAnchor)
+            if activeUserID == userID,
+               analyticsRequestGeneration == analyticsGeneration
+            {
                 analytics = fetchedAnalytics
             }
         } catch {
-            failures.append(error.localizedDescription)
+            if analyticsRequestGeneration == analyticsGeneration {
+                failures.append(error.localizedDescription)
+            }
         }
         if activeUserID == userID {
             syncErrorMessage = failures.first
@@ -548,20 +561,29 @@ final class StudyTimeStore {
 
     @discardableResult
     func loadAnalytics(anchorDate: Date) async -> Bool {
-        await refreshAnalytics(anchorDate: anchorDate)
+        requestedAnalyticsAnchor = anchorDate
+        return await refreshAnalytics(anchorDate: anchorDate)
     }
 
     @discardableResult
-    private func refreshAnalytics(anchorDate: Date = .now) async -> Bool {
+    private func refreshAnalytics(anchorDate: Date? = nil) async -> Bool {
         guard let userID = activeUserID else { return false }
+        let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor
+        analyticsRequestGeneration += 1
+        let requestGeneration = analyticsRequestGeneration
         do {
-            let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
-            if activeUserID == userID {
+            let fetchedAnalytics = try await fetchAnalytics(anchorDate: effectiveAnchor)
+            if activeUserID == userID,
+               analyticsRequestGeneration == requestGeneration
+            {
                 analytics = fetchedAnalytics
                 return true
             }
         } catch {
-            if activeUserID == userID, syncErrorMessage == nil {
+            if activeUserID == userID,
+               analyticsRequestGeneration == requestGeneration,
+               syncErrorMessage == nil
+            {
                 syncErrorMessage = error.localizedDescription
             }
         }
@@ -570,7 +592,7 @@ final class StudyTimeStore {
 
     private func fetchAnalytics(anchorDate: Date = .now) async throws -> StudyTimeAnalytics {
         let formatter = DateFormatter()
-        formatter.calendar = .current
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
