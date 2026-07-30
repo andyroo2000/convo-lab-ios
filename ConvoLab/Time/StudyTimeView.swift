@@ -188,6 +188,10 @@ private struct StudyRhythmChart: View {
         analytics.buckets.max { $0.totalMs < $1.totalMs }
     }
 
+    private var chartDomain: ClosedRange<Date> {
+        min(analytics.startsAt, analytics.endsAt)...max(analytics.startsAt, analytics.endsAt)
+    }
+
     private var axisDates: [Date] {
         let step = switch analytics.key {
         case .today: 4
@@ -266,7 +270,10 @@ private struct StudyRhythmChart: View {
                     }
                 }
             }
-            .chartXScale(range: .plotDimension(padding: 12))
+            .chartXScale(
+                domain: chartDomain,
+                range: .plotDimension(padding: 12)
+            )
             .frame(height: 210)
 
             LazyVGrid(
