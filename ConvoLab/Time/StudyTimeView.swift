@@ -3,9 +3,14 @@ import SwiftUI
 
 struct StudyTimeView: View {
     let store: StudyTimeStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingEntry = false
     @State private var editingSession: StudyActivitySession?
     @State private var selectedRange: StudyTimeRange = .week
+    @State private var analyticsAnchor = Date.now
+    @State private var analyticsDragOffset = CGFloat.zero
+    @State private var analyticsCardWidth = CGFloat(360)
+    @State private var isSettlingAnalyticsSwipe = false
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
@@ -30,12 +35,14 @@ struct StudyTimeView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .accessibilityLabel("Time span")
+                    .onChange(of: selectedRange) {
+                        analyticsAnchor = .now
+                        analyticsDragOffset = 0
+                        Task { await store.loadAnalytics(anchorDate: analyticsAnchor) }
+                    }
 
                     if let analytics = selectedAnalytics {
-                        StudyRhythmChart(
-                            analytics: analytics,
-                            generatedAt: store.analytics?.generatedAt ?? .now
-                        )
+                        swipeableAnalytics(analytics)
                     } else {
                         ProgressView("Loading study rhythm…")
                             .frame(maxWidth: .infinity, minHeight: 220)
@@ -43,7 +50,7 @@ struct StudyTimeView: View {
                 } header: {
                     Text("Study Rhythm")
                 } footer: {
-                    Text("Audio drills count as Review. iTalki and other lessons count as Conversation.")
+                    Text("Audio drills count as Card review. iTalki and other lessons count as Conversation.")
                 }
 
                 Section("Timer") {
@@ -165,6 +172,206 @@ struct StudyTimeView: View {
             }
         }
     }
+
+    private func swipeableAnalytics(
+        _ analytics: StudyTimeAnalyticsRange
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if selectedRange != .all {
+                Text(periodLabel(analytics))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .contentTransition(.numericText())
+            }
+
+            StudyRhythmChart(
+                analytics: analytics,
+                generatedAt: store.analytics?.generatedAt ?? .now
+            )
+        }
+        .offset(x: displayedAnalyticsDragOffset(analytics))
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        analyticsCardWidth = max(geometry.size.width, 1)
+                    }
+                    .onChange(of: geometry.size.width) { _, width in
+                        analyticsCardWidth = max(width, 1)
+                    }
+            }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        .simultaneousGesture(analyticsSwipeGesture(analytics))
+        .accessibilityAction(named: "Previous period") {
+            navigateAnalytics(by: -1, from: analytics)
+        }
+        .accessibilityAction(named: "Next period") {
+            navigateAnalytics(by: 1, from: analytics)
+        }
+    }
+
+    private func displayedAnalyticsDragOffset(
+        _ analytics: StudyTimeAnalyticsRange
+    ) -> CGFloat {
+        if analyticsDragOffset < 0, !canNavigateLater(from: analytics) {
+            return rubberBand(analyticsDragOffset)
+        }
+        return analyticsDragOffset
+    }
+
+    private func analyticsSwipeGesture(
+        _ analytics: StudyTimeAnalyticsRange
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard
+                    selectedRange != .all,
+                    !isSettlingAnalyticsSwipe,
+                    abs(value.translation.width) > abs(value.translation.height)
+                else {
+                    return
+                }
+                analyticsDragOffset = value.translation.width
+            }
+            .onEnded { value in
+                guard selectedRange != .all, !isSettlingAnalyticsSwipe else { return }
+                let horizontal = value.translation.width
+                let predicted = value.predictedEndTranslation.width
+                guard abs(horizontal) > abs(value.translation.height) else {
+                    snapAnalyticsBack()
+                    return
+                }
+
+                if max(horizontal, predicted) > 70 {
+                    completeAnalyticsSwipe(by: -1)
+                } else if min(horizontal, predicted) < -70,
+                          canNavigateLater(from: analytics)
+                {
+                    completeAnalyticsSwipe(by: 1)
+                } else {
+                    snapAnalyticsBack()
+                }
+            }
+    }
+
+    private func navigateAnalytics(
+        by amount: Int,
+        from analytics: StudyTimeAnalyticsRange
+    ) {
+        guard selectedRange != .all else { return }
+        if amount > 0, !canNavigateLater(from: analytics) { return }
+        completeAnalyticsSwipe(by: amount)
+    }
+
+    private func completeAnalyticsSwipe(by amount: Int) {
+        guard !isSettlingAnalyticsSwipe,
+              let nextAnchor = shiftedAnalyticsAnchor(by: amount)
+        else {
+            return
+        }
+
+        isSettlingAnalyticsSwipe = true
+        let outgoingOffset = amount < 0 ? analyticsCardWidth : -analyticsCardWidth
+
+        if reduceMotion {
+            Task {
+                if await store.loadAnalytics(anchorDate: nextAnchor) {
+                    analyticsAnchor = nextAnchor
+                }
+                analyticsDragOffset = 0
+                isSettlingAnalyticsSwipe = false
+            }
+            return
+        }
+
+        withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
+            analyticsDragOffset = outgoingOffset
+        } completion: {
+            Task {
+                if await store.loadAnalytics(anchorDate: nextAnchor) {
+                    analyticsAnchor = nextAnchor
+                }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    analyticsDragOffset = -outgoingOffset
+                }
+                withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
+                    analyticsDragOffset = 0
+                } completion: {
+                    isSettlingAnalyticsSwipe = false
+                }
+            }
+        }
+    }
+
+    private func snapAnalyticsBack() {
+        guard analyticsDragOffset != 0 else { return }
+        if reduceMotion {
+            analyticsDragOffset = 0
+        } else {
+            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
+                analyticsDragOffset = 0
+            }
+        }
+    }
+
+    private func shiftedAnalyticsAnchor(by amount: Int) -> Date? {
+        let calendar = Calendar.current
+        switch selectedRange {
+        case .today:
+            return calendar.date(byAdding: .day, value: amount, to: analyticsAnchor)
+        case .week:
+            return calendar.date(byAdding: .day, value: amount * 7, to: analyticsAnchor)
+        case .month:
+            guard let start = calendar.dateInterval(of: .month, for: analyticsAnchor)?.start else {
+                return nil
+            }
+            return calendar.date(byAdding: .month, value: amount, to: start)
+        case .year:
+            guard let start = calendar.dateInterval(of: .year, for: analyticsAnchor)?.start else {
+                return nil
+            }
+            return calendar.date(byAdding: .year, value: amount, to: start)
+        case .all:
+            return nil
+        }
+    }
+
+    private func canNavigateLater(from analytics: StudyTimeAnalyticsRange) -> Bool {
+        guard selectedRange != .all, let generatedAt = store.analytics?.generatedAt else {
+            return false
+        }
+        return analytics.endsAt <= generatedAt
+    }
+
+    private func periodLabel(_ analytics: StudyTimeAnalyticsRange) -> String {
+        let inclusiveEnd = analytics.endsAt.addingTimeInterval(-1)
+        switch analytics.key {
+        case .today:
+            return analytics.startsAt.formatted(
+                .dateTime.weekday(.wide).month(.wide).day().year()
+            )
+        case .week:
+            return "\(analytics.startsAt.formatted(.dateTime.month(.abbreviated).day()))"
+                + " – "
+                + inclusiveEnd.formatted(.dateTime.month(.abbreviated).day().year())
+        case .month:
+            return analytics.startsAt.formatted(.dateTime.month(.wide).year())
+        case .year:
+            return analytics.startsAt.formatted(.dateTime.year())
+        case .all:
+            return ""
+        }
+    }
+
+    private func rubberBand(_ offset: CGFloat) -> CGFloat {
+        let magnitude = abs(offset)
+        return copysign(42 * (1 - exp(-magnitude / 110)), offset)
+    }
 }
 
 private struct StudyRhythmChart: View {
@@ -218,7 +425,7 @@ private struct StudyRhythmChart: View {
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Text(bestBucket.map { compactDuration($0.totalMs) } ?? "0m")
+                    Text("\(bestBucket.map { compactDuration($0.totalMs) } ?? "0m") total")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

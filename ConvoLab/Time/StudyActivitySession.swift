@@ -10,7 +10,7 @@ enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .review: "Review"
+        case .review: "Card review"
         case .create: "Create"
         case .immerse: "Immerse"
         case .conversation: "Conversation"
@@ -105,6 +105,7 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
 
 struct StudyTimeAnalytics: Codable, Equatable {
     let generatedAt: Date
+    let anchorDate: String
     let timezone: String
     let ranges: [StudyTimeAnalyticsRange]
 

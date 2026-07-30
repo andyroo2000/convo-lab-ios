@@ -546,28 +546,46 @@ final class StudyTimeStore {
         return try? context.fetch(descriptor).first(where: { !$0.isTombstone })
     }
 
-    private func refreshAnalytics() async {
-        guard let userID = activeUserID else { return }
+    @discardableResult
+    func loadAnalytics(anchorDate: Date) async -> Bool {
+        await refreshAnalytics(anchorDate: anchorDate)
+    }
+
+    @discardableResult
+    private func refreshAnalytics(anchorDate: Date = .now) async -> Bool {
+        guard let userID = activeUserID else { return false }
         do {
-            let fetchedAnalytics = try await fetchAnalytics()
+            let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
             if activeUserID == userID {
                 analytics = fetchedAnalytics
+                return true
             }
         } catch {
             if activeUserID == userID, syncErrorMessage == nil {
                 syncErrorMessage = error.localizedDescription
             }
         }
+        return false
     }
 
-    private func fetchAnalytics() async throws -> StudyTimeAnalytics {
-        try await api.request(
+    private func fetchAnalytics(anchorDate: Date = .now) async throws -> StudyTimeAnalytics {
+        let formatter = DateFormatter()
+        formatter.calendar = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        return try await api.request(
             "/api/study/activity-analytics",
             query: [
                 URLQueryItem(name: "timezone", value: TimeZone.current.identifier),
                 URLQueryItem(
                     name: "weekStartsOn",
                     value: String(Calendar.current.firstWeekday)
+                ),
+                URLQueryItem(
+                    name: "anchorDate",
+                    value: formatter.string(from: anchorDate)
                 ),
             ],
             response: StudyTimeAnalytics.self

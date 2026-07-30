@@ -347,6 +347,9 @@ final class StudyActivitySessionTests: XCTestCase {
 
     func testSynchronizationUsesRollingNinetyThreeDayWindowAndLoadsAnalytics() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let anchoredAnalyticsRequest = expectation(
+            description: "Loads analytics for a selected calendar date"
+        )
         let client = makeClient { request in
             if request.url?.path == "/api/study/activity-analytics" {
                 let components = try XCTUnwrap(
@@ -354,6 +357,12 @@ final class StudyActivitySessionTests: XCTestCase {
                 )
                 XCTAssertNotNil(components.queryItems?.first { $0.name == "timezone" }?.value)
                 XCTAssertNotNil(components.queryItems?.first { $0.name == "weekStartsOn" }?.value)
+                let anchorDate = components.queryItems?
+                    .first { $0.name == "anchorDate" }?.value
+                XCTAssertNotNil(anchorDate)
+                if anchorDate == "2026-06-15" {
+                    anchoredAnalyticsRequest.fulfill()
+                }
                 return try analyticsResponse(for: request)
             }
 
@@ -384,6 +393,10 @@ final class StudyActivitySessionTests: XCTestCase {
         store.activate(userID: 42)
 
         await store.synchronize()
+        await store.loadAnalytics(
+            anchorDate: try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
+        )
+        await fulfillment(of: [anchoredAnalyticsRequest], timeout: 1)
 
         XCTAssertEqual(store.analytics?.range(.week)?.totalMs, 3_600_000)
         XCTAssertNil(store.syncErrorMessage)
@@ -922,6 +935,7 @@ private func analyticsResponse(
 ) throws -> (HTTPURLResponse, Data) {
     let body: [String: Any] = [
         "generatedAt": "2026-07-28T20:00:00Z",
+        "anchorDate": "2026-07-28",
         "timezone": "America/New_York",
         "ranges": [
             [
