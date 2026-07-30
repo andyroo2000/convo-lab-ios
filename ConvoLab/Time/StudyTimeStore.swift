@@ -44,7 +44,7 @@ final class StudyTimeStore {
     private var pendingPushTask: Task<Void, Never>?
     private var localMutationGeneration = 0
     private var analyticsRequestGeneration = 0
-    private var requestedAnalyticsAnchor = Date.now
+    private var requestedAnalyticsAnchor: Date?
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
@@ -55,7 +55,7 @@ final class StudyTimeStore {
         guard activeUserID != userID else { return }
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
-        requestedAnalyticsAnchor = .now
+        requestedAnalyticsAnchor = nil
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -63,7 +63,7 @@ final class StudyTimeStore {
     func deactivate(at date: Date = .now) async {
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
-        requestedAnalyticsAnchor = .now
+        requestedAnalyticsAnchor = nil
         if let active {
             finish(active, at: date, enqueueSync: false)
         }
@@ -319,7 +319,7 @@ final class StudyTimeStore {
     private func performSynchronization(userID: Int) async {
         analyticsRequestGeneration += 1
         let analyticsGeneration = analyticsRequestGeneration
-        let analyticsAnchor = requestedAnalyticsAnchor
+        let analyticsAnchor = requestedAnalyticsAnchor ?? .now
         await pushPending()
         let pushFailure = syncErrorMessage
         let to = Date.now.addingTimeInterval(60)
@@ -561,14 +561,19 @@ final class StudyTimeStore {
 
     @discardableResult
     func loadAnalytics(anchorDate: Date) async -> Bool {
-        requestedAnalyticsAnchor = anchorDate
-        return await refreshAnalytics(anchorDate: anchorDate)
+        let loaded = await refreshAnalytics(anchorDate: anchorDate)
+        if loaded {
+            requestedAnalyticsAnchor = Calendar.current.isDateInToday(anchorDate)
+                ? nil
+                : anchorDate
+        }
+        return loaded
     }
 
     @discardableResult
     private func refreshAnalytics(anchorDate: Date? = nil) async -> Bool {
         guard let userID = activeUserID else { return false }
-        let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor
+        let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor ?? .now
         analyticsRequestGeneration += 1
         let requestGeneration = analyticsRequestGeneration
         do {

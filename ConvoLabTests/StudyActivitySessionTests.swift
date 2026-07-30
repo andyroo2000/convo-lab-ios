@@ -447,6 +447,11 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(loaded)
         XCTAssertEqual(store.analytics, currentAnalytics)
         XCTAssertEqual(store.syncErrorMessage, "Analytics unavailable")
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.analytics, currentAnalytics)
+        XCTAssertNil(store.syncErrorMessage)
     }
 
     func testManualSessionCanBeEditedAndDeleted() async throws {
