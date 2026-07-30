@@ -7,7 +7,6 @@ struct StudyTimeView: View {
     @State private var showingEntry = false
     @State private var editingSession: StudyActivitySession?
     @State private var selectedRange: StudyTimeRange = .week
-    @State private var analyticsAnchor = Date.now
     @State private var analyticsDragOffset = CGFloat.zero
     @State private var analyticsCardWidth = CGFloat(360)
     @State private var isSettlingAnalyticsSwipe = false
@@ -39,9 +38,8 @@ struct StudyTimeView: View {
                     .onChange(of: selectedRange) {
                         analyticsNavigationGeneration += 1
                         isSettlingAnalyticsSwipe = false
-                        analyticsAnchor = .now
                         analyticsDragOffset = 0
-                        Task { await store.loadAnalytics(anchorDate: analyticsAnchor) }
+                        Task { await store.loadAnalytics(anchorDate: .now) }
                     }
 
                     if let analytics = selectedAnalytics {
@@ -161,14 +159,6 @@ struct StudyTimeView: View {
             }
             .task {
                 await store.synchronize()
-            }
-            .onChange(of: store.analytics?.anchorDate) { _, anchorDate in
-                guard let anchorDate,
-                      let resolvedAnchor = analyticsAnchorDate(from: anchorDate)
-                else {
-                    return
-                }
-                analyticsAnchor = resolvedAnchor
             }
         }
     }
@@ -297,11 +287,8 @@ struct StudyTimeView: View {
 
         if reduceMotion {
             Task {
-                let loaded = await store.loadAnalytics(anchorDate: nextAnchor)
+                _ = await store.loadAnalytics(anchorDate: nextAnchor)
                 guard analyticsNavigationGeneration == navigationGeneration else { return }
-                if loaded {
-                    analyticsAnchor = nextAnchor
-                }
                 analyticsDragOffset = 0
                 isSettlingAnalyticsSwipe = false
             }
@@ -322,7 +309,6 @@ struct StudyTimeView: View {
                     }
                     return
                 }
-                analyticsAnchor = nextAnchor
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
@@ -350,6 +336,11 @@ struct StudyTimeView: View {
 
     private func shiftedAnalyticsAnchor(by amount: Int) -> Date? {
         let calendar = Calendar.current
+        guard let anchorDate = store.analytics?.anchorDate,
+              let analyticsAnchor = analyticsAnchorDate(from: anchorDate)
+        else {
+            return nil
+        }
         switch selectedRange {
         case .today:
             return calendar.date(byAdding: .day, value: amount, to: analyticsAnchor)
