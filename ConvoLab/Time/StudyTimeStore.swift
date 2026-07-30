@@ -374,6 +374,7 @@ final class StudyTimeStore {
                analyticsRequestGeneration == analyticsGeneration
             {
                 analytics = fetchedAnalytics
+                analyticsCache[analyticsAnchorString(from: analyticsAnchor)] = fetchedAnalytics
                 analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
             }
         } catch {
@@ -590,8 +591,9 @@ final class StudyTimeStore {
         do {
             let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
             guard activeUserID == userID else { return false }
+            analyticsCache[key] = fetchedAnalytics
             analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
-            return analyticsCache[key] != nil
+            return true
         } catch {
             return false
         }
@@ -621,6 +623,7 @@ final class StudyTimeStore {
                analyticsRequestGeneration == requestGeneration
             {
                 analytics = fetchedAnalytics
+                analyticsCache[analyticsAnchorString(from: effectiveAnchor)] = fetchedAnalytics
                 analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
                 return true
             }

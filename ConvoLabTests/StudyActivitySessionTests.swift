@@ -458,6 +458,16 @@ final class StudyActivitySessionTests: XCTestCase {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let client = makeClient { request in
             if request.url?.path == "/api/study/activity-analytics" {
+                let requestedAnchor = URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems?.first { $0.name == "anchorDate" }?.value
+                if requestedAnchor == "2026-06-15" {
+                    return try analyticsResponse(
+                        for: request,
+                        anchorDateOverride: "2026-06-14"
+                    )
+                }
                 return try analyticsResponse(for: request)
             }
             return (
@@ -483,7 +493,7 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(store.cachedAnalytics(anchorDate: nextAnchor))
 
         XCTAssertTrue(store.selectCachedAnalytics(anchorDate: nextAnchor))
-        XCTAssertEqual(store.analytics?.anchorDate, "2026-06-15")
+        XCTAssertEqual(store.analytics?.anchorDate, "2026-06-14")
     }
 
     func testManualSessionCanBeEditedAndDeleted() async throws {
@@ -1015,7 +1025,8 @@ private func makeSession(
 }
 
 private func analyticsResponse(
-    for request: URLRequest
+    for request: URLRequest,
+    anchorDateOverride: String? = nil
 ) throws -> (HTTPURLResponse, Data) {
     let requestURL = try XCTUnwrap(request.url)
     let anchorDate = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?
@@ -1024,7 +1035,7 @@ private func analyticsResponse(
         .value ?? "2026-07-28"
     let body: [String: Any] = [
         "generatedAt": "2026-07-28T20:00:00Z",
-        "anchorDate": anchorDate,
+        "anchorDate": anchorDateOverride ?? anchorDate,
         "timezone": "America/New_York",
         "ranges": [
             [
