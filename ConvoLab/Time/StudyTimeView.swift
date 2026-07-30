@@ -508,6 +508,7 @@ private extension StudyActivityCategory {
     var chartColor: Color {
         switch self {
         case .review: .blue
+        case .listen: .cyan
         case .create: .orange
         case .immerse: .green
         case .conversation: .purple
