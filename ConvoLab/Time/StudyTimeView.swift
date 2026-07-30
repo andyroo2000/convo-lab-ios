@@ -373,6 +373,9 @@ struct StudyTimeView: View {
             withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
                 analyticsDragOffset = outgoingOffset
             } completion: {
+                guard analyticsNavigationGeneration == navigationGeneration else {
+                    return
+                }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
