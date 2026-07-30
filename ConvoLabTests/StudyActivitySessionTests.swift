@@ -500,6 +500,48 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(store.cachedAnalytics(anchorDate: nextAnchor))
     }
 
+    func testLoadedAnalyticsUsesTheServerConfirmedAnchorForLaterSynchronization() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let confirmedAnchorRequest = expectation(description: "Uses confirmed analytics anchor")
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                let requestedAnchor = URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems?.first { $0.name == "anchorDate" }?.value
+                if requestedAnchor == "2026-06-15" {
+                    return try analyticsResponse(
+                        for: request,
+                        anchorDateOverride: "2026-06-14"
+                    )
+                }
+                if requestedAnchor == "2026-06-14" {
+                    confirmedAnchorRequest.fulfill()
+                }
+                return try analyticsResponse(for: request)
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        let loaded = await store.loadAnalytics(
+            anchorDate: try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
+        )
+        await store.synchronize()
+        await fulfillment(of: [confirmedAnchorRequest], timeout: 1)
+
+        XCTAssertTrue(loaded)
+    }
+
     func testCacheInvalidationDiscardsAnOlderInFlightPrefetch() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let (prefetchStarted, prefetchStartedContinuation) = AsyncStream<Void>.makeStream()

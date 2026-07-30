@@ -575,9 +575,12 @@ final class StudyTimeStore {
     func loadAnalytics(anchorDate: Date) async -> Bool {
         let loaded = await refreshAnalytics(anchorDate: anchorDate)
         if loaded {
-            requestedAnalyticsAnchor = Calendar.current.isDateInToday(anchorDate)
+            let confirmedAnchor = analytics
+                .flatMap { analyticsAnchorDate(from: $0.anchorDate) }
+                ?? anchorDate
+            requestedAnalyticsAnchor = Calendar.current.isDateInToday(confirmedAnchor)
                 ? nil
-                : anchorDate
+                : confirmedAnchor
         }
         return loaded
     }
