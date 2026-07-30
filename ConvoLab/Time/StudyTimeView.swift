@@ -213,7 +213,10 @@ struct StudyTimeView: View {
         .clipped()
         .contentShape(Rectangle())
         .simultaneousGesture(analyticsSwipeGesture(analytics))
-        .task(id: "\(store.analytics?.anchorDate ?? "")-\(selectedRange.rawValue)") {
+        .task(
+            id: "\(store.analytics?.anchorDate ?? "")"
+                + "-\(selectedRange.rawValue)-\(store.analyticsCacheGeneration)"
+        ) {
             await prefetchAdjacentAnalytics(from: analytics)
         }
         .accessibilityActions {
@@ -340,7 +343,10 @@ struct StudyTimeView: View {
         Task {
             var ready = store.cachedAnalytics(anchorDate: nextAnchor) != nil
             if !ready {
-                ready = await store.prefetchAnalytics(anchorDate: nextAnchor)
+                ready = await store.prefetchAnalytics(
+                    anchorDate: nextAnchor,
+                    reportFailure: true
+                )
             }
             guard analyticsNavigationGeneration == navigationGeneration else { return }
             guard ready else {

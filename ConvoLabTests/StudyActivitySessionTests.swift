@@ -494,6 +494,10 @@ final class StudyActivitySessionTests: XCTestCase {
 
         XCTAssertTrue(store.selectCachedAnalytics(anchorDate: nextAnchor))
         XCTAssertEqual(store.analytics?.anchorDate, "2026-06-14")
+
+        await store.synchronize()
+
+        XCTAssertNil(store.cachedAnalytics(anchorDate: nextAnchor))
     }
 
     func testManualSessionCanBeEditedAndDeleted() async throws {

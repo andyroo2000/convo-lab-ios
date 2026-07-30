@@ -37,6 +37,7 @@ final class StudyTimeStore {
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
+    private(set) var analyticsCacheGeneration = 0
     private(set) var active: ActiveSession?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
@@ -59,6 +60,7 @@ final class StudyTimeStore {
         requestedAnalyticsAnchor = nil
         analytics = nil
         analyticsCache = [:]
+        analyticsCacheGeneration += 1
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -75,6 +77,7 @@ final class StudyTimeStore {
         sessions = []
         analytics = nil
         analyticsCache = [:]
+        analyticsCacheGeneration += 1
         active = nil
         syncErrorMessage = nil
     }
@@ -324,6 +327,7 @@ final class StudyTimeStore {
         analyticsRequestGeneration += 1
         let analyticsGeneration = analyticsRequestGeneration
         let analyticsAnchor = requestedAnalyticsAnchor ?? .now
+        invalidateAnalyticsCache()
         await pushPending()
         let pushFailure = syncErrorMessage
         let to = Date.now.addingTimeInterval(60)
@@ -397,6 +401,7 @@ final class StudyTimeStore {
             sessions = []
             analytics = nil
             analyticsCache = [:]
+            analyticsCacheGeneration += 1
             active = nil
         }
         try context.save()
@@ -582,7 +587,10 @@ final class StudyTimeStore {
     }
 
     @discardableResult
-    func prefetchAnalytics(anchorDate: Date) async -> Bool {
+    func prefetchAnalytics(
+        anchorDate: Date,
+        reportFailure: Bool = false
+    ) async -> Bool {
         let key = analyticsAnchorString(from: anchorDate)
         if analyticsCache[key] != nil {
             return true
@@ -595,6 +603,9 @@ final class StudyTimeStore {
             analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
             return true
         } catch {
+            if reportFailure, activeUserID == userID {
+                syncErrorMessage = error.localizedDescription
+            }
             return false
         }
     }
@@ -605,9 +616,10 @@ final class StudyTimeStore {
         guard let cached = analyticsCache[key] else { return false }
         analyticsRequestGeneration += 1
         analytics = cached
-        requestedAnalyticsAnchor = Calendar.current.isDateInToday(anchorDate)
+        let confirmedAnchor = analyticsAnchorDate(from: cached.anchorDate) ?? anchorDate
+        requestedAnalyticsAnchor = Calendar.current.isDateInToday(confirmedAnchor)
             ? nil
-            : anchorDate
+            : confirmedAnchor
         return true
     }
 
@@ -615,6 +627,7 @@ final class StudyTimeStore {
     private func refreshAnalytics(anchorDate: Date? = nil) async -> Bool {
         guard let userID = activeUserID else { return false }
         let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor ?? .now
+        invalidateAnalyticsCache()
         analyticsRequestGeneration += 1
         let requestGeneration = analyticsRequestGeneration
         do {
@@ -662,5 +675,19 @@ final class StudyTimeStore {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: anchorDate)
+    }
+
+    private func analyticsAnchorDate(from value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
+    }
+
+    private func invalidateAnalyticsCache() {
+        analyticsCache = [:]
+        analyticsCacheGeneration += 1
     }
 }
