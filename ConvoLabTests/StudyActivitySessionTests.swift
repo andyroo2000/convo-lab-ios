@@ -500,6 +500,55 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(store.cachedAnalytics(anchorDate: nextAnchor))
     }
 
+    func testCacheInvalidationDiscardsAnOlderInFlightPrefetch() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let (prefetchStarted, prefetchStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releasePrefetch, releasePrefetchContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            do {
+                guard request.url?.path == "/api/study/activity-analytics" else {
+                    completion(.failure(URLError(.badURL)))
+                    return
+                }
+                let requestedAnchor = URLComponents(
+                    url: try XCTUnwrap(request.url),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems?.first { $0.name == "anchorDate" }?.value
+                if requestedAnchor == "2026-06-15" {
+                    prefetchStartedContinuation.yield()
+                    Task {
+                        var releaseIterator = releasePrefetch.makeAsyncIterator()
+                        _ = await releaseIterator.next()
+                        completion(.success(try analyticsResponse(for: request)))
+                    }
+                } else {
+                    completion(.success(try analyticsResponse(for: request)))
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        let staleAnchor = try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
+        let currentAnchor = try Date("2026-06-16T12:00:00Z", strategy: .iso8601)
+        let stalePrefetch = Task {
+            await store.prefetchAnalytics(anchorDate: staleAnchor)
+        }
+        var startedIterator = prefetchStarted.makeAsyncIterator()
+        _ = await startedIterator.next()
+
+        let currentLoaded = await store.loadAnalytics(anchorDate: currentAnchor)
+
+        XCTAssertTrue(currentLoaded)
+        releasePrefetchContinuation.yield()
+        let stalePrefetchSucceeded = await stalePrefetch.value
+
+        XCTAssertFalse(stalePrefetchSucceeded)
+        XCTAssertNil(store.cachedAnalytics(anchorDate: staleAnchor))
+        XCTAssertEqual(store.analytics?.anchorDate, "2026-06-16")
+    }
+
     func testManualSessionCanBeEditedAndDeleted() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)

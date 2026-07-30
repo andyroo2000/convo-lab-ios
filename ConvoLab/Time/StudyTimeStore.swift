@@ -596,14 +596,22 @@ final class StudyTimeStore {
             return true
         }
         guard let userID = activeUserID else { return false }
+        let cacheGeneration = analyticsCacheGeneration
         do {
             let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
-            guard activeUserID == userID else { return false }
+            guard activeUserID == userID,
+                  analyticsCacheGeneration == cacheGeneration
+            else {
+                return false
+            }
             analyticsCache[key] = fetchedAnalytics
             analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
             return true
         } catch {
-            if reportFailure, activeUserID == userID {
+            if reportFailure,
+               activeUserID == userID,
+               analyticsCacheGeneration == cacheGeneration
+            {
                 syncErrorMessage = error.localizedDescription
             }
             return false
