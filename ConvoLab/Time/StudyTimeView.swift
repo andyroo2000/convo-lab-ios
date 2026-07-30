@@ -162,6 +162,14 @@ struct StudyTimeView: View {
             .task {
                 await store.synchronize()
             }
+            .onChange(of: store.analytics?.anchorDate) { _, anchorDate in
+                guard let anchorDate,
+                      let resolvedAnchor = analyticsAnchorDate(from: anchorDate)
+                else {
+                    return
+                }
+                analyticsAnchor = resolvedAnchor
+            }
         }
     }
 
@@ -208,11 +216,17 @@ struct StudyTimeView: View {
         .clipped()
         .contentShape(Rectangle())
         .simultaneousGesture(analyticsSwipeGesture(analytics))
-        .accessibilityAction(named: "Previous period") {
-            navigateAnalytics(by: -1, from: analytics)
-        }
-        .accessibilityAction(named: "Next period") {
-            navigateAnalytics(by: 1, from: analytics)
+        .accessibilityActions {
+            if selectedRange != .all {
+                Button("Previous period") {
+                    navigateAnalytics(by: -1, from: analytics)
+                }
+                if canNavigateLater(from: analytics) {
+                    Button("Next period") {
+                        navigateAnalytics(by: 1, from: analytics)
+                    }
+                }
+            }
         }
     }
 
@@ -300,9 +314,15 @@ struct StudyTimeView: View {
             Task {
                 let loaded = await store.loadAnalytics(anchorDate: nextAnchor)
                 guard analyticsNavigationGeneration == navigationGeneration else { return }
-                if loaded {
-                    analyticsAnchor = nextAnchor
+                guard loaded else {
+                    withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
+                        analyticsDragOffset = 0
+                    } completion: {
+                        isSettlingAnalyticsSwipe = false
+                    }
+                    return
                 }
+                analyticsAnchor = nextAnchor
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
@@ -380,6 +400,15 @@ struct StudyTimeView: View {
     private func rubberBand(_ offset: CGFloat) -> CGFloat {
         let magnitude = abs(offset)
         return copysign(42 * (1 - exp(-magnitude / 110)), offset)
+    }
+
+    private func analyticsAnchorDate(from value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
     }
 }
 
