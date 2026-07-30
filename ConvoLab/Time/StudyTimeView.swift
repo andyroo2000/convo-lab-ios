@@ -39,6 +39,14 @@ struct StudyTimeView: View {
                         analyticsNavigationGeneration += 1
                         isSettlingAnalyticsSwipe = false
                         analyticsDragOffset = 0
+                        // A range response already contains every span. Only fetch when a
+                        // range switch intentionally returns a historical view to now.
+                        guard let anchorDate = store.analytics?.anchorDate,
+                              let anchor = analyticsAnchorDate(from: anchorDate),
+                              !Calendar.current.isDateInToday(anchor)
+                        else {
+                            return
+                        }
                         Task { await store.loadAnalytics(anchorDate: .now) }
                     }
 
@@ -368,7 +376,11 @@ struct StudyTimeView: View {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                    let selected = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                    if !selected {
+                        entryErrorMessage =
+                            "Study time changed while navigating. Swipe again to reload."
+                    }
                     analyticsDragOffset = 0
                     isSettlingAnalyticsSwipe = false
                 }
