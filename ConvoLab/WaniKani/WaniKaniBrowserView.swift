@@ -102,6 +102,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     private var hasLoadedInitialPage = false
     private var auxiliaryWebViews: [ObjectIdentifier: WKWebView] = [:]
     private var backgroundWebViewIDs: [ObjectIdentifier] = []
+    private var interactiveWebViewStack: [WKWebView] = []
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -232,8 +233,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
                !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
             {
                 interactiveWindowErrorMessage = nil
-                prepareForInteractivePresentation(webView)
-                interactiveWebView = webView
+                presentInteractiveWebView(webView)
             }
             return .allow
         }
@@ -279,11 +279,11 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let disposition = WaniKaniURLPolicy.navigationDisposition(
             for: navigationAction.request.url,
             targetIsMainFrame: nil,
-            isUserActivated: false
+            isUserActivated: navigationAction.navigationType == .linkActivated
         )
         if disposition == .openInteractiveWindow {
             interactiveWindowErrorMessage = nil
-            interactiveWebView = auxiliaryWebView
+            presentInteractiveWebView(auxiliaryWebView)
         } else {
             retainBackgroundWebView(auxiliaryWebView, identifier: identifier)
         }
@@ -318,6 +318,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     }
 
     private func discardAuxiliaryWebView(_ webView: WKWebView) {
+        let wasCurrentInteractiveWebView = interactiveWebView === webView
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -325,8 +326,9 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let identifier = ObjectIdentifier(webView)
         auxiliaryWebViews.removeValue(forKey: identifier)
         backgroundWebViewIDs.removeAll { $0 == identifier }
-        if interactiveWebView === webView {
-            interactiveWebView = nil
+        interactiveWebViewStack.removeAll { $0 === webView }
+        if wasCurrentInteractiveWebView {
+            interactiveWebView = interactiveWebViewStack.popLast()
         }
     }
 
@@ -353,6 +355,16 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         webView.alpha = 1
         webView.isUserInteractionEnabled = true
         webView.accessibilityElementsHidden = false
+    }
+
+    private func presentInteractiveWebView(_ webView: WKWebView) {
+        guard interactiveWebView !== webView else { return }
+        prepareForInteractivePresentation(webView)
+        interactiveWebViewStack.removeAll { $0 === webView }
+        if let interactiveWebView {
+            interactiveWebViewStack.append(interactiveWebView)
+        }
+        interactiveWebView = webView
     }
 
     private static let activityBridgeScript = """
@@ -431,7 +443,7 @@ private struct WaniKaniInteractiveWindowView: View {
         NavigationStack {
             WaniKaniWebView(webView: webView)
                 .id(ObjectIdentifier(webView))
-                .navigationTitle("WaniKani Sign In")
+                .navigationTitle("WaniKani")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
