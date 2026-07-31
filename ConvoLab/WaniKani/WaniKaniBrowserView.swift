@@ -86,6 +86,30 @@ enum WaniKaniURLPolicy {
     nonisolated static func isUserActivated(_ navigationType: WKNavigationType) -> Bool {
         navigationType == .linkActivated || navigationType == .formSubmitted
     }
+
+    nonisolated static func auxiliaryNavigationDisposition(
+        for url: URL?,
+        targetIsMainFrame: Bool?,
+        isUserActivated: Bool
+    ) -> NavigationDisposition {
+        let disposition = navigationDisposition(
+            for: url,
+            targetIsMainFrame: targetIsMainFrame,
+            isUserActivated: isUserActivated
+        )
+        let scheme = url?.scheme?.lowercased()
+        let isWebContent = scheme == "http" || scheme == "https"
+        guard targetIsMainFrame == true,
+              isWebContent
+        else {
+            return disposition
+        }
+
+        // Automatic auth redirects must remain in the child WebKit context so its
+        // cookies and window.opener relationship survive. Explicitly tapped external
+        // links still leave the app according to the normal policy.
+        return isUserActivated ? disposition : .allow
+    }
 }
 
 @MainActor
@@ -154,7 +178,12 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 
     func dismissInteractiveWindow() {
         guard let interactiveWebView else { return }
-        discardAuxiliaryWebView(interactiveWebView)
+        let webViewsToDiscard = interactiveWebViewStack + [interactiveWebView]
+        self.interactiveWebView = nil
+        interactiveWebViewStack.removeAll()
+        for webView in webViewsToDiscard {
+            discardAuxiliaryWebView(webView)
+        }
     }
 
     func dismissInteractiveWindowError() {
@@ -237,7 +266,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
             let isUserActivated = WaniKaniURLPolicy.isUserActivated(
                 navigationAction.navigationType
             )
-            let disposition = WaniKaniURLPolicy.navigationDisposition(
+            let disposition = WaniKaniURLPolicy.auxiliaryNavigationDisposition(
                 for: navigationAction.request.url,
                 targetIsMainFrame: targetIsMainFrame,
                 isUserActivated: isUserActivated
@@ -275,6 +304,14 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
                 case .allow, .openBackgroundWindow, .openInteractiveWindow:
                     return .allow
                 }
+            }
+
+            if targetIsMainFrame == true,
+               disposition == .openExternally,
+               let url = navigationAction.request.url
+            {
+                await UIApplication.shared.open(url)
+                return .cancel
             }
 
             guard isWebContent else {
@@ -514,7 +551,7 @@ private struct WaniKaniInteractiveWindowView: View {
         NavigationStack {
             WaniKaniWebView(webView: webView)
                 .id(ObjectIdentifier(webView))
-                .navigationTitle("WaniKani")
+                .navigationTitle("Sign In")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {

@@ -128,6 +128,28 @@ final class WaniKaniURLPolicyTests: XCTestCase {
         XCTAssertFalse(WaniKaniURLPolicy.isUserActivated(.other))
     }
 
+    func testKeepsAutomaticAuxiliaryRedirectInWebKitContext() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.auxiliaryNavigationDisposition(
+                for: URL(string: "https://verify.example.com/complete"),
+                targetIsMainFrame: true,
+                isUserActivated: false
+            ),
+            .allow
+        )
+    }
+
+    func testOpensTappedExternalAuxiliaryLinkExternally() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.auxiliaryNavigationDisposition(
+                for: URL(string: "https://example.com/help"),
+                targetIsMainFrame: true,
+                isUserActivated: true
+            ),
+            .openExternally
+        )
+    }
+
     func testCancelsAutomaticCustomSchemeMainFrameNavigation() {
         XCTAssertEqual(
             WaniKaniURLPolicy.navigationDisposition(
