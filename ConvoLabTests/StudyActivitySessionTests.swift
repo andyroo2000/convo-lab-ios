@@ -5,6 +5,39 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
+    func testAnalyticsDurationsRespectSelectedCategories() {
+        let bucket = StudyTimeAnalyticsBucket(
+            startsAt: Date(timeIntervalSince1970: 1_700_000_000),
+            endsAt: Date(timeIntervalSince1970: 1_700_003_600),
+            totalMs: 6_000_000,
+            categories: [
+                StudyActivityCategory.review.rawValue: 1_800_000,
+                StudyActivityCategory.listen.rawValue: 3_000_000,
+                StudyActivityCategory.conversation.rawValue: 1_200_000,
+            ]
+        )
+        let analytics = StudyTimeAnalyticsRange(
+            key: .today,
+            startsAt: bucket.startsAt,
+            endsAt: bucket.endsAt,
+            totalMs: bucket.totalMs,
+            categories: bucket.categories,
+            buckets: [bucket]
+        )
+        let selection: Set<StudyActivityCategory> = [.review, .conversation]
+
+        XCTAssertEqual(bucket.duration(for: selection), 3_000_000)
+        XCTAssertEqual(analytics.duration(for: selection), 3_000_000)
+    }
+
+    func testAnalyticsRangesMapToExistingDrillDownViews() {
+        XCTAssertEqual(StudyTimeRange.year.drillDownTarget, .month)
+        XCTAssertEqual(StudyTimeRange.month.drillDownTarget, .today)
+        XCTAssertEqual(StudyTimeRange.week.drillDownTarget, .today)
+        XCTAssertNil(StudyTimeRange.today.drillDownTarget)
+        XCTAssertNil(StudyTimeRange.all.drillDownTarget)
+    }
+
     func testActivitiesMapToOnePrimaryCategory() {
         XCTAssertEqual(StudyActivityKind.cardReview.category, .review)
         XCTAssertEqual(StudyActivityKind.dailyAudio.category, .listen)

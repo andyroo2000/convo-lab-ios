@@ -7,6 +7,8 @@ struct StudyTimeView: View {
     @State private var showingEntry = false
     @State private var editingSession: StudyActivitySession?
     @State private var selectedRange: StudyTimeRange = .week
+    @State private var includedCategories = Set(StudyActivityCategory.allCases)
+    @State private var suppressNextHistoricalRangeReset = false
     @State private var analyticsDragOffset = CGFloat.zero
     @State private var analyticsCardWidth = CGFloat(360)
     @State private var isSettlingAnalyticsSwipe = false
@@ -39,6 +41,10 @@ struct StudyTimeView: View {
                         analyticsNavigationGeneration += 1
                         isSettlingAnalyticsSwipe = false
                         analyticsDragOffset = 0
+                        if suppressNextHistoricalRangeReset {
+                            suppressNextHistoricalRangeReset = false
+                            return
+                        }
                         // A range response already contains every span. Only fetch when a
                         // range switch intentionally returns a historical view to now.
                         guard let anchorDate = store.analytics?.anchorDate,
@@ -59,7 +65,11 @@ struct StudyTimeView: View {
                 } header: {
                     Text("Study Rhythm")
                 } footer: {
-                    Text("Audio drills count as Listen. iTalki and other lessons count as Conversation.")
+                    Text(
+                        "Double-tap a category to filter it out or bring it back. In Week, Month, and Year, "
+                            + "double-tap a bar to drill in. Audio drills count as Listen; "
+                            + "iTalki and other lessons count as Conversation."
+                    )
                 }
 
                 Section("Timer") {
@@ -245,7 +255,14 @@ struct StudyTimeView: View {
         _ analytics: StudyTimeAnalyticsRange,
         generatedAt: Date
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let drillDownAction: ((StudyTimeAnalyticsBucket) -> Void)? =
+            if analytics.key.drillDownTarget == nil {
+                nil
+            } else {
+                { bucket in drillDown(bucket) }
+            }
+
+        return VStack(alignment: .leading, spacing: 8) {
             if selectedRange != .all {
                 Text(periodLabel(analytics))
                     .font(.caption.weight(.semibold))
@@ -253,7 +270,39 @@ struct StudyTimeView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
-            StudyRhythmChart(analytics: analytics, generatedAt: generatedAt)
+            StudyRhythmChart(
+                analytics: analytics,
+                generatedAt: generatedAt,
+                includedCategories: includedCategories,
+                onToggleCategory: toggleCategory,
+                onDrillDown: drillDownAction
+            )
+        }
+    }
+
+    private func toggleCategory(_ category: StudyActivityCategory) {
+        guard !includedCategories.contains(category) || includedCategories.count > 1 else {
+            return
+        }
+        if includedCategories.contains(category) {
+            includedCategories.remove(category)
+        } else {
+            includedCategories.insert(category)
+        }
+    }
+
+    private func drillDown(_ bucket: StudyTimeAnalyticsBucket) {
+        guard let nextRange = selectedRange.drillDownTarget else { return }
+        analyticsNavigationGeneration += 1
+        let navigationGeneration = analyticsNavigationGeneration
+        isSettlingAnalyticsSwipe = false
+        analyticsDragOffset = 0
+
+        Task {
+            guard await store.loadAnalytics(anchorDate: bucket.startsAt) else { return }
+            guard analyticsNavigationGeneration == navigationGeneration else { return }
+            suppressNextHistoricalRangeReset = true
+            selectedRange = nextRange
         }
     }
 
@@ -474,6 +523,9 @@ struct StudyTimeView: View {
 private struct StudyRhythmChart: View {
     let analytics: StudyTimeAnalyticsRange
     let generatedAt: Date
+    let includedCategories: Set<StudyActivityCategory>
+    let onToggleCategory: (StudyActivityCategory) -> Void
+    let onDrillDown: ((StudyTimeAnalyticsBucket) -> Void)?
 
     private var elapsedDayCount: Int {
         let calendar = Calendar.current
@@ -489,7 +541,19 @@ private struct StudyRhythmChart: View {
     }
 
     private var bestBucket: StudyTimeAnalyticsBucket? {
-        analytics.buckets.max { $0.totalMs < $1.totalMs }
+        analytics.buckets
+            .filter { $0.duration(for: includedCategories) > 0 }
+            .max {
+                $0.duration(for: includedCategories) < $1.duration(for: includedCategories)
+            }
+    }
+
+    private var filteredTotal: Int {
+        analytics.duration(for: includedCategories)
+    }
+
+    private var includedCategoryList: [StudyActivityCategory] {
+        StudyActivityCategory.allCases.filter(includedCategories.contains)
     }
 
     private var chartDomain: ClosedRange<Date> {
@@ -512,8 +576,8 @@ private struct StudyRhythmChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                metric("Total", milliseconds: analytics.totalMs)
-                metric("Daily avg", milliseconds: analytics.totalMs / elapsedDayCount)
+                metric("Total", milliseconds: filteredTotal)
+                metric("Daily avg", milliseconds: filteredTotal / elapsedDayCount)
                 VStack(spacing: 4) {
                     Text("Best")
                         .font(.caption)
@@ -522,36 +586,52 @@ private struct StudyRhythmChart: View {
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Text("\(bestBucket.map { compactDuration($0.totalMs) } ?? "0m") total")
+                    Text(
+                        "\(bestBucket.map { compactDuration($0.duration(for: includedCategories)) } ?? "0m") total"
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
             }
 
-            Chart {
-                ForEach(analytics.buckets) { bucket in
-                    ForEach(StudyActivityCategory.allCases) { category in
-                        let milliseconds = bucket.duration(for: category)
-                        if milliseconds > 0 {
-                            BarMark(
-                                x: .value("Period", bucket.startsAt),
-                                y: .value("Minutes", Double(milliseconds) / 60_000)
-                            )
-                            .foregroundStyle(
-                                by: .value("Category", category.title)
-                            )
-                            .accessibilityLabel(
-                                "\(bestBucketLabel(bucket)), \(category.title)"
-                            )
-                            .accessibilityValue(compactDuration(milliseconds))
-                        }
+            analyticsChart
+                .frame(height: 210)
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(StudyActivityCategory.allCases) { category in
+                    legendItem(category)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var analyticsChart: some View {
+        Chart {
+            ForEach(analytics.buckets) { bucket in
+                ForEach(includedCategoryList) { category in
+                    let milliseconds = bucket.duration(for: category)
+                    if milliseconds > 0 {
+                        BarMark(
+                            x: .value("Period", bucket.startsAt),
+                            y: .value("Minutes", Double(milliseconds) / 60_000)
+                        )
+                        .foregroundStyle(by: .value("Category", category.title))
                     }
                 }
             }
+        }
             .chartForegroundStyleScale(
-                domain: StudyActivityCategory.allCases.map(\.title),
-                range: StudyActivityCategory.allCases.map(\.chartColor)
+                domain: includedCategoryList.map(\.title),
+                range: includedCategoryList.map(\.chartColor)
             )
             .chartLegend(.hidden)
             .chartYAxis {
@@ -578,32 +658,132 @@ private struct StudyRhythmChart: View {
                 domain: chartDomain,
                 range: .plotDimension(padding: 12)
             )
-            .frame(height: 210)
-
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                ],
-                alignment: .leading,
-                spacing: 8
-            ) {
-                ForEach(StudyActivityCategory.allCases) { category in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(category.chartColor)
-                            .frame(width: 8, height: 8)
-                        Text(category.title)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 2)
-                        Text(compactDuration(analytics.duration(for: category)))
-                            .monospacedDigit()
-                    }
-                    .font(.caption)
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .accessibilityHidden(true)
+                        .simultaneousGesture(
+                            SpatialTapGesture(count: 2)
+                                .onEnded { value in
+                                    handleChartDoubleTap(
+                                        at: value.location,
+                                        proxy: proxy,
+                                        geometry: geometry
+                                    )
+                                }
+                        )
                 }
             }
+            .accessibilityRepresentation {
+                VStack {
+                    ForEach(analytics.buckets) { bucket in
+                        bucketAccessibilityElement(bucket)
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func bucketAccessibilityElement(
+        _ bucket: StudyTimeAnalyticsBucket
+    ) -> some View {
+        if let onDrillDown {
+            Button(bestBucketLabel(bucket)) {
+                onDrillDown(bucket)
+            }
+            .accessibilityLabel(bucketAccessibilityLabel(bucket))
+            .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
+            .accessibilityHint("Double-tap to open this period")
+        } else {
+            Text(bestBucketLabel(bucket))
+                .accessibilityLabel(bucketAccessibilityLabel(bucket))
+                .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
         }
-        .padding(.vertical, 8)
+    }
+
+    private func bucketAccessibilityLabel(
+        _ bucket: StudyTimeAnalyticsBucket
+    ) -> String {
+        let categorySummary = includedCategoryList.compactMap { category in
+            let duration = bucket.duration(for: category)
+            return duration > 0 ? "\(category.title) \(compactDuration(duration))" : nil
+        }
+        return ([bestBucketLabel(bucket)] + categorySummary).joined(separator: ", ")
+    }
+
+    private func handleChartDoubleTap(
+        at location: CGPoint,
+        proxy: ChartProxy,
+        geometry: GeometryProxy
+    ) {
+        guard let onDrillDown,
+              let plotFrame = proxy.plotFrame
+        else {
+            return
+        }
+        let frame = geometry[plotFrame]
+        let xPosition = location.x - frame.minX
+        guard xPosition >= 0,
+              xPosition <= frame.width,
+              let date: Date = proxy.value(atX: xPosition),
+              let bucket = analytics.buckets.first(where: {
+                  date >= $0.startsAt && date < $0.endsAt
+              })
+        else {
+            return
+        }
+        onDrillDown(bucket)
+    }
+
+    private func legendItem(_ category: StudyActivityCategory) -> some View {
+        let included = includedCategories.contains(category)
+        let isOnlyIncludedCategory = included && includedCategories.count == 1
+
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(category.chartColor)
+                .frame(width: 10, height: 10)
+            Text(category.title)
+            Spacer(minLength: 2)
+            Text(compactDuration(analytics.duration(for: category)))
+                .monospacedDigit()
+        }
+        .font(.caption)
+        .foregroundStyle(included ? Color.primary : Color.secondary)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(
+            included
+                ? Color(uiColor: .secondarySystemBackground)
+                : Color.secondary.opacity(0.08),
+            in: Capsule()
+        )
+        .overlay {
+            Capsule()
+                .stroke(
+                    included ? category.chartColor : Color.secondary.opacity(0.2),
+                    lineWidth: included ? 2 : 1
+                )
+        }
+        .opacity(included ? 1 : 0.62)
+        .contentShape(Capsule())
+        .onTapGesture(count: 2) {
+            guard !isOnlyIncludedCategory else { return }
+            onToggleCategory(category)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(category.title)
+        .accessibilityValue(
+            "\(compactDuration(analytics.duration(for: category))), "
+                + (included ? "included" : "filtered out")
+        )
+        .accessibilityHint("Double-tap to toggle this category")
+        .accessibilityAction {
+            guard !isOnlyIncludedCategory else { return }
+            onToggleCategory(category)
+        }
     }
 
     private func axisLabel(_ date: Date) -> String {

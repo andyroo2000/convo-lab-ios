@@ -104,6 +104,17 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
         case .all: "All"
         }
     }
+
+    var drillDownTarget: StudyTimeRange? {
+        switch self {
+        case .year:
+            .month
+        case .week, .month:
+            .today
+        case .today, .all:
+            nil
+        }
+    }
 }
 
 struct StudyTimeAnalytics: Codable, Equatable {
@@ -130,6 +141,10 @@ struct StudyTimeAnalyticsRange: Codable, Equatable, Identifiable {
     func duration(for category: StudyActivityCategory) -> Int {
         categories[category.rawValue, default: 0]
     }
+
+    func duration(for selectedCategories: Set<StudyActivityCategory>) -> Int {
+        selectedCategories.reduce(0) { $0 + duration(for: $1) }
+    }
 }
 
 struct StudyTimeAnalyticsBucket: Codable, Equatable, Identifiable {
@@ -142,5 +157,9 @@ struct StudyTimeAnalyticsBucket: Codable, Equatable, Identifiable {
 
     func duration(for category: StudyActivityCategory) -> Int {
         categories[category.rawValue, default: 0]
+    }
+
+    func duration(for selectedCategories: Set<StudyActivityCategory>) -> Int {
+        selectedCategories.reduce(0) { $0 + duration(for: $1) }
     }
 }
