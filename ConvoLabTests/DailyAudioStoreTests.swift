@@ -137,6 +137,67 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertFalse(store.isLoading)
     }
 
+    func testSilentRefreshDoesNotClearADownloadError() async throws {
+        let track = dailyAudioTrack(updatedAt: .now)
+        let practice = DailyAudioPractice(
+            id: track.practiceId,
+            practiceDate: "2026-07-30",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now,
+            tracks: [track]
+        )
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/plain"]
+                )!,
+                Data()
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: practice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(practice)
+        ))
+        try container.mainContext.save()
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.download(practice)
+        let downloadError = try XCTUnwrap(store.errorMessage)
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"items":[],"total":0,"limit":14,"nextCursor":null}"#.utf8)
+            )
+        }
+
+        let refreshed = await store.refresh(showsErrors: false)
+
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(store.errorMessage, downloadError)
+    }
+
     func testRefreshIfNeededThrottlesRecentSuccessfulRefresh() async throws {
         let requestCount = LockedCounter()
         let client = makeClient { request in

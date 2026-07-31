@@ -3,11 +3,21 @@ import SwiftData
 
 @Observable
 final class DailyAudioStore {
+    private enum ErrorSource: Equatable {
+        case refresh
+        case loadMore
+        case create
+        case download(String)
+        case playback(String)
+    }
+
     private let api: APIClient
     private let context: ModelContext
     private let mediaCache: MediaCache
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var generationPollingTask: Task<Void, Never>?
+    @ObservationIgnored private var generationPollingID: UUID?
+    @ObservationIgnored private var errorSource: ErrorSource?
 
     private(set) var practices: [DailyAudioPractice] = []
     private(set) var isLoading = false
@@ -41,9 +51,13 @@ final class DailyAudioStore {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        generationPollingTask?.cancel()
+        generationPollingTask = nil
+        generationPollingID = nil
         activeUserID = userID
         mediaCache.activate(userID: userID)
         errorMessage = nil
+        errorSource = nil
         generationStartWasInterrupted = false
         lastRefreshAt = nil
         downloadingTrackIDs = []
@@ -58,8 +72,10 @@ final class DailyAudioStore {
         activeUserID = nil
         generationPollingTask?.cancel()
         generationPollingTask = nil
+        generationPollingID = nil
         practices = []
         errorMessage = nil
+        errorSource = nil
         generationStartWasInterrupted = false
         lastRefreshAt = nil
         isLoading = false
@@ -94,7 +110,9 @@ final class DailyAudioStore {
             return false
         }
         isLoading = true
-        errorMessage = nil
+        if showsErrors {
+            clearError(from: .refresh)
+        }
         defer { isLoading = false }
         do {
             let response: DailyAudioPracticePage = try await api.request(
@@ -114,16 +132,17 @@ final class DailyAudioStore {
             generationStartWasInterrupted = false
             lastRefreshAt = .now
             beginGenerationPollingIfNeeded()
+            clearError(from: .refresh)
             return true
         } catch {
             guard activeUserID == userID else { return false }
             if showsErrors {
                 if Self.isCancellation(error) {
-                    errorMessage = practices.contains(where: { $0.status == "generating" })
+                    setError(practices.contains(where: { $0.status == "generating" })
                         ? "Refresh was interrupted. Audio generation continues on the server."
-                        : "Daily Audio refresh was interrupted. Try again."
+                        : "Daily Audio refresh was interrupted. Try again.", from: .refresh)
                 } else {
-                    errorMessage = error.localizedDescription
+                    setError(error.localizedDescription, from: .refresh)
                 }
             }
             return false
@@ -172,10 +191,10 @@ final class DailyAudioStore {
             nextCursor = response.nextCursor
             try persist(response.items, userID: userID)
             refreshDownloadedTrackIDs(for: newPractices)
-            errorMessage = nil
+            clearError(from: .loadMore)
         } catch {
             guard activeUserID == userID else { return }
-            errorMessage = error.localizedDescription
+            setError(error.localizedDescription, from: .loadMore)
         }
     }
 
@@ -188,10 +207,11 @@ final class DailyAudioStore {
             return
         }
         isLoading = true
-        errorMessage = nil
+        clearError(from: .create)
         defer { isLoading = false }
         do {
-            // The create endpoint shares the direct compatibility payload used by list/show.
+            // The backend upserts by user and practice date, so retrying an interrupted
+            // response requeues today's existing practice rather than creating a duplicate.
             let response: DailyAudioPractice = try await api.request(
                 "/api/daily-audio-practice",
                 method: "POST",
@@ -211,13 +231,14 @@ final class DailyAudioStore {
             refreshDownloadedTrackIDs(for: [response])
             generationStartWasInterrupted = false
             beginGenerationPollingIfNeeded()
+            clearError(from: .create)
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
                 generationStartWasInterrupted = true
-                errorMessage = "Generation was interrupted. You can retry it."
+                setError("Generation was interrupted. You can retry it.", from: .create)
             } else {
-                errorMessage = error.localizedDescription
+                setError(error.localizedDescription, from: .create)
             }
         }
     }
@@ -226,14 +247,14 @@ final class DailyAudioStore {
         guard
             let userID = activeUserID,
             practices.contains(where: { $0.id == practice.id }),
-            practiceDownloadProgress[practice.id] == nil,
+            practiceDownloadProgress.isEmpty,
             !isDownloaded(practice)
         else {
             return
         }
         let downloadableTracks = downloadableTracks(in: practice)
         guard !downloadableTracks.isEmpty else { return }
-        errorMessage = nil
+        clearError(from: .download(practice.id))
         refreshDownloadedTrackIDs(for: [practice])
         updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         defer {
@@ -281,7 +302,11 @@ final class DailyAudioStore {
                 firstError = firstError ?? downloadError
             }
         }
-        errorMessage = firstError
+        if let firstError {
+            setError(firstError, from: .download(practice.id))
+        } else {
+            clearError(from: .download(practice.id))
+        }
     }
 
     func isDownloaded(_ track: DailyAudioTrack) -> Bool {
@@ -331,10 +356,11 @@ final class DailyAudioStore {
             practices.append(practice)
             practices = orderedPractices(practices)
             try persist([practice], userID: userID)
+            clearError(from: .playback(track.id))
             return detailedTrack
         } catch {
             guard activeUserID == userID else { return nil }
-            errorMessage = error.localizedDescription
+            setError(error.localizedDescription, from: .playback(track.id))
             return nil
         }
     }
@@ -352,6 +378,7 @@ final class DailyAudioStore {
         let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
             downloadedTrackIDs.insert(track.id)
+            clearError(from: .playback(track.id))
             return local
         }
         downloadingTrackIDs.insert(track.id)
@@ -368,7 +395,7 @@ final class DailyAudioStore {
             return local
         } catch {
             guard activeUserID == userID else { return nil }
-            errorMessage = error.localizedDescription
+            setError(error.localizedDescription, from: .playback(track.id))
             return nil
         }
     }
@@ -520,9 +547,16 @@ final class DailyAudioStore {
             return
         }
         let userID = activeUserID
+        let pollingID = UUID()
+        generationPollingID = pollingID
         generationPollingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { generationPollingTask = nil }
+            defer {
+                if generationPollingID == pollingID {
+                    generationPollingTask = nil
+                    generationPollingID = nil
+                }
+            }
             var delay: TimeInterval = 5
             while !Task.isCancelled,
                   activeUserID == userID,
@@ -533,6 +567,17 @@ final class DailyAudioStore {
                 delay = refreshed ? 5 : min(delay * 2, 60)
             }
         }
+    }
+
+    private func setError(_ message: String, from source: ErrorSource) {
+        errorMessage = message
+        errorSource = source
+    }
+
+    private func clearError(from source: ErrorSource) {
+        guard errorSource == source else { return }
+        errorMessage = nil
+        errorSource = nil
     }
 }
 
