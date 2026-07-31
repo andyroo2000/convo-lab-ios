@@ -629,6 +629,7 @@ struct DailyAudioView: View {
         if startRequestWasInterrupted {
             return true
         }
+        // This conservative fallback exceeds the backend generation job timeout.
         return referenceDate.timeIntervalSince(practice.updatedAt) >= 90 * 60
     }
 

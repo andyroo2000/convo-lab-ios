@@ -105,7 +105,9 @@ final class AppModel {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
-            async let dailyAudioRefresh: Void = dailyAudio.refresh()
+            async let dailyAudioRefresh: Void = dailyAudio.refreshIfNeeded(
+                maxAge: .seconds(60)
+            )
             async let timeSync: Void = studyTime.synchronize()
             _ = await (studySync, dailyAudioRefresh, timeSync)
         }

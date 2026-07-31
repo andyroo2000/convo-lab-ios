@@ -15,6 +15,7 @@ final class DailyAudioStore {
     private(set) var nextCursor: String?
     private(set) var errorMessage: String?
     private(set) var generationStartWasInterrupted = false
+    private(set) var lastRefreshAt: Date?
     private(set) var downloadedTrackIDs: Set<String> = []
     private(set) var downloadingTrackIDs: Set<String> = []
     private(set) var practiceDownloadProgress: [String: Double] = [:]
@@ -42,6 +43,7 @@ final class DailyAudioStore {
         activeUserID = userID
         mediaCache.activate(userID: userID)
         errorMessage = nil
+        lastRefreshAt = nil
         loadLocal(userID: userID)
         total = practices.count
         refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
@@ -52,6 +54,7 @@ final class DailyAudioStore {
         practices = []
         errorMessage = nil
         generationStartWasInterrupted = false
+        lastRefreshAt = nil
         isLoading = false
         isLoadingMore = false
         total = 0
@@ -75,7 +78,13 @@ final class DailyAudioStore {
     }
 
     func refresh() async {
-        guard let userID = activeUserID else { return }
+        guard
+            let userID = activeUserID,
+            !isLoading,
+            !isLoadingMore
+        else {
+            return
+        }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -95,6 +104,7 @@ final class DailyAudioStore {
             try persist(response.items, userID: userID)
             refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
             generationStartWasInterrupted = false
+            lastRefreshAt = .now
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
@@ -105,6 +115,18 @@ final class DailyAudioStore {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func refreshIfNeeded(maxAge: Duration) async {
+        guard !isLoading, !isLoadingMore else { return }
+        let components = maxAge.components
+        let maxAgeSeconds = TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        if let lastRefreshAt,
+           Date.now.timeIntervalSince(lastRefreshAt) < maxAgeSeconds {
+            return
+        }
+        await refresh()
     }
 
     func loadMore() async {
@@ -145,7 +167,13 @@ final class DailyAudioStore {
     }
 
     func create() async {
-        guard let userID = activeUserID else { return }
+        guard
+            let userID = activeUserID,
+            !isLoading,
+            !isLoadingMore
+        else {
+            return
+        }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
