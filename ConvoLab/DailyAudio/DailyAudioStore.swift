@@ -46,6 +46,8 @@ final class DailyAudioStore {
         errorMessage = nil
         generationStartWasInterrupted = false
         lastRefreshAt = nil
+        downloadingTrackIDs = []
+        practiceDownloadProgress = [:]
         loadLocal(userID: userID)
         total = practices.count
         refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
@@ -82,13 +84,14 @@ final class DailyAudioStore {
         try context.save()
     }
 
-    func refresh(showsCancellationErrors: Bool = true) async {
+    @discardableResult
+    func refresh(showsErrors: Bool = true) async -> Bool {
         guard
             let userID = activeUserID,
             !isLoading,
             !isLoadingMore
         else {
-            return
+            return false
         }
         isLoading = true
         errorMessage = nil
@@ -102,7 +105,7 @@ final class DailyAudioStore {
                     URLQueryItem(name: "limit", value: "14"),
                 ]
             )
-            guard activeUserID == userID else { return }
+            guard activeUserID == userID else { return false }
             practices = orderedPractices(response.items)
             total = response.total
             nextCursor = response.nextCursor
@@ -111,17 +114,19 @@ final class DailyAudioStore {
             generationStartWasInterrupted = false
             lastRefreshAt = .now
             beginGenerationPollingIfNeeded()
+            return true
         } catch {
-            guard activeUserID == userID else { return }
-            if Self.isCancellation(error) {
-                if showsCancellationErrors {
+            guard activeUserID == userID else { return false }
+            if showsErrors {
+                if Self.isCancellation(error) {
                     errorMessage = practices.contains(where: { $0.status == "generating" })
                         ? "Refresh was interrupted. Audio generation continues on the server."
                         : "Daily Audio refresh was interrupted. Try again."
+                } else {
+                    errorMessage = error.localizedDescription
                 }
-            } else {
-                errorMessage = error.localizedDescription
             }
+            return false
         }
     }
 
@@ -134,7 +139,7 @@ final class DailyAudioStore {
            Date.now.timeIntervalSince(lastRefreshAt) < maxAgeSeconds {
             return
         }
-        await refresh(showsCancellationErrors: false)
+        await refresh(showsErrors: false)
     }
 
     func loadMore() async {
@@ -242,6 +247,7 @@ final class DailyAudioStore {
         let downloadTasks = pendingTracks.map { track in
             Task { @MainActor [weak self] in
                 guard let self else { return (track, nil as String?) }
+                guard activeUserID == userID else { return (track, nil) }
                 guard let raw = track.audioUrl, let remote = URL(string: raw) else {
                     downloadingTrackIDs.remove(track.id)
                     updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
@@ -262,6 +268,7 @@ final class DailyAudioStore {
                 } catch {
                     downloadError = Self.isCancellation(error) ? nil : error.localizedDescription
                 }
+                guard activeUserID == userID else { return (track, nil) }
                 downloadingTrackIDs.remove(track.id)
                 updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
                 return (track, downloadError)
@@ -516,12 +523,14 @@ final class DailyAudioStore {
         generationPollingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { generationPollingTask = nil }
+            var delay: TimeInterval = 5
             while !Task.isCancelled,
                   activeUserID == userID,
                   practices.contains(where: { $0.status == "generating" }) {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
-                await refresh(showsCancellationErrors: false)
+                let refreshed = await refresh(showsErrors: false)
+                delay = refreshed ? 5 : min(delay * 2, 60)
             }
         }
     }

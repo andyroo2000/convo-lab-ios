@@ -184,7 +184,7 @@ final class AppModel {
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
-        async let audioRefresh: Void = dailyAudio.refresh()
+        async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         _ = await (studySync, audioRefresh, timeSync)
     }

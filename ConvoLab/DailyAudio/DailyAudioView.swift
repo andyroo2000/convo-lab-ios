@@ -113,7 +113,7 @@ struct DailyAudioView: View {
             .paperBackground()
             .navigationTitle("Daily Audio")
             .refreshable {
-                await store.refresh()
+                _ = await store.refresh()
             }
             .onChange(of: store.practices.map(\.id), initial: true) { _, ids in
                 if selectedPracticeID == nil || !ids.contains(selectedPracticeID ?? "") {

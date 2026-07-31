@@ -114,6 +114,29 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertFalse(store.isLoading)
     }
 
+    func testSilentRefreshSuppressesTimeoutErrors() async throws {
+        let client = makeClient { _ in
+            throw URLError(.timedOut)
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refreshed = await store.refresh(showsErrors: false)
+
+        XCTAssertFalse(refreshed)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.isLoading)
+    }
+
     func testRefreshIfNeededThrottlesRecentSuccessfulRefresh() async throws {
         let requestCount = LockedCounter()
         let client = makeClient { request in
