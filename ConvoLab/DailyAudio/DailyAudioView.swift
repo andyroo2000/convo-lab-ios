@@ -20,6 +20,7 @@ struct DailyAudioView: View {
     @State private var selectedPlayerTrack: DailyAudioTrack?
 
     private let dayCardSpacing = CGFloat(16)
+    private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
 
     private var selectedPractice: DailyAudioPractice? {
         guard let selectedPracticeID else { return store.practices.first }
@@ -164,7 +165,9 @@ struct DailyAudioView: View {
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
             Button {
-                if todayPractice == nil || todayGenerationCanRetry {
+                if todayPractice == nil
+                    || (todayGenerationCanRetry && todayPractice?.status == "generating")
+                {
                     Task { await store.create() }
                 } else {
                     confirmingRegeneration = true
@@ -630,7 +633,8 @@ struct DailyAudioView: View {
         }
         guard practice.status == "generating" else { return false }
         // This conservative fallback exceeds the backend generation job timeout.
-        return referenceDate.timeIntervalSince(practice.updatedAt) >= 90 * 60
+        return referenceDate.timeIntervalSince(practice.updatedAt)
+            >= staleGenerationRetryInterval
     }
 
     private static var todayPracticeDate: String {

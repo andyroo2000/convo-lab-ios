@@ -114,6 +114,51 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertFalse(store.isLoading)
     }
 
+    func testRefreshIfNeededThrottlesRecentSuccessfulRefresh() async throws {
+        let requestCount = LockedCounter()
+        let client = makeClient { request in
+            requestCount.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "items": [],
+                      "total": 0,
+                      "limit": 14,
+                      "nextCursor": null
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshIfNeeded(maxAge: .seconds(60))
+        await store.refreshIfNeeded(maxAge: .seconds(60))
+
+        XCTAssertEqual(requestCount.current, 1)
+
+        await store.refreshIfNeeded(maxAge: .zero)
+
+        XCTAssertEqual(requestCount.current, 2)
+    }
+
     func testRelativePracticeDateNamesTodayAndNearbyDays() throws {
         let formatter = DateFormatter()
         formatter.calendar = .current
