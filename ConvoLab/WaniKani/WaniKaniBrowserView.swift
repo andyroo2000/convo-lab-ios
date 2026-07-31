@@ -88,6 +88,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 {
     static let idleInterval: TimeInterval = 5 * 60
     private static let maximumBackgroundWebViews = 2
+    private static let maximumStackedInteractiveWebViews = 3
 
     let webView: WKWebView
     private(set) var currentURL: URL?
@@ -227,7 +228,14 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         if webView !== self.webView {
             let scheme = navigationAction.request.url?.scheme?.lowercased()
             let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
-            guard isWebContent else { return .cancel }
+            guard isWebContent else {
+                if isInteractiveAuxiliaryWebView(webView),
+                   let url = navigationAction.request.url
+                {
+                    await UIApplication.shared.open(url)
+                }
+                return .cancel
+            }
             if interactiveWebView !== webView,
                scheme != "about",
                !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
@@ -363,8 +371,16 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         interactiveWebViewStack.removeAll { $0 === webView }
         if let interactiveWebView {
             interactiveWebViewStack.append(interactiveWebView)
+            while interactiveWebViewStack.count > Self.maximumStackedInteractiveWebViews {
+                let oldestWebView = interactiveWebViewStack.removeFirst()
+                discardAuxiliaryWebView(oldestWebView)
+            }
         }
         interactiveWebView = webView
+    }
+
+    private func isInteractiveAuxiliaryWebView(_ webView: WKWebView) -> Bool {
+        interactiveWebView === webView || interactiveWebViewStack.contains { $0 === webView }
     }
 
     private static let activityBridgeScript = """
