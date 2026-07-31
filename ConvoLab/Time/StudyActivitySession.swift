@@ -104,6 +104,17 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
         case .all: "All"
         }
     }
+
+    var drillDownTarget: StudyTimeRange? {
+        switch self {
+        case .year:
+            .month
+        case .week, .month:
+            .today
+        case .today, .all:
+            nil
+        }
+    }
 }
 
 struct StudyTimeAnalytics: Codable, Equatable {

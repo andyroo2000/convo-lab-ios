@@ -256,7 +256,7 @@ struct StudyTimeView: View {
         generatedAt: Date
     ) -> some View {
         let drillDownAction: ((StudyTimeAnalyticsBucket) -> Void)? =
-            if drillDownTarget(for: analytics.key) == nil {
+            if analytics.key.drillDownTarget == nil {
                 nil
             } else {
                 { bucket in drillDown(bucket) }
@@ -291,19 +291,8 @@ struct StudyTimeView: View {
         }
     }
 
-    private func drillDownTarget(for range: StudyTimeRange) -> StudyTimeRange? {
-        switch range {
-        case .year:
-            .month
-        case .week, .month:
-            .today
-        case .today, .all:
-            nil
-        }
-    }
-
     private func drillDown(_ bucket: StudyTimeAnalyticsBucket) {
-        guard let nextRange = drillDownTarget(for: selectedRange) else { return }
+        guard let nextRange = selectedRange.drillDownTarget else { return }
         analyticsNavigationGeneration += 1
         isSettlingAnalyticsSwipe = false
         analyticsDragOffset = 0
@@ -625,25 +614,23 @@ private struct StudyRhythmChart: View {
 
     private var analyticsChart: some View {
         Chart {
-                ForEach(analytics.buckets) { bucket in
-                    ForEach(includedCategoryList) { category in
-                        let milliseconds = bucket.duration(for: category)
-                        if milliseconds > 0 {
-                            BarMark(
-                                x: .value("Period", bucket.startsAt),
-                                y: .value("Minutes", Double(milliseconds) / 60_000)
-                            )
-                            .foregroundStyle(
-                                by: .value("Category", category.title)
-                            )
-                            .accessibilityLabel(
-                                "\(bestBucketLabel(bucket)), \(category.title)"
-                            )
-                            .accessibilityValue(compactDuration(milliseconds))
-                        }
+            ForEach(analytics.buckets) { bucket in
+                ForEach(includedCategoryList) { category in
+                    let milliseconds = bucket.duration(for: category)
+                    if milliseconds > 0 {
+                        BarMark(
+                            x: .value("Period", bucket.startsAt),
+                            y: .value("Minutes", Double(milliseconds) / 60_000)
+                        )
+                        .foregroundStyle(by: .value("Category", category.title))
+                        .accessibilityLabel(
+                            "\(bestBucketLabel(bucket)), \(category.title)"
+                        )
+                        .accessibilityValue(compactDuration(milliseconds))
                     }
                 }
             }
+        }
             .chartForegroundStyleScale(
                 domain: includedCategoryList.map(\.title),
                 range: includedCategoryList.map(\.chartColor)
@@ -677,6 +664,7 @@ private struct StudyRhythmChart: View {
                 GeometryReader { geometry in
                     Color.clear
                         .contentShape(Rectangle())
+                        .accessibilityHidden(true)
                         .simultaneousGesture(
                             SpatialTapGesture(count: 2)
                                 .onEnded { value in
@@ -687,6 +675,15 @@ private struct StudyRhythmChart: View {
                                     )
                                 }
                         )
+                }
+            }
+            .accessibilityActions {
+                if let onDrillDown {
+                    ForEach(analytics.buckets) { bucket in
+                        Button("Open \(bestBucketLabel(bucket))") {
+                            onDrillDown(bucket)
+                        }
+                    }
                 }
             }
     }

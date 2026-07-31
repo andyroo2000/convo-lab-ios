@@ -30,6 +30,14 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(analytics.duration(for: selection), 3_000_000)
     }
 
+    func testAnalyticsRangesMapToExistingDrillDownViews() {
+        XCTAssertEqual(StudyTimeRange.year.drillDownTarget, .month)
+        XCTAssertEqual(StudyTimeRange.month.drillDownTarget, .today)
+        XCTAssertEqual(StudyTimeRange.week.drillDownTarget, .today)
+        XCTAssertNil(StudyTimeRange.today.drillDownTarget)
+        XCTAssertNil(StudyTimeRange.all.drillDownTarget)
+    }
+
     func testActivitiesMapToOnePrimaryCategory() {
         XCTAssertEqual(StudyActivityKind.cardReview.category, .review)
         XCTAssertEqual(StudyActivityKind.dailyAudio.category, .listen)
