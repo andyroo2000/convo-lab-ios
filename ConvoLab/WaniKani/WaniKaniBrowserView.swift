@@ -308,22 +308,14 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 
             if targetIsMainFrame == true,
                disposition == .openExternally,
+               isInteractiveAuxiliaryWebView(webView),
                let url = navigationAction.request.url
             {
                 await UIApplication.shared.open(url)
                 return .cancel
             }
 
-            guard isWebContent else {
-                if isInteractiveAuxiliaryWebView(webView),
-                   targetIsMainFrame == true,
-                   disposition == .openExternally,
-                   let url = navigationAction.request.url
-                {
-                    await UIApplication.shared.open(url)
-                }
-                return .cancel
-            }
+            guard isWebContent else { return .cancel }
             if targetIsMainFrame == true,
                interactiveWebView !== webView,
                scheme != "about",
