@@ -164,6 +164,9 @@ struct DailyAudioView: View {
                 .foregroundStyle(ConvoLabTheme.navy)
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
+            if let todayPractice, todayPractice.status == "generating" {
+                generationProgress(todayPractice)
+            }
             Button {
                 if todayPractice == nil
                     || (todayGenerationCanRetry && todayPractice?.status == "generating")
@@ -185,6 +188,24 @@ struct DailyAudioView: View {
         }
         .padding()
         .background(ConvoLabTheme.cyan.opacity(0.16), in: .rect(cornerRadius: 20))
+    }
+
+    private func generationProgress(_ practice: DailyAudioPractice) -> some View {
+        let completed = practice.tracks.filter { $0.status == "ready" }.count
+        let total = practice.tracks.count
+        return VStack(alignment: .leading, spacing: 6) {
+            if total > 0 {
+                ProgressView(value: Double(completed), total: Double(total))
+            } else {
+                ProgressView()
+            }
+            Text(total > 0
+                ? "Generating audio… \(completed) of \(total) tracks ready"
+                : "Preparing today’s audio…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func swipeablePracticeStack(_ practice: DailyAudioPractice) -> some View {

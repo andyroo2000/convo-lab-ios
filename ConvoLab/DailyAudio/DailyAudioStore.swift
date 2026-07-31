@@ -7,6 +7,7 @@ final class DailyAudioStore {
     private let context: ModelContext
     private let mediaCache: MediaCache
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var generationPollingTask: Task<Void, Never>?
 
     private(set) var practices: [DailyAudioPractice] = []
     private(set) var isLoading = false
@@ -48,10 +49,13 @@ final class DailyAudioStore {
         loadLocal(userID: userID)
         total = practices.count
         refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
+        beginGenerationPollingIfNeeded()
     }
 
     func deactivate() {
         activeUserID = nil
+        generationPollingTask?.cancel()
+        generationPollingTask = nil
         practices = []
         errorMessage = nil
         generationStartWasInterrupted = false
@@ -106,6 +110,7 @@ final class DailyAudioStore {
             refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
             generationStartWasInterrupted = false
             lastRefreshAt = .now
+            beginGenerationPollingIfNeeded()
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
@@ -200,6 +205,7 @@ final class DailyAudioStore {
             try persist([response], userID: userID)
             refreshDownloadedTrackIDs(for: [response])
             generationStartWasInterrupted = false
+            beginGenerationPollingIfNeeded()
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
@@ -222,6 +228,7 @@ final class DailyAudioStore {
         }
         let downloadableTracks = downloadableTracks(in: practice)
         guard !downloadableTracks.isEmpty else { return }
+        errorMessage = nil
         refreshDownloadedTrackIDs(for: [practice])
         updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         defer {
@@ -229,30 +236,45 @@ final class DailyAudioStore {
             practiceDownloadProgress[practice.id] = nil
         }
 
-        for track in downloadableTracks {
-            guard activeUserID == userID else { return }
-            guard let raw = track.audioUrl, let remote = URL(string: raw) else { continue }
-            if downloadedTrackIDs.contains(track.id) {
-                continue
+        let pendingTracks = downloadableTracks.filter { !downloadedTrackIDs.contains($0.id) }
+        downloadingTrackIDs.formUnion(pendingTracks.map(\.id))
+        var firstError: String?
+        let downloadTasks = pendingTracks.map { track in
+            Task { @MainActor [weak self] in
+                guard let self else { return (track, nil as String?) }
+                guard let raw = track.audioUrl, let remote = URL(string: raw) else {
+                    downloadingTrackIDs.remove(track.id)
+                    updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
+                    return (track, "The audio download URL is invalid.")
+                }
+                let downloadError: String?
+                do {
+                    let cacheKey = cacheKey(for: track)
+                    _ = try await mediaCache.download(
+                        remote,
+                        category: "daily-audio",
+                        cacheKey: cacheKey
+                    )
+                    guard activeUserID == userID else { return (track, nil) }
+                    try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
+                    downloadedTrackIDs.insert(track.id)
+                    downloadError = nil
+                } catch {
+                    downloadError = Self.isCancellation(error) ? nil : error.localizedDescription
+                }
+                downloadingTrackIDs.remove(track.id)
+                updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
+                return (track, downloadError)
             }
-            downloadingTrackIDs.insert(track.id)
-            do {
-                let cacheKey = cacheKey(for: track)
-                _ = try await mediaCache.download(
-                    remote,
-                    category: "daily-audio",
-                    cacheKey: cacheKey
-                )
-                guard activeUserID == userID else { return }
-                try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
-                downloadedTrackIDs.insert(track.id)
-            } catch {
-                guard activeUserID == userID else { return }
-                errorMessage = error.localizedDescription
-            }
-            downloadingTrackIDs.remove(track.id)
-            updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         }
+        for task in downloadTasks {
+            let (_, downloadError) = await task.value
+            guard activeUserID == userID else { return }
+            if let downloadError {
+                firstError = firstError ?? downloadError
+            }
+        }
+        errorMessage = firstError
     }
 
     func isDownloaded(_ track: DailyAudioTrack) -> Bool {
@@ -482,6 +504,26 @@ final class DailyAudioStore {
     private static func isCancellation(_ error: Error) -> Bool {
         error is CancellationError
             || (error as? URLError)?.code == .cancelled
+    }
+
+    private func beginGenerationPollingIfNeeded() {
+        guard generationPollingTask == nil,
+              practices.contains(where: { $0.status == "generating" })
+        else {
+            return
+        }
+        let userID = activeUserID
+        generationPollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { generationPollingTask = nil }
+            while !Task.isCancelled,
+                  activeUserID == userID,
+                  practices.contains(where: { $0.status == "generating" }) {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                await refresh(showsCancellationErrors: false)
+            }
+        }
     }
 }
 

@@ -209,7 +209,23 @@ struct DailyAudioPlayerView: View {
                 .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 42) {
+            HStack(spacing: 24) {
+                Button {
+                    player.toggleRepeat()
+                } label: {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(player.isRepeating ? .white : ConvoLabTheme.navy)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            player.isRepeating ? ConvoLabTheme.navy : .clear,
+                            in: .circle
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(player.isRepeating ? "Disable Repeat" : "Repeat Track")
+                .accessibilityAddTraits(player.isRepeating ? .isSelected : [])
+
                 seekButton(offset: -15, systemImage: "gobackward.15")
 
                 Button {

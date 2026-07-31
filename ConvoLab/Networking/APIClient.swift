@@ -99,6 +99,7 @@ final class APIClient {
             url = rawURL
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 300
         if let accessToken, isSameOrigin(url, baseURL) {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }

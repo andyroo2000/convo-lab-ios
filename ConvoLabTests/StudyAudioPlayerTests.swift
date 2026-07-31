@@ -39,4 +39,9 @@ final class StudyAudioPlayerTests: XCTestCase {
             )
         )
     }
+
+    func testLongFormPlayerRepeatCanBeToggled() {
+        XCTAssertTrue(AudioPlayer.toggledRepeatState(false))
+        XCTAssertFalse(AudioPlayer.toggledRepeatState(true))
+    }
 }
