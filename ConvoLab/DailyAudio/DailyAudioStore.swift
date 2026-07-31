@@ -14,7 +14,7 @@ final class DailyAudioStore {
     private(set) var total = 0
     private(set) var nextCursor: String?
     private(set) var errorMessage: String?
-    private(set) var generationRequestWasInterrupted = false
+    private(set) var generationStartWasInterrupted = false
     private(set) var downloadedTrackIDs: Set<String> = []
     private(set) var downloadingTrackIDs: Set<String> = []
     private(set) var practiceDownloadProgress: [String: Double] = [:]
@@ -51,7 +51,7 @@ final class DailyAudioStore {
         activeUserID = nil
         practices = []
         errorMessage = nil
-        generationRequestWasInterrupted = false
+        generationStartWasInterrupted = false
         isLoading = false
         isLoadingMore = false
         total = 0
@@ -94,15 +94,13 @@ final class DailyAudioStore {
             nextCursor = response.nextCursor
             try persist(response.items, userID: userID)
             refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
-            if !practices.contains(where: { $0.status == "generating" }) {
-                generationRequestWasInterrupted = false
-            }
+            generationStartWasInterrupted = false
         } catch {
             guard activeUserID == userID else { return }
-            if Self.isCancellation(error),
-               practices.contains(where: { $0.status == "generating" }) {
-                generationRequestWasInterrupted = true
-                errorMessage = "Daily Audio refresh was interrupted. You can retry generation."
+            if Self.isCancellation(error) {
+                errorMessage = practices.contains(where: { $0.status == "generating" })
+                    ? "Refresh was interrupted. Audio generation continues on the server."
+                    : "Daily Audio refresh was interrupted. Try again."
             } else {
                 errorMessage = error.localizedDescription
             }
@@ -170,11 +168,11 @@ final class DailyAudioStore {
             }
             try persist([response], userID: userID)
             refreshDownloadedTrackIDs(for: [response])
-            generationRequestWasInterrupted = false
+            generationStartWasInterrupted = false
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
-                generationRequestWasInterrupted = true
+                generationStartWasInterrupted = true
                 errorMessage = "Generation was interrupted. You can retry it."
             } else {
                 errorMessage = error.localizedDescription

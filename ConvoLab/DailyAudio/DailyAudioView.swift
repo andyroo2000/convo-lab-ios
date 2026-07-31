@@ -39,7 +39,7 @@ struct DailyAudioView: View {
         guard let todayPractice else { return false }
         return Self.canRetryGeneration(
             todayPractice,
-            requestWasInterrupted: store.generationRequestWasInterrupted
+            startRequestWasInterrupted: store.generationStartWasInterrupted
         )
     }
 
@@ -622,11 +622,11 @@ struct DailyAudioView: View {
 
     static func canRetryGeneration(
         _ practice: DailyAudioPractice,
-        requestWasInterrupted: Bool,
+        startRequestWasInterrupted: Bool,
         relativeTo referenceDate: Date = .now
     ) -> Bool {
         guard practice.status == "generating" else { return false }
-        if requestWasInterrupted {
+        if startRequestWasInterrupted {
             return true
         }
         return referenceDate.timeIntervalSince(practice.updatedAt) >= 90 * 60

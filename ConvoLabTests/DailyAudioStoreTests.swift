@@ -19,21 +19,21 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertTrue(
             DailyAudioView.canRetryGeneration(
                 recent,
-                requestWasInterrupted: true,
+                startRequestWasInterrupted: true,
                 relativeTo: now
             )
         )
         XCTAssertFalse(
             DailyAudioView.canRetryGeneration(
                 recent,
-                requestWasInterrupted: false,
+                startRequestWasInterrupted: false,
                 relativeTo: now
             )
         )
         XCTAssertTrue(
             DailyAudioView.canRetryGeneration(
                 stale,
-                requestWasInterrupted: false,
+                startRequestWasInterrupted: false,
                 relativeTo: now
             )
         )
@@ -57,10 +57,48 @@ final class DailyAudioStoreTests: XCTestCase {
 
         await store.create()
 
-        XCTAssertTrue(store.generationRequestWasInterrupted)
+        XCTAssertTrue(store.generationStartWasInterrupted)
         XCTAssertEqual(
             store.errorMessage,
             "Generation was interrupted. You can retry it."
+        )
+        XCTAssertFalse(store.isLoading)
+    }
+
+    func testCancelledRefreshDoesNotMarkHealthyGenerationForRetry() async throws {
+        let client = makeClient { _ in
+            throw URLError(.cancelled)
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let practice = dailyAudioPractice(
+            status: "generating",
+            updatedAt: .now
+        )
+        container.mainContext.insert(
+            LocalDailyAudioPractice(
+                practice: practice,
+                userID: 1,
+                payload: try StorageCodec.encoder.encode(practice)
+            )
+        )
+        try container.mainContext.save()
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refresh()
+
+        XCTAssertFalse(store.generationStartWasInterrupted)
+        XCTAssertEqual(
+            store.errorMessage,
+            "Refresh was interrupted. Audio generation continues on the server."
         )
         XCTAssertFalse(store.isLoading)
     }
