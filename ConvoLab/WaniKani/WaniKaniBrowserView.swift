@@ -3,6 +3,14 @@ import SwiftUI
 import WebKit
 
 enum WaniKaniURLPolicy {
+    nonisolated enum NavigationDisposition: Equatable {
+        case allow
+        case loadInMainFrame
+        case openAuxiliaryWindow
+        case openExternally
+        case cancel
+    }
+
     nonisolated static var reviewURL: URL {
         URL(string: "https://www.wanikani.com/subjects/review")!
     }
@@ -22,11 +30,44 @@ enum WaniKaniURLPolicy {
         let path = url?.path.lowercased() ?? ""
         return path == "/subjects/review" || path.hasPrefix("/subjects/review/")
     }
+
+    nonisolated static func navigationDisposition(
+        for url: URL?,
+        targetIsMainFrame: Bool?,
+        isUserActivated: Bool
+    ) -> NavigationDisposition {
+        let scheme = url?.scheme?.lowercased()
+        let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
+
+        // A nil target is JavaScript's window.open(). Keep background authentication
+        // windows in WebKit, but preserve normal behavior for links the user tapped.
+        if targetIsMainFrame == nil {
+            guard isWebContent else {
+                return isUserActivated ? .openExternally : .cancel
+            }
+            guard isUserActivated else { return .openAuxiliaryWindow }
+            return isWaniKaniPage(url) ? .loadInMainFrame : .openExternally
+        }
+
+        // Third-party authentication and fraud-detection content commonly lives in an
+        // iframe. It must remain embedded instead of being promoted to the system browser.
+        if targetIsMainFrame == false {
+            return isWebContent ? .allow : .cancel
+        }
+
+        guard isWebContent else { return .openExternally }
+        if scheme == "about" || isWaniKaniPage(url) {
+            return .allow
+        }
+        return .openExternally
+    }
 }
 
 @MainActor
 @Observable
-final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
+    WKUIDelegate
+{
     static let idleInterval: TimeInterval = 5 * 60
 
     let webView: WKWebView
@@ -38,6 +79,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     private(set) var errorMessage: String?
 
     private var hasLoadedInitialPage = false
+    private var auxiliaryWebViews: [ObjectIdentifier: WKWebView] = [:]
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -56,6 +98,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
             name: "convoLabWaniKani"
         )
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
     }
 
@@ -87,7 +130,8 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.name == "convoLabWaniKani",
+        guard message.webView === webView,
+              message.name == "convoLabWaniKani",
               let event = message.body as? [String: Any],
               let urlString = event["url"] as? String,
               let url = URL(string: urlString),
@@ -104,12 +148,14 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard webView === self.webView else { return }
         isLoading = true
         errorMessage = nil
         refreshNavigationState(webView)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView === self.webView else { return }
         isLoading = false
         currentURL = webView.url
         lastInteractionAt = .now
@@ -121,6 +167,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         didFail navigation: WKNavigation!,
         withError error: any Error
     ) {
+        guard webView === self.webView else { return }
         handleNavigationFailure(error, webView: webView)
     }
 
@@ -129,6 +176,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: any Error
     ) {
+        guard webView === self.webView else { return }
         handleNavigationFailure(error, webView: webView)
     }
 
@@ -136,22 +184,57 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
-        guard let url = navigationAction.request.url else {
-            return .cancel
+        // Once an auxiliary window exists, its redirects must stay in that same invisible
+        // WebKit context so cookies and window.opener-based completion keep working.
+        if webView !== self.webView {
+            let scheme = navigationAction.request.url?.scheme?.lowercased()
+            return scheme == "http" || scheme == "https" || scheme == "about"
+                ? .allow
+                : .cancel
         }
-        guard url.scheme == "http" || url.scheme == "https" else {
-            await UIApplication.shared.open(url)
-            return .cancel
-        }
-        if WaniKaniURLPolicy.isWaniKaniPage(url) {
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-                return .cancel
-            }
+
+        let disposition = WaniKaniURLPolicy.navigationDisposition(
+            for: navigationAction.request.url,
+            targetIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            isUserActivated: navigationAction.navigationType == .linkActivated
+        )
+        switch disposition {
+        case .allow, .openAuxiliaryWindow:
             return .allow
+        case .loadInMainFrame:
+            webView.load(navigationAction.request)
+            return .cancel
+        case .openExternally:
+            if let url = navigationAction.request.url {
+                await UIApplication.shared.open(url)
+            }
+            return .cancel
+        case .cancel:
+            return .cancel
         }
-        await UIApplication.shared.open(url)
-        return .cancel
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard navigationAction.targetFrame == nil,
+              navigationAction.navigationType != .linkActivated
+        else {
+            return nil
+        }
+
+        let auxiliaryWebView = WKWebView(frame: .zero, configuration: configuration)
+        auxiliaryWebView.navigationDelegate = self
+        auxiliaryWebView.uiDelegate = self
+        auxiliaryWebViews[ObjectIdentifier(auxiliaryWebView)] = auxiliaryWebView
+        return auxiliaryWebView
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        auxiliaryWebViews.removeValue(forKey: ObjectIdentifier(webView))
     }
 
     private func refreshNavigationState(_ webView: WKWebView) {

@@ -44,4 +44,48 @@ final class WaniKaniURLPolicyTests: XCTestCase {
             WaniKaniURLPolicy.isWaniKaniPage(URL(string: "https://account.wanikani.com/login"))
         )
     }
+
+    func testAllowsThirdPartyAuthenticationFramesInsideWebView() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://m.stripe.network/inner.html"),
+                targetIsMainFrame: false,
+                isUserActivated: false
+            ),
+            .allow
+        )
+    }
+
+    func testKeepsScriptOpenedAuthenticationWindowInsideWebView() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://m.stripe.network/auth"),
+                targetIsMainFrame: nil,
+                isUserActivated: false
+            ),
+            .openAuxiliaryWindow
+        )
+    }
+
+    func testStillOpensTappedExternalLinksInSystemBrowser() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://knowledge.wanikani.com/"),
+                targetIsMainFrame: nil,
+                isUserActivated: true
+            ),
+            .openExternally
+        )
+    }
+
+    func testLoadsTappedWaniKaniPopupLinkInMainWebView() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://www.wanikani.com/dashboard"),
+                targetIsMainFrame: nil,
+                isUserActivated: true
+            ),
+            .loadInMainFrame
+        )
+    }
 }
