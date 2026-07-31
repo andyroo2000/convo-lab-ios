@@ -209,23 +209,7 @@ struct DailyAudioPlayerView: View {
                 .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 24) {
-                Button {
-                    player.toggleRepeat()
-                } label: {
-                    Image(systemName: "repeat")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(player.isRepeating ? .white : ConvoLabTheme.navy)
-                        .frame(width: 48, height: 48)
-                        .background(
-                            player.isRepeating ? ConvoLabTheme.navy : .clear,
-                            in: .circle
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(player.isRepeating ? "Disable Repeat" : "Repeat Track")
-                .accessibilityAddTraits(player.isRepeating ? .isSelected : [])
-
+            HStack(spacing: 42) {
                 seekButton(offset: -15, systemImage: "gobackward.15")
 
                 Button {
@@ -251,6 +235,25 @@ struct DailyAudioPlayerView: View {
 
                 seekButton(offset: 15, systemImage: "goforward.15")
             }
+
+            Button {
+                player.toggleRepeat()
+            } label: {
+                Label("Repeat", systemImage: "repeat")
+                    .font(.caption.bold())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .foregroundStyle(player.isRepeating ? .white : ConvoLabTheme.navy)
+                    .background(
+                        player.isRepeating
+                            ? ConvoLabTheme.navy
+                            : ConvoLabTheme.navy.opacity(0.08),
+                        in: .capsule
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(player.isRepeating ? "Disable Repeat" : "Repeat Track")
+            .accessibilityAddTraits(player.isRepeating ? .isSelected : [])
         }
     }
 
