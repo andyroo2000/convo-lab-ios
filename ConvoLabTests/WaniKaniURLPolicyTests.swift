@@ -111,6 +111,23 @@ final class WaniKaniURLPolicyTests: XCTestCase {
         )
     }
 
+    func testOpensUserActivatedNonWebSubframeNavigationExternally() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "bank-auth://challenge"),
+                targetIsMainFrame: false,
+                isUserActivated: true
+            ),
+            .openExternally
+        )
+    }
+
+    func testTreatsLinksAndFormSubmissionsAsUserActivated() {
+        XCTAssertTrue(WaniKaniURLPolicy.isUserActivated(.linkActivated))
+        XCTAssertTrue(WaniKaniURLPolicy.isUserActivated(.formSubmitted))
+        XCTAssertFalse(WaniKaniURLPolicy.isUserActivated(.other))
+    }
+
     func testCancelsAutomaticCustomSchemeMainFrameNavigation() {
         XCTAssertEqual(
             WaniKaniURLPolicy.navigationDisposition(

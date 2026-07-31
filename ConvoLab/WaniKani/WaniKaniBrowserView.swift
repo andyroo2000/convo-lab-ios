@@ -70,7 +70,8 @@ enum WaniKaniURLPolicy {
         // Third-party authentication and fraud-detection content commonly lives in an
         // iframe. It must remain embedded instead of being promoted to the system browser.
         if targetIsMainFrame == false {
-            return isWebContent ? .allow : .cancel
+            guard !isWebContent else { return .allow }
+            return isUserActivated ? .openExternally : .cancel
         }
 
         guard isWebContent else {
@@ -80,6 +81,10 @@ enum WaniKaniURLPolicy {
             return .allow
         }
         return .openExternally
+    }
+
+    nonisolated static func isUserActivated(_ navigationType: WKNavigationType) -> Bool {
+        navigationType == .linkActivated || navigationType == .formSubmitted
     }
 }
 
@@ -229,7 +234,9 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         // context so cookies and window.opener-based completion keep working.
         if webView !== self.webView {
             let targetIsMainFrame = navigationAction.targetFrame?.isMainFrame
-            let isUserActivated = navigationAction.navigationType == .linkActivated
+            let isUserActivated = WaniKaniURLPolicy.isUserActivated(
+                navigationAction.navigationType
+            )
             let disposition = WaniKaniURLPolicy.navigationDisposition(
                 for: navigationAction.request.url,
                 targetIsMainFrame: targetIsMainFrame,
@@ -241,7 +248,33 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
             // Nested frames stay within their auxiliary WebView. In particular, a
             // Stripe iframe must not promote an otherwise silent window into a sheet.
             if targetIsMainFrame == false {
+                if disposition == .openExternally,
+                   isInteractiveAuxiliaryWebView(webView),
+                   let url = navigationAction.request.url
+                {
+                    await UIApplication.shared.open(url)
+                }
                 return disposition == .allow ? .allow : .cancel
+            }
+
+            // A tapped target=_blank link in an interactive child never reaches
+            // createWebViewWith (which only retains script-created windows), so honor
+            // the policy here instead of letting the tap become a no-op.
+            if targetIsMainFrame == nil {
+                switch disposition {
+                case .loadInMainFrame:
+                    self.webView.load(navigationAction.request)
+                    return .cancel
+                case .openExternally:
+                    if let url = navigationAction.request.url {
+                        await UIApplication.shared.open(url)
+                    }
+                    return .cancel
+                case .cancel:
+                    return .cancel
+                case .allow, .openBackgroundWindow, .openInteractiveWindow:
+                    return .allow
+                }
             }
 
             guard isWebContent else {
@@ -268,7 +301,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let disposition = WaniKaniURLPolicy.navigationDisposition(
             for: navigationAction.request.url,
             targetIsMainFrame: navigationAction.targetFrame?.isMainFrame,
-            isUserActivated: navigationAction.navigationType == .linkActivated
+            isUserActivated: WaniKaniURLPolicy.isUserActivated(navigationAction.navigationType)
         )
         switch disposition {
         case .allow, .openBackgroundWindow, .openInteractiveWindow:
@@ -306,7 +339,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let disposition = WaniKaniURLPolicy.navigationDisposition(
             for: navigationAction.request.url,
             targetIsMainFrame: nil,
-            isUserActivated: navigationAction.navigationType == .linkActivated
+            isUserActivated: WaniKaniURLPolicy.isUserActivated(navigationAction.navigationType)
         )
         if disposition == .openInteractiveWindow {
             interactiveWindowErrorMessage = nil
