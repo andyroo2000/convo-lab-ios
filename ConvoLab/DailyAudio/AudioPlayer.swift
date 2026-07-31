@@ -24,6 +24,7 @@ final class AudioPlayer {
     }
     private(set) var elapsed: Double = 0
     private(set) var duration: Double = 0
+    private(set) var isRepeating = false
 
     static func replacesPlayingTrack(
         isPlaying: Bool,
@@ -31,6 +32,10 @@ final class AudioPlayer {
         newTrackID: String
     ) -> Bool {
         isPlaying && currentTrackID != newTrackID
+    }
+
+    static func toggledRepeatState(_ current: Bool) -> Bool {
+        !current
     }
 
     init() {
@@ -121,6 +126,10 @@ final class AudioPlayer {
 
     func isCurrent(_ trackID: String) -> Bool {
         currentTrackID == trackID
+    }
+
+    func toggleRepeat() {
+        isRepeating = Self.toggledRepeatState(isRepeating)
     }
 
     func setPlaybackStartHandler(_ handler: @escaping @MainActor () -> Void) {
@@ -258,6 +267,14 @@ final class AudioPlayer {
     }
 
     private func handlePlaybackCompletion() {
+        if isRepeating {
+            player.seek(to: .zero)
+            elapsed = 0
+            isPlaying = true
+            player.play()
+            updateNowPlaying()
+            return
+        }
         isPlaying = false
         elapsed = duration
         if let currentTrackID {

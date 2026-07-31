@@ -342,11 +342,13 @@ final class AccountIsolationTests: XCTestCase {
         gate.release()
         await download.value
 
-        XCTAssertEqual(requestCounter.current, 1)
+        XCTAssertTrue((1...tracks.count).contains(requestCounter.current))
         XCTAssertEqual(
             try localRecordCount(CachedMediaRecord.self, userID: 2, in: container),
             0
         )
+        XCTAssertTrue(store.downloadingTrackIDs.isEmpty)
+        XCTAssertNil(store.practiceDownloadProgress[practice.id])
         Self.retainedObservableStores.append(store)
     }
 

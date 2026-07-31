@@ -105,8 +105,11 @@ final class AppModel {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
+            async let dailyAudioRefresh: Void = dailyAudio.refreshIfNeeded(
+                maxAge: .seconds(60)
+            )
             async let timeSync: Void = studyTime.synchronize()
-            _ = await (studySync, timeSync)
+            _ = await (studySync, dailyAudioRefresh, timeSync)
         }
     }
 
@@ -181,7 +184,7 @@ final class AppModel {
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
-        async let audioRefresh: Void = dailyAudio.refresh()
+        async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         _ = await (studySync, audioRefresh, timeSync)
     }

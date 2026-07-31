@@ -20,6 +20,7 @@ struct DailyAudioView: View {
     @State private var selectedPlayerTrack: DailyAudioTrack?
 
     private let dayCardSpacing = CGFloat(16)
+    private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
 
     private var selectedPractice: DailyAudioPractice? {
         guard let selectedPracticeID else { return store.practices.first }
@@ -33,6 +34,30 @@ struct DailyAudioView: View {
 
     private var todayIsGenerating: Bool {
         todayPractice?.status == "generating"
+    }
+
+    private var todayGenerationCanRetry: Bool {
+        guard let todayPractice else { return false }
+        return Self.canRetryGeneration(
+            todayPractice,
+            startRequestWasInterrupted: store.generationStartWasInterrupted
+        )
+    }
+
+    private var todayGenerationIsActivelyWorking: Bool {
+        todayIsGenerating && !todayGenerationCanRetry
+    }
+
+    private var createButtonTitle: String {
+        if store.isLoading || todayGenerationIsActivelyWorking {
+            return "Working…"
+        }
+        if todayGenerationCanRetry && todayPractice?.status == "generating" {
+            return "Retry Today’s Audio"
+        }
+        return todayPractice == nil
+            ? "Generate Today’s Audio"
+            : "Regenerate Today’s Audio"
     }
 
     private var selectedPracticeIndex: Int? {
@@ -88,7 +113,7 @@ struct DailyAudioView: View {
             .paperBackground()
             .navigationTitle("Daily Audio")
             .refreshable {
-                await store.refresh()
+                _ = await store.refresh()
             }
             .onChange(of: store.practices.map(\.id), initial: true) { _, ids in
                 if selectedPracticeID == nil || !ids.contains(selectedPracticeID ?? "") {
@@ -139,29 +164,48 @@ struct DailyAudioView: View {
                 .foregroundStyle(ConvoLabTheme.navy)
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
+            if let todayPractice, todayPractice.status == "generating" {
+                generationProgress(todayPractice)
+            }
             Button {
-                if todayPractice == nil {
+                if todayPractice == nil
+                    || (todayGenerationCanRetry && todayPractice?.status == "generating")
+                {
                     Task { await store.create() }
                 } else {
                     confirmingRegeneration = true
                 }
             } label: {
                 Label(
-                    store.isLoading || todayIsGenerating
-                        ? "Working…"
-                        : todayPractice == nil
-                            ? "Generate Today’s Audio"
-                            : "Regenerate Today’s Audio",
+                    createButtonTitle,
                     systemImage: "waveform.badge.plus"
                 )
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(ConvoLabTheme.navy)
-            .disabled(store.isLoading || todayIsGenerating)
+            .disabled(store.isLoading || todayGenerationIsActivelyWorking)
         }
         .padding()
         .background(ConvoLabTheme.cyan.opacity(0.16), in: .rect(cornerRadius: 20))
+    }
+
+    private func generationProgress(_ practice: DailyAudioPractice) -> some View {
+        let completed = practice.tracks.filter { $0.status == "ready" }.count
+        let total = practice.tracks.count
+        return VStack(alignment: .leading, spacing: 6) {
+            if total > 0 {
+                ProgressView(value: Double(completed), total: Double(total))
+            } else {
+                ProgressView()
+            }
+            Text(total > 0
+                ? "Generating audio… \(completed) of \(total) tracks ready"
+                : "Preparing today’s audio…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func swipeablePracticeStack(_ practice: DailyAudioPractice) -> some View {
@@ -227,7 +271,7 @@ struct DailyAudioView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(
-                        store.practiceDownloadProgress[practice.id] != nil
+                        store.isPracticeDownloadInProgress
                             || store.isDownloaded(practice)
                     )
                     .allowsHitTesting(!suppressTrackInteractions)
@@ -236,7 +280,9 @@ struct DailyAudioView: View {
                             ? "Downloaded for Offline"
                             : store.practiceDownloadProgress[practice.id] != nil
                                 ? "Downloading for Offline"
-                                : "Download for Offline"
+                                : store.isPracticeDownloadInProgress
+                                    ? "Another Offline Download is in Progress"
+                                    : "Download for Offline"
                     )
                 } else if practice.status == "generating" {
                     ProgressView()
@@ -598,6 +644,20 @@ struct DailyAudioView: View {
         return relativeFormatter.localizedString(
             from: DateComponents(day: dayDifference)
         ).capitalized
+    }
+
+    static func canRetryGeneration(
+        _ practice: DailyAudioPractice,
+        startRequestWasInterrupted: Bool,
+        relativeTo referenceDate: Date = .now
+    ) -> Bool {
+        if startRequestWasInterrupted {
+            return true
+        }
+        guard practice.status == "generating" else { return false }
+        // This conservative fallback exceeds the backend generation job timeout.
+        return referenceDate.timeIntervalSince(practice.updatedAt)
+            >= staleGenerationRetryInterval
     }
 
     private static var todayPracticeDate: String {
