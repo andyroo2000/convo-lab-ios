@@ -385,6 +385,9 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 
     private static let activityBridgeScript = """
         (() => {
+          const host = window.location.hostname.toLowerCase();
+          if (host !== "wanikani.com" && !host.endsWith(".wanikani.com")) return;
+
           const handler = window.webkit?.messageHandlers?.convoLabWaniKani;
           if (!handler || window.__convoLabWaniKaniBridgeInstalled) return;
           window.__convoLabWaniKaniBridgeInstalled = true;
