@@ -6,7 +6,8 @@ enum WaniKaniURLPolicy {
     nonisolated enum NavigationDisposition: Equatable {
         case allow
         case loadInMainFrame
-        case openAuxiliaryWindow
+        case openBackgroundWindow
+        case openInteractiveWindow
         case openExternally
         case cancel
     }
@@ -31,6 +32,16 @@ enum WaniKaniURLPolicy {
         return path == "/subjects/review" || path.hasPrefix("/subjects/review/")
     }
 
+    nonisolated static func isSilentBackgroundPage(_ url: URL?) -> Bool {
+        guard let url,
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased()
+        else {
+            return false
+        }
+        return host == "m.stripe.network"
+    }
+
     nonisolated static func navigationDisposition(
         for url: URL?,
         targetIsMainFrame: Bool?,
@@ -39,14 +50,21 @@ enum WaniKaniURLPolicy {
         let scheme = url?.scheme?.lowercased()
         let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
 
-        // A nil target is JavaScript's window.open(). Keep background authentication
-        // windows in WebKit, but preserve normal behavior for links the user tapped.
+        // A nil target is JavaScript's window.open(). WebKit does not reliably report
+        // whether script opened it in response to a tap, so only the known Stripe
+        // telemetry host is safe to keep invisible. Other script windows stay in-app but
+        // are presented so interactive sign-in and verification challenges remain usable.
         if targetIsMainFrame == nil {
             guard isWebContent else {
                 return isUserActivated ? .openExternally : .cancel
             }
-            guard isUserActivated else { return .openAuxiliaryWindow }
-            return isWaniKaniPage(url) ? .loadInMainFrame : .openExternally
+            if isUserActivated {
+                return isWaniKaniPage(url) ? .loadInMainFrame : .openExternally
+            }
+            if scheme == "about" || isSilentBackgroundPage(url) {
+                return .openBackgroundWindow
+            }
+            return isWaniKaniPage(url) ? .loadInMainFrame : .openInteractiveWindow
         }
 
         // Third-party authentication and fraud-detection content commonly lives in an
@@ -77,6 +95,8 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     private(set) var canGoBack = false
     private(set) var canGoForward = false
     private(set) var errorMessage: String?
+    private(set) var interactiveWebView: WKWebView?
+    private(set) var interactiveWindowErrorMessage: String?
 
     private var hasLoadedInitialPage = false
     private var auxiliaryWebViews: [ObjectIdentifier: WKWebView] = [:]
@@ -119,6 +139,15 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 
     func goForward() {
         webView.goForward()
+    }
+
+    func dismissInteractiveWindow() {
+        guard let interactiveWebView else { return }
+        discardAuxiliaryWebView(interactiveWebView)
+    }
+
+    func dismissInteractiveWindowError() {
+        interactiveWindowErrorMessage = nil
     }
 
     func isRecentlyActive(at date: Date = .now) -> Bool {
@@ -167,7 +196,10 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         didFail navigation: WKNavigation!,
         withError error: any Error
     ) {
-        guard webView === self.webView else { return }
+        guard webView === self.webView else {
+            handleAuxiliaryNavigationFailure(error, webView: webView)
+            return
+        }
         handleNavigationFailure(error, webView: webView)
     }
 
@@ -176,7 +208,10 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: any Error
     ) {
-        guard webView === self.webView else { return }
+        guard webView === self.webView else {
+            handleAuxiliaryNavigationFailure(error, webView: webView)
+            return
+        }
         handleNavigationFailure(error, webView: webView)
     }
 
@@ -184,13 +219,20 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
-        // Once an auxiliary window exists, its redirects must stay in that same invisible
-        // WebKit context so cookies and window.opener-based completion keep working.
+        // Once an auxiliary window exists, its redirects must stay in that same WebKit
+        // context so cookies and window.opener-based completion keep working.
         if webView !== self.webView {
             let scheme = navigationAction.request.url?.scheme?.lowercased()
-            return scheme == "http" || scheme == "https" || scheme == "about"
-                ? .allow
-                : .cancel
+            let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
+            guard isWebContent else { return .cancel }
+            if interactiveWebView !== webView,
+               scheme != "about",
+               !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
+            {
+                interactiveWindowErrorMessage = nil
+                interactiveWebView = webView
+            }
+            return .allow
         }
 
         let disposition = WaniKaniURLPolicy.navigationDisposition(
@@ -199,7 +241,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
             isUserActivated: navigationAction.navigationType == .linkActivated
         )
         switch disposition {
-        case .allow, .openAuxiliaryWindow:
+        case .allow, .openBackgroundWindow, .openInteractiveWindow:
             return .allow
         case .loadInMainFrame:
             webView.load(navigationAction.request)
@@ -230,11 +272,21 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         auxiliaryWebView.navigationDelegate = self
         auxiliaryWebView.uiDelegate = self
         auxiliaryWebViews[ObjectIdentifier(auxiliaryWebView)] = auxiliaryWebView
+        let disposition = WaniKaniURLPolicy.navigationDisposition(
+            for: navigationAction.request.url,
+            targetIsMainFrame: nil,
+            isUserActivated: false
+        )
+        if disposition == .openInteractiveWindow {
+            interactiveWindowErrorMessage = nil
+            interactiveWebView = auxiliaryWebView
+        }
         return auxiliaryWebView
     }
 
     func webViewDidClose(_ webView: WKWebView) {
-        auxiliaryWebViews.removeValue(forKey: ObjectIdentifier(webView))
+        guard webView !== self.webView else { return }
+        discardAuxiliaryWebView(webView)
     }
 
     private func refreshNavigationState(_ webView: WKWebView) {
@@ -248,6 +300,25 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let nsError = error as NSError
         guard nsError.code != NSURLErrorCancelled else { return }
         errorMessage = error.localizedDescription
+    }
+
+    private func handleAuxiliaryNavigationFailure(_ error: any Error, webView: WKWebView) {
+        let nsError = error as NSError
+        guard nsError.code != NSURLErrorCancelled else { return }
+        let wasInteractive = interactiveWebView === webView
+        discardAuxiliaryWebView(webView)
+        guard wasInteractive else { return }
+        interactiveWindowErrorMessage = error.localizedDescription
+    }
+
+    private func discardAuxiliaryWebView(_ webView: WKWebView) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        auxiliaryWebViews.removeValue(forKey: ObjectIdentifier(webView))
+        if interactiveWebView === webView {
+            interactiveWebView = nil
+        }
     }
 
     private static let activityBridgeScript = """
@@ -301,13 +372,41 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
 }
 
 private struct WaniKaniWebView: UIViewRepresentable {
-    let browser: WaniKaniBrowserModel
+    let webView: WKWebView
+
+    init(browser: WaniKaniBrowserModel) {
+        webView = browser.webView
+    }
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
 
     func makeUIView(context: Context) -> WKWebView {
-        browser.webView
+        webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
+}
+
+private struct WaniKaniInteractiveWindowView: View {
+    let browser: WaniKaniBrowserModel
+    let webView: WKWebView
+
+    var body: some View {
+        NavigationStack {
+            WaniKaniWebView(webView: webView)
+                .navigationTitle("WaniKani Sign In")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            browser.dismissInteractiveWindow()
+                        }
+                    }
+                }
+        }
+    }
 }
 
 struct WaniKaniBrowserView: View {
@@ -368,6 +467,40 @@ struct WaniKaniBrowserView: View {
                     openURL(browser.currentURL ?? WaniKaniURLPolicy.reviewURL)
                 }
             }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { browser.interactiveWebView != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        browser.dismissInteractiveWindow()
+                    }
+                }
+            )
+        ) {
+            if let interactiveWebView = browser.interactiveWebView {
+                WaniKaniInteractiveWindowView(
+                    browser: browser,
+                    webView: interactiveWebView
+                )
+            }
+        }
+        .alert(
+            "Couldn’t complete WaniKani sign-in",
+            isPresented: Binding(
+                get: { browser.interactiveWindowErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        browser.dismissInteractiveWindowError()
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                browser.dismissInteractiveWindowError()
+            }
+        } message: {
+            Text(browser.interactiveWindowErrorMessage ?? "The sign-in window failed to load.")
         }
         .onAppear {
             isVisible = true

@@ -63,7 +63,18 @@ final class WaniKaniURLPolicyTests: XCTestCase {
                 targetIsMainFrame: nil,
                 isUserActivated: false
             ),
-            .openAuxiliaryWindow
+            .openBackgroundWindow
+        )
+    }
+
+    func testPresentsUnknownScriptOpenedWindowInsideApp() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://verify.example.com/challenge"),
+                targetIsMainFrame: nil,
+                isUserActivated: false
+            ),
+            .openInteractiveWindow
         )
     }
 
@@ -86,6 +97,28 @@ final class WaniKaniURLPolicyTests: XCTestCase {
                 isUserActivated: true
             ),
             .loadInMainFrame
+        )
+    }
+
+    func testCancelsNonWebSubframeNavigation() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "custom-auth://callback"),
+                targetIsMainFrame: false,
+                isUserActivated: false
+            ),
+            .cancel
+        )
+    }
+
+    func testOpensExternalMainFrameNavigationInSystemBrowser() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "https://example.com/"),
+                targetIsMainFrame: true,
+                isUserActivated: false
+            ),
+            .openExternally
         )
     }
 }
