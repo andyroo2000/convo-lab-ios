@@ -52,7 +52,7 @@ struct DailyAudioView: View {
         if store.isLoading || todayGenerationIsActivelyWorking {
             return "Working…"
         }
-        if todayGenerationCanRetry {
+        if todayGenerationCanRetry && todayPractice?.status == "generating" {
             return "Retry Today’s Audio"
         }
         return todayPractice == nil

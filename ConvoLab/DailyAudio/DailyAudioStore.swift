@@ -78,7 +78,7 @@ final class DailyAudioStore {
         try context.save()
     }
 
-    func refresh() async {
+    func refresh(showsCancellationErrors: Bool = true) async {
         guard
             let userID = activeUserID,
             !isLoading,
@@ -109,9 +109,11 @@ final class DailyAudioStore {
         } catch {
             guard activeUserID == userID else { return }
             if Self.isCancellation(error) {
-                errorMessage = practices.contains(where: { $0.status == "generating" })
-                    ? "Refresh was interrupted. Audio generation continues on the server."
-                    : "Daily Audio refresh was interrupted. Try again."
+                if showsCancellationErrors {
+                    errorMessage = practices.contains(where: { $0.status == "generating" })
+                        ? "Refresh was interrupted. Audio generation continues on the server."
+                        : "Daily Audio refresh was interrupted. Try again."
+                }
             } else {
                 errorMessage = error.localizedDescription
             }
@@ -127,7 +129,7 @@ final class DailyAudioStore {
            Date.now.timeIntervalSince(lastRefreshAt) < maxAgeSeconds {
             return
         }
-        await refresh()
+        await refresh(showsCancellationErrors: false)
     }
 
     func loadMore() async {
