@@ -198,6 +198,54 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, downloadError)
     }
 
+    func testManualRefreshWaitsForInFlightSilentRefreshThenFetchesAgain() async throws {
+        let requestCount = LockedCounter()
+        let allowFirstRequest = DispatchSemaphore(value: 0)
+        let response = Data(
+            #"{"items":[],"total":0,"limit":14,"nextCursor":null}"#.utf8
+        )
+        let client = makeClient { request in
+            if requestCount.next() == 1 {
+                allowFirstRequest.wait()
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                response
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let silentRefresh = Task { await store.refresh(showsErrors: false) }
+        while requestCount.current == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let manualRefresh = Task { await store.refresh() }
+        try await Task.sleep(for: .milliseconds(25))
+        XCTAssertEqual(requestCount.current, 1)
+
+        allowFirstRequest.signal()
+        let silentRefreshSucceeded = await silentRefresh.value
+        let manualRefreshSucceeded = await manualRefresh.value
+        XCTAssertTrue(silentRefreshSucceeded)
+        XCTAssertTrue(manualRefreshSucceeded)
+        XCTAssertEqual(requestCount.current, 2)
+    }
+
     func testRefreshIfNeededThrottlesRecentSuccessfulRefresh() async throws {
         let requestCount = LockedCounter()
         let client = makeClient { request in
@@ -684,6 +732,7 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertTrue(store.isDownloading(firstTrack))
         XCTAssertFalse(store.isDownloaded(firstTrack))
         XCTAssertEqual(store.practiceDownloadProgress[practice.id], 0)
+        XCTAssertTrue(store.isPracticeDownloadInProgress)
 
         let duplicateDownload = Task { await store.download(practice) }
         await duplicateDownload.value
@@ -695,6 +744,7 @@ final class DailyAudioStoreTests: XCTestCase {
 
         XCTAssertFalse(store.isDownloading(firstTrack))
         XCTAssertNil(store.practiceDownloadProgress[practice.id])
+        XCTAssertFalse(store.isPracticeDownloadInProgress)
         XCTAssertTrue(store.isDownloaded(firstTrack))
         XCTAssertTrue(store.isDownloaded(secondTrack))
         XCTAssertTrue(store.isDownloaded(practice))

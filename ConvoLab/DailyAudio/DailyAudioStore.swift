@@ -35,6 +35,10 @@ final class DailyAudioStore {
         nextCursor != nil
     }
 
+    var isPracticeDownloadInProgress: Bool {
+        !practiceDownloadProgress.isEmpty
+    }
+
     init(
         initialUserID: Int? = nil,
         api: APIClient,
@@ -102,6 +106,15 @@ final class DailyAudioStore {
 
     @discardableResult
     func refresh(showsErrors: Bool = true) async -> Bool {
+        let requestedUserID = activeUserID
+        while showsErrors, isLoading || isLoadingMore {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+            guard activeUserID == requestedUserID else { return false }
+        }
         guard
             let userID = activeUserID,
             !isLoading,
