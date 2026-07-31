@@ -294,11 +294,13 @@ struct StudyTimeView: View {
     private func drillDown(_ bucket: StudyTimeAnalyticsBucket) {
         guard let nextRange = selectedRange.drillDownTarget else { return }
         analyticsNavigationGeneration += 1
+        let navigationGeneration = analyticsNavigationGeneration
         isSettlingAnalyticsSwipe = false
         analyticsDragOffset = 0
 
         Task {
             guard await store.loadAnalytics(anchorDate: bucket.startsAt) else { return }
+            guard analyticsNavigationGeneration == navigationGeneration else { return }
             suppressNextHistoricalRangeReset = true
             selectedRange = nextRange
         }
@@ -623,10 +625,6 @@ private struct StudyRhythmChart: View {
                             y: .value("Minutes", Double(milliseconds) / 60_000)
                         )
                         .foregroundStyle(by: .value("Category", category.title))
-                        .accessibilityLabel(
-                            "\(bestBucketLabel(bucket)), \(category.title)"
-                        )
-                        .accessibilityValue(compactDuration(milliseconds))
                     }
                 }
             }
