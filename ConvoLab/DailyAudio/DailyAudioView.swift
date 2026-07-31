@@ -278,9 +278,11 @@ struct DailyAudioView: View {
                     .accessibilityLabel(
                         store.isDownloaded(practice)
                             ? "Downloaded for Offline"
-                            : store.isPracticeDownloadInProgress
-                                ? "Another Offline Download is in Progress"
-                                : "Download for Offline"
+                            : store.practiceDownloadProgress[practice.id] != nil
+                                ? "Downloading for Offline"
+                                : store.isPracticeDownloadInProgress
+                                    ? "Another Offline Download is in Progress"
+                                    : "Download for Offline"
                     )
                 } else if practice.status == "generating" {
                     ProgressView()
