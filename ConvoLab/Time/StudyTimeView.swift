@@ -66,7 +66,7 @@ struct StudyTimeView: View {
                     Text("Study Rhythm")
                 } footer: {
                     Text(
-                        "Double-tap an outlined category to filter it. In Week, Month, and Year, "
+                        "Double-tap a category to filter it out or bring it back. In Week, Month, and Year, "
                             + "double-tap a bar to drill in. Audio drills count as Listen; "
                             + "iTalki and other lessons count as Conversation."
                     )
@@ -677,15 +677,41 @@ private struct StudyRhythmChart: View {
                         )
                 }
             }
-            .accessibilityActions {
-                if let onDrillDown {
+            .accessibilityRepresentation {
+                VStack {
                     ForEach(analytics.buckets) { bucket in
-                        Button("Open \(bestBucketLabel(bucket))") {
-                            onDrillDown(bucket)
-                        }
+                        bucketAccessibilityElement(bucket)
                     }
                 }
             }
+    }
+
+    @ViewBuilder
+    private func bucketAccessibilityElement(
+        _ bucket: StudyTimeAnalyticsBucket
+    ) -> some View {
+        if let onDrillDown {
+            Button(bestBucketLabel(bucket)) {
+                onDrillDown(bucket)
+            }
+            .accessibilityLabel(bucketAccessibilityLabel(bucket))
+            .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
+            .accessibilityHint("Double-tap to open this period")
+        } else {
+            Text(bestBucketLabel(bucket))
+                .accessibilityLabel(bucketAccessibilityLabel(bucket))
+                .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
+        }
+    }
+
+    private func bucketAccessibilityLabel(
+        _ bucket: StudyTimeAnalyticsBucket
+    ) -> String {
+        let categorySummary = includedCategoryList.compactMap { category in
+            let duration = bucket.duration(for: category)
+            return duration > 0 ? "\(category.title) \(compactDuration(duration))" : nil
+        }
+        return ([bestBucketLabel(bucket)] + categorySummary).joined(separator: ", ")
     }
 
     private func handleChartDoubleTap(
