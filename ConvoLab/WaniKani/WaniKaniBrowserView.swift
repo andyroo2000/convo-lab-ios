@@ -73,7 +73,9 @@ enum WaniKaniURLPolicy {
             return isWebContent ? .allow : .cancel
         }
 
-        guard isWebContent else { return .openExternally }
+        guard isWebContent else {
+            return isUserActivated ? .openExternally : .cancel
+        }
         if scheme == "about" || isWaniKaniPage(url) {
             return .allow
         }
@@ -226,17 +228,34 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         // Once an auxiliary window exists, its redirects must stay in that same WebKit
         // context so cookies and window.opener-based completion keep working.
         if webView !== self.webView {
+            let targetIsMainFrame = navigationAction.targetFrame?.isMainFrame
+            let isUserActivated = navigationAction.navigationType == .linkActivated
+            let disposition = WaniKaniURLPolicy.navigationDisposition(
+                for: navigationAction.request.url,
+                targetIsMainFrame: targetIsMainFrame,
+                isUserActivated: isUserActivated
+            )
             let scheme = navigationAction.request.url?.scheme?.lowercased()
             let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
+
+            // Nested frames stay within their auxiliary WebView. In particular, a
+            // Stripe iframe must not promote an otherwise silent window into a sheet.
+            if targetIsMainFrame == false {
+                return disposition == .allow ? .allow : .cancel
+            }
+
             guard isWebContent else {
                 if isInteractiveAuxiliaryWebView(webView),
+                   targetIsMainFrame == true,
+                   disposition == .openExternally,
                    let url = navigationAction.request.url
                 {
                     await UIApplication.shared.open(url)
                 }
                 return .cancel
             }
-            if interactiveWebView !== webView,
+            if targetIsMainFrame == true,
+               interactiveWebView !== webView,
                scheme != "about",
                !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
             {

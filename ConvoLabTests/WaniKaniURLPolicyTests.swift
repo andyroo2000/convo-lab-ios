@@ -111,6 +111,28 @@ final class WaniKaniURLPolicyTests: XCTestCase {
         )
     }
 
+    func testCancelsAutomaticCustomSchemeMainFrameNavigation() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "custom-auth://callback"),
+                targetIsMainFrame: true,
+                isUserActivated: false
+            ),
+            .cancel
+        )
+    }
+
+    func testOpensTappedCustomSchemeMainFrameNavigationExternally() {
+        XCTAssertEqual(
+            WaniKaniURLPolicy.navigationDisposition(
+                for: URL(string: "custom-auth://callback"),
+                targetIsMainFrame: true,
+                isUserActivated: true
+            ),
+            .openExternally
+        )
+    }
+
     func testOpensExternalMainFrameNavigationInSystemBrowser() {
         XCTAssertEqual(
             WaniKaniURLPolicy.navigationDisposition(
