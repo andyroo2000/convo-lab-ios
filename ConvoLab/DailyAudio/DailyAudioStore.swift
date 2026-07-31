@@ -43,6 +43,7 @@ final class DailyAudioStore {
         activeUserID = userID
         mediaCache.activate(userID: userID)
         errorMessage = nil
+        generationStartWasInterrupted = false
         lastRefreshAt = nil
         loadLocal(userID: userID)
         total = practices.count

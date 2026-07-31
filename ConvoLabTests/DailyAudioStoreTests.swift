@@ -15,6 +15,10 @@ final class DailyAudioStoreTests: XCTestCase {
             status: "generating",
             updatedAt: now.addingTimeInterval(-(90 * 60))
         )
+        let interruptedRegeneration = dailyAudioPractice(
+            status: "ready",
+            updatedAt: now
+        )
 
         XCTAssertTrue(
             DailyAudioView.canRetryGeneration(
@@ -34,6 +38,13 @@ final class DailyAudioStoreTests: XCTestCase {
             DailyAudioView.canRetryGeneration(
                 stale,
                 startRequestWasInterrupted: false,
+                relativeTo: now
+            )
+        )
+        XCTAssertTrue(
+            DailyAudioView.canRetryGeneration(
+                interruptedRegeneration,
+                startRequestWasInterrupted: true,
                 relativeTo: now
             )
         )

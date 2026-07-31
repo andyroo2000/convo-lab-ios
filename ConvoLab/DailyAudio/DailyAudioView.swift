@@ -625,10 +625,10 @@ struct DailyAudioView: View {
         startRequestWasInterrupted: Bool,
         relativeTo referenceDate: Date = .now
     ) -> Bool {
-        guard practice.status == "generating" else { return false }
         if startRequestWasInterrupted {
             return true
         }
+        guard practice.status == "generating" else { return false }
         // This conservative fallback exceeds the backend generation job timeout.
         return referenceDate.timeIntervalSince(practice.updatedAt) >= 90 * 60
     }
