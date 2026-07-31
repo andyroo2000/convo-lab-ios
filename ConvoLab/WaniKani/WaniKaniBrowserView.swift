@@ -87,6 +87,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
     WKUIDelegate
 {
     static let idleInterval: TimeInterval = 5 * 60
+    private static let maximumBackgroundWebViews = 2
 
     let webView: WKWebView
     private(set) var currentURL: URL?
@@ -100,6 +101,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
 
     private var hasLoadedInitialPage = false
     private var auxiliaryWebViews: [ObjectIdentifier: WKWebView] = [:]
+    private var backgroundWebViewIDs: [ObjectIdentifier] = []
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -230,6 +232,7 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
                !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
             {
                 interactiveWindowErrorMessage = nil
+                prepareForInteractivePresentation(webView)
                 interactiveWebView = webView
             }
             return .allow
@@ -271,7 +274,8 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         let auxiliaryWebView = WKWebView(frame: .zero, configuration: configuration)
         auxiliaryWebView.navigationDelegate = self
         auxiliaryWebView.uiDelegate = self
-        auxiliaryWebViews[ObjectIdentifier(auxiliaryWebView)] = auxiliaryWebView
+        let identifier = ObjectIdentifier(auxiliaryWebView)
+        auxiliaryWebViews[identifier] = auxiliaryWebView
         let disposition = WaniKaniURLPolicy.navigationDisposition(
             for: navigationAction.request.url,
             targetIsMainFrame: nil,
@@ -280,6 +284,8 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         if disposition == .openInteractiveWindow {
             interactiveWindowErrorMessage = nil
             interactiveWebView = auxiliaryWebView
+        } else {
+            retainBackgroundWebView(auxiliaryWebView, identifier: identifier)
         }
         return auxiliaryWebView
     }
@@ -315,10 +321,38 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        auxiliaryWebViews.removeValue(forKey: ObjectIdentifier(webView))
+        webView.removeFromSuperview()
+        let identifier = ObjectIdentifier(webView)
+        auxiliaryWebViews.removeValue(forKey: identifier)
+        backgroundWebViewIDs.removeAll { $0 == identifier }
         if interactiveWebView === webView {
             interactiveWebView = nil
         }
+    }
+
+    private func retainBackgroundWebView(_ webView: WKWebView, identifier: ObjectIdentifier) {
+        webView.frame = CGRect(x: -2, y: -2, width: 1, height: 1)
+        webView.alpha = 0.01
+        webView.isUserInteractionEnabled = false
+        webView.accessibilityElementsHidden = true
+        self.webView.addSubview(webView)
+        backgroundWebViewIDs.append(identifier)
+
+        while backgroundWebViewIDs.count > Self.maximumBackgroundWebViews {
+            let oldestIdentifier = backgroundWebViewIDs.removeFirst()
+            if let oldestWebView = auxiliaryWebViews[oldestIdentifier] {
+                discardAuxiliaryWebView(oldestWebView)
+            }
+        }
+    }
+
+    private func prepareForInteractivePresentation(_ webView: WKWebView) {
+        let identifier = ObjectIdentifier(webView)
+        backgroundWebViewIDs.removeAll { $0 == identifier }
+        webView.removeFromSuperview()
+        webView.alpha = 1
+        webView.isUserInteractionEnabled = true
+        webView.accessibilityElementsHidden = false
     }
 
     private static let activityBridgeScript = """
@@ -396,6 +430,7 @@ private struct WaniKaniInteractiveWindowView: View {
     var body: some View {
         NavigationStack {
             WaniKaniWebView(webView: webView)
+                .id(ObjectIdentifier(webView))
                 .navigationTitle("WaniKani Sign In")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {

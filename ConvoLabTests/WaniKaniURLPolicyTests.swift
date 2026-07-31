@@ -81,7 +81,7 @@ final class WaniKaniURLPolicyTests: XCTestCase {
     func testStillOpensTappedExternalLinksInSystemBrowser() {
         XCTAssertEqual(
             WaniKaniURLPolicy.navigationDisposition(
-                for: URL(string: "https://knowledge.wanikani.com/"),
+                for: URL(string: "https://example.com/"),
                 targetIsMainFrame: nil,
                 isUserActivated: true
             ),
