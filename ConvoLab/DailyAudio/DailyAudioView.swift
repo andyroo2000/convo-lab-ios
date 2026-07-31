@@ -35,6 +35,30 @@ struct DailyAudioView: View {
         todayPractice?.status == "generating"
     }
 
+    private var todayGenerationCanRetry: Bool {
+        guard let todayPractice else { return false }
+        return Self.canRetryGeneration(
+            todayPractice,
+            requestWasInterrupted: store.generationRequestWasInterrupted
+        )
+    }
+
+    private var todayGenerationIsActivelyWorking: Bool {
+        todayIsGenerating && !todayGenerationCanRetry
+    }
+
+    private var createButtonTitle: String {
+        if store.isLoading || todayGenerationIsActivelyWorking {
+            return "Working…"
+        }
+        if todayGenerationCanRetry {
+            return "Retry Today’s Audio"
+        }
+        return todayPractice == nil
+            ? "Generate Today’s Audio"
+            : "Regenerate Today’s Audio"
+    }
+
     private var selectedPracticeIndex: Int? {
         guard let selectedPractice else { return nil }
         return store.practices.firstIndex { $0.id == selectedPractice.id }
@@ -140,25 +164,21 @@ struct DailyAudioView: View {
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
             Button {
-                if todayPractice == nil {
+                if todayPractice == nil || todayGenerationCanRetry {
                     Task { await store.create() }
                 } else {
                     confirmingRegeneration = true
                 }
             } label: {
                 Label(
-                    store.isLoading || todayIsGenerating
-                        ? "Working…"
-                        : todayPractice == nil
-                            ? "Generate Today’s Audio"
-                            : "Regenerate Today’s Audio",
+                    createButtonTitle,
                     systemImage: "waveform.badge.plus"
                 )
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(ConvoLabTheme.navy)
-            .disabled(store.isLoading || todayIsGenerating)
+            .disabled(store.isLoading || todayGenerationIsActivelyWorking)
         }
         .padding()
         .background(ConvoLabTheme.cyan.opacity(0.16), in: .rect(cornerRadius: 20))
@@ -598,6 +618,18 @@ struct DailyAudioView: View {
         return relativeFormatter.localizedString(
             from: DateComponents(day: dayDifference)
         ).capitalized
+    }
+
+    static func canRetryGeneration(
+        _ practice: DailyAudioPractice,
+        requestWasInterrupted: Bool,
+        relativeTo referenceDate: Date = .now
+    ) -> Bool {
+        guard practice.status == "generating" else { return false }
+        if requestWasInterrupted {
+            return true
+        }
+        return referenceDate.timeIntervalSince(practice.updatedAt) >= 90 * 60
     }
 
     private static var todayPracticeDate: String {

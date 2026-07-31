@@ -5,6 +5,66 @@ import XCTest
 
 @MainActor
 final class DailyAudioStoreTests: XCTestCase {
+    func testInterruptedOrStaleGenerationCanBeRetried() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let recent = dailyAudioPractice(
+            status: "generating",
+            updatedAt: now.addingTimeInterval(-60)
+        )
+        let stale = dailyAudioPractice(
+            status: "generating",
+            updatedAt: now.addingTimeInterval(-(90 * 60))
+        )
+
+        XCTAssertTrue(
+            DailyAudioView.canRetryGeneration(
+                recent,
+                requestWasInterrupted: true,
+                relativeTo: now
+            )
+        )
+        XCTAssertFalse(
+            DailyAudioView.canRetryGeneration(
+                recent,
+                requestWasInterrupted: false,
+                relativeTo: now
+            )
+        )
+        XCTAssertTrue(
+            DailyAudioView.canRetryGeneration(
+                stale,
+                requestWasInterrupted: false,
+                relativeTo: now
+            )
+        )
+    }
+
+    func testCancelledCreateOffersAnActionableRetry() async throws {
+        let client = makeClient { _ in
+            throw URLError(.cancelled)
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.create()
+
+        XCTAssertTrue(store.generationRequestWasInterrupted)
+        XCTAssertEqual(
+            store.errorMessage,
+            "Generation was interrupted. You can retry it."
+        )
+        XCTAssertFalse(store.isLoading)
+    }
+
     func testRelativePracticeDateNamesTodayAndNearbyDays() throws {
         let formatter = DateFormatter()
         formatter.calendar = .current
@@ -614,6 +674,22 @@ final class DailyAudioStoreTests: XCTestCase {
             audioUrl: "/api/daily-audio-practice/practice/tracks/track/audio",
             approxDurationSeconds: 60,
             updatedAt: updatedAt
+        )
+    }
+
+    private func dailyAudioPractice(
+        status: String,
+        updatedAt: Date
+    ) -> DailyAudioPractice {
+        DailyAudioPractice(
+            id: "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
+            practiceDate: "2026-07-30",
+            status: status,
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: updatedAt,
+            updatedAt: updatedAt,
+            tracks: []
         )
     }
 
