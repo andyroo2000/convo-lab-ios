@@ -630,11 +630,13 @@ final class StudyStore {
         guard activeUserID == userID else { return }
         let pendingReviewState = try pendingReviewState()
         var seenCardIDs: Set<String> = []
-        let lessonCards = try session.cards.filter { card in
+        let eligibleLessonCards = try session.cards.filter { card in
             try !hasPendingDelete(for: card.id)
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         }
+        let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
+        let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         overview = session.overview
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
