@@ -4037,6 +4037,61 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLessonRefreshCapsOversizedServerResponseToConfiguredBatch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = (0..<50).map { index in
+            makeCard(
+                id: String(format: "01J%023d", index),
+                expression: "Lesson card \(index)",
+                queueState: "new"
+            )
+        }
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 50,
+                reviewCount: 0,
+                newCardsPerDay: 50,
+                newCardsAvailableToday: 50,
+                lessonBatchSize: 5
+            ),
+            cards: lessonCards
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let data = try JSONSerialization.data(withJSONObject: ["data": object])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.refreshLessons()
+
+        XCTAssertEqual(store.cards.map(\.id), lessonCards.prefix(5).map(\.id))
+        XCTAssertEqual(store.sessionInitialCardCount, 5)
+        XCTAssertEqual(store.overview?.lessonBatchSize, 5)
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(
