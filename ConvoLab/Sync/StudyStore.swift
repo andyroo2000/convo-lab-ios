@@ -1692,7 +1692,7 @@ final class StudyStore {
         )
         guard
             let generatedAudio = serverCard.answer["answerAudio"],
-            let remoteURL = serverCard.answerAudioURL
+            let remoteURL = serverCard.audioURL
         else {
             throw MissingGeneratedAudioError()
         }

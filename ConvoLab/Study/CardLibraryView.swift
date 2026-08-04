@@ -1064,7 +1064,7 @@ struct CardEditorView: View {
     }
 
     private func loadCurrentAnswerAudio() async {
-        let remoteURL = card?.answerAudioURL ?? previewAudio?.mediaURLs.first
+        let remoteURL = card?.audioURL ?? previewAudio?.mediaURLs.first
         guard let remoteURL else {
             answerAudioLocalURL = nil
             return

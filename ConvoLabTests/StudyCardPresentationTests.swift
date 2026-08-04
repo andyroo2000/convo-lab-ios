@@ -29,6 +29,31 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertFalse(audioProduction.shouldAutoplayPromptAudio)
     }
 
+    func testPromptOnlyAudioIsReusedOnTheAnswerSide() {
+        let audio = media(url: "https://example.com/listening-example.mp3", kind: "audio")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueAudio": audio]),
+            answer: .object([:])
+        )
+
+        XCTAssertEqual(card.audioURL, URL(string: "https://example.com/listening-example.mp3"))
+        XCTAssertEqual(card.presentation.front.audioURL, card.audioURL)
+        XCTAssertEqual(card.presentation.back.audioURL, card.audioURL)
+    }
+
+    func testLegacyAnswerOnlyAudioRemainsAvailable() {
+        let audio = media(url: "https://example.com/legacy-answer.mp3", kind: "audio")
+        let card = makeCard(
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("会社")]),
+            answer: .object(["answerAudio": audio])
+        )
+
+        XCTAssertNil(card.presentation.front.audioURL)
+        XCTAssertEqual(card.presentation.back.audioURL, card.audioURL)
+    }
+
     func testClozePresentationUsesCanonicalMarkupAndRevealsRestoredSentence() {
         let card = makeCard(
             cardType: "cloze",

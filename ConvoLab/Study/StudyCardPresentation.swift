@@ -1,8 +1,10 @@
 import Foundation
 
 extension StudyCard {
-    var answerAudioURL: URL? {
-        answer.mediaURL(for: "answerAudio")
+    /// The card has one logical audio asset. The side-specific JSON keys are retained
+    /// only for compatibility with older API and offline-sync payloads.
+    var audioURL: URL? {
+        prompt.mediaURL(for: "cueAudio") ?? answer.mediaURL(for: "answerAudio")
     }
 
     var promptImageURL: URL? {
@@ -63,7 +65,7 @@ extension StudyCard {
     var presentation: StudyCardPresentation {
         let promptAudioURL = prompt.mediaURL(for: "cueAudio")
         let promptImageURL = prompt.mediaURL(for: "cueImage")
-        let answerAudioURL = answer.mediaURL(for: "answerAudio")
+        let cardAudioURL = audioURL
         let answerImageURL = answer.mediaURL(for: "answerImage") ?? promptImageURL
 
         if cardType == "cloze" {
@@ -117,7 +119,7 @@ extension StudyCard {
                     heading: restoredText?.studyDisplayText,
                     supportingText: nil,
                     textBlocks: [meaning].compactMap(\.self) + notes,
-                    audioURL: answerAudioURL,
+                    audioURL: cardAudioURL,
                     imageURL: answerImageURL,
                     isMediaLed: false,
                     pitchAccent: answer.studyPitchAccent
@@ -180,7 +182,7 @@ extension StudyCard {
                     ?? answer.firstNonEmptyString(for: ["expression"])?.studyDisplayText,
                 supportingText: nil,
                 textBlocks: details,
-                audioURL: answerAudioURL,
+                audioURL: cardAudioURL,
                 imageURL: answerImageURL,
                 isMediaLed: false,
                 pitchAccent: answer.studyPitchAccent
