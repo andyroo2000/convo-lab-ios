@@ -288,6 +288,7 @@ struct StudyOverview: Codable, Sendable {
     let newCardsPerDay: Int
     let newCardsAvailableToday: Int?
     let lessonBatchSize: Int
+    let reviewTimeBudgetMinutes: Int?
     let masterySpread: StudyMasterySpread?
     let learningReadiness: StudyLearningReadiness?
 
@@ -301,6 +302,7 @@ struct StudyOverview: Codable, Sendable {
         failedCount: Int? = nil,
         failedDueCount: Int? = nil,
         lessonBatchSize: Int = 5,
+        reviewTimeBudgetMinutes: Int? = nil,
         masterySpread: StudyMasterySpread? = nil,
         learningReadiness: StudyLearningReadiness? = nil
     ) {
@@ -313,6 +315,7 @@ struct StudyOverview: Codable, Sendable {
         self.newCardsPerDay = newCardsPerDay
         self.newCardsAvailableToday = newCardsAvailableToday
         self.lessonBatchSize = lessonBatchSize
+        self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
         self.masterySpread = masterySpread
         self.learningReadiness = learningReadiness
     }
@@ -327,6 +330,7 @@ struct StudyOverview: Codable, Sendable {
         case newCardsPerDay
         case newCardsAvailableToday
         case lessonBatchSize
+        case reviewTimeBudgetMinutes
         case masterySpread
         case learningReadiness
 
@@ -360,6 +364,10 @@ struct StudyOverview: Codable, Sendable {
         newCardsAvailableToday = try container.decodeIfPresent(Int.self, forKey: .newCardsAvailableToday)
             ?? container.decodeIfPresent(Int.self, forKey: .legacyNewCardsAvailableToday)
         lessonBatchSize = try container.decodeIfPresent(Int.self, forKey: .lessonBatchSize) ?? 5
+        reviewTimeBudgetMinutes = try container.decodeIfPresent(
+            Int.self,
+            forKey: .reviewTimeBudgetMinutes
+        )
         masterySpread = try container.decodeIfPresent(StudyMasterySpread.self, forKey: .masterySpread)
         learningReadiness = try container.decodeIfPresent(
             StudyLearningReadiness.self,
@@ -378,6 +386,7 @@ struct StudyOverview: Codable, Sendable {
         try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
         try container.encodeIfPresent(newCardsAvailableToday, forKey: .newCardsAvailableToday)
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
+        try container.encodeIfPresent(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
         try container.encodeIfPresent(masterySpread, forKey: .masterySpread)
         try container.encodeIfPresent(learningReadiness, forKey: .learningReadiness)
     }
@@ -418,7 +427,20 @@ struct StudySettings: Codable, Equatable, Sendable {
 struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
-    let reviewTimeBudgetMinutes: Int
+    let reviewTimeBudgetMinutes: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case newCardsPerDay
+        case lessonBatchSize
+        case reviewTimeBudgetMinutes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
+        try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
+        try container.encodeIfPresent(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
+    }
 }
 
 struct StudyMasterySpread: Codable, Equatable, Sendable {

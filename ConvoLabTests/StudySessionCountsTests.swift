@@ -86,6 +86,7 @@ final class StudySessionCountsTests: XCTestCase {
                   "newCardsPerDay": 20,
                   "newCardsAvailableToday": 4,
                   "lessonBatchSize": 8,
+                  "reviewTimeBudgetMinutes": 90,
                   "masterySpread": {
                     "apprentice": 4,
                     "guru": 3,
@@ -117,6 +118,7 @@ final class StudySessionCountsTests: XCTestCase {
 
         XCTAssertEqual(overview.lessonBatchSize, 8)
         XCTAssertEqual(overview.totalCards, 42)
+        XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")

@@ -5147,7 +5147,6 @@ final class StudyStoreTests: XCTestCase {
                 XCTAssertEqual(body, [
                     "lessonBatchSize": 5,
                     "newCardsPerDay": 24,
-                    "reviewTimeBudgetMinutes": 90,
                 ])
                 return (
                     HTTPURLResponse(
@@ -5189,6 +5188,116 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertTrue(saved)
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
         XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testSessionRefreshPreservesBudgetWhenReadinessStatisticsAreAbsent() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/settings":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(
+                        #"{"newCardsPerDay":20,"lessonBatchSize":5,"reviewTimeBudgetMinutes":150}"#.utf8
+                    )
+                )
+            case "/api/study/session/start":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshStudySettings()
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+    }
+
+    @MainActor
+    func testStudySettingsUpdateSendsAnExplicitReviewBudget() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            let body = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
+            )
+            XCTAssertEqual(body, [
+                "lessonBatchSize": 5,
+                "newCardsPerDay": 20,
+                "reviewTimeBudgetMinutes": 150,
+            ])
+
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"newCardsPerDay":20,"lessonBatchSize":5,"reviewTimeBudgetMinutes":150}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let saved = await store.updateStudySettings(
+            newCardsPerDay: 20,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 150
+        )
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
     }
 
     @MainActor

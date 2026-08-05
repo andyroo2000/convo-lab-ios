@@ -594,7 +594,10 @@ final class StudyStore {
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
             lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: session.overview.learningReadiness?.reviewTimeBudgetMinutes ?? 90
+            reviewTimeBudgetMinutes: session.overview.reviewTimeBudgetMinutes
+                ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
+                ?? studySettings?.reviewTimeBudgetMinutes
+                ?? 90
         )
         cards = activeCards
         sessionKind = "reviews"
@@ -642,7 +645,10 @@ final class StudyStore {
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
             lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: session.overview.learningReadiness?.reviewTimeBudgetMinutes ?? 90
+            reviewTimeBudgetMinutes: session.overview.reviewTimeBudgetMinutes
+                ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
+                ?? studySettings?.reviewTimeBudgetMinutes
+                ?? 90
         )
         cards = lessonCards
         sessionKind = "lessons"
@@ -693,15 +699,11 @@ final class StudyStore {
         lessonBatchSize: Int,
         reviewTimeBudgetMinutes: Int? = nil
     ) async -> Bool {
-        let resolvedReviewTimeBudgetMinutes = reviewTimeBudgetMinutes
-            ?? studySettings?.reviewTimeBudgetMinutes
-            ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
-            ?? 90
         guard
             let userID = activeUserID,
             (0...1_000).contains(newCardsPerDay),
             (3...10).contains(lessonBatchSize),
-            (15...240).contains(resolvedReviewTimeBudgetMinutes)
+            reviewTimeBudgetMinutes.map({ (15...240).contains($0) }) ?? true
         else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
@@ -718,7 +720,7 @@ final class StudyStore {
                 body: UpdateStudySettingsRequest(
                     newCardsPerDay: newCardsPerDay,
                     lessonBatchSize: lessonBatchSize,
-                    reviewTimeBudgetMinutes: resolvedReviewTimeBudgetMinutes
+                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
                 )
             )
             guard activeUserID == userID else { return false }
@@ -734,6 +736,7 @@ final class StudyStore {
                     failedCount: current.failedCount,
                     failedDueCount: current.failedDueCount,
                     lessonBatchSize: response.lessonBatchSize,
+                    reviewTimeBudgetMinutes: response.reviewTimeBudgetMinutes,
                     masterySpread: current.masterySpread,
                     learningReadiness: current.learningReadiness?
                         .updatingReviewTimeBudget(to: response.reviewTimeBudgetMinutes)
@@ -2021,6 +2024,7 @@ final class StudyStore {
             // refresh. Mutating it here as well would decrement a failed card twice.
             failedDueCount: current.failedDueCount,
             lessonBatchSize: current.lessonBatchSize,
+            reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
         )
