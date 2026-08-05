@@ -590,10 +590,7 @@ final class StudyStore {
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
-        let reviewTimeBudgetMinutes = session.overview.reviewTimeBudgetMinutes
-            ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
-            ?? studySettings?.reviewTimeBudgetMinutes
-            ?? 90
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
         overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
@@ -642,10 +639,7 @@ final class StudyStore {
         }
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
-        let reviewTimeBudgetMinutes = session.overview.reviewTimeBudgetMinutes
-            ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
-            ?? studySettings?.reviewTimeBudgetMinutes
-            ?? 90
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
         overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
@@ -679,7 +673,7 @@ final class StudyStore {
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard activeUserID == userID else { return }
-            studySettings = response
+            studySettings = preservingReviewTimeBudget(in: response)
             studySettingsErrorMessage = nil
         } catch {
             guard activeUserID == userID else { return }
@@ -726,22 +720,26 @@ final class StudyStore {
                 )
             )
             guard activeUserID == userID else { return false }
-            studySettings = response
+            let resolvedResponse = preservingReviewTimeBudget(
+                in: response,
+                requestedBudget: reviewTimeBudgetMinutes
+            )
+            studySettings = resolvedResponse
             if let current = overview {
                 overview = StudyOverview(
                     dueCount: current.dueCount,
                     newCount: current.newCount,
                     reviewCount: current.reviewCount,
                     totalCards: current.totalCards,
-                    newCardsPerDay: response.newCardsPerDay,
+                    newCardsPerDay: resolvedResponse.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
                     failedCount: current.failedCount,
                     failedDueCount: current.failedDueCount,
-                    lessonBatchSize: response.lessonBatchSize,
-                    reviewTimeBudgetMinutes: response.reviewTimeBudgetMinutes,
+                    lessonBatchSize: resolvedResponse.lessonBatchSize,
+                    reviewTimeBudgetMinutes: resolvedResponse.reviewTimeBudgetMinutes,
                     masterySpread: current.masterySpread,
                     learningReadiness: current.learningReadiness?
-                        .updatingReviewTimeBudget(to: response.reviewTimeBudgetMinutes)
+                        .updatingReviewTimeBudget(to: resolvedResponse.reviewTimeBudgetMinutes)
                 )
             }
             // The server may now admit a different set of new cards and build a
@@ -1248,9 +1246,32 @@ final class StudyStore {
             )
         )
         try restoreReviewedCard(response.card)
-        overview = response.overview
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
+        overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         apply(try pendingReviewState())
         restoreSessionFailure(for: cardBefore.id, before: eventID)
+    }
+
+    private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
+        responseOverview?.reviewTimeBudgetMinutes
+            ?? responseOverview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? studySettings?.reviewTimeBudgetMinutes
+            ?? overview?.reviewTimeBudgetMinutes
+            ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? 90
+    }
+
+    private func preservingReviewTimeBudget(
+        in response: StudySettings,
+        requestedBudget: Int? = nil
+    ) -> StudySettings {
+        StudySettings(
+            newCardsPerDay: response.newCardsPerDay,
+            lessonBatchSize: response.lessonBatchSize,
+            reviewTimeBudgetMinutes: response.includesReviewTimeBudgetMinutes
+                ? response.reviewTimeBudgetMinutes
+                : requestedBudget ?? resolvedReviewTimeBudget()
+        )
     }
 
     private func restoreSessionFailure(for cardID: String, before eventID: String) {

@@ -413,15 +413,18 @@ struct StudySettings: Codable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int
+    let includesReviewTimeBudgetMinutes: Bool
 
     init(
         newCardsPerDay: Int,
         lessonBatchSize: Int = 5,
-        reviewTimeBudgetMinutes: Int = 90
+        reviewTimeBudgetMinutes: Int = 90,
+        includesReviewTimeBudgetMinutes: Bool = true
     ) {
         self.newCardsPerDay = newCardsPerDay
         self.lessonBatchSize = lessonBatchSize
         self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
+        self.includesReviewTimeBudgetMinutes = includesReviewTimeBudgetMinutes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -438,6 +441,20 @@ struct StudySettings: Codable, Equatable, Sendable {
             Int.self,
             forKey: .reviewTimeBudgetMinutes
         ) ?? 90
+        if container.contains(.reviewTimeBudgetMinutes) {
+            includesReviewTimeBudgetMinutes = !(try container.decodeNil(
+                forKey: .reviewTimeBudgetMinutes
+            ))
+        } else {
+            includesReviewTimeBudgetMinutes = false
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
+        try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
+        try container.encode(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
     }
 }
 
