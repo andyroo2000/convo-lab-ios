@@ -430,6 +430,7 @@ final class StudyStoreTests: XCTestCase {
             XCTAssertEqual(message, "cleanup failed")
         }
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertEqual(store.allCards.map(\.id), [card.id])
         XCTAssertFalse(store.manualDrafts.isEmpty)
         XCTAssertTrue(store.hasPendingDraftCommit(for: serverDraft.id))
         XCTAssertEqual(store.quarantinedMutationCount, 0)
@@ -562,6 +563,7 @@ final class StudyStoreTests: XCTestCase {
             ]
         )
         XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertEqual(store.allCards.map(\.id), [committedCard.id])
         let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
         XCTAssertEqual(pending.map(\.resourceID), [firstDraftID])
         XCTAssertEqual(pending.first?.attemptCount, 1)

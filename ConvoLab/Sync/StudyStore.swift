@@ -885,10 +885,25 @@ final class StudyStore {
     }
 
     private func locallyFilteredLibraryCards(matching query: String) -> [StudyCard] {
-        guard !query.isEmpty else { return libraryCards }
-        return libraryCards.filter {
-            $0.promptText.localizedCaseInsensitiveContains(query)
-                || $0.answerText.localizedCaseInsensitiveContains(query)
+        libraryCards.filter { matchesAllCardsQuery($0, query: query) }
+    }
+
+    private func matchesAllCardsQuery(_ card: StudyCard, query: String) -> Bool {
+        query.isEmpty
+            || card.promptText.localizedCaseInsensitiveContains(query)
+            || card.answerText.localizedCaseInsensitiveContains(query)
+    }
+
+    private func upsertAllCardsPresentation(_ card: StudyCard) {
+        let normalizedID = card.id.lowercased()
+        allCards.removeAll { $0.id.lowercased() == normalizedID }
+        guard matchesAllCardsQuery(card, query: allCardsQuery) else { return }
+        allCards.append(card)
+        allCards.sort {
+            if $0.createdAt == $1.createdAt {
+                return $0.id > $1.id
+            }
+            return $0.createdAt > $1.createdAt
         }
     }
 
@@ -1715,6 +1730,7 @@ final class StudyStore {
         ))
         cards.append(optimistic)
         libraryCards.append(optimistic)
+        upsertAllCardsPresentation(optimistic)
         try context.save()
 
         do {
@@ -2597,6 +2613,7 @@ final class StudyStore {
         } else {
             libraryCards.append(restoredCard)
         }
+        upsertAllCardsPresentation(restoredCard)
 
         let payload = try StorageCodec.encoder.encode(restoredCard)
         if let record {
@@ -3053,6 +3070,7 @@ final class StudyStore {
         cards = Self.orderSessionCards(cards)
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
+        upsertAllCardsPresentation(card)
         try context.save()
         await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
         do {
