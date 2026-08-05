@@ -2,6 +2,8 @@ import PhotosUI
 import SwiftUI
 
 struct CardLibraryView: View {
+    private static let maximumReorderableCards = 100
+
     private enum CollectionMode: String, CaseIterable, Identifiable {
         case queue = "Queue"
         case all = "All Cards"
@@ -60,6 +62,7 @@ struct CardLibraryView: View {
                 if collectionMode == .queue {
                     ToolbarItem(placement: .secondaryAction) {
                         EditButton()
+                            .disabled(store.newCardQueue.count > Self.maximumReorderableCards)
                     }
                 }
             }
@@ -99,6 +102,12 @@ struct CardLibraryView: View {
                 try? await store.refreshManualDrafts()
                 try? await store.refreshNewCardQueue()
             }
+            .task(id: "\(collectionMode.rawValue)-\(searchText)") {
+                guard collectionMode == .all else { return }
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                try? await store.refreshAllCards(search: searchText)
+            }
             .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
                 while !Task.isCancelled,
                       store.manualDrafts.contains(where: { $0.status == "generating" })
@@ -112,6 +121,9 @@ struct CardLibraryView: View {
                 try? await store.refreshManualDrafts()
                 await store.synchronize()
                 try? await store.refreshNewCardQueue()
+                if collectionMode == .all {
+                    try? await store.refreshAllCards(search: searchText)
+                }
             }
         }
     }
@@ -128,17 +140,30 @@ struct CardLibraryView: View {
                     ForEach(Array(store.newCardQueue.enumerated()), id: \.element.id) {
                         index,
                         item in
-                        if let card = store.libraryCards.first(where: { $0.id == item.id }) {
-                            Button {
-                                selectedCard = card
-                            } label: {
+                        Group {
+                            if let card = card(for: item) {
+                                Button {
+                                    selectedCard = card
+                                } label: {
+                                    queueRow(item, number: index + 1)
+                                }
+                            } else {
                                 queueRow(item, number: index + 1)
                             }
-                        } else {
-                            queueRow(item, number: index + 1)
+                        }
+                        .task {
+                            guard item.id == store.newCardQueue.last?.id else { return }
+                            try? await store.loadMoreNewCardQueue()
                         }
                     }
                     .onMove { offsets, destination in
+                        // The API deliberately reassigns only the submitted cards across
+                        // their existing queue positions; cards on unloaded pages stay put.
+                        guard store.newCardQueue.count <= Self.maximumReorderableCards else {
+                            queueErrorMessage =
+                                "Reordering is available while up to \(Self.maximumReorderableCards) cards are loaded."
+                            return
+                        }
                         Task {
                             do {
                                 try await store.moveNewCards(
@@ -161,7 +186,11 @@ struct CardLibraryView: View {
                             .textCase(nil)
                     }
                 } footer: {
-                    if store.newCardQueueTotal > store.newCardQueue.count {
+                    if store.newCardQueue.count > Self.maximumReorderableCards {
+                        Text(
+                            "Reordering is available while up to \(Self.maximumReorderableCards) cards are loaded."
+                        )
+                    } else if store.newCardQueueTotal > store.newCardQueue.count {
                         Text(
                             "Showing the next \(store.newCardQueue.count) of \(store.newCardQueueTotal) cards."
                         )
@@ -183,9 +212,9 @@ struct CardLibraryView: View {
                     }
                 }
 
-                if !filteredLibraryCards.isEmpty {
+                if !store.allCards.isEmpty {
                     Section {
-                        ForEach(filteredLibraryCards) { card in
+                        ForEach(store.allCards) { card in
                             Group {
                                 if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                                     Button {
@@ -202,6 +231,14 @@ struct CardLibraryView: View {
                                     Task { await delete(card) }
                                 }
                             }
+                            .task {
+                                guard card.id == store.allCards.last?.id else { return }
+                                try? await store.loadMoreAllCards()
+                            }
+                        }
+                        if store.isLoadingMoreAllCards {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
                         }
                     } header: {
                         HStack {
@@ -224,11 +261,11 @@ struct CardLibraryView: View {
                     description: Text("New cards waiting to be introduced appear here.")
                 )
             } else if collectionMode == .all,
-                      filteredLibraryCards.isEmpty,
+                      store.allCards.isEmpty,
                       store.manualDrafts.isEmpty {
                 if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView(
-                        "No cards",
+                        store.isRefreshingAllCards ? "Loading cards…" : "No cards",
                         systemImage: "rectangle.stack",
                         description: Text("Sync or create a card to begin.")
                     )
@@ -239,18 +276,14 @@ struct CardLibraryView: View {
         }
     }
 
-    private var filteredLibraryCards: [StudyCard] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return store.libraryCards }
-        return store.libraryCards.filter {
-            $0.promptText.localizedCaseInsensitiveContains(query)
-                || $0.answerText.localizedCaseInsensitiveContains(query)
-        }
-    }
-
     private var totalCardCount: Int {
         store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
             ?? store.libraryCards.count
+    }
+
+    private func card(for item: StudyNewCardQueueItem) -> StudyCard? {
+        store.allCards.first { $0.id == item.id }
+            ?? store.libraryCards.first { $0.id == item.id }
     }
 
     private func queueRow(_ item: StudyNewCardQueueItem, number: Int) -> some View {

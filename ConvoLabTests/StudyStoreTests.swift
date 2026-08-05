@@ -96,6 +96,168 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCardLibraryLoadsQueueAndAllCardsAcrossCursorPagesWithoutDuplicates() async throws {
+        let firstCard = makeCard(id: "01J00000000000000000000011", expression: "犬")
+        let secondCard = makeCard(id: "01J00000000000000000000012", expression: "猫")
+        let firstQueueItem = StudyNewCardQueueItem(
+            id: firstCard.id,
+            noteId: firstCard.id,
+            cardType: "recognition",
+            displayText: "犬",
+            meaning: "dog",
+            queuePosition: 1,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let secondQueueItem = StudyNewCardQueueItem(
+            id: secondCard.id,
+            noteId: secondCard.id,
+            cardType: "recognition",
+            displayText: "猫",
+            meaning: "cat",
+            queuePosition: 2,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let firstQueuePage = try StorageCodec.encoder.encode(
+            StudyNewCardQueueResponse(
+                items: [firstQueueItem],
+                total: 2,
+                limit: 100,
+                nextCursor: "1"
+            )
+        )
+        let secondQueuePage = try StorageCodec.encoder.encode(
+            StudyNewCardQueueResponse(
+                items: [firstQueueItem, secondQueueItem],
+                total: 2,
+                limit: 100,
+                nextCursor: nil
+            )
+        )
+        let firstCardPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard], limit: 50, nextCursor: "cards-2")
+        )
+        let secondCardPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard, secondCard], limit: 50, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            let query = request.url?.query ?? ""
+            let data: Data
+            switch (request.url?.path, query) {
+            case ("/api/study/new-queue", "limit=100"):
+                data = firstQueuePage
+            case ("/api/study/new-queue", "cursor=1&limit=100"):
+                data = secondQueuePage
+            case ("/api/study/cards", "per_page=50&q=animal"):
+                data = firstCardPage
+            case ("/api/study/cards", "cursor=cards-2&per_page=50&q=animal"):
+                data = secondCardPage
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshNewCardQueue()
+        try await store.loadMoreNewCardQueue()
+        try await store.refreshAllCards(search: "animal")
+        try await store.loadMoreAllCards()
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [firstCard.id, secondCard.id])
+        XCTAssertNil(store.newCardQueueNextCursor)
+        XCTAssertEqual(store.allCards.map(\.id), [firstCard.id, secondCard.id])
+        XCTAssertNil(store.allCardsNextCursor)
+    }
+
+    @MainActor
+    func testAllCardsFallsBackToTheLocalReplicaWhenOffline() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dog = makeCard(id: "01J00000000000000000000021", expression: "犬")
+        let cat = makeCard(id: "01J00000000000000000000022", expression: "猫")
+        for (index, card) in [dog, cat].enumerated() {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.refreshAllCards(search: "犬")
+            XCTFail("Expected the remote card page to fail while offline")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+
+        XCTAssertEqual(store.allCards.map(\.id), [dog.id])
+        XCTAssertEqual(store.allCardsQuery, "犬")
+        XCTAssertNil(store.allCardsNextCursor)
+    }
+
+    @MainActor
+    func testLatestAllCardsSearchWinsWhenAnOlderRefreshFinishesLast() async throws {
+        let firstCard = makeCard(id: "01J00000000000000000000031", expression: "古い")
+        let secondCard = makeCard(id: "01J00000000000000000000032", expression: "新しい")
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard], limit: 50, nextCursor: "old-cursor")
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [secondCard], limit: 50, nextCursor: "new-cursor")
+        )
+        OutOfOrderCardListURLProtocol.configure(first: firstPage, second: secondPage)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderCardListURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let firstRefresh = Task { try await store.refreshAllCards(search: "first") }
+        await waitUntil { OutOfOrderCardListURLProtocol.hasPendingFirstRequest }
+        try await store.refreshAllCards(search: "second")
+        try await firstRefresh.value
+
+        XCTAssertEqual(store.allCards.map(\.id), [secondCard.id])
+        XCTAssertEqual(store.allCardsQuery, "second")
+        XCTAssertEqual(store.allCardsNextCursor, "new-cursor")
+    }
+
+    @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let audio: JSONValue = .object([
@@ -268,6 +430,7 @@ final class StudyStoreTests: XCTestCase {
             XCTAssertEqual(message, "cleanup failed")
         }
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+        XCTAssertEqual(store.allCards.map(\.id), [card.id])
         XCTAssertFalse(store.manualDrafts.isEmpty)
         XCTAssertTrue(store.hasPendingDraftCommit(for: serverDraft.id))
         XCTAssertEqual(store.quarantinedMutationCount, 0)
@@ -400,6 +563,7 @@ final class StudyStoreTests: XCTestCase {
             ]
         )
         XCTAssertEqual(store.libraryCards.map(\.id), [committedCard.id])
+        XCTAssertEqual(store.allCards.map(\.id), [committedCard.id])
         let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
         XCTAssertEqual(pending.map(\.resourceID), [firstDraftID])
         XCTAssertEqual(pending.first?.attemptCount, 1)
@@ -6886,6 +7050,61 @@ final class LockedRequestPaths: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+final class OutOfOrderCardListURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var firstResponseData = Data()
+    nonisolated(unsafe) private static var secondResponseData = Data()
+    nonisolated(unsafe) private static var pendingFirstRequest: OutOfOrderCardListURLProtocol?
+
+    static var hasPendingFirstRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingFirstRequest != nil
+    }
+
+    static func configure(first: Data, second: Data) {
+        lock.lock()
+        firstResponseData = first
+        secondResponseData = second
+        pendingFirstRequest = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        if request.url?.query?.contains("q=first") == true {
+            Self.lock.lock()
+            Self.pendingFirstRequest = self
+            Self.lock.unlock()
+            return
+        }
+
+        respond(with: Self.secondResponseData)
+        Self.lock.lock()
+        let firstRequest = Self.pendingFirstRequest
+        Self.pendingFirstRequest = nil
+        Self.lock.unlock()
+        firstRequest?.respond(with: Self.firstResponseData)
+    }
+
+    override func stopLoading() {}
+
+    private func respond(with data: Data) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 

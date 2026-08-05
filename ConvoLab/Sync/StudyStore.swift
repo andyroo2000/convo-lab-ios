@@ -172,6 +172,7 @@ final class StudyStore {
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
     @ObservationIgnored private var manualDraftRevision = 0
+    @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -181,9 +182,16 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var allCards: [StudyCard] = []
+    private(set) var allCardsNextCursor: String?
+    private(set) var allCardsQuery = ""
+    private(set) var isRefreshingAllCards = false
+    private(set) var isLoadingMoreAllCards = false
     private(set) var newCardQueue: [StudyNewCardQueueItem] = []
     private(set) var newCardQueueTotal = 0
+    private(set) var newCardQueueNextCursor: String?
     private(set) var isRefreshingNewCardQueue = false
+    private(set) var isLoadingMoreNewCardQueue = false
     private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
     private(set) var studySettings: StudySettings?
@@ -288,9 +296,17 @@ final class StudyStore {
         mediaCache.deactivate()
         cards = []
         libraryCards = []
+        allCards = []
+        allCardsNextCursor = nil
+        allCardsQuery = ""
+        allCardsRefreshRevision += 1
+        isRefreshingAllCards = false
+        isLoadingMoreAllCards = false
         newCardQueue = []
         newCardQueueTotal = 0
+        newCardQueueNextCursor = nil
         isRefreshingNewCardQueue = false
+        isLoadingMoreNewCardQueue = false
         manualDrafts = []
         overview = nil
         studySettings = nil
@@ -452,6 +468,7 @@ final class StudyStore {
             record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
             cards = cards.map { $0.id == card.id ? updatedCard : $0 }
             libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
+            allCards = allCards.map { $0.id == card.id ? updatedCard : $0 }
             try context.save()
         } catch {
             // Pitch accent is optional enrichment. Offline and unresolved cards
@@ -773,6 +790,141 @@ final class StudyStore {
         guard activeUserID == userID else { return }
         newCardQueue = response.items
         newCardQueueTotal = response.total
+        newCardQueueNextCursor = response.nextCursor
+    }
+
+    func loadMoreNewCardQueue() async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = newCardQueueNextCursor,
+            !isRefreshingNewCardQueue,
+            !isLoadingMoreNewCardQueue
+        else { return }
+        isLoadingMoreNewCardQueue = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreNewCardQueue = false
+            }
+        }
+
+        let response: StudyNewCardQueueResponse = try await api.request(
+            "/api/study/new-queue",
+            query: [
+                URLQueryItem(name: "cursor", value: cursor),
+                URLQueryItem(name: "limit", value: "100"),
+            ]
+        )
+        guard activeUserID == userID, newCardQueueNextCursor == cursor else { return }
+        let loadedIDs = Set(newCardQueue.map(\.id))
+        newCardQueue.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
+        newCardQueueTotal = response.total
+        newCardQueueNextCursor = response.nextCursor
+    }
+
+    func refreshAllCards(search query: String = "") async throws {
+        guard let userID = activeUserID else { return }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        allCardsRefreshRevision += 1
+        let refreshRevision = allCardsRefreshRevision
+        allCardsQuery = trimmedQuery
+        allCardsNextCursor = nil
+        isRefreshingAllCards = true
+        defer {
+            if activeUserID == userID, allCardsRefreshRevision == refreshRevision {
+                isRefreshingAllCards = false
+            }
+        }
+
+        var queryItems = [URLQueryItem(name: "per_page", value: "50")]
+        if !trimmedQuery.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
+        }
+        do {
+            let response: StudyCardListResponse = try await api.request(
+                "/api/study/cards",
+                query: queryItems
+            )
+            guard
+                activeUserID == userID,
+                allCardsRefreshRevision == refreshRevision,
+                allCardsQuery == trimmedQuery
+            else { return }
+            allCards = response.items
+            allCardsNextCursor = response.nextCursor
+        } catch {
+            guard
+                activeUserID == userID,
+                allCardsRefreshRevision == refreshRevision,
+                allCardsQuery == trimmedQuery
+            else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
+            // SwiftData remains the offline source of truth for browsing. The
+            // server list is only the paginated presentation when reachable.
+            allCards = locallyFilteredLibraryCards(matching: trimmedQuery)
+            allCardsNextCursor = nil
+            throw error
+        }
+    }
+
+    func loadMoreAllCards() async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = allCardsNextCursor,
+            !isRefreshingAllCards,
+            !isLoadingMoreAllCards
+        else { return }
+        isLoadingMoreAllCards = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreAllCards = false
+            }
+        }
+
+        let query = allCardsQuery
+        var queryItems = [
+            URLQueryItem(name: "cursor", value: cursor),
+            URLQueryItem(name: "per_page", value: "50"),
+        ]
+        if !query.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
+        }
+        let response: StudyCardListResponse = try await api.request(
+            "/api/study/cards",
+            query: queryItems
+        )
+        guard
+            activeUserID == userID,
+            allCardsNextCursor == cursor,
+            allCardsQuery == query
+        else { return }
+        let loadedIDs = Set(allCards.map(\.id))
+        allCards.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
+        allCardsNextCursor = response.nextCursor
+    }
+
+    private func locallyFilteredLibraryCards(matching query: String) -> [StudyCard] {
+        libraryCards.filter { matchesAllCardsQuery($0, query: query) }
+    }
+
+    private func matchesAllCardsQuery(_ card: StudyCard, query: String) -> Bool {
+        query.isEmpty
+            || card.promptText.localizedCaseInsensitiveContains(query)
+            || card.answerText.localizedCaseInsensitiveContains(query)
+    }
+
+    private func upsertAllCardsPresentation(_ card: StudyCard) {
+        let normalizedID = card.id.lowercased()
+        allCards.removeAll { $0.id.lowercased() == normalizedID }
+        guard matchesAllCardsQuery(card, query: allCardsQuery) else { return }
+        allCards.append(card)
+        allCards.sort {
+            if $0.createdAt == $1.createdAt {
+                return $0.id > $1.id
+            }
+            return $0.createdAt > $1.createdAt
+        }
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
@@ -789,6 +941,7 @@ final class StudyStore {
             guard activeUserID == userID else { return }
             newCardQueue = response.items
             newCardQueueTotal = response.total
+            newCardQueueNextCursor = response.nextCursor
         } catch {
             guard activeUserID == userID else { return }
             newCardQueue = previousItems
@@ -1622,6 +1775,7 @@ final class StudyStore {
         ))
         cards.append(optimistic)
         libraryCards.append(optimistic)
+        upsertAllCardsPresentation(optimistic)
         try context.save()
 
         do {
@@ -1673,6 +1827,7 @@ final class StudyStore {
         ))
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
+        allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1699,6 +1854,7 @@ final class StudyStore {
         }
         cards.removeAll { $0.id == currentCard.id }
         libraryCards.removeAll { $0.id == currentCard.id }
+        allCards.removeAll { $0.id == currentCard.id }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1777,6 +1933,7 @@ final class StudyStore {
         )
         cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
         return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
     }
@@ -1931,6 +2088,7 @@ final class StudyStore {
         )
         cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
         return ImageRegenerationResult(card: updatedCard, localURL: localURL)
     }
@@ -2501,6 +2659,7 @@ final class StudyStore {
         } else {
             libraryCards.append(restoredCard)
         }
+        upsertAllCardsPresentation(restoredCard)
 
         let payload = try StorageCodec.encoder.encode(restoredCard)
         if let record {
@@ -2957,6 +3116,7 @@ final class StudyStore {
         cards = Self.orderSessionCards(cards)
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
+        upsertAllCardsPresentation(card)
         try context.save()
         await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
         do {
