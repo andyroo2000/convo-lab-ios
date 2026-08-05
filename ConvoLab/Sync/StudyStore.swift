@@ -590,10 +590,12 @@ final class StudyStore {
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
-        overview = session.overview
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
+        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize
+            lessonBatchSize: session.overview.lessonBatchSize,
+            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
         )
         cards = activeCards
         sessionKind = "reviews"
@@ -637,10 +639,12 @@ final class StudyStore {
         }
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
-        overview = session.overview
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
+        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize
+            lessonBatchSize: session.overview.lessonBatchSize,
+            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
         )
         cards = lessonCards
         sessionKind = "lessons"
@@ -669,7 +673,11 @@ final class StudyStore {
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard activeUserID == userID else { return }
-            studySettings = response
+            let resolvedResponse = preservingReviewTimeBudget(in: response)
+            studySettings = resolvedResponse
+            overview = overview?.updatingReviewTimeBudget(
+                to: resolvedResponse.reviewTimeBudgetMinutes
+            )
             studySettingsErrorMessage = nil
         } catch {
             guard activeUserID == userID else { return }
@@ -686,11 +694,16 @@ final class StudyStore {
     }
 
     @discardableResult
-    func updateStudySettings(newCardsPerDay: Int, lessonBatchSize: Int) async -> Bool {
+    func updateStudySettings(
+        newCardsPerDay: Int,
+        lessonBatchSize: Int,
+        reviewTimeBudgetMinutes: Int? = nil
+    ) async -> Bool {
         guard
             let userID = activeUserID,
             (0...1_000).contains(newCardsPerDay),
-            (3...10).contains(lessonBatchSize)
+            (3...10).contains(lessonBatchSize),
+            reviewTimeBudgetMinutes.map({ (15...240).contains($0) }) ?? true
         else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
@@ -706,24 +719,31 @@ final class StudyStore {
                 method: "PATCH",
                 body: UpdateStudySettingsRequest(
                     newCardsPerDay: newCardsPerDay,
-                    lessonBatchSize: lessonBatchSize
+                    lessonBatchSize: lessonBatchSize,
+                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
                 )
             )
             guard activeUserID == userID else { return false }
-            studySettings = response
+            let resolvedResponse = preservingReviewTimeBudget(
+                in: response,
+                requestedBudget: reviewTimeBudgetMinutes
+            )
+            studySettings = resolvedResponse
             if let current = overview {
                 overview = StudyOverview(
                     dueCount: current.dueCount,
                     newCount: current.newCount,
                     reviewCount: current.reviewCount,
                     totalCards: current.totalCards,
-                    newCardsPerDay: response.newCardsPerDay,
+                    newCardsPerDay: resolvedResponse.newCardsPerDay,
                     newCardsAvailableToday: current.newCardsAvailableToday,
                     failedCount: current.failedCount,
                     failedDueCount: current.failedDueCount,
-                    lessonBatchSize: response.lessonBatchSize,
+                    lessonBatchSize: resolvedResponse.lessonBatchSize,
+                    reviewTimeBudgetMinutes: resolvedResponse.reviewTimeBudgetMinutes,
                     masterySpread: current.masterySpread,
-                    learningReadiness: current.learningReadiness
+                    learningReadiness: current.learningReadiness?
+                        .updatingReviewTimeBudget(to: resolvedResponse.reviewTimeBudgetMinutes)
                 )
             }
             // The server may now admit a different set of new cards and build a
@@ -1230,9 +1250,34 @@ final class StudyStore {
             )
         )
         try restoreReviewedCard(response.card)
-        overview = response.overview
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
+        overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         apply(try pendingReviewState())
         restoreSessionFailure(for: cardBefore.id, before: eventID)
+    }
+
+    private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
+        let resolvedBudget = responseOverview?.reviewTimeBudgetMinutes
+            ?? responseOverview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? studySettings?.reviewTimeBudgetMinutes
+            ?? overview?.reviewTimeBudgetMinutes
+            ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? 90
+        return min(max(resolvedBudget, 15), 240)
+    }
+
+    private func preservingReviewTimeBudget(
+        in response: StudySettings,
+        requestedBudget: Int? = nil
+    ) -> StudySettings {
+        let resolvedBudget = response.includesReviewTimeBudgetMinutes
+            ? response.reviewTimeBudgetMinutes
+            : requestedBudget ?? resolvedReviewTimeBudget()
+        return StudySettings(
+            newCardsPerDay: response.newCardsPerDay,
+            lessonBatchSize: response.lessonBatchSize,
+            reviewTimeBudgetMinutes: min(max(resolvedBudget, 15), 240)
+        )
     }
 
     private func restoreSessionFailure(for cardID: String, before eventID: String) {
@@ -2008,6 +2053,7 @@ final class StudyStore {
             // refresh. Mutating it here as well would decrement a failed card twice.
             failedDueCount: current.failedDueCount,
             lessonBatchSize: current.lessonBatchSize,
+            reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
         )

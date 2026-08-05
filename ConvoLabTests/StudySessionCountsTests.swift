@@ -86,6 +86,7 @@ final class StudySessionCountsTests: XCTestCase {
                   "newCardsPerDay": 20,
                   "newCardsAvailableToday": 4,
                   "lessonBatchSize": 8,
+                  "reviewTimeBudgetMinutes": 90,
                   "masterySpread": {
                     "apprentice": 4,
                     "guru": 3,
@@ -95,6 +96,7 @@ final class StudySessionCountsTests: XCTestCase {
                   },
                   "learningReadiness": {
                     "recommendation": "caution",
+                    "readinessLevel": "ease_up",
                     "sampleSize": 50,
                     "sufficientData": true,
                     "recentRecall": 0.84,
@@ -102,6 +104,11 @@ final class StudySessionCountsTests: XCTestCase {
                     "dueBacklog": 10,
                     "apprenticeCount": 4,
                     "projectedSevenDayReviews": 22,
+                    "timedReviewSampleSize": 40,
+                    "medianReviewDurationSeconds": 18.5,
+                    "projectedDailyReviewMinutes": 58,
+                    "reviewTimeBudgetMinutes": 90,
+                    "reviewTimeHeadroomMinutes": 32,
                     "suggestedBatchSize": 4
                   }
                 }
@@ -111,9 +118,20 @@ final class StudySessionCountsTests: XCTestCase {
 
         XCTAssertEqual(overview.lessonBatchSize, 8)
         XCTAssertEqual(overview.totalCards, 42)
+        XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
+        XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")
+        XCTAssertEqual(overview.learningReadiness?.projectedDailyReviewMinutes, 58)
+        XCTAssertEqual(overview.learningReadiness?.reviewTimeBudgetMinutes, 90)
+        XCTAssertEqual(overview.learningReadiness?.reviewTimeHeadroomMinutes, 32)
         XCTAssertEqual(overview.learningReadiness?.suggestedBatchSize, 4)
+
+        let updatedReadiness = try XCTUnwrap(overview.learningReadiness)
+            .updatingReviewTimeBudget(to: 45)
+        XCTAssertEqual(updatedReadiness.reviewTimeBudgetMinutes, 45)
+        XCTAssertEqual(updatedReadiness.projectedDailyReviewMinutes, 58)
+        XCTAssertEqual(updatedReadiness.reviewTimeHeadroomMinutes, -13)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {

@@ -114,19 +114,16 @@ struct StudyHomeView: View {
     @ViewBuilder
     private var learningReadiness: some View {
         if let recommendation = store.overview?.learningReadiness {
+            let level = recommendation.readinessLevel ?? recommendation.recommendation
             VStack(alignment: .leading, spacing: 8) {
-                Label("Learning readiness", systemImage: readinessIcon(recommendation.recommendation))
+                Label("Learning readiness", systemImage: readinessIcon(level))
                     .font(.headline)
-                Text(readinessTitle(recommendation.recommendation))
+                Text(readinessTitle(level))
                     .font(.title3.bold())
                 if recommendation.sufficientData, let recall = recommendation.recentRecall {
-                    Text(
-                        "Recent recall is \(Int((recall * 100).rounded()))%. "
-                            + "\(recommendation.apprenticeCount) Apprentice cards need reinforcement, "
-                            + "with \(recommendation.projectedSevenDayReviews) reviews projected over seven days."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    Text(readinessDescription(recommendation, recall: recall))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text(
                         "Building a recommendation from your first 30 answers "
@@ -169,20 +166,48 @@ struct StudyHomeView: View {
         .font(.subheadline)
     }
 
-    private func readinessTitle(_ recommendation: String) -> String {
-        switch recommendation {
-        case "pause": "Reviews first recommended"
-        case "caution": "Add new cards carefully"
+    private func readinessTitle(_ level: String) -> String {
+        switch level {
+        case "baseline": "Building your baseline"
+        case "pause": "Reviews first"
+        case "ease_up", "caution": "Ease up on new cards"
+        case "steady": "Steady pace"
+        case "strong": "Strong capacity"
         default: "Good time to learn"
         }
     }
 
-    private func readinessIcon(_ recommendation: String) -> String {
-        switch recommendation {
+    private func readinessIcon(_ level: String) -> String {
+        switch level {
         case "pause": "pause.circle.fill"
-        case "caution": "exclamationmark.triangle.fill"
+        case "ease_up", "caution": "exclamationmark.triangle.fill"
+        case "baseline": "chart.line.uptrend.xyaxis"
+        case "steady": "equal.circle.fill"
+        case "strong": "bolt.circle.fill"
         default: "checkmark.circle.fill"
         }
+    }
+
+    private func readinessDescription(
+        _ readiness: StudyLearningReadiness,
+        recall: Double
+    ) -> String {
+        let recallText = "Recent recall is \(Int((recall * 100).rounded()))%."
+
+        guard
+            let projectedMinutes = readiness.projectedDailyReviewMinutes,
+            let budgetMinutes = readiness.reviewTimeBudgetMinutes,
+            let headroomMinutes = readiness.reviewTimeHeadroomMinutes
+        else {
+            let timedAnswers = readiness.timedReviewSampleSize ?? 0
+            return "\(recallText) Review timing is still calibrating (\(timedAnswers) timed answers so far)."
+        }
+
+        if headroomMinutes >= 0 {
+            return "\(recallText) About \(projectedMinutes) min/day are scheduled, leaving \(headroomMinutes) min inside your \(budgetMinutes)-minute review budget."
+        }
+
+        return "\(recallText) About \(projectedMinutes) min/day are scheduled, \(-headroomMinutes) min over your \(budgetMinutes)-minute review budget."
     }
 
     private var header: some View {
