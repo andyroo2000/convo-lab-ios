@@ -735,7 +735,8 @@ final class StudyStore {
                     failedDueCount: current.failedDueCount,
                     lessonBatchSize: response.lessonBatchSize,
                     masterySpread: current.masterySpread,
-                    learningReadiness: current.learningReadiness
+                    learningReadiness: current.learningReadiness?
+                        .updatingReviewTimeBudget(to: response.reviewTimeBudgetMinutes)
                 )
             }
             // The server may now admit a different set of new cards and build a

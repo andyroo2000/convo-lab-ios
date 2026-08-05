@@ -122,8 +122,8 @@ struct StudyHomeView: View {
                     .font(.title3.bold())
                 if recommendation.sufficientData, let recall = recommendation.recentRecall {
                     Text(readinessDescription(recommendation, recall: recall))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text(
                         "Building a recommendation from your first 30 answers "
@@ -166,8 +166,8 @@ struct StudyHomeView: View {
         .font(.subheadline)
     }
 
-    private func readinessTitle(_ recommendation: String) -> String {
-        switch recommendation {
+    private func readinessTitle(_ level: String) -> String {
+        switch level {
         case "baseline": "Building your baseline"
         case "pause": "Reviews first"
         case "ease_up", "caution": "Ease up on new cards"
@@ -177,8 +177,8 @@ struct StudyHomeView: View {
         }
     }
 
-    private func readinessIcon(_ recommendation: String) -> String {
-        switch recommendation {
+    private func readinessIcon(_ level: String) -> String {
+        switch level {
         case "pause": "pause.circle.fill"
         case "ease_up", "caution": "exclamationmark.triangle.fill"
         case "baseline": "chart.line.uptrend.xyaxis"

@@ -124,6 +124,12 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.learningReadiness?.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.learningReadiness?.reviewTimeHeadroomMinutes, 32)
         XCTAssertEqual(overview.learningReadiness?.suggestedBatchSize, 4)
+
+        let updatedReadiness = try XCTUnwrap(overview.learningReadiness)
+            .updatingReviewTimeBudget(to: 45)
+        XCTAssertEqual(updatedReadiness.reviewTimeBudgetMinutes, 45)
+        XCTAssertEqual(updatedReadiness.projectedDailyReviewMinutes, 58)
+        XCTAssertEqual(updatedReadiness.reviewTimeHeadroomMinutes, -13)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {

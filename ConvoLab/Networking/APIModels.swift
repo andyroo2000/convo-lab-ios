@@ -445,6 +445,26 @@ struct StudyLearningReadiness: Codable, Equatable, Sendable {
     let reviewTimeBudgetMinutes: Int?
     let reviewTimeHeadroomMinutes: Int?
     let suggestedBatchSize: Int
+
+    func updatingReviewTimeBudget(to budgetMinutes: Int) -> Self {
+        Self(
+            recommendation: recommendation,
+            readinessLevel: readinessLevel,
+            sampleSize: sampleSize,
+            sufficientData: sufficientData,
+            recentRecall: recentRecall,
+            targetRecall: targetRecall,
+            dueBacklog: dueBacklog,
+            apprenticeCount: apprenticeCount,
+            projectedSevenDayReviews: projectedSevenDayReviews,
+            timedReviewSampleSize: timedReviewSampleSize,
+            medianReviewDurationSeconds: medianReviewDurationSeconds,
+            projectedDailyReviewMinutes: projectedDailyReviewMinutes,
+            reviewTimeBudgetMinutes: budgetMinutes,
+            reviewTimeHeadroomMinutes: projectedDailyReviewMinutes.map { budgetMinutes - $0 },
+            suggestedBatchSize: suggestedBatchSize
+        )
+    }
 }
 
 struct StudyCard: Codable, Identifiable, Hashable, Sendable {
