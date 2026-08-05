@@ -5273,6 +5273,88 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsRefreshUpdatesOverviewReadinessBudget() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                learningReadiness: StudyLearningReadiness(
+                    recommendation: "ready",
+                    readinessLevel: "ready",
+                    sampleSize: 40,
+                    sufficientData: true,
+                    recentRecall: 0.95,
+                    targetRecall: 0.9,
+                    dueBacklog: 0,
+                    apprenticeCount: 0,
+                    projectedSevenDayReviews: 28,
+                    timedReviewSampleSize: 40,
+                    medianReviewDurationSeconds: 900,
+                    projectedDailyReviewMinutes: 60,
+                    reviewTimeBudgetMinutes: 90,
+                    reviewTimeHeadroomMinutes: 30,
+                    suggestedBatchSize: 5
+                )
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/session/start":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    sessionData
+                )
+            case "/api/study/settings":
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(
+                        #"{"newCardsPerDay":20,"lessonBatchSize":5,"reviewTimeBudgetMinutes":150}"#.utf8
+                    )
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.refreshSession()
+        await store.refreshStudySettings()
+
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.learningReadiness?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.learningReadiness?.reviewTimeHeadroomMinutes, 90)
+    }
+
+    @MainActor
     func testStudySettingsUpdateSendsAnExplicitReviewBudget() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

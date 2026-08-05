@@ -456,6 +456,12 @@ struct StudySettings: Codable, Equatable, Sendable {
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
         try container.encode(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
     }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.newCardsPerDay == rhs.newCardsPerDay
+            && lhs.lessonBatchSize == rhs.lessonBatchSize
+            && lhs.reviewTimeBudgetMinutes == rhs.reviewTimeBudgetMinutes
+    }
 }
 
 struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {

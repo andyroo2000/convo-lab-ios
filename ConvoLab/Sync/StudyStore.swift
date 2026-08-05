@@ -673,7 +673,11 @@ final class StudyStore {
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard activeUserID == userID else { return }
-            studySettings = preservingReviewTimeBudget(in: response)
+            let resolvedResponse = preservingReviewTimeBudget(in: response)
+            studySettings = resolvedResponse
+            overview = overview?.updatingReviewTimeBudget(
+                to: resolvedResponse.reviewTimeBudgetMinutes
+            )
             studySettingsErrorMessage = nil
         } catch {
             guard activeUserID == userID else { return }
@@ -1253,24 +1257,26 @@ final class StudyStore {
     }
 
     private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
-        responseOverview?.reviewTimeBudgetMinutes
+        let resolvedBudget = responseOverview?.reviewTimeBudgetMinutes
             ?? responseOverview?.learningReadiness?.reviewTimeBudgetMinutes
             ?? studySettings?.reviewTimeBudgetMinutes
             ?? overview?.reviewTimeBudgetMinutes
             ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
             ?? 90
+        return min(max(resolvedBudget, 15), 240)
     }
 
     private func preservingReviewTimeBudget(
         in response: StudySettings,
         requestedBudget: Int? = nil
     ) -> StudySettings {
-        StudySettings(
+        let resolvedBudget = response.includesReviewTimeBudgetMinutes
+            ? response.reviewTimeBudgetMinutes
+            : requestedBudget ?? resolvedReviewTimeBudget()
+        return StudySettings(
             newCardsPerDay: response.newCardsPerDay,
             lessonBatchSize: response.lessonBatchSize,
-            reviewTimeBudgetMinutes: response.includesReviewTimeBudgetMinutes
-                ? response.reviewTimeBudgetMinutes
-                : requestedBudget ?? resolvedReviewTimeBudget()
+            reviewTimeBudgetMinutes: min(max(resolvedBudget, 15), 240)
         )
     }
 
