@@ -28,10 +28,11 @@ struct SettingsView: View {
                 ?? model.study.overview?.lessonBatchSize
                 ?? 5
         )
+        let initialReviewTimeBudgetMinutes = model.study.studySettings?.reviewTimeBudgetMinutes
+            ?? model.study.overview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? 90
         _reviewTimeBudgetMinutes = State(
-            initialValue: model.study.studySettings?.reviewTimeBudgetMinutes
-                ?? model.study.overview?.learningReadiness?.reviewTimeBudgetMinutes
-                ?? 90
+            initialValue: min(max(initialReviewTimeBudgetMinutes, 15), 240)
         )
     }
 
