@@ -181,9 +181,15 @@ final class StudyStore {
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
+    private(set) var allCards: [StudyCard] = []
+    private(set) var allCardsNextCursor: String?
+    private(set) var isRefreshingAllCards = false
+    private(set) var isLoadingMoreAllCards = false
     private(set) var newCardQueue: [StudyNewCardQueueItem] = []
     private(set) var newCardQueueTotal = 0
+    private(set) var newCardQueueNextCursor: String?
     private(set) var isRefreshingNewCardQueue = false
+    private(set) var isLoadingMoreNewCardQueue = false
     private(set) var manualDrafts: [StudyManualCardDraft] = []
     private(set) var overview: StudyOverview?
     private(set) var studySettings: StudySettings?
@@ -288,9 +294,15 @@ final class StudyStore {
         mediaCache.deactivate()
         cards = []
         libraryCards = []
+        allCards = []
+        allCardsNextCursor = nil
+        isRefreshingAllCards = false
+        isLoadingMoreAllCards = false
         newCardQueue = []
         newCardQueueTotal = 0
+        newCardQueueNextCursor = nil
         isRefreshingNewCardQueue = false
+        isLoadingMoreNewCardQueue = false
         manualDrafts = []
         overview = nil
         studySettings = nil
@@ -452,6 +464,7 @@ final class StudyStore {
             record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
             cards = cards.map { $0.id == card.id ? updatedCard : $0 }
             libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
+            allCards = allCards.map { $0.id == card.id ? updatedCard : $0 }
             try context.save()
         } catch {
             // Pitch accent is optional enrichment. Offline and unresolved cards
@@ -753,6 +766,90 @@ final class StudyStore {
         guard activeUserID == userID else { return }
         newCardQueue = response.items
         newCardQueueTotal = response.total
+        newCardQueueNextCursor = response.nextCursor
+    }
+
+    func loadMoreNewCardQueue() async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = newCardQueueNextCursor,
+            !isRefreshingNewCardQueue,
+            !isLoadingMoreNewCardQueue
+        else { return }
+        isLoadingMoreNewCardQueue = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreNewCardQueue = false
+            }
+        }
+
+        let response: StudyNewCardQueueResponse = try await api.request(
+            "/api/study/new-queue",
+            query: [
+                URLQueryItem(name: "cursor", value: cursor),
+                URLQueryItem(name: "limit", value: "100"),
+            ]
+        )
+        guard activeUserID == userID, newCardQueueNextCursor == cursor else { return }
+        let loadedIDs = Set(newCardQueue.map(\.id))
+        newCardQueue.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
+        newCardQueueTotal = response.total
+        newCardQueueNextCursor = response.nextCursor
+    }
+
+    func refreshAllCards(search query: String = "") async throws {
+        guard let userID = activeUserID else { return }
+        isRefreshingAllCards = true
+        defer {
+            if activeUserID == userID {
+                isRefreshingAllCards = false
+            }
+        }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var queryItems = [URLQueryItem(name: "per_page", value: "50")]
+        if !trimmedQuery.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
+        }
+        let response: StudyCardListResponse = try await api.request(
+            "/api/study/cards",
+            query: queryItems
+        )
+        guard activeUserID == userID else { return }
+        allCards = response.items
+        allCardsNextCursor = response.nextCursor
+    }
+
+    func loadMoreAllCards(search query: String = "") async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = allCardsNextCursor,
+            !isRefreshingAllCards,
+            !isLoadingMoreAllCards
+        else { return }
+        isLoadingMoreAllCards = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreAllCards = false
+            }
+        }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var queryItems = [
+            URLQueryItem(name: "cursor", value: cursor),
+            URLQueryItem(name: "per_page", value: "50"),
+        ]
+        if !trimmedQuery.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
+        }
+        let response: StudyCardListResponse = try await api.request(
+            "/api/study/cards",
+            query: queryItems
+        )
+        guard activeUserID == userID, allCardsNextCursor == cursor else { return }
+        let loadedIDs = Set(allCards.map(\.id))
+        allCards.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
+        allCardsNextCursor = response.nextCursor
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
@@ -769,6 +866,7 @@ final class StudyStore {
             guard activeUserID == userID else { return }
             newCardQueue = response.items
             newCardQueueTotal = response.total
+            newCardQueueNextCursor = response.nextCursor
         } catch {
             guard activeUserID == userID else { return }
             newCardQueue = previousItems
@@ -1628,6 +1726,7 @@ final class StudyStore {
         ))
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
+        allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1654,6 +1753,7 @@ final class StudyStore {
         }
         cards.removeAll { $0.id == currentCard.id }
         libraryCards.removeAll { $0.id == currentCard.id }
+        allCards.removeAll { $0.id == currentCard.id }
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1732,6 +1832,7 @@ final class StudyStore {
         )
         cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
         return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
     }
@@ -1886,6 +1987,7 @@ final class StudyStore {
         )
         cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
         libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
         try context.save()
         return ImageRegenerationResult(card: updatedCard, localURL: localURL)
     }

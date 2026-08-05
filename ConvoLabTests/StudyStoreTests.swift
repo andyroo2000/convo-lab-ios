@@ -96,6 +96,97 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCardLibraryLoadsQueueAndAllCardsAcrossCursorPagesWithoutDuplicates() async throws {
+        let firstCard = makeCard(id: "01J00000000000000000000011", expression: "犬")
+        let secondCard = makeCard(id: "01J00000000000000000000012", expression: "猫")
+        let firstQueueItem = StudyNewCardQueueItem(
+            id: firstCard.id,
+            noteId: firstCard.id,
+            cardType: "recognition",
+            displayText: "犬",
+            meaning: "dog",
+            queuePosition: 1,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let secondQueueItem = StudyNewCardQueueItem(
+            id: secondCard.id,
+            noteId: secondCard.id,
+            cardType: "recognition",
+            displayText: "猫",
+            meaning: "cat",
+            queuePosition: 2,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let firstQueuePage = try StorageCodec.encoder.encode(
+            StudyNewCardQueueResponse(
+                items: [firstQueueItem],
+                total: 2,
+                limit: 100,
+                nextCursor: "1"
+            )
+        )
+        let secondQueuePage = try StorageCodec.encoder.encode(
+            StudyNewCardQueueResponse(
+                items: [firstQueueItem, secondQueueItem],
+                total: 2,
+                limit: 100,
+                nextCursor: nil
+            )
+        )
+        let firstCardPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard], limit: 50, nextCursor: "cards-2")
+        )
+        let secondCardPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard, secondCard], limit: 50, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            let query = request.url?.query ?? ""
+            let data: Data
+            switch (request.url?.path, query) {
+            case ("/api/study/new-queue", "limit=100"):
+                data = firstQueuePage
+            case ("/api/study/new-queue", "cursor=1&limit=100"):
+                data = secondQueuePage
+            case ("/api/study/cards", "per_page=50"):
+                data = firstCardPage
+            case ("/api/study/cards", "cursor=cards-2&per_page=50"):
+                data = secondCardPage
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshNewCardQueue()
+        try await store.loadMoreNewCardQueue()
+        try await store.refreshAllCards()
+        try await store.loadMoreAllCards()
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [firstCard.id, secondCard.id])
+        XCTAssertNil(store.newCardQueueNextCursor)
+        XCTAssertEqual(store.allCards.map(\.id), [firstCard.id, secondCard.id])
+        XCTAssertNil(store.allCardsNextCursor)
+    }
+
+    @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let audio: JSONValue = .object([

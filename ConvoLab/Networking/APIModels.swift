@@ -576,6 +576,12 @@ struct StudyNewCardQueueResponse: Codable, Equatable, Sendable {
     let nextCursor: String?
 }
 
+struct StudyCardListResponse: Codable, Equatable, Sendable {
+    let items: [StudyCard]
+    let limit: Int
+    let nextCursor: String?
+}
+
 struct ReorderStudyNewCardQueueRequest: Encodable, Equatable, Sendable {
     let cardIds: [String]
 }
