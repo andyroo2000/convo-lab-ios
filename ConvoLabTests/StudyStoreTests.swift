@@ -149,9 +149,9 @@ final class StudyStoreTests: XCTestCase {
                 data = firstQueuePage
             case ("/api/study/new-queue", "cursor=1&limit=100"):
                 data = secondQueuePage
-            case ("/api/study/cards", "per_page=50"):
+            case ("/api/study/cards", "per_page=50&q=animal"):
                 data = firstCardPage
-            case ("/api/study/cards", "cursor=cards-2&per_page=50"):
+            case ("/api/study/cards", "cursor=cards-2&per_page=50&q=animal"):
                 data = secondCardPage
             default:
                 XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
@@ -177,12 +177,48 @@ final class StudyStoreTests: XCTestCase {
 
         try await store.refreshNewCardQueue()
         try await store.loadMoreNewCardQueue()
-        try await store.refreshAllCards()
+        try await store.refreshAllCards(search: "animal")
         try await store.loadMoreAllCards()
 
         XCTAssertEqual(store.newCardQueue.map(\.id), [firstCard.id, secondCard.id])
         XCTAssertNil(store.newCardQueueNextCursor)
         XCTAssertEqual(store.allCards.map(\.id), [firstCard.id, secondCard.id])
+        XCTAssertNil(store.allCardsNextCursor)
+    }
+
+    @MainActor
+    func testAllCardsFallsBackToTheLocalReplicaWhenOffline() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dog = makeCard(id: "01J00000000000000000000021", expression: "犬")
+        let cat = makeCard(id: "01J00000000000000000000022", expression: "猫")
+        for (index, card) in [dog, cat].enumerated() {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.refreshAllCards(search: "犬")
+            XCTFail("Expected the remote card page to fail while offline")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+
+        XCTAssertEqual(store.allCards.map(\.id), [dog.id])
+        XCTAssertEqual(store.allCardsQuery, "犬")
         XCTAssertNil(store.allCardsNextCursor)
     }
 

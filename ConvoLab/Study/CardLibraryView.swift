@@ -155,7 +155,11 @@ struct CardLibraryView: View {
                         }
                     }
                     .onMove { offsets, destination in
-                        guard store.newCardQueue.count <= 100 else { return }
+                        guard store.newCardQueue.count <= 100 else {
+                            queueErrorMessage =
+                                "Reordering is available while up to 100 cards are loaded."
+                            return
+                        }
                         Task {
                             do {
                                 try await store.moveNewCards(
@@ -223,7 +227,7 @@ struct CardLibraryView: View {
                             }
                             .task {
                                 guard card.id == store.allCards.last?.id else { return }
-                                try? await store.loadMoreAllCards(search: searchText)
+                                try? await store.loadMoreAllCards()
                             }
                         }
                         if store.isLoadingMoreAllCards {

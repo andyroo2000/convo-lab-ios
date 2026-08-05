@@ -183,6 +183,7 @@ final class StudyStore {
     private(set) var libraryCards: [StudyCard] = []
     private(set) var allCards: [StudyCard] = []
     private(set) var allCardsNextCursor: String?
+    private(set) var allCardsQuery = ""
     private(set) var isRefreshingAllCards = false
     private(set) var isLoadingMoreAllCards = false
     private(set) var newCardQueue: [StudyNewCardQueueItem] = []
@@ -296,6 +297,7 @@ final class StudyStore {
         libraryCards = []
         allCards = []
         allCardsNextCursor = nil
+        allCardsQuery = ""
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false
         newCardQueue = []
@@ -811,16 +813,27 @@ final class StudyStore {
         if !trimmedQuery.isEmpty {
             queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
         }
-        let response: StudyCardListResponse = try await api.request(
-            "/api/study/cards",
-            query: queryItems
-        )
-        guard activeUserID == userID else { return }
-        allCards = response.items
-        allCardsNextCursor = response.nextCursor
+        do {
+            let response: StudyCardListResponse = try await api.request(
+                "/api/study/cards",
+                query: queryItems
+            )
+            guard activeUserID == userID else { return }
+            allCards = response.items
+            allCardsNextCursor = response.nextCursor
+            allCardsQuery = trimmedQuery
+        } catch {
+            guard activeUserID == userID else { return }
+            // SwiftData remains the offline source of truth for browsing. The
+            // server list is only the paginated presentation when reachable.
+            allCards = locallyFilteredLibraryCards(matching: trimmedQuery)
+            allCardsNextCursor = nil
+            allCardsQuery = trimmedQuery
+            throw error
+        }
     }
 
-    func loadMoreAllCards(search query: String = "") async throws {
+    func loadMoreAllCards() async throws {
         guard
             let userID = activeUserID,
             let cursor = allCardsNextCursor,
@@ -834,22 +847,34 @@ final class StudyStore {
             }
         }
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = allCardsQuery
         var queryItems = [
             URLQueryItem(name: "cursor", value: cursor),
             URLQueryItem(name: "per_page", value: "50"),
         ]
-        if !trimmedQuery.isEmpty {
-            queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
+        if !query.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
         }
         let response: StudyCardListResponse = try await api.request(
             "/api/study/cards",
             query: queryItems
         )
-        guard activeUserID == userID, allCardsNextCursor == cursor else { return }
+        guard
+            activeUserID == userID,
+            allCardsNextCursor == cursor,
+            allCardsQuery == query
+        else { return }
         let loadedIDs = Set(allCards.map(\.id))
         allCards.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
         allCardsNextCursor = response.nextCursor
+    }
+
+    private func locallyFilteredLibraryCards(matching query: String) -> [StudyCard] {
+        guard !query.isEmpty else { return libraryCards }
+        return libraryCards.filter {
+            $0.promptText.localizedCaseInsensitiveContains(query)
+                || $0.answerText.localizedCaseInsensitiveContains(query)
+        }
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
