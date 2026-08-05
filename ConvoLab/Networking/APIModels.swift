@@ -386,27 +386,39 @@ struct StudyOverview: Codable, Sendable {
 struct StudySettings: Codable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
+    let reviewTimeBudgetMinutes: Int
 
-    init(newCardsPerDay: Int, lessonBatchSize: Int = 5) {
+    init(
+        newCardsPerDay: Int,
+        lessonBatchSize: Int = 5,
+        reviewTimeBudgetMinutes: Int = 90
+    ) {
         self.newCardsPerDay = newCardsPerDay
         self.lessonBatchSize = lessonBatchSize
+        self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
     }
 
     private enum CodingKeys: String, CodingKey {
         case newCardsPerDay
         case lessonBatchSize
+        case reviewTimeBudgetMinutes
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         newCardsPerDay = try container.decode(Int.self, forKey: .newCardsPerDay)
         lessonBatchSize = try container.decodeIfPresent(Int.self, forKey: .lessonBatchSize) ?? 5
+        reviewTimeBudgetMinutes = try container.decodeIfPresent(
+            Int.self,
+            forKey: .reviewTimeBudgetMinutes
+        ) ?? 90
     }
 }
 
 struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
+    let reviewTimeBudgetMinutes: Int
 }
 
 struct StudyMasterySpread: Codable, Equatable, Sendable {
@@ -419,6 +431,7 @@ struct StudyMasterySpread: Codable, Equatable, Sendable {
 
 struct StudyLearningReadiness: Codable, Equatable, Sendable {
     let recommendation: String
+    let readinessLevel: String?
     let sampleSize: Int
     let sufficientData: Bool
     let recentRecall: Double?
@@ -426,6 +439,11 @@ struct StudyLearningReadiness: Codable, Equatable, Sendable {
     let dueBacklog: Int
     let apprenticeCount: Int
     let projectedSevenDayReviews: Int
+    let timedReviewSampleSize: Int?
+    let medianReviewDurationSeconds: Double?
+    let projectedDailyReviewMinutes: Int?
+    let reviewTimeBudgetMinutes: Int?
+    let reviewTimeHeadroomMinutes: Int?
     let suggestedBatchSize: Int
 }
 

@@ -5147,6 +5147,7 @@ final class StudyStoreTests: XCTestCase {
                 XCTAssertEqual(body, [
                     "lessonBatchSize": 5,
                     "newCardsPerDay": 24,
+                    "reviewTimeBudgetMinutes": 90,
                 ])
                 return (
                     HTTPURLResponse(
@@ -5182,6 +5183,7 @@ final class StudyStoreTests: XCTestCase {
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
         XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 90)
 
         let saved = await store.updateNewCardsPerDay(24)
         XCTAssertTrue(saved)

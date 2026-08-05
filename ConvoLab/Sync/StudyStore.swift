@@ -593,7 +593,8 @@ final class StudyStore {
         overview = session.overview
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize
+            lessonBatchSize: session.overview.lessonBatchSize,
+            reviewTimeBudgetMinutes: session.overview.learningReadiness?.reviewTimeBudgetMinutes ?? 90
         )
         cards = activeCards
         sessionKind = "reviews"
@@ -640,7 +641,8 @@ final class StudyStore {
         overview = session.overview
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize
+            lessonBatchSize: session.overview.lessonBatchSize,
+            reviewTimeBudgetMinutes: session.overview.learningReadiness?.reviewTimeBudgetMinutes ?? 90
         )
         cards = lessonCards
         sessionKind = "lessons"
@@ -686,11 +688,20 @@ final class StudyStore {
     }
 
     @discardableResult
-    func updateStudySettings(newCardsPerDay: Int, lessonBatchSize: Int) async -> Bool {
+    func updateStudySettings(
+        newCardsPerDay: Int,
+        lessonBatchSize: Int,
+        reviewTimeBudgetMinutes: Int? = nil
+    ) async -> Bool {
+        let resolvedReviewTimeBudgetMinutes = reviewTimeBudgetMinutes
+            ?? studySettings?.reviewTimeBudgetMinutes
+            ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
+            ?? 90
         guard
             let userID = activeUserID,
             (0...1_000).contains(newCardsPerDay),
-            (3...10).contains(lessonBatchSize)
+            (3...10).contains(lessonBatchSize),
+            (15...240).contains(resolvedReviewTimeBudgetMinutes)
         else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
@@ -706,7 +717,8 @@ final class StudyStore {
                 method: "PATCH",
                 body: UpdateStudySettingsRequest(
                     newCardsPerDay: newCardsPerDay,
-                    lessonBatchSize: lessonBatchSize
+                    lessonBatchSize: lessonBatchSize,
+                    reviewTimeBudgetMinutes: resolvedReviewTimeBudgetMinutes
                 )
             )
             guard activeUserID == userID else { return false }

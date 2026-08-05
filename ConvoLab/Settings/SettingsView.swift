@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var showingAccountDeletion = false
     @State private var newCardsPerDay: Int
     @State private var lessonBatchSize: Int
+    @State private var reviewTimeBudgetMinutes: Int
     @State private var studySettingsSaved = false
 
     init(model: AppModel, user: CurrentUser) {
@@ -26,6 +27,11 @@ struct SettingsView: View {
             initialValue: model.study.studySettings?.lessonBatchSize
                 ?? model.study.overview?.lessonBatchSize
                 ?? 5
+        )
+        _reviewTimeBudgetMinutes = State(
+            initialValue: model.study.studySettings?.reviewTimeBudgetMinutes
+                ?? model.study.overview?.learningReadiness?.reviewTimeBudgetMinutes
+                ?? 90
         )
     }
 
@@ -81,13 +87,23 @@ struct SettingsView: View {
                     .onChange(of: lessonBatchSize) {
                         studySettingsSaved = false
                     }
+                    Stepper(
+                        "Review budget: \(reviewTimeBudgetMinutes) min",
+                        value: $reviewTimeBudgetMinutes,
+                        in: 15...240,
+                        step: 15
+                    )
+                    .onChange(of: reviewTimeBudgetMinutes) {
+                        studySettingsSaved = false
+                    }
 
                     Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
                         Task {
                             studySettingsSaved = await model.study
                                 .updateStudySettings(
                                     newCardsPerDay: newCardsPerDay,
-                                    lessonBatchSize: lessonBatchSize
+                                    lessonBatchSize: lessonBatchSize,
+                                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
                                 )
                         }
                     }
@@ -107,7 +123,7 @@ struct SettingsView: View {
                     Text("Study")
                 } footer: {
                     Text(
-                        "The daily limit is your allowance. Cards per lesson controls the preview-and-quiz batch size."
+                        "The daily limit is your allowance. Cards per lesson controls the preview-and-quiz batch size. Your review budget guides learning-readiness advice; it does not stop reviews."
                     )
                 }
 
@@ -193,6 +209,7 @@ struct SettingsView: View {
                 if let settings = model.study.studySettings {
                     newCardsPerDay = settings.newCardsPerDay
                     lessonBatchSize = settings.lessonBatchSize
+                    reviewTimeBudgetMinutes = settings.reviewTimeBudgetMinutes
                 }
             }
             .confirmationDialog(
