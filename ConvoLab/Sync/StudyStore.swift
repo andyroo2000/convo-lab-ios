@@ -172,6 +172,7 @@ final class StudyStore {
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
     @ObservationIgnored private var manualDraftRevision = 0
+    @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -298,6 +299,7 @@ final class StudyStore {
         allCards = []
         allCardsNextCursor = nil
         allCardsQuery = ""
+        allCardsRefreshRevision += 1
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false
         newCardQueue = []
@@ -801,14 +803,18 @@ final class StudyStore {
 
     func refreshAllCards(search query: String = "") async throws {
         guard let userID = activeUserID else { return }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        allCardsRefreshRevision += 1
+        let refreshRevision = allCardsRefreshRevision
+        allCardsQuery = trimmedQuery
+        allCardsNextCursor = nil
         isRefreshingAllCards = true
         defer {
-            if activeUserID == userID {
+            if activeUserID == userID, allCardsRefreshRevision == refreshRevision {
                 isRefreshingAllCards = false
             }
         }
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var queryItems = [URLQueryItem(name: "per_page", value: "50")]
         if !trimmedQuery.isEmpty {
             queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
@@ -818,17 +824,23 @@ final class StudyStore {
                 "/api/study/cards",
                 query: queryItems
             )
-            guard activeUserID == userID else { return }
+            guard
+                activeUserID == userID,
+                allCardsRefreshRevision == refreshRevision,
+                allCardsQuery == trimmedQuery
+            else { return }
             allCards = response.items
             allCardsNextCursor = response.nextCursor
-            allCardsQuery = trimmedQuery
         } catch {
-            guard activeUserID == userID else { return }
+            guard
+                activeUserID == userID,
+                allCardsRefreshRevision == refreshRevision,
+                allCardsQuery == trimmedQuery
+            else { return }
             // SwiftData remains the offline source of truth for browsing. The
             // server list is only the paginated presentation when reachable.
             allCards = locallyFilteredLibraryCards(matching: trimmedQuery)
             allCardsNextCursor = nil
-            allCardsQuery = trimmedQuery
             throw error
         }
     }

@@ -223,6 +223,41 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testLatestAllCardsSearchWinsWhenAnOlderRefreshFinishesLast() async throws {
+        let firstCard = makeCard(id: "01J00000000000000000000031", expression: "古い")
+        let secondCard = makeCard(id: "01J00000000000000000000032", expression: "新しい")
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [firstCard], limit: 50, nextCursor: "old-cursor")
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [secondCard], limit: 50, nextCursor: "new-cursor")
+        )
+        OutOfOrderCardListURLProtocol.configure(first: firstPage, second: secondPage)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderCardListURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let firstRefresh = Task { try await store.refreshAllCards(search: "first") }
+        await waitUntil { OutOfOrderCardListURLProtocol.hasPendingFirstRequest }
+        try await store.refreshAllCards(search: "second")
+        try await firstRefresh.value
+
+        XCTAssertEqual(store.allCards.map(\.id), [secondCard.id])
+        XCTAssertEqual(store.allCardsQuery, "second")
+        XCTAssertEqual(store.allCardsNextCursor, "new-cursor")
+    }
+
+    @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let audio: JSONValue = .object([
@@ -6724,6 +6759,61 @@ final class LockedRequestPaths: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+final class OutOfOrderCardListURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var firstResponseData = Data()
+    nonisolated(unsafe) private static var secondResponseData = Data()
+    nonisolated(unsafe) private static var pendingFirstRequest: OutOfOrderCardListURLProtocol?
+
+    static var hasPendingFirstRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingFirstRequest != nil
+    }
+
+    static func configure(first: Data, second: Data) {
+        lock.lock()
+        firstResponseData = first
+        secondResponseData = second
+        pendingFirstRequest = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        if request.url?.query?.contains("q=first") == true {
+            Self.lock.lock()
+            Self.pendingFirstRequest = self
+            Self.lock.unlock()
+            return
+        }
+
+        respond(with: Self.secondResponseData)
+        Self.lock.lock()
+        let firstRequest = Self.pendingFirstRequest
+        Self.pendingFirstRequest = nil
+        Self.lock.unlock()
+        firstRequest?.respond(with: Self.firstResponseData)
+    }
+
+    override func stopLoading() {}
+
+    private func respond(with data: Data) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 
