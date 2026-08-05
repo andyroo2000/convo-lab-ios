@@ -837,6 +837,9 @@ final class StudyStore {
                 allCardsRefreshRevision == refreshRevision,
                 allCardsQuery == trimmedQuery
             else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
             // SwiftData remains the offline source of truth for browsing. The
             // server list is only the paginated presentation when reachable.
             allCards = locallyFilteredLibraryCards(matching: trimmedQuery)

@@ -2,6 +2,8 @@ import PhotosUI
 import SwiftUI
 
 struct CardLibraryView: View {
+    private static let maximumReorderableCards = 100
+
     private enum CollectionMode: String, CaseIterable, Identifiable {
         case queue = "Queue"
         case all = "All Cards"
@@ -60,7 +62,7 @@ struct CardLibraryView: View {
                 if collectionMode == .queue {
                     ToolbarItem(placement: .secondaryAction) {
                         EditButton()
-                            .disabled(store.newCardQueue.count > 100)
+                            .disabled(store.newCardQueue.count > Self.maximumReorderableCards)
                     }
                 }
             }
@@ -155,9 +157,11 @@ struct CardLibraryView: View {
                         }
                     }
                     .onMove { offsets, destination in
-                        guard store.newCardQueue.count <= 100 else {
+                        // The API deliberately reassigns only the submitted cards across
+                        // their existing queue positions; cards on unloaded pages stay put.
+                        guard store.newCardQueue.count <= Self.maximumReorderableCards else {
                             queueErrorMessage =
-                                "Reordering is available while up to 100 cards are loaded."
+                                "Reordering is available while up to \(Self.maximumReorderableCards) cards are loaded."
                             return
                         }
                         Task {
@@ -182,8 +186,10 @@ struct CardLibraryView: View {
                             .textCase(nil)
                     }
                 } footer: {
-                    if store.newCardQueue.count > 100 {
-                        Text("Reordering is available while up to 100 cards are loaded.")
+                    if store.newCardQueue.count > Self.maximumReorderableCards {
+                        Text(
+                            "Reordering is available while up to \(Self.maximumReorderableCards) cards are loaded."
+                        )
                     } else if store.newCardQueueTotal > store.newCardQueue.count {
                         Text(
                             "Showing the next \(store.newCardQueue.count) of \(store.newCardQueueTotal) cards."
