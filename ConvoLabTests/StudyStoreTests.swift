@@ -5191,7 +5191,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testSessionRefreshPreservesBudgetWhenReadinessStatisticsAreAbsent() async throws {
+    func testSessionRefreshPreservesBudgetWhenReadinessBudgetIsAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let session = StudySession(
             overview: StudyOverview(
@@ -5199,7 +5199,24 @@ final class StudyStoreTests: XCTestCase {
                 newCount: 0,
                 reviewCount: 0,
                 newCardsPerDay: 20,
-                newCardsAvailableToday: 0
+                newCardsAvailableToday: 0,
+                learningReadiness: StudyLearningReadiness(
+                    recommendation: "ready",
+                    readinessLevel: "ready",
+                    sampleSize: 40,
+                    sufficientData: true,
+                    recentRecall: 0.95,
+                    targetRecall: 0.9,
+                    dueBacklog: 0,
+                    apprenticeCount: 0,
+                    projectedSevenDayReviews: 28,
+                    timedReviewSampleSize: 40,
+                    medianReviewDurationSeconds: 900,
+                    projectedDailyReviewMinutes: 60,
+                    reviewTimeBudgetMinutes: nil,
+                    reviewTimeHeadroomMinutes: nil,
+                    suggestedBatchSize: 5
+                )
             ),
             cards: []
         )
@@ -5250,6 +5267,9 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshSession()
 
         XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.learningReadiness?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.learningReadiness?.reviewTimeHeadroomMinutes, 90)
     }
 
     @MainActor

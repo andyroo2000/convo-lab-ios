@@ -390,6 +390,23 @@ struct StudyOverview: Codable, Sendable {
         try container.encodeIfPresent(masterySpread, forKey: .masterySpread)
         try container.encodeIfPresent(learningReadiness, forKey: .learningReadiness)
     }
+
+    func updatingReviewTimeBudget(to budgetMinutes: Int) -> Self {
+        Self(
+            dueCount: dueCount,
+            newCount: newCount,
+            reviewCount: reviewCount,
+            totalCards: totalCards,
+            newCardsPerDay: newCardsPerDay,
+            newCardsAvailableToday: newCardsAvailableToday,
+            failedCount: failedCount,
+            failedDueCount: failedDueCount,
+            lessonBatchSize: lessonBatchSize,
+            reviewTimeBudgetMinutes: budgetMinutes,
+            masterySpread: masterySpread,
+            learningReadiness: learningReadiness?.updatingReviewTimeBudget(to: budgetMinutes)
+        )
+    }
 }
 
 struct StudySettings: Codable, Equatable, Sendable {

@@ -590,14 +590,15 @@ final class StudyStore {
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
-        overview = session.overview
+        let reviewTimeBudgetMinutes = session.overview.reviewTimeBudgetMinutes
+            ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
+            ?? studySettings?.reviewTimeBudgetMinutes
+            ?? 90
+        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
             lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: session.overview.reviewTimeBudgetMinutes
-                ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
-                ?? studySettings?.reviewTimeBudgetMinutes
-                ?? 90
+            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
         )
         cards = activeCards
         sessionKind = "reviews"
@@ -641,14 +642,15 @@ final class StudyStore {
         }
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
-        overview = session.overview
+        let reviewTimeBudgetMinutes = session.overview.reviewTimeBudgetMinutes
+            ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
+            ?? studySettings?.reviewTimeBudgetMinutes
+            ?? 90
+        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         studySettings = StudySettings(
             newCardsPerDay: session.overview.newCardsPerDay,
             lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: session.overview.reviewTimeBudgetMinutes
-                ?? session.overview.learningReadiness?.reviewTimeBudgetMinutes
-                ?? studySettings?.reviewTimeBudgetMinutes
-                ?? 90
+            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
         )
         cards = lessonCards
         sessionKind = "lessons"
