@@ -138,6 +138,93 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(records.first?.endedAt)
     }
 
+    func testLeavingForegroundStopsAutomaticTrackingAtTransitionTime() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let suspendedAt = startedAt.addingTimeInterval(90)
+        store.activate(userID: 42)
+        store.start(
+            activity: .cardReview,
+            source: .automatic,
+            name: "Lessons",
+            at: startedAt
+        )
+
+        store.stopForegroundAutomaticTracking(at: suspendedAt)
+
+        XCTAssertNil(store.active)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertEqual(record.endedAt, suspendedAt)
+        XCTAssertEqual(record.durationMs, 90_000)
+        XCTAssertTrue(record.syncPending)
+
+        await store.deactivate(at: suspendedAt)
+    }
+
+    func testLeavingForegroundDoesNotStopManualTracking() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.activate(userID: 42)
+        store.start(
+            activity: .cardCreation,
+            source: .manual,
+            name: "Deck work",
+            at: startedAt
+        )
+
+        store.stopForegroundAutomaticTracking(at: startedAt.addingTimeInterval(90))
+
+        XCTAssertEqual(store.active?.source, .manual)
+        XCTAssertEqual(store.active?.startedAt, startedAt)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertNil(record.endedAt)
+        XCTAssertFalse(record.syncPending)
+
+        // Finish the open SwiftData record before releasing the in-memory
+        // container; simulator runtimes can otherwise tear it down mid-access.
+        await store.deactivate(at: startedAt.addingTimeInterval(90))
+    }
+
+    func testLeavingForegroundKeepsBackgroundAudioTracking() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.activate(userID: 42)
+        store.start(
+            activity: .dailyAudio,
+            source: .automatic,
+            name: "Daily Audio",
+            at: startedAt
+        )
+
+        store.stopForegroundAutomaticTracking(at: startedAt.addingTimeInterval(90))
+
+        XCTAssertEqual(store.active?.activity, .dailyAudio)
+        XCTAssertEqual(store.active?.startedAt, startedAt)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertNil(record.endedAt)
+        XCTAssertFalse(record.syncPending)
+
+        await store.deactivate(at: startedAt.addingTimeInterval(90))
+    }
+
     func testForegroundSynchronizationDoesNotRecoverALiveAutomaticSession() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let client = makeClient { request in

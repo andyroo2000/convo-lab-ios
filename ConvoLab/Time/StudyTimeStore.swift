@@ -125,6 +125,20 @@ final class StudyTimeStore {
         finish(current, at: date)
     }
 
+    /// Most automatic timers only represent foreground app activity. Views also
+    /// stop their own timers, but the app lifecycle is the reliable backstop
+    /// when a child view misses the transition before suspension. Daily Audio
+    /// is intentionally excluded because playback continues with the screen off.
+    func stopForegroundAutomaticTracking(at date: Date = .now) {
+        guard let current = active,
+              current.source == .automatic,
+              current.activity != .dailyAudio
+        else {
+            return
+        }
+        finish(current, at: date)
+    }
+
     func addCreatedCards(_ count: Int = 1) {
         guard var current = active, current.activity == .cardCreation else { return }
         current.cardsCreated += count
