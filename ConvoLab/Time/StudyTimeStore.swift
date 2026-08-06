@@ -125,6 +125,14 @@ final class StudyTimeStore {
         finish(current, at: date)
     }
 
+    /// Automatic timers only represent foreground app activity. Views also stop
+    /// their own timers, but the app lifecycle is the reliable backstop when a
+    /// child view does not receive a scene-phase transition before suspension.
+    func stopAutomaticTracking(at date: Date = .now) {
+        guard let current = active, current.source == .automatic else { return }
+        finish(current, at: date)
+    }
+
     func addCreatedCards(_ count: Int = 1) {
         guard var current = active, current.activity == .cardCreation else { return }
         current.cardsCreated += count

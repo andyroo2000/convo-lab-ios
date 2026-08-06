@@ -18,6 +18,8 @@ struct ConvoLabApp: App {
                         Task {
                             await model.applicationDidBecomeActive()
                         }
+                    } else {
+                        model.studyTime.stopAutomaticTracking()
                     }
                 }
         }
