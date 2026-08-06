@@ -254,6 +254,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 100000000000000000000003 /* Debug.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_ENTITLEMENTS = ConvoLab/ConvoLab.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
@@ -280,6 +281,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 100000000000000000000004 /* Release.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_ENTITLEMENTS = ConvoLab/ConvoLab.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
