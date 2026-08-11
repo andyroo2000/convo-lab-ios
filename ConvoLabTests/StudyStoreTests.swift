@@ -3452,6 +3452,111 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testUpdateAcknowledgementPreservesPendingReviewMasteryProjection() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000UR",
+            expression: "Review pending",
+            queueState: "review",
+            scheduler: .object([
+                "due": .string("2026-04-12T00:00:00.000Z"),
+                "stability": .number(30),
+                "difficulty": .number(6),
+                "elapsed_days": .number(30),
+                "scheduled_days": .number(30),
+                "learning_steps": .number(0),
+                "reps": .number(8),
+                "lapses": .number(1),
+                "state": .number(2),
+                "last_review": .string("2026-03-13T00:00:00.000Z"),
+            ]),
+            masteryLevel: "guru"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = "Edited before review"
+        let staleServerCard = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: draft.prompt(merging: card.prompt),
+            answer: draft.answer(merging: card.answer),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            masteryLevel: "guru",
+            createdAt: card.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let staleServerData = try StorageCodec.encoder.encode(staleServerCard)
+        let patchAttempts = LockedCounter()
+        let reviewAttempts = LockedCounter()
+        let cardID = card.id
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards/\(cardID)":
+                guard patchAttempts.next() > 1 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    staleServerData
+                )
+            case "/api/card-review-events/batch":
+                _ = reviewAttempts.next()
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.notConnectedToInternet)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.updateCard(card, draft: draft)
+        let edited = try XCTUnwrap(store.libraryCards.first)
+        let eventID = await store.recordReview(
+            card: edited,
+            rating: .good,
+            duration: nil,
+            reviewedAt: Date(timeIntervalSince1970: 1_500)
+        )
+        XCTAssertNotNil(eventID)
+        let optimisticReview = try persistedCard(in: container)
+        XCTAssertNil(optimisticReview.masteryLevel)
+
+        await store.synchronize()
+
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "Edited before review")
+        XCTAssertEqual(persisted.state, optimisticReview.state)
+        XCTAssertNil(persisted.masteryLevel)
+        XCTAssertEqual(patchAttempts.current, 2)
+        XCTAssertGreaterThanOrEqual(reviewAttempts.current, 2)
+    }
+
+    @MainActor
     func testStaleEditorSnapshotSavesAgainstCanonicalLocalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientID = "01J000000000000000000000SE"
@@ -7904,7 +8009,7 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertEqual(restoredCard.id, canonicalID)
         XCTAssertEqual(restoredCard.promptText, "Local pending edit")
-        XCTAssertEqual(restoredCard.masteryLevel, "guru")
+        XCTAssertEqual(restoredCard.masteryLevel, "apprentice")
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
     }

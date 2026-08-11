@@ -1727,9 +1727,7 @@ final class StudyStore {
             answerAudioSource: record.locallyUpdatedAt == nil
                 ? card.answerAudioSource
                 : localCard?.answerAudioSource ?? card.answerAudioSource,
-            masteryLevel: record.locallyUpdatedAt == nil
-                ? card.masteryLevel
-                : localCard?.masteryLevel ?? card.masteryLevel,
+            masteryLevel: card.masteryLevel,
             createdAt: record.locallyUpdatedAt == nil
                 ? card.createdAt
                 : localCard?.createdAt ?? card.createdAt,
@@ -1782,7 +1780,9 @@ final class StudyStore {
             answer: preservingPendingEdit ? localCard.answer : serverCard.answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: serverCard.answerAudioSource,
-            masteryLevel: serverCard.masteryLevel ?? localCard.masteryLevel,
+            masteryLevel: preservingPendingReview
+                ? localCard.masteryLevel
+                : serverCard.masteryLevel ?? localCard.masteryLevel,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt
