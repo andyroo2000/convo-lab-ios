@@ -248,6 +248,78 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testNewCardQueueReorderCannotOverwriteNewerRefresh() async throws {
+        func item(id: String, position: Int) -> StudyNewCardQueueItem {
+            StudyNewCardQueueItem(
+                id: id,
+                noteId: id,
+                cardType: "recognition",
+                displayText: id,
+                meaning: "meaning",
+                queuePosition: position,
+                createdAt: .now,
+                updatedAt: .now
+            )
+        }
+        func page(items: [StudyNewCardQueueItem]) throws -> Data {
+            try StorageCodec.encoder.encode(
+                StudyNewCardQueueResponse(
+                    items: items,
+                    total: items.count,
+                    limit: 100,
+                    nextCursor: nil
+                )
+            )
+        }
+        let first = item(id: "first", position: 1)
+        let second = item(id: "second", position: 2)
+        let refreshed = item(id: "refreshed", position: 1)
+        let initialPage = try page(items: [first, second])
+        let refreshedPage = try page(items: [refreshed])
+        let reorderPage = try page(items: [second, first])
+
+        for reorderStatus in [200, 500] {
+            OverlappingQueueReorderURLProtocol.configure(
+                initialPage: initialPage,
+                refreshedPage: refreshedPage,
+                reorderPage: reorderPage,
+                reorderStatus: reorderStatus
+            )
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [OverlappingQueueReorderURLProtocol.self]
+            let client = APIClient(
+                baseURL: URL(string: "https://learning-os.example")!,
+                session: URLSession(configuration: configuration)
+            )
+            let container = try Persistence.makeContainer(inMemory: true)
+            let store = StudyStore(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext,
+                mediaCache: MediaCache(
+                    initialUserID: 1,
+                    api: client,
+                    context: container.mainContext
+                )
+            )
+
+            try await store.refreshNewCardQueue()
+            let staleReorder = Task {
+                try await store.moveNewCards(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+            }
+            await waitUntil { OverlappingQueueReorderURLProtocol.hasPendingReorder }
+            XCTAssertTrue(OverlappingQueueReorderURLProtocol.hasPendingReorder)
+
+            try await store.refreshNewCardQueue()
+            XCTAssertEqual(store.newCardQueue.map(\.id), [refreshed.id])
+            OverlappingQueueReorderURLProtocol.releasePendingReorder()
+            try await staleReorder.value
+
+            XCTAssertEqual(store.newCardQueue.map(\.id), [refreshed.id])
+        }
+    }
+
+    @MainActor
     func testAllCardsFallsBackToTheLocalReplicaWhenOffline() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dog = makeCard(id: "01J00000000000000000000021", expression: "犬")
@@ -7950,6 +8022,81 @@ final class OverlappingCardListPageURLProtocol: URLProtocol, @unchecked Sendable
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+final class OverlappingQueueReorderURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var initialPage = Data()
+    nonisolated(unsafe) private static var refreshedPage = Data()
+    nonisolated(unsafe) private static var reorderPage = Data()
+    nonisolated(unsafe) private static var reorderStatus = 200
+    nonisolated(unsafe) private static var servedInitialPage = false
+    nonisolated(unsafe) private static var pendingReorder: OverlappingQueueReorderURLProtocol?
+
+    static var hasPendingReorder: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingReorder != nil
+    }
+
+    static func configure(
+        initialPage: Data,
+        refreshedPage: Data,
+        reorderPage: Data,
+        reorderStatus: Int
+    ) {
+        lock.lock()
+        self.initialPage = initialPage
+        self.refreshedPage = refreshedPage
+        self.reorderPage = reorderPage
+        self.reorderStatus = reorderStatus
+        servedInitialPage = false
+        pendingReorder = nil
+        lock.unlock()
+    }
+
+    static func releasePendingReorder() {
+        lock.lock()
+        let request = pendingReorder
+        pendingReorder = nil
+        let data = reorderPage
+        let status = reorderStatus
+        lock.unlock()
+        request?.respond(with: data, statusCode: status)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        if request.url?.path == "/api/study/new-queue/reorder" {
+            Self.lock.lock()
+            Self.pendingReorder = self
+            Self.lock.unlock()
+            return
+        }
+
+        Self.lock.lock()
+        let data = Self.servedInitialPage ? Self.refreshedPage : Self.initialPage
+        Self.servedInitialPage = true
+        Self.lock.unlock()
+        respond(with: data, statusCode: 200)
+    }
+
+    override func stopLoading() {}
+
+    private func respond(with data: Data, statusCode: Int) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
         )!

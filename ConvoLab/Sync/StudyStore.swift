@@ -894,6 +894,7 @@ final class StudyStore {
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
         guard let userID = activeUserID, !fromOffsets.isEmpty else { return }
+        let refreshRevision = newCardQueueRefreshRevision
         let previousItems = newCardQueue
         newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
 
@@ -901,12 +902,18 @@ final class StudyStore {
             let response = try await cardCatalogRepository.reorderNewCards(
                 newCardQueue.map(\.id)
             )
-            guard activeUserID == userID else { return }
+            guard
+                activeUserID == userID,
+                newCardQueueRefreshRevision == refreshRevision
+            else { return }
             newCardQueue = response.items
             newCardQueueTotal = response.total
             newCardQueueNextCursor = response.nextCursor
         } catch {
-            guard activeUserID == userID else { return }
+            guard
+                activeUserID == userID,
+                newCardQueueRefreshRevision == refreshRevision
+            else { return }
             newCardQueue = previousItems
             throw error
         }
