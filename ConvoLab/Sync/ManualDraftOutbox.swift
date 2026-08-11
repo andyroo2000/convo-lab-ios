@@ -286,11 +286,13 @@ final class ManualDraftOutbox {
             "/api/study/card-drafts/\(id)",
             method: "DELETE"
         )
-        try ensureActive(userID: userID, generation: operationGeneration)
+        let operationIsStillActive = activeUserID == userID
+            && generation == operationGeneration
         if let pending {
             context.delete(pending)
             try context.save()
         }
+        guard operationIsStillActive else { throw CancellationError() }
         removeDraft(id: id)
     }
 
@@ -432,6 +434,8 @@ final class ManualDraftOutbox {
         )
         let card: StudyCard
         do {
+            // learning-os intentionally exposes the unwrapped ConvoLab
+            // compatibility payload for manual draft commits.
             card = try await api.request(
                 "/api/study/card-drafts/\(mutation.resourceID)/create-card",
                 method: "POST",
@@ -454,6 +458,9 @@ final class ManualDraftOutbox {
             }
             try ensureActive(userID: userID, generation: generation)
             if isPermanent {
+                // A same-client-ID idempotent retry returns 200. For a 409,
+                // canonical draft state distinguishes a transient generating
+                // response from a terminal different-card-ID conflict.
                 mutation.kind = "draftCommitRejected"
             }
             recordCommitFailure(
@@ -470,6 +477,8 @@ final class ManualDraftOutbox {
             throw error
         }
 
+        // Persist the confirmed canonical card before deleting its transient
+        // draft so an interrupted cleanup cannot lose the created card.
         try await onCommittedCard(card)
         try ensureActive(userID: userID, generation: generation)
         do {
@@ -563,6 +572,8 @@ final class ManualDraftOutbox {
     private func recordCleanupFailure(on mutation: PendingMutation) {
         mutation.attemptCount += 1
         mutation.lastAttemptAt = .now
+        // The card is already canonical. Every cleanup failure stays eligible
+        // for retry, regardless of its HTTP status.
         mutation.lastError = nil
     }
 

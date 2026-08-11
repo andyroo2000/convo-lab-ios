@@ -259,6 +259,48 @@ final class ManualDraftOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testAcceptedDeleteAfterAccountSwitchCleansOldRejectedMutationOnly() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let oldDraft = makeDraft(id: "01J0000000000000000000000DA")
+        let newDraft = makeDraft(id: "01J0000000000000000000000DB")
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            startedContinuation.yield()
+            Task {
+                for await _ in release {
+                    completion(.success(Self.response(status: 204, request: request)))
+                    return
+                }
+            }
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 1)
+        let rejected = try outbox.stageCommit(
+            draftID: oldDraft.id,
+            cardID: "01J0000000000000000000000CA"
+        )
+        rejected.kind = "draftCommitRejected"
+        try container.mainContext.save()
+        outbox.replace(oldDraft)
+
+        let deletion = Task { try await outbox.deleteDraft(id: oldDraft.id) }
+        for await _ in started { break }
+        outbox.activate(userID: 2)
+        outbox.replace(newDraft)
+        releaseContinuation.yield()
+
+        do {
+            try await deletion.value
+            XCTFail("Expected stale deletion cancellation")
+        } catch is CancellationError {
+            // The accepted server deletion still cleans user 1 persistence.
+        }
+        XCTAssertTrue(try mutations(in: container, userID: 1).isEmpty)
+        XCTAssertEqual(outbox.drafts.map(\.id), [newDraft.id])
+    }
+
+    @MainActor
     func testAccountSwitchLeavesOldMutationAndNewFlushIndependent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let (oldStarted, oldStartedContinuation) = AsyncStream<Void>.makeStream()
