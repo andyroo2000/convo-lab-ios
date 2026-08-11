@@ -5,7 +5,7 @@ import SwiftData
 final class CardSyncFeedRepository {
     enum PullResult: Equatable {
         case completed(deletedCardIdentifiers: Set<String>)
-        case checkpointReset
+        case checkpointReset(deletedCardIdentifiers: Set<String>)
         case discardedStaleResponse
     }
 
@@ -111,8 +111,11 @@ final class CardSyncFeedRepository {
         } catch APIClientError.rejected(status: 409, message: _) {
             do {
                 try ensureActive(activation)
-                try resetServerBackedCards(activation: activation)
-                return .checkpointReset
+                return .checkpointReset(
+                    deletedCardIdentifiers: try resetServerBackedCards(
+                        activation: activation
+                    )
+                )
             } catch is StaleActivationError {
                 return .discardedStaleResponse
             }
@@ -367,8 +370,9 @@ final class CardSyncFeedRepository {
         }
     }
 
-    private func resetServerBackedCards(activation: Activation) throws {
+    private func resetServerBackedCards(activation: Activation) throws -> Set<String> {
         let userID = activation.userID
+        var deletedCardIdentifiers: Set<String> = []
         try performTransaction {
             try ensureActive(activation)
             let records = try context.fetch(
@@ -383,12 +387,14 @@ final class CardSyncFeedRepository {
                     matching: identifiers
                 ).isEmpty {
                     context.delete(record)
+                    deletedCardIdentifiers.formUnion(identifiers)
                 }
             }
             let state = try syncState(userID: userID, savingIfCreated: false)
             state.cardCheckpoint = 0
             state.updatedAt = .now
         }
+        return deletedCardIdentifiers
     }
 
     private func identifiers(for record: LocalCardRecord) throws -> Set<String> {

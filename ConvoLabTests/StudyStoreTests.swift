@@ -5315,14 +5315,27 @@ final class StudyStoreTests: XCTestCase {
         dirtyRecord.isInActiveSession = false
         dirtyRecord.locallyUpdatedAt = .now
         dirtyRecord.mediaPreparedAt = .now
+        let clean = makeCard(id: "clean", expression: "再取得対象")
+        let cleanRecord = LocalCardRecord(
+            card: clean,
+            userID: 1,
+            queueIndex: 1,
+            payload: try StorageCodec.encoder.encode(clean)
+        )
         container.mainContext.insert(dirtyRecord)
+        container.mainContext.insert(cleanRecord)
         container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
         try container.mainContext.save()
+        let allCardsData = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [clean, dirty], limit: 50, nextCursor: nil)
+        )
         let paths = LockedRequestPaths()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             paths.append(path)
             switch path {
+            case "/api/study/cards":
+                return Self.response(data: allCardsData)
             case "/api/sync/feed":
                 return Self.response(
                     statusCode: 409,
@@ -5350,6 +5363,7 @@ final class StudyStoreTests: XCTestCase {
                 context: container.mainContext
             )
         )
+        try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
 
@@ -5358,6 +5372,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(
             paths.values,
             [
+                "/api/study/cards",
                 "/api/sync/feed",
                 "/api/study/known-kanji",
                 "/api/study/offline-reserve",
@@ -5374,6 +5389,7 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertNotNil(preservedDirtyRecord.locallyUpdatedAt)
         XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
+        XCTAssertEqual(store.allCards.map(\.id), [dirty.id])
         XCTAssertEqual(store.syncStatus, .idle)
     }
 

@@ -408,22 +408,12 @@ final class StudyStore {
             let result = try await cardSyncFeedRepository.pullChanges()
             switch result {
             case let .completed(deletedCardIdentifiers):
-                cards.removeAll {
-                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
-                        .isDisjoint(with: deletedCardIdentifiers)
-                }
-                libraryCards.removeAll {
-                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
-                        .isDisjoint(with: deletedCardIdentifiers)
-                }
-                allCards.removeAll {
-                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
-                        .isDisjoint(with: deletedCardIdentifiers)
-                }
-            case .checkpointReset:
+                prunePublishedCards(matching: deletedCardIdentifiers)
+            case let .checkpointReset(deletedCardIdentifiers):
                 checkpointWasReset = true
                 loadLocalCards(userID: userID)
                 loadLibraryCards(userID: userID)
+                prunePublishedCards(matching: deletedCardIdentifiers)
             case .discardedStaleResponse:
                 return
             }
@@ -463,6 +453,16 @@ final class StudyStore {
         } else {
             syncStatus = .idle
         }
+    }
+
+    private func prunePublishedCards(matching identifiers: Set<String>) {
+        func wasDeleted(_ card: StudyCard) -> Bool {
+            identifiers.contains(card.id.lowercased())
+                || identifiers.contains(card.reviewCardID.lowercased())
+        }
+        cards.removeAll(where: wasDeleted)
+        libraryCards.removeAll(where: wasDeleted)
+        allCards.removeAll(where: wasDeleted)
     }
 
     func synchronizeIfNeeded(maxAge: Duration) async {

@@ -667,7 +667,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
 
         let result = try await repository.pullChanges()
 
-        XCTAssertEqual(result, .checkpointReset)
+        XCTAssertEqual(result, .checkpointReset(deletedCardIdentifiers: [clean.id]))
         XCTAssertEqual(try checkpoint(for: 1, in: container), 0)
         XCTAssertEqual(try cards(for: 1, in: container).map(\.id), [dirty.id])
     }
