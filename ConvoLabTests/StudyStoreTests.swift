@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 import XCTest
 @testable import ConvoLab
@@ -1473,6 +1474,117 @@ final class StudyStoreTests: XCTestCase {
         draft.answerExpression = "犬"
 
         _ = try await store.updateManualDraft(serverDraft, draft: draft)
+    }
+
+    @MainActor
+    func testStudyStorePublishesManualDraftOutboxRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverDraft = makeManualDraft(
+            id: "01J00000000000000000000O1",
+            expression: "観察"
+        )
+        let responseData = try StorageCodec.encoder.encode(
+            StudyManualCardDraftListResponse(
+                drafts: [serverDraft],
+                total: 1,
+                limit: 200,
+                nextCursor: nil
+            )
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/card-drafts")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let changed = expectation(description: "Manual drafts observation changed")
+        withObservationTracking {
+            _ = store.manualDrafts
+        } onChange: {
+            changed.fulfill()
+        }
+
+        try await store.refreshManualDrafts()
+
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertEqual(store.manualDrafts.map(\.id), [serverDraft.id])
+    }
+
+    @MainActor
+    func testStaleManualDraftPatchCannotPopulateNewAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let oldDraft = makeManualDraft(
+            id: "01J00000000000000000000O2",
+            expression: "前の利用者"
+        )
+        let newDraft = makeManualDraft(
+            id: "01J00000000000000000000O3",
+            expression: "現在の利用者"
+        )
+        let oldDraftID = oldDraft.id
+        let responseData = try StorageCodec.encoder.encode(oldDraft)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(request.url?.path, "/api/study/card-drafts/\(oldDraftID)")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        var edited = StudyCardDraft(cardType: .recognition)
+        edited.cueText = "更新中"
+        edited.answerMeaning = "updating"
+
+        let update = Task {
+            try await store.updateManualDraft(oldDraft, draft: edited)
+        }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        store.replaceManualDraft(newDraft)
+        gate.release()
+
+        do {
+            _ = try await update.value
+            XCTFail("Expected stale draft update cancellation")
+        } catch is CancellationError {
+            // The response belongs to the previous account.
+        }
+        XCTAssertEqual(store.manualDrafts.map(\.id), [newDraft.id])
     }
 
     @MainActor
@@ -7012,6 +7124,30 @@ final class StudyStoreTests: XCTestCase {
         return APIClient(
             baseURL: URL(string: "https://learning-os.example")!,
             session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
+    private func makeManualDraft(
+        id: String,
+        expression: String
+    ) -> StudyManualCardDraft {
+        StudyManualCardDraft(
+            id: id,
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .textRecognition,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string(expression)]),
+            answer: .object(["meaning": .string("meaning")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
         )
     }
 
