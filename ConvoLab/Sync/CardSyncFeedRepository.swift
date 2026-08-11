@@ -3,6 +3,11 @@ import SwiftData
 
 @MainActor
 final class CardSyncFeedRepository {
+    struct CommittedPageChanges: Equatable {
+        let deletedCardIdentifiers: Set<String>
+        let restoredCardIdentifiers: Set<String>
+    }
+
     enum PullResult: Equatable {
         case completed(deletedCardIdentifiers: Set<String>)
         case checkpointReset(deletedCardIdentifiers: Set<String>)
@@ -68,7 +73,7 @@ final class CardSyncFeedRepository {
     }
 
     func pullChanges(
-        onPageCommitted: (Set<String>) -> Void = { _ in }
+        onPageCommitted: (CommittedPageChanges) -> Void = { _ in }
     ) async throws -> PullResult {
         guard let activeUserID else { return .completed(deletedCardIdentifiers: []) }
         try ensureCleanContext()
@@ -100,7 +105,14 @@ final class CardSyncFeedRepository {
                 )
                 try ensureActive(activation)
                 onPageCommitted(
-                    deletedCardIdentifiers.subtracting(previouslyDeletedCardIdentifiers)
+                    CommittedPageChanges(
+                        deletedCardIdentifiers: deletedCardIdentifiers.subtracting(
+                            previouslyDeletedCardIdentifiers
+                        ),
+                        restoredCardIdentifiers: previouslyDeletedCardIdentifiers.subtracting(
+                            deletedCardIdentifiers
+                        )
+                    )
                 )
                 checkpoint = page.meta.nextCheckpoint
 
