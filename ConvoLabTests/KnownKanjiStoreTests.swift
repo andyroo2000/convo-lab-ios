@@ -5,6 +5,12 @@ import XCTest
 @testable import ConvoLab
 
 final class KnownKanjiStoreTests: XCTestCase {
+    override func tearDown() {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = nil
+        super.tearDown()
+    }
+
     @MainActor
     func testStudyStorePublishesKnownKanjiServiceChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
