@@ -6422,7 +6422,7 @@ final class StudyStoreTests: XCTestCase {
                         headerFields: ["Content-Type": "application/json"]
                     )!,
                     Data(
-                        #"{"newCardsPerDay":20,"lessonBatchSize":5,"reviewTimeBudgetMinutes":150}"#.utf8
+                        #"{"newCardsPerDay":24,"lessonBatchSize":8,"reviewTimeBudgetMinutes":150}"#.utf8
                     )
                 )
             default:
@@ -6443,6 +6443,8 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshSession()
         await store.refreshStudySettings()
 
+        XCTAssertEqual(store.overview?.newCardsPerDay, 24)
+        XCTAssertEqual(store.overview?.lessonBatchSize, 8)
         XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
         XCTAssertEqual(store.overview?.reviewTimeBudgetMinutes, 150)
         XCTAssertEqual(store.overview?.learningReadiness?.reviewTimeBudgetMinutes, 150)
