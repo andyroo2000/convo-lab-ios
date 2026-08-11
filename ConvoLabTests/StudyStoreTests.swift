@@ -5773,6 +5773,81 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleCardMutationDrainCannotReloadPreviousAccountsCards() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let userOneCard = makeCard(
+            id: "01J00000000000000000000B1",
+            expression: "前の利用者"
+        )
+        let userTwoCard = makeCard(
+            id: "01J00000000000000000000B2",
+            expression: "現在の利用者"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: userOneCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userOneCard)
+        ))
+        container.mainContext.insert(LocalCardRecord(
+            card: userTwoCard,
+            userID: 2,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userTwoCard)
+        ))
+        try container.mainContext.save()
+
+        let gate = LockedRequestGate()
+        let userOneCardID = userOneCard.id
+        let serverCardData = try StorageCodec.encoder.encode(userOneCard)
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(request.url?.path, "/api/study/cards/\(userOneCardID)")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                serverCardData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let update = Task {
+            try await store.updateCard(
+                userOneCard,
+                prompt: "更新中",
+                reading: "こうしんちゅう",
+                answer: "updating"
+            )
+        }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        gate.release()
+        try await update.value
+
+        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+    }
+
+    @MainActor
     func testAccountSwitchCannotAdvanceCheckpointPastSkippedCardChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let serverCard = makeCard(
