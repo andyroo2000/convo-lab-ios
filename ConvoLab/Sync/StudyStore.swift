@@ -507,14 +507,25 @@ final class StudyStore {
             matches($0, identifiers: changes.deletedCardIdentifiers)
         }
 
-        let restoring = pruned
-            .filter { matches($0.card, identifiers: changes.restoredCardIdentifiers) }
-            .sorted { $0.index < $1.index }
-        for item in restoring where !publishedCards.contains(where: { $0.id == item.card.id }) {
-            publishedCards.insert(item.card, at: min(item.index, publishedCards.count))
+        let restoring: [(item: PrunedPublishedCard, card: StudyCard)] = pruned.compactMap {
+            item -> (item: PrunedPublishedCard, card: StudyCard)? in
+            guard let restored = changes.restoredCards.last(where: {
+                matches(item.card, identifiers: $0.identifiers)
+            }) else { return nil }
+            return (item: item, card: restored.card)
         }
-        pruned.removeAll {
-            matches($0.card, identifiers: changes.restoredCardIdentifiers)
+            .sorted { $0.item.index < $1.item.index }
+        for restoration in restoring
+        where !publishedCards.contains(where: { $0.id == restoration.card.id }) {
+            publishedCards.insert(
+                restoration.card,
+                at: min(restoration.item.index, publishedCards.count)
+            )
+        }
+        pruned.removeAll { item in
+            changes.restoredCards.contains(where: { restored in
+                matches(item.card, identifiers: restored.identifiers)
+            })
         }
     }
 

@@ -4,8 +4,13 @@ import SwiftData
 @MainActor
 final class CardSyncFeedRepository {
     struct CommittedPageChanges: Equatable {
+        struct RestoredCard: Equatable {
+            let card: StudyCard
+            let identifiers: Set<String>
+        }
+
         let deletedCardIdentifiers: Set<String>
-        let restoredCardIdentifiers: Set<String>
+        let restoredCards: [RestoredCard]
     }
 
     enum PullResult: Equatable {
@@ -45,7 +50,13 @@ final class CardSyncFeedRepository {
 
     private struct AppliedUpsert {
         let record: LocalCardRecord
+        let card: StudyCard
         let identifiers: Set<String>
+    }
+
+    private struct CommitResult {
+        let deletedCardIdentifiers: Set<String>
+        let appliedUpserts: [AppliedUpsert]
     }
 
     private struct RemovedRecord {
@@ -110,21 +121,35 @@ final class CardSyncFeedRepository {
                 let resolvedPage = try await resolve(page.data, activation: activation)
                 try ensureActive(activation)
                 let previouslyDeletedCardIdentifiers = deletedCardIdentifiers
-                deletedCardIdentifiers = try commit(
+                let commitResult = try commit(
                     resolvedPage.entries,
                     checkpoint: page.meta.nextCheckpoint,
                     activation: activation,
                     deletedCardIdentifiers: deletedCardIdentifiers
                 )
+                deletedCardIdentifiers = commitResult.deletedCardIdentifiers
                 try ensureActive(activation)
+                let restoredCardIdentifiers = previouslyDeletedCardIdentifiers.subtracting(
+                    deletedCardIdentifiers
+                )
+                var unmatchedRestoredIdentifiers = restoredCardIdentifiers
+                var restoredCards: [CommittedPageChanges.RestoredCard] = []
+                for applied in commitResult.appliedUpserts.reversed()
+                where !unmatchedRestoredIdentifiers.isDisjoint(with: applied.identifiers) {
+                    restoredCards.append(
+                        CommittedPageChanges.RestoredCard(
+                            card: applied.card,
+                            identifiers: applied.identifiers
+                        )
+                    )
+                    unmatchedRestoredIdentifiers.subtract(applied.identifiers)
+                }
                 onPageCommitted(
                     CommittedPageChanges(
                         deletedCardIdentifiers: deletedCardIdentifiers.subtracting(
                             previouslyDeletedCardIdentifiers
                         ),
-                        restoredCardIdentifiers: previouslyDeletedCardIdentifiers.subtracting(
-                            deletedCardIdentifiers
-                        )
+                        restoredCards: restoredCards.reversed()
                     )
                 )
                 checkpoint = page.meta.nextCheckpoint
@@ -248,8 +273,9 @@ final class CardSyncFeedRepository {
         checkpoint: Int64,
         activation: Activation,
         deletedCardIdentifiers initialDeletedCardIdentifiers: Set<String>
-    ) throws -> Set<String> {
+    ) throws -> CommitResult {
         var deletedCardIdentifiers = initialDeletedCardIdentifiers
+        var appliedUpserts: [AppliedUpsert] = []
         try performTransaction {
             try ensureActive(activation)
             var recordsByIdentifier: [String: [LocalCardRecord]] = [:]
@@ -260,6 +286,7 @@ final class CardSyncFeedRepository {
                 switch entry {
                 case let .upsert(card):
                     if let applied = try upsert(card, userID: activation.userID) {
+                        appliedUpserts.append(applied)
                         deletedCardIdentifiers.subtract(applied.identifiers)
                         if recordIndexWasBuilt {
                             addToIndex(
@@ -292,7 +319,10 @@ final class CardSyncFeedRepository {
             state.cardCheckpoint = checkpoint
             state.updatedAt = .now
         }
-        return deletedCardIdentifiers
+        return CommitResult(
+            deletedCardIdentifiers: deletedCardIdentifiers,
+            appliedUpserts: appliedUpserts
+        )
     }
 
     private func upsert(_ serverCard: StudyCard, userID: Int) throws -> AppliedUpsert? {
@@ -358,7 +388,11 @@ final class CardSyncFeedRepository {
             context.insert(record)
             appliedRecord = record
         }
-        return AppliedUpsert(record: appliedRecord, identifiers: identifiers)
+        return AppliedUpsert(
+            record: appliedRecord,
+            card: merged,
+            identifiers: identifiers
+        )
     }
 
     private func mergedCard(

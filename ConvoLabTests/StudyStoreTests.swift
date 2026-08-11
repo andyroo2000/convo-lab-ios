@@ -5395,28 +5395,33 @@ final class StudyStoreTests: XCTestCase {
     @MainActor
     func testSynchronizationRestoresPublishedCardWhenLaterPageCancelsTombstone() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let card = makeCard(
+        let originalCard = makeCard(
             id: "restored-card",
             syncId: "restored-card-sync",
-            expression: "復元"
+            expression: "同期前"
+        )
+        let restoredCard = makeCard(
+            id: originalCard.id,
+            syncId: originalCard.syncId,
+            expression: "同期後"
         )
         container.mainContext.insert(LocalCardRecord(
-            card: card,
+            card: originalCard,
             userID: 1,
             queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(card)
+            payload: try StorageCodec.encoder.encode(originalCard)
         ))
         try container.mainContext.save()
         let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(items: [card], limit: 50, nextCursor: nil)
+            StudyCardListResponse(items: [originalCard], limit: 50, nextCursor: nil)
         )
         let cardObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(card)
+            with: StorageCodec.encoder.encode(restoredCard)
         )
         let batchData = try JSONSerialization.data(
             withJSONObject: ["cards": [cardObject]]
         )
-        let syncID = try XCTUnwrap(card.syncId)
+        let syncID = try XCTUnwrap(originalCard.syncId)
         let feedRequests = LockedCounter()
         let client = makeClient { request in
             switch request.url?.path {
@@ -5468,12 +5473,18 @@ final class StudyStoreTests: XCTestCase {
 
         await store.synchronize()
 
-        XCTAssertEqual(store.cards.map(\.id), [card.id])
-        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
-        XCTAssertEqual(store.allCards.map(\.id), [card.id])
+        XCTAssertEqual(store.cards.map(\.promptText), [restoredCard.promptText])
+        XCTAssertEqual(store.libraryCards.map(\.promptText), [restoredCard.promptText])
+        XCTAssertEqual(store.allCards.map(\.promptText), [restoredCard.promptText])
+        let persistedRecord = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
         XCTAssertEqual(
-            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).map(\.id),
-            [card.id]
+            try StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: persistedRecord.payload
+            ).promptText,
+            restoredCard.promptText
         )
         XCTAssertEqual(
             try XCTUnwrap(

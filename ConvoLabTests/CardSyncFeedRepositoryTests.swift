@@ -128,10 +128,19 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         }
         let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
         repository.activate(userID: 1)
+        var committedPages: [CardSyncFeedRepository.CommittedPageChanges] = []
 
-        let result = try await repository.pullChanges()
+        let result = try await repository.pullChanges { changes in
+            committedPages.append(changes)
+        }
 
         XCTAssertEqual(result, .completed(deletedCardIdentifiers: []))
+        XCTAssertEqual(committedPages.count, 2)
+        XCTAssertEqual(committedPages[0].deletedCardIdentifiers, [card.id])
+        XCTAssertTrue(committedPages[0].restoredCards.isEmpty)
+        XCTAssertTrue(committedPages[1].deletedCardIdentifiers.isEmpty)
+        XCTAssertEqual(committedPages[1].restoredCards.map(\.card.promptText), ["server"])
+        XCTAssertEqual(committedPages[1].restoredCards.map(\.identifiers), [[card.id]])
         XCTAssertEqual(try cards(for: 1, in: container).map(\.id), [card.id])
         XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
     }
