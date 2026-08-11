@@ -3,11 +3,6 @@ import SwiftData
 
 @Observable
 final class StudyStore {
-    private struct PrunedPublishedCard {
-        let index: Int
-        let card: StudyCard
-    }
-
     private struct MissingLocalCardError: LocalizedError {
         var errorDescription: String? {
             "This card changed during sync. Close the editor and try again."
@@ -408,25 +403,13 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            var prunedCards: [PrunedPublishedCard] = []
-            var prunedLibraryCards: [PrunedPublishedCard] = []
-            var prunedAllCards: [PrunedPublishedCard] = []
+            var cardsReconciler = StudyPublishedCardReconciler()
+            var libraryCardsReconciler = StudyPublishedCardReconciler()
+            var allCardsReconciler = StudyPublishedCardReconciler()
             let result = try await cardSyncFeedRepository.pullChanges { changes in
-                Self.reconcilePublishedCards(
-                    &self.cards,
-                    pruned: &prunedCards,
-                    changes: changes
-                )
-                Self.reconcilePublishedCards(
-                    &self.libraryCards,
-                    pruned: &prunedLibraryCards,
-                    changes: changes
-                )
-                Self.reconcilePublishedCards(
-                    &self.allCards,
-                    pruned: &prunedAllCards,
-                    changes: changes
-                )
+                cardsReconciler.apply(changes, to: &self.cards)
+                libraryCardsReconciler.apply(changes, to: &self.libraryCards)
+                allCardsReconciler.apply(changes, to: &self.allCards)
             }
             switch result {
             case let .completed(deletedCardIdentifiers):
@@ -478,53 +461,9 @@ final class StudyStore {
     }
 
     private func prunePublishedCards(matching identifiers: Set<String>) {
-        func wasDeleted(_ card: StudyCard) -> Bool {
-            identifiers.contains(card.id.lowercased())
-                || identifiers.contains(card.reviewCardID.lowercased())
-        }
-        cards.removeAll(where: wasDeleted)
-        libraryCards.removeAll(where: wasDeleted)
-        allCards.removeAll(where: wasDeleted)
-    }
-
-    private static func reconcilePublishedCards(
-        _ publishedCards: inout [StudyCard],
-        pruned: inout [PrunedPublishedCard],
-        changes: CardSyncFeedRepository.CommittedPageChanges
-    ) {
-        func matches(_ card: StudyCard, identifiers: Set<String>) -> Bool {
-            identifiers.contains(card.id.lowercased())
-                || identifiers.contains(card.reviewCardID.lowercased())
-        }
-
-        for (index, card) in publishedCards.enumerated()
-        where matches(card, identifiers: changes.deletedCardIdentifiers) {
-            pruned.append(PrunedPublishedCard(index: index, card: card))
-        }
-        publishedCards.removeAll {
-            matches($0, identifiers: changes.deletedCardIdentifiers)
-        }
-
-        let restoring: [(item: PrunedPublishedCard, card: StudyCard)] = pruned.compactMap {
-            item -> (item: PrunedPublishedCard, card: StudyCard)? in
-            guard let restored = changes.restoredCards.last(where: {
-                matches(item.card, identifiers: $0.identifiers)
-            }) else { return nil }
-            return (item: item, card: restored.card)
-        }
-            .sorted { $0.item.index < $1.item.index }
-        for restoration in restoring
-        where !publishedCards.contains(where: { $0.id == restoration.card.id }) {
-            publishedCards.insert(
-                restoration.card,
-                at: min(restoration.item.index, publishedCards.count)
-            )
-        }
-        pruned.removeAll { item in
-            changes.restoredCards.contains(where: { restored in
-                matches(item.card, identifiers: restored.identifiers)
-            })
-        }
+        StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
+        StudyPublishedCardReconciler.prune(&libraryCards, matching: identifiers)
+        StudyPublishedCardReconciler.prune(&allCards, matching: identifiers)
     }
 
     func synchronizeIfNeeded(maxAge: Duration) async {
