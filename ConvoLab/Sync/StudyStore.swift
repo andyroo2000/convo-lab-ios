@@ -165,6 +165,7 @@ final class StudyStore {
     private let api: APIClient
     private let context: ModelContext
     private let mediaCache: MediaCache
+    private let knownKanjiService: KnownKanjiService
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var reviewOutboxFlushTask: Task<Void, Error>?
@@ -197,13 +198,13 @@ final class StudyStore {
     private(set) var studySettings: StudySettings?
     private(set) var isUpdatingStudySettings = false
     private(set) var studySettingsErrorMessage: String?
-    private(set) var knownKanji: Set<Character> = []
-    private(set) var manualKnownKanji: Set<Character> = []
-    private(set) var knownKanjiVersion = -1
-    private(set) var wanikaniConnected = false
-    private(set) var wanikaniLastSyncedAt: Date?
-    private(set) var isWaniKaniWorking = false
-    private(set) var wanikaniErrorMessage: String?
+    var knownKanji: Set<Character> { knownKanjiService.knownKanji }
+    var manualKnownKanji: Set<Character> { knownKanjiService.manualKnownKanji }
+    var knownKanjiVersion: Int { knownKanjiService.version }
+    var wanikaniConnected: Bool { knownKanjiService.wanikaniConnected }
+    var wanikaniLastSyncedAt: Date? { knownKanjiService.wanikaniLastSyncedAt }
+    var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
+    var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
     private(set) var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
     private(set) var lastSyncAt: Date?
@@ -261,6 +262,7 @@ final class StudyStore {
         self.api = api
         self.context = context
         self.mediaCache = mediaCache
+        knownKanjiService = KnownKanjiService(api: api, context: context)
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -275,7 +277,7 @@ final class StudyStore {
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
         restorePendingReviewState()
-        loadKnownKanji(userID: userID)
+        knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
     }
 
@@ -294,6 +296,7 @@ final class StudyStore {
         manualDraftRefreshTask = nil
         activeUserID = nil
         mediaCache.deactivate()
+        knownKanjiService.deactivate()
         cards = []
         libraryCards = []
         allCards = []
@@ -312,11 +315,6 @@ final class StudyStore {
         studySettings = nil
         isUpdatingStudySettings = false
         studySettingsErrorMessage = nil
-        knownKanji = []
-        manualKnownKanji = []
-        knownKanjiVersion = -1
-        wanikaniConnected = false
-        wanikaniLastSyncedAt = nil
         newlyFailedCardIDs = []
         retainedFailedCardIDs = []
         resolvedFailedCardIDs = []
@@ -350,15 +348,10 @@ final class StudyStore {
                 predicate: #Predicate { $0.userID == userID }
             )
         )
-        let knownKanji = try context.fetch(
-            FetchDescriptor<LocalKnownKanjiSnapshot>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        )
+        try knownKanjiService.stageLocalDataDeletion(userID: userID)
         cards.forEach(context.delete)
         mutations.forEach(context.delete)
         syncStates.forEach(context.delete)
-        knownKanji.forEach(context.delete)
         try context.save()
     }
 
@@ -1150,9 +1143,7 @@ final class StudyStore {
     }
 
     func refreshKnownKanji() async throws {
-        guard let activeUserID else { return }
-        let snapshot: KnownKanjiSnapshot = try await api.request("/api/study/known-kanji")
-        try apply(snapshot, userID: activeUserID)
+        try await knownKanjiService.refresh()
     }
 
     func activateOfflineDueCards(
@@ -1216,53 +1207,15 @@ final class StudyStore {
     }
 
     func connectWaniKani(apiToken: String) async {
-        guard let userID = activeUserID, !isWaniKaniWorking else { return }
-        isWaniKaniWorking = true
-        wanikaniErrorMessage = nil
-        defer { isWaniKaniWorking = false }
-
-        do {
-            let snapshot: KnownKanjiSnapshot = try await api.request(
-                "/api/study/wanikani",
-                method: "PUT",
-                body: ConnectWaniKaniRequest(apiToken: apiToken)
-            )
-            try apply(snapshot, userID: userID)
-            try await synchronizeWaniKani(userID: userID)
-        } catch {
-            wanikaniErrorMessage = error.localizedDescription
-        }
+        await knownKanjiService.connect(apiToken: apiToken)
     }
 
     func syncWaniKani() async {
-        guard let userID = activeUserID, !isWaniKaniWorking else { return }
-        isWaniKaniWorking = true
-        wanikaniErrorMessage = nil
-        defer { isWaniKaniWorking = false }
-
-        do {
-            try await synchronizeWaniKani(userID: userID)
-        } catch {
-            wanikaniErrorMessage = error.localizedDescription
-        }
+        await knownKanjiService.synchronize()
     }
 
     func disconnectWaniKani() async {
-        guard let userID = activeUserID, !isWaniKaniWorking else { return }
-        isWaniKaniWorking = true
-        wanikaniErrorMessage = nil
-        defer { isWaniKaniWorking = false }
-
-        do {
-            try await api.request(
-                "/api/study/wanikani",
-                method: "DELETE"
-            )
-            guard activeUserID == userID else { return }
-            try await refreshKnownKanji()
-        } catch {
-            wanikaniErrorMessage = error.localizedDescription
-        }
+        await knownKanjiService.disconnect()
     }
 
     @discardableResult
@@ -3251,60 +3204,6 @@ final class StudyStore {
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func synchronizeWaniKani(userID: Int) async throws {
-        guard activeUserID == userID else { return }
-        let _: WaniKaniSyncResult = try await api.request(
-            "/api/study/wanikani/sync",
-            method: "POST"
-        )
-        guard activeUserID == userID else { return }
-        try await refreshKnownKanji()
-    }
-
-    private func apply(_ snapshot: KnownKanjiSnapshot, userID: Int) throws {
-        guard activeUserID == userID else { return }
-        guard snapshot.version >= knownKanjiVersion else { return }
-        let payload = try StorageCodec.encoder.encode(snapshot)
-        var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
-            predicate: #Predicate { $0.userID == userID }
-        )
-        descriptor.fetchLimit = 1
-        if let record = try context.fetch(descriptor).first {
-            record.payload = payload
-            record.updatedAt = .now
-        } else {
-            context.insert(LocalKnownKanjiSnapshot(userID: userID, payload: payload))
-        }
-        try context.save()
-        present(snapshot)
-    }
-
-    private func loadKnownKanji(userID: Int) {
-        var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
-            predicate: #Predicate { $0.userID == userID }
-        )
-        descriptor.fetchLimit = 1
-        guard
-            let record = try? context.fetch(descriptor).first,
-            let snapshot = try? StorageCodec.decoder.decode(
-                KnownKanjiSnapshot.self,
-                from: record.payload
-            )
-        else {
-            present(nil)
-            return
-        }
-        present(snapshot)
-    }
-
-    private func present(_ snapshot: KnownKanjiSnapshot?) {
-        knownKanji = Set(snapshot?.kanji.compactMap(\.singleCharacter) ?? [])
-        manualKnownKanji = Set(snapshot?.manualKanji.compactMap(\.singleCharacter) ?? [])
-        knownKanjiVersion = snapshot?.version ?? -1
-        wanikaniConnected = snapshot?.wanikani.connected ?? false
-        wanikaniLastSyncedAt = snapshot?.wanikani.lastSyncedAt
-    }
-
     private func handleSyncError(_ error: any Error) {
         if let urlError = error as? URLError, [
             .notConnectedToInternet,
@@ -3412,11 +3311,5 @@ struct StudySessionCounts: Equatable {
             reviewRemaining: reviewRemaining,
             newRemaining: newRemaining
         )
-    }
-}
-
-private extension String {
-    var singleCharacter: Character? {
-        count == 1 ? first : nil
     }
 }

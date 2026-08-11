@@ -1,9 +1,109 @@
 import Foundation
+import Observation
 import SwiftData
 import XCTest
 @testable import ConvoLab
 
 final class KnownKanjiStoreTests: XCTestCase {
+    @MainActor
+    func testStudyStorePublishesKnownKanjiServiceChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"version":1,"kanji":["会"],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 7,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 7,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let changed = expectation(description: "Known kanji observation changed")
+        withObservationTracking {
+            _ = store.knownKanji
+        } onChange: {
+            changed.fulfill()
+        }
+
+        try await store.refreshKnownKanji()
+
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertEqual(store.knownKanji, ["会"])
+    }
+
+    @MainActor
+    func testStudyStorePublishesWaniKaniWorkingAndErrorChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let (requestStarted, requestStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseRequest, releaseRequestContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            requestStartedContinuation.yield()
+            Task {
+                for await _ in releaseRequest {
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 503,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"WaniKani is unavailable"}"#.utf8)
+                    )))
+                    return
+                }
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 7,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 7,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let workingChanged = expectation(description: "WaniKani working observation changed")
+        withObservationTracking {
+            _ = store.isWaniKaniWorking
+        } onChange: {
+            workingChanged.fulfill()
+        }
+
+        let synchronization = Task { await store.syncWaniKani() }
+        for await _ in requestStarted {
+            break
+        }
+        await fulfillment(of: [workingChanged], timeout: 1)
+        XCTAssertTrue(store.isWaniKaniWorking)
+
+        let errorChanged = expectation(description: "WaniKani error observation changed")
+        withObservationTracking {
+            _ = store.wanikaniErrorMessage
+        } onChange: {
+            errorChanged.fulfill()
+        }
+        releaseRequestContinuation.yield()
+        await synchronization.value
+
+        await fulfillment(of: [errorChanged], timeout: 1)
+        XCTAssertFalse(store.isWaniKaniWorking)
+        XCTAssertEqual(store.wanikaniErrorMessage, "WaniKani is unavailable")
+    }
+
     @MainActor
     func testConnectSubmitsTokenWithoutPersistingItAndRefreshesEffectiveKnowledge() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
@@ -251,7 +351,22 @@ final class KnownKanjiStoreTests: XCTestCase {
 
     @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
+    private func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
