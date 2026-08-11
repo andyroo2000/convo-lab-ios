@@ -131,7 +131,7 @@ final class AuthStore {
         errorMessage = nil
         defer { isWorking = false }
         do {
-            let _: IgnoredResponse = try await api.request(
+            try await api.request(
                 "/api/me/password",
                 method: "PUT",
                 body: UpdatePasswordRequest(
@@ -152,7 +152,7 @@ final class AuthStore {
         errorMessage = nil
         defer { isWorking = false }
         do {
-            let _: IgnoredResponse = try await api.request(
+            try await api.request(
                 "/api/me",
                 method: "DELETE",
                 body: DeleteAccountRequest(currentPassword: currentPassword)
@@ -186,10 +186,10 @@ final class AuthStore {
 
     func logout() async {
         if api.accessToken != nil {
-            let _: IgnoredResponse = (try? await api.request(
+            try? await api.request(
                 "/api/auth/tokens/current",
                 method: "DELETE"
-            )) ?? IgnoredResponse()
+            )
         }
         clearCredentials()
         state = .signedOut
@@ -218,9 +218,4 @@ final class AuthStore {
         try? keychain.remove(account: tokenAccount)
         try? keychain.remove(account: userAccount)
     }
-}
-
-struct IgnoredResponse: Decodable {
-    init() {}
-    init(from decoder: Decoder) throws {}
 }

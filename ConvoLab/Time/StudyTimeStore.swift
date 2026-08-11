@@ -500,7 +500,7 @@ final class StudyTimeStore {
                     }
                 }
                 do {
-                    let _: IgnoredResponse = try await api.request(
+                    try await api.request(
                         "/api/study/activity-sessions/\(record.clientSessionID)",
                         method: "DELETE"
                     )

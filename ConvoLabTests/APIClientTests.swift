@@ -8,6 +8,92 @@ final class APIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testRequestWithoutResponseAcceptsEmptySuccessfulBody() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+
+        try await client.request(
+            "/api/auth/tokens/current",
+            method: "DELETE"
+        )
+    }
+
+    @MainActor
+    func testRequestWithoutResponseStillRejectsUnsuccessfulResponse() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Token could not be revoked"}"#.utf8)
+            )
+        }
+
+        do {
+            try await client.request(
+                "/api/auth/tokens/current",
+                method: "DELETE"
+            )
+            XCTFail("Expected the unsuccessful response to be rejected")
+        } catch APIClientError.rejected(status: 409, message: let message) {
+            XCTAssertEqual(message, "Token could not be revoked")
+        }
+    }
+
+    @MainActor
+    func testTypedRequestStillDecodesNonEmptySuccessfulBody() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"ok":true}"#.utf8)
+            )
+        }
+
+        let response: UploadResponse = try await client.request("/api/status")
+
+        XCTAssertTrue(response.ok)
+    }
+
+    @MainActor
+    func testTypedRequestStillReportsEmptyBodyAsDecodingError() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data()
+            )
+        }
+
+        do {
+            let _: UploadResponse = try await client.request("/api/status")
+            XCTFail("Expected the empty typed response to fail decoding")
+        } catch APIClientError.decoding(path: "/api/status", details: let details) {
+            XCTAssertTrue(details.contains("response root"))
+        }
+    }
+
+    @MainActor
     func testUploadBuildsAuthenticatedMultipartRequest() async throws {
         let photoBytes = Data([0xFF, 0xD8, 0xFF, 0xD9])
         let client = makeClient { request in
