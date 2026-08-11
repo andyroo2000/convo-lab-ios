@@ -1254,7 +1254,7 @@ final class StudyStore {
         defer { isWaniKaniWorking = false }
 
         do {
-            let _: IgnoredResponse = try await api.request(
+            try await api.request(
                 "/api/study/wanikani",
                 method: "DELETE"
             )
@@ -1682,7 +1682,7 @@ final class StudyStore {
         if let pendingCommit, pendingCommit.kind != "draftCommitRejected" {
             throw PendingDraftCommitError()
         }
-        let _: IgnoredResponse = try await api.request(
+        try await api.request(
             "/api/study/card-drafts/\(serverDraft.id)",
             method: "DELETE"
         )
@@ -2137,7 +2137,7 @@ final class StudyStore {
 
             let events = try batch.map { try decodePendingReview($0.payload).event }
             do {
-                let _: IgnoredResponse = try await api.request(
+                try await api.request(
                     "/api/card-review-events/batch",
                     method: "POST",
                     body: ReviewBatchRequest(events: events)
@@ -2152,7 +2152,7 @@ final class StudyStore {
                 // rejected event is quarantined for inspection.
                 for (mutation, event) in zip(batch, events) {
                     do {
-                        let _: IgnoredResponse = try await api.request(
+                        try await api.request(
                             "/api/card-review-events/batch",
                             method: "POST",
                             body: ReviewBatchRequest(events: [event])
@@ -2299,7 +2299,7 @@ final class StudyStore {
                         body: request
                     )
                 case "cardDelete":
-                    let _: IgnoredResponse = try await api.request(
+                    try await api.request(
                         "/api/study/cards/\(mutation.resourceID)",
                         method: "DELETE"
                     )
@@ -3120,7 +3120,7 @@ final class StudyStore {
         try context.save()
         await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
         do {
-            let _: IgnoredResponse = try await api.request(
+            try await api.request(
                 "/api/study/card-drafts/\(mutation.resourceID)",
                 method: "DELETE"
             )

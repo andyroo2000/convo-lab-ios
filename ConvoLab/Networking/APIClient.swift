@@ -40,6 +40,45 @@ final class APIClient {
         timeout: TimeInterval = 45,
         response: Response.Type = Response.self
     ) async throws -> Response {
+        let data = try await sendRequest(
+            path,
+            method: method,
+            query: query,
+            body: body,
+            timeout: timeout
+        )
+        do {
+            return try Self.decoder.decode(Response.self, from: data)
+        } catch let error as DecodingError {
+            let details = Self.decodingDetails(error)
+            print("API decoding failed for \(path): \(details)")
+            throw APIClientError.decoding(path: path, details: details)
+        }
+    }
+
+    func request(
+        _ path: String,
+        method: String = "GET",
+        query: [URLQueryItem] = [],
+        body: (any Encodable)? = nil,
+        timeout: TimeInterval = 45
+    ) async throws {
+        _ = try await sendRequest(
+            path,
+            method: method,
+            query: query,
+            body: body,
+            timeout: timeout
+        )
+    }
+
+    private func sendRequest(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem],
+        body: (any Encodable)?,
+        timeout: TimeInterval
+    ) async throws -> Data {
         var components = URLComponents(
             url: baseURL.appending(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
             resolvingAgainstBaseURL: false
@@ -72,17 +111,7 @@ final class APIClient {
                 ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
             throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
         }
-
-        if data.isEmpty, Response.self == IgnoredResponse.self {
-            return IgnoredResponse() as! Response
-        }
-        do {
-            return try Self.decoder.decode(Response.self, from: data)
-        } catch let error as DecodingError {
-            let details = Self.decodingDetails(error)
-            print("API decoding failed for \(path): \(details)")
-            throw APIClientError.decoding(path: path, details: details)
-        }
+        return data
     }
 
     func download(_ rawURL: URL) async throws -> (URL, URLResponse) {
