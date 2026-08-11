@@ -413,6 +413,12 @@ final class CardSyncFeedRepository {
             answer: preservingLocalContent ? localCard.answer : serverCard.answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: serverCard.answerAudioSource,
+            // Review state and mastery form one scheduling snapshot. Otherwise
+            // the feed's computed mastery is authoritative; a missing value is
+            // retained only for compatibility with lean or legacy responses.
+            masteryLevel: preservingPendingReview
+                ? localCard.masteryLevel
+                : serverCard.masteryLevel ?? localCard.masteryLevel,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingLocalContent
                 ? localCard.updatedAt

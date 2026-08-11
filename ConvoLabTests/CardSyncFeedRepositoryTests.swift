@@ -341,8 +341,18 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     @MainActor
     func testPendingLocalEditSurvivesServerUpsertAndDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let local = makeCard(id: "dirty", expression: "local edit", queueState: "review")
-        let server = makeCard(id: local.id, expression: "server edit", queueState: "learning")
+        let local = makeCard(
+            id: "dirty",
+            expression: "local edit",
+            queueState: "review",
+            masteryLevel: "guru"
+        )
+        let server = makeCard(
+            id: local.id,
+            expression: "server edit",
+            queueState: "learning",
+            masteryLevel: "apprentice"
+        )
         let localID = local.id
         let serverBatchData = try Self.batchData([server])
         let record = insert(local, userID: 1, in: container)
@@ -386,6 +396,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         var storedCard = try StorageCodec.decoder.decode(StudyCard.self, from: storedRecord.payload)
         XCTAssertEqual(storedCard.promptText, "local edit")
         XCTAssertEqual(storedCard.state.queueState, "learning")
+        XCTAssertEqual(storedCard.masteryLevel, "apprentice")
         XCTAssertNotNil(storedRecord.locallyUpdatedAt)
         XCTAssertEqual(storedRecord.serverUpdatedAt, server.updatedAt)
 
@@ -401,8 +412,18 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     @MainActor
     func testPendingReviewPreservesSchedulingStateWithoutHidingServerContent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let local = makeCard(id: "reviewed", expression: "local text", queueState: "review")
-        let server = makeCard(id: local.id, expression: "server text", queueState: "learning")
+        let local = makeCard(
+            id: "reviewed",
+            expression: "local text",
+            queueState: "review",
+            masteryLevel: "enlightened"
+        )
+        let server = makeCard(
+            id: local.id,
+            expression: "server text",
+            queueState: "learning",
+            masteryLevel: "guru"
+        )
         let serverID = server.id
         let batchData = try Self.batchData([server])
         insert(local, userID: 1, in: container)
@@ -436,6 +457,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         let storedCard = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
         XCTAssertEqual(storedCard.promptText, "server text")
         XCTAssertEqual(storedCard.state.queueState, "review")
+        XCTAssertEqual(storedCard.masteryLevel, "enlightened")
         XCTAssertNil(record.locallyUpdatedAt)
         XCTAssertEqual(record.serverUpdatedAt, server.updatedAt)
     }
@@ -775,7 +797,8 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         id: String,
         syncId: String? = nil,
         expression: String,
-        queueState: String = "review"
+        queueState: String = "review",
+        masteryLevel: String? = nil
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -793,6 +816,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "missing",
+            masteryLevel: masteryLevel,
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 20)
         )
