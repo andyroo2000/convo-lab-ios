@@ -3632,7 +3632,7 @@ final class StudyStoreTests: XCTestCase {
         await waitUntil { gate.hasStarted }
         XCTAssertTrue(gate.hasStarted)
         let reviewedAt = Date.now
-        let reviewed = card.applyingReview(.good, at: reviewedAt)
+        let reviewed = try card.applyingReview(.good, at: reviewedAt)
         let reviewedCard = StudyCard(
             id: reviewed.id,
             syncId: reviewed.syncId,

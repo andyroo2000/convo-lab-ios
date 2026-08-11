@@ -1128,13 +1128,16 @@ final class StudyStore {
         )
         var queuedLocally = false
         do {
+            // Scheduling must succeed before the durable event is staged. If the
+            // FSRS engine violates its rating-state contract, surface that error
+            // without leaving a review queued against an unchanged local card.
+            let updatedCard = try card.applyingReview(rating, at: now)
             try reviewOutbox.stageEnqueue(event: event, cardBefore: card)
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == userID && $0.id == cardID }
             )
             descriptor.fetchLimit = 1
-            let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
             // The animation retains this reviewed card as its presentation snapshot until
             // dismissal, while the queue can optimistically advance underneath it.
