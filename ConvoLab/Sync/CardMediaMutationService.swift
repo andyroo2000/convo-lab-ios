@@ -98,11 +98,9 @@ final class CardMediaMutationService {
         let latest = try latestCard()
         let pendingWrite = try hasPendingWrite(latest.id)
         let serverUpdatedAt = max(latest.updatedAt, serverCard.updatedAt)
-        let updated = StudyCard(
-            id: latest.id,
-            syncId: serverCard.syncId ?? latest.syncId,
-            noteId: serverCard.noteId ?? latest.noteId,
-            cardType: latest.cardType,
+        let updated = StudyCardEditorProjection.reconcilingMedia(
+            latest: latest,
+            serverCard: serverCard,
             prompt: latest.prompt,
             answer: latest.answer.replacingObjectValues([
                 "answerAudio": generatedAudio,
@@ -113,9 +111,7 @@ final class CardMediaMutationService {
                     ?? request.answerAudioTextOverride.map(JSONValue.string)
                     ?? .null,
             ]),
-            state: latest.state,
             answerAudioSource: serverCard.answerAudioSource ?? latest.answerAudioSource,
-            createdAt: latest.createdAt,
             updatedAt: serverUpdatedAt
         )
         try ensureActive(operation)
@@ -240,18 +236,14 @@ final class CardMediaMutationService {
             .null
         }
         let serverUpdatedAt = max(latest.updatedAt, serverCard.updatedAt)
-        let updated = StudyCard(
-            id: latest.id,
-            syncId: serverCard.syncId ?? latest.syncId,
-            noteId: serverCard.noteId ?? latest.noteId,
-            cardType: latest.cardType,
+        let updated = StudyCardEditorProjection.reconcilingMedia(
+            latest: latest,
+            serverCard: serverCard,
             prompt: latest.prompt.replacingObjectValues(["cueImage": promptImage]),
             answer: latest.answer.replacingObjectValues(["answerImage": answerImage]),
-            state: latest.state,
             // Image generation does not mutate answer audio. Preserve the
             // freshest local value rather than trusting a lean/stale projection.
             answerAudioSource: latest.answerAudioSource,
-            createdAt: latest.createdAt,
             updatedAt: serverUpdatedAt
         )
         try ensureActive(operation)

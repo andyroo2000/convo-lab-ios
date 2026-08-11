@@ -2182,7 +2182,8 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000000AA",
-            expression: "会社"
+            expression: "会社",
+            masteryLevel: "guru"
         )
         container.mainContext.insert(
             LocalCardRecord(
@@ -2273,6 +2274,8 @@ final class StudyStoreTests: XCTestCase {
             "regenerated-audio"
         )
         let stored = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(result.card.masteryLevel, "guru")
+        XCTAssertEqual(stored.masteryLevel, "guru")
         XCTAssertEqual(stored.answerAudioSource, "generated")
         XCTAssertEqual(
             stored.answer["answerAudioVoiceId"]?.stringValue,
@@ -3326,7 +3329,8 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J000000000000000000000UE",
-            expression: "元"
+            expression: "元",
+            masteryLevel: "guru"
         )
         container.mainContext.insert(
             LocalCardRecord(
@@ -3440,10 +3444,116 @@ final class StudyStoreTests: XCTestCase {
         let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
         XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "二回目")
         XCTAssertEqual(persisted.answer["meaning"]?.stringValue, "second")
+        XCTAssertEqual(persisted.masteryLevel, "guru")
         XCTAssertNotNil(record.locallyUpdatedAt)
         let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
         XCTAssertEqual(pending.map(\.kind), ["cardUpdate"])
         XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    func testUpdateAcknowledgementPreservesPendingReviewMasteryProjection() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000UR",
+            expression: "Review pending",
+            queueState: "review",
+            scheduler: .object([
+                "due": .string("2026-04-12T00:00:00.000Z"),
+                "stability": .number(30),
+                "difficulty": .number(6),
+                "elapsed_days": .number(30),
+                "scheduled_days": .number(30),
+                "learning_steps": .number(0),
+                "reps": .number(8),
+                "lapses": .number(1),
+                "state": .number(2),
+                "last_review": .string("2026-03-13T00:00:00.000Z"),
+            ]),
+            masteryLevel: "guru"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = "Edited before review"
+        let staleServerCard = StudyCard(
+            id: card.id,
+            syncId: card.id,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: draft.prompt(merging: card.prompt),
+            answer: draft.answer(merging: card.answer),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            masteryLevel: "guru",
+            createdAt: card.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let staleServerData = try StorageCodec.encoder.encode(staleServerCard)
+        let patchAttempts = LockedCounter()
+        let reviewAttempts = LockedCounter()
+        let cardID = card.id
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards/\(cardID)":
+                guard patchAttempts.next() > 1 else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    staleServerData
+                )
+            case "/api/card-review-events/batch":
+                _ = reviewAttempts.next()
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.notConnectedToInternet)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.updateCard(card, draft: draft)
+        let edited = try XCTUnwrap(store.libraryCards.first)
+        let eventID = await store.recordReview(
+            card: edited,
+            rating: .good,
+            duration: nil,
+            reviewedAt: Date(timeIntervalSince1970: 1_500)
+        )
+        XCTAssertNotNil(eventID)
+        let optimisticReview = try persistedCard(in: container)
+        XCTAssertNil(optimisticReview.masteryLevel)
+
+        await store.synchronize()
+
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "Edited before review")
+        XCTAssertEqual(persisted.state, optimisticReview.state)
+        XCTAssertNil(persisted.masteryLevel)
+        XCTAssertEqual(patchAttempts.current, 2)
+        XCTAssertGreaterThanOrEqual(reviewAttempts.current, 2)
     }
 
     @MainActor
@@ -3841,6 +3951,7 @@ final class StudyStoreTests: XCTestCase {
             answer: original.answer,
             state: original.state,
             answerAudioSource: original.answerAudioSource,
+            masteryLevel: "guru",
             createdAt: original.createdAt,
             updatedAt: original.updatedAt
         )
@@ -3913,11 +4024,13 @@ final class StudyStoreTests: XCTestCase {
 
         let updated = try XCTUnwrap(store.cards.first)
         XCTAssertEqual(updated.state, card.state)
+        XCTAssertEqual(updated.masteryLevel, "guru")
         XCTAssertEqual(updated.presentation.back.pitchAccent?.reading, "かいしゃ")
         let record = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
         )
         let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.masteryLevel, "guru")
         XCTAssertEqual(persisted.presentation.back.pitchAccent?.pattern, [0, 1, 1])
     }
 
@@ -5141,6 +5254,7 @@ final class StudyStoreTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "generated",
+            masteryLevel: "guru",
             createdAt: .now,
             updatedAt: .now
         )
@@ -5174,6 +5288,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(updated.answer["meaning"]?.stringValue, "new sentence")
         XCTAssertEqual(updated.answer["answerAudio"], card.answer["answerAudio"])
         XCTAssertEqual(updated.answer["notes"]?.stringValue, "Keep this note")
+        XCTAssertEqual(updated.masteryLevel, "guru")
 
         let mutation = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<PendingMutation>())
@@ -7317,16 +7432,17 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000001U",
-            expression: "戻す"
+            expression: "戻す",
+            masteryLevel: "guru"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
+        let localRecord = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
         )
+        localRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 1_000)
+        container.mainContext.insert(localRecord)
         try container.mainContext.save()
         let requestCount = LockedCounter()
         let client = makeClient { _ in
@@ -7363,7 +7479,10 @@ final class StudyStoreTests: XCTestCase {
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
         )
         XCTAssertTrue(record.isInActiveSession)
-        XCTAssertEqual(try persistedCard(in: container).state, card.state)
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.state, card.state)
+        XCTAssertEqual(persisted.masteryLevel, "guru")
+        XCTAssertEqual(store.cards.first?.masteryLevel, "guru")
     }
 
     @MainActor
@@ -7805,7 +7924,8 @@ final class StudyStoreTests: XCTestCase {
         let locallyEditedCard = makeCard(
             id: originalID,
             expression: "Local pending edit",
-            queueState: "review"
+            queueState: "review",
+            masteryLevel: "guru"
         )
         let dirtyAt = Date(timeIntervalSince1970: 1_000)
         let record = LocalCardRecord(
@@ -7823,7 +7943,8 @@ final class StudyStoreTests: XCTestCase {
             id: originalID,
             expression: "Stale server expression",
             queueState: "learning",
-            dueAt: Date(timeIntervalSince1970: 2_000)
+            dueAt: Date(timeIntervalSince1970: 2_000),
+            masteryLevel: "apprentice"
         )
         let overview = StudyOverview(
             dueCount: 1,
@@ -7888,6 +8009,7 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertEqual(restoredCard.id, canonicalID)
         XCTAssertEqual(restoredCard.promptText, "Local pending edit")
+        XCTAssertEqual(restoredCard.masteryLevel, "apprentice")
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
     }
@@ -7995,7 +8117,8 @@ final class StudyStoreTests: XCTestCase {
         mediaURL: String? = nil,
         queueState: String = "review",
         dueAt: Date? = nil,
-        scheduler: JSONValue? = nil
+        scheduler: JSONValue? = nil,
+        masteryLevel: String? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -8017,6 +8140,7 @@ final class StudyStoreTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "missing",
+            masteryLevel: masteryLevel,
             createdAt: .now,
             updatedAt: .now
         )
