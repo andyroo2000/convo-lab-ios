@@ -1727,6 +1727,7 @@ final class StudyStore {
             answerAudioSource: record.locallyUpdatedAt == nil
                 ? card.answerAudioSource
                 : localCard?.answerAudioSource ?? card.answerAudioSource,
+            // Scheduling state and mastery come from the undo result; neither is editor-owned.
             masteryLevel: card.masteryLevel,
             createdAt: record.locallyUpdatedAt == nil
                 ? card.createdAt
@@ -1780,6 +1781,9 @@ final class StudyStore {
             answer: preservingPendingEdit ? localCard.answer : serverCard.answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: serverCard.answerAudioSource,
+            // Current PATCH responses return computed, non-null mastery; legacy lean
+            // responses may omit it. Editor input cannot clear mastery. If that contract
+            // gains explicit clears, decoding must distinguish null from omission.
             masteryLevel: preservingPendingReview
                 ? localCard.masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
