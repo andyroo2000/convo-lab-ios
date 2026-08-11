@@ -2031,6 +2031,11 @@ final class StudyStoreTests: XCTestCase {
                 queueState: "new"
             ),
         ]
+        let canonicalizedDuplicate = makeCard(
+            id: lessonCards[0].id.lowercased(),
+            expression: "営業する",
+            queueState: "new"
+        )
         let session = StudySession(
             overview: StudyOverview(
                 dueCount: 3,
@@ -2040,7 +2045,7 @@ final class StudyStoreTests: XCTestCase {
                 newCardsAvailableToday: 8,
                 lessonBatchSize: 2
             ),
-            cards: lessonCards
+            cards: [lessonCards[0], canonicalizedDuplicate, lessonCards[1]]
         )
         let object = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(session)
@@ -2349,9 +2354,13 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRefreshDeDuplicatesRepeatedServerCardIDs() async throws {
+    func testRefreshDeDuplicatesCaseCanonicalizedServerCardIDs() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "01J00000000000000000000009", expression: "重複")
+        let canonicalizedDuplicate = makeCard(
+            id: card.id.lowercased(),
+            expression: "重複"
+        )
         let session = StudySession(
             overview: StudyOverview(
                 dueCount: 1,
@@ -2360,7 +2369,7 @@ final class StudyStoreTests: XCTestCase {
                 newCardsPerDay: 0,
                 newCardsAvailableToday: 0
             ),
-            cards: [card, card]
+            cards: [card, canonicalizedDuplicate]
         )
         let sessionObject = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(session)
