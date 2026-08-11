@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 
 struct CardLibraryView: View {
