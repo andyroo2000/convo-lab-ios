@@ -60,9 +60,11 @@ final class StudyStore {
     private let cardMediaService: CardMediaMutationService
     private let cardSyncFeedRepository: CardSyncFeedRepository
     private let localCardRepository: StudyCardLocalRepository
+    private let cardCatalogRepository: StudyCardCatalogRepository
     private let reviewProjection: (StudyCard, ReviewRating, Date) throws -> StudyCard
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
+    @ObservationIgnored private var newCardQueueRefreshRevision = 0
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -170,6 +172,7 @@ final class StudyStore {
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
         localCardRepository = StudyCardLocalRepository(context: context)
+        cardCatalogRepository = StudyCardCatalogRepository(api: api)
         self.reviewProjection = reviewProjection
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
@@ -216,6 +219,7 @@ final class StudyStore {
         newCardQueue = []
         newCardQueueTotal = 0
         newCardQueueNextCursor = nil
+        newCardQueueRefreshRevision += 1
         isRefreshingNewCardQueue = false
         isLoadingMoreNewCardQueue = false
         overview = nil
@@ -751,19 +755,23 @@ final class StudyStore {
 
     func refreshNewCardQueue() async throws {
         guard let userID = activeUserID else { return }
+        newCardQueueRefreshRevision += 1
+        let refreshRevision = newCardQueueRefreshRevision
         isRefreshingNewCardQueue = true
         defer {
-            if activeUserID == userID {
+            if activeUserID == userID, newCardQueueRefreshRevision == refreshRevision {
                 isRefreshingNewCardQueue = false
             }
         }
 
-        let response: StudyNewCardQueueResponse = try await api.request(
-            "/api/study/new-queue",
-            query: [URLQueryItem(name: "limit", value: "100")]
+        let response = try await cardCatalogRepository.newCardQueuePage()
+        guard activeUserID == userID, newCardQueueRefreshRevision == refreshRevision else {
+            return
+        }
+        newCardQueue = StudyCardCatalogRepository.appendingUniqueQueueItems(
+            response.items,
+            to: []
         )
-        guard activeUserID == userID else { return }
-        newCardQueue = response.items
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
     }
@@ -775,6 +783,7 @@ final class StudyStore {
             !isRefreshingNewCardQueue,
             !isLoadingMoreNewCardQueue
         else { return }
+        let refreshRevision = newCardQueueRefreshRevision
         isLoadingMoreNewCardQueue = true
         defer {
             if activeUserID == userID {
@@ -782,16 +791,16 @@ final class StudyStore {
             }
         }
 
-        let response: StudyNewCardQueueResponse = try await api.request(
-            "/api/study/new-queue",
-            query: [
-                URLQueryItem(name: "cursor", value: cursor),
-                URLQueryItem(name: "limit", value: "100"),
-            ]
+        let response = try await cardCatalogRepository.newCardQueuePage(after: cursor)
+        guard
+            activeUserID == userID,
+            newCardQueueRefreshRevision == refreshRevision,
+            newCardQueueNextCursor == cursor
+        else { return }
+        newCardQueue = StudyCardCatalogRepository.appendingUniqueQueueItems(
+            response.items,
+            to: newCardQueue
         )
-        guard activeUserID == userID, newCardQueueNextCursor == cursor else { return }
-        let loadedIDs = Set(newCardQueue.map(\.id))
-        newCardQueue.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
     }
@@ -810,21 +819,17 @@ final class StudyStore {
             }
         }
 
-        var queryItems = [URLQueryItem(name: "per_page", value: "50")]
-        if !trimmedQuery.isEmpty {
-            queryItems.append(URLQueryItem(name: "q", value: trimmedQuery))
-        }
         do {
-            let response: StudyCardListResponse = try await api.request(
-                "/api/study/cards",
-                query: queryItems
-            )
+            let response = try await cardCatalogRepository.cardPage(matching: trimmedQuery)
             guard
                 activeUserID == userID,
                 allCardsRefreshRevision == refreshRevision,
                 allCardsQuery == trimmedQuery
             else { return }
-            allCards = response.items
+            allCards = StudyCardCatalogRepository.appendingUniqueCards(
+                response.items,
+                to: []
+            )
             allCardsNextCursor = response.nextCursor
         } catch {
             guard
@@ -837,7 +842,10 @@ final class StudyStore {
             }
             // SwiftData remains the offline source of truth for browsing. The
             // server list is only the paginated presentation when reachable.
-            allCards = locallyFilteredLibraryCards(matching: trimmedQuery)
+            allCards = StudyCardCatalogRepository.cards(
+                libraryCards,
+                matching: trimmedQuery
+            )
             allCardsNextCursor = nil
             throw error
         }
@@ -850,6 +858,7 @@ final class StudyStore {
             !isRefreshingAllCards,
             !isLoadingMoreAllCards
         else { return }
+        let refreshRevision = allCardsRefreshRevision
         isLoadingMoreAllCards = true
         defer {
             if activeUserID == userID {
@@ -858,48 +867,29 @@ final class StudyStore {
         }
 
         let query = allCardsQuery
-        var queryItems = [
-            URLQueryItem(name: "cursor", value: cursor),
-            URLQueryItem(name: "per_page", value: "50"),
-        ]
-        if !query.isEmpty {
-            queryItems.append(URLQueryItem(name: "q", value: query))
-        }
-        let response: StudyCardListResponse = try await api.request(
-            "/api/study/cards",
-            query: queryItems
+        let response = try await cardCatalogRepository.cardPage(
+            matching: query,
+            after: cursor
         )
         guard
             activeUserID == userID,
+            allCardsRefreshRevision == refreshRevision,
             allCardsNextCursor == cursor,
             allCardsQuery == query
         else { return }
-        let loadedIDs = Set(allCards.map(\.id))
-        allCards.append(contentsOf: response.items.filter { !loadedIDs.contains($0.id) })
+        allCards = StudyCardCatalogRepository.appendingUniqueCards(
+            response.items,
+            to: allCards
+        )
         allCardsNextCursor = response.nextCursor
     }
 
-    private func locallyFilteredLibraryCards(matching query: String) -> [StudyCard] {
-        libraryCards.filter { matchesAllCardsQuery($0, query: query) }
-    }
-
-    private func matchesAllCardsQuery(_ card: StudyCard, query: String) -> Bool {
-        query.isEmpty
-            || card.promptText.localizedCaseInsensitiveContains(query)
-            || card.answerText.localizedCaseInsensitiveContains(query)
-    }
-
     private func upsertAllCardsPresentation(_ card: StudyCard) {
-        let normalizedID = card.id.lowercased()
-        allCards.removeAll { $0.id.lowercased() == normalizedID }
-        guard matchesAllCardsQuery(card, query: allCardsQuery) else { return }
-        allCards.append(card)
-        allCards.sort {
-            if $0.createdAt == $1.createdAt {
-                return $0.id > $1.id
-            }
-            return $0.createdAt > $1.createdAt
-        }
+        allCards = StudyCardCatalogRepository.upserting(
+            card,
+            into: allCards,
+            matching: allCardsQuery
+        )
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
@@ -908,10 +898,8 @@ final class StudyStore {
         newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
 
         do {
-            let response: StudyNewCardQueueResponse = try await api.request(
-                "/api/study/new-queue/reorder",
-                method: "POST",
-                body: ReorderStudyNewCardQueueRequest(cardIds: newCardQueue.map(\.id))
+            let response = try await cardCatalogRepository.reorderNewCards(
+                newCardQueue.map(\.id)
             )
             guard activeUserID == userID else { return }
             newCardQueue = response.items

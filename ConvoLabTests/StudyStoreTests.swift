@@ -188,6 +188,66 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testNewCardQueueLoadMoreCannotAppendAfterNewerRefreshReusesCursor() async throws {
+        func item(id: String) -> StudyNewCardQueueItem {
+            StudyNewCardQueueItem(
+                id: id,
+                noteId: id,
+                cardType: "recognition",
+                displayText: id,
+                meaning: "meaning",
+                queuePosition: 1,
+                createdAt: .now,
+                updatedAt: .now
+            )
+        }
+        func page(item: StudyNewCardQueueItem, nextCursor: String?) throws -> Data {
+            try StorageCodec.encoder.encode(
+                StudyNewCardQueueResponse(
+                    items: [item],
+                    total: 2,
+                    limit: 100,
+                    nextCursor: nextCursor
+                )
+            )
+        }
+        let initialItem = item(id: "initial")
+        let refreshedItem = item(id: "refreshed")
+        let staleNextPageItem = item(id: "stale-next-page")
+        OverlappingCardListPageURLProtocol.configure(
+            initialPage: try page(item: initialItem, nextCursor: "shared"),
+            refreshedPage: try page(item: refreshedItem, nextCursor: "shared"),
+            staleNextPage: try page(item: staleNextPageItem, nextCursor: nil)
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OverlappingCardListPageURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshNewCardQueue()
+        let staleLoadMore = Task { try await store.loadMoreNewCardQueue() }
+        await waitUntil { OverlappingCardListPageURLProtocol.hasPendingNextPage }
+        XCTAssertTrue(OverlappingCardListPageURLProtocol.hasPendingNextPage)
+
+        try await store.refreshNewCardQueue()
+        XCTAssertEqual(store.newCardQueue.map(\.id), [refreshedItem.id])
+        OverlappingCardListPageURLProtocol.releasePendingNextPage()
+        try await staleLoadMore.value
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [refreshedItem.id])
+        XCTAssertEqual(store.newCardQueueNextCursor, "shared")
+    }
+
+    @MainActor
     func testAllCardsFallsBackToTheLocalReplicaWhenOffline() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dog = makeCard(id: "01J00000000000000000000021", expression: "犬")
@@ -256,6 +316,53 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.allCards.map(\.id), [secondCard.id])
         XCTAssertEqual(store.allCardsQuery, "second")
         XCTAssertEqual(store.allCardsNextCursor, "new-cursor")
+    }
+
+    @MainActor
+    func testAllCardsLoadMoreCannotAppendAfterNewerRefreshReusesCursor() async throws {
+        let initialCard = makeCard(id: "initial", expression: "Initial")
+        let refreshedCard = makeCard(id: "refreshed", expression: "Refreshed")
+        let staleNextPageCard = makeCard(id: "stale-next-page", expression: "Stale")
+        let initialPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [initialCard], limit: 50, nextCursor: "shared")
+        )
+        let refreshedPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [refreshedCard], limit: 50, nextCursor: "shared")
+        )
+        let staleNextPage = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [staleNextPageCard], limit: 50, nextCursor: nil)
+        )
+        OverlappingCardListPageURLProtocol.configure(
+            initialPage: initialPage,
+            refreshedPage: refreshedPage,
+            staleNextPage: staleNextPage
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OverlappingCardListPageURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshAllCards(search: "same")
+        let staleLoadMore = Task { try await store.loadMoreAllCards() }
+        await waitUntil { OverlappingCardListPageURLProtocol.hasPendingNextPage }
+        XCTAssertTrue(OverlappingCardListPageURLProtocol.hasPendingNextPage)
+
+        try await store.refreshAllCards(search: "same")
+        XCTAssertEqual(store.allCards.map(\.id), [refreshedCard.id])
+        OverlappingCardListPageURLProtocol.releasePendingNextPage()
+        try await staleLoadMore.value
+
+        XCTAssertEqual(store.allCards.map(\.id), [refreshedCard.id])
+        XCTAssertEqual(store.allCardsNextCursor, "shared")
     }
 
     @MainActor
@@ -7768,6 +7875,73 @@ final class OutOfOrderCardListURLProtocol: URLProtocol, @unchecked Sendable {
         Self.pendingFirstRequest = nil
         Self.lock.unlock()
         firstRequest?.respond(with: Self.firstResponseData)
+    }
+
+    override func stopLoading() {}
+
+    private func respond(with data: Data) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+final class OverlappingCardListPageURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var initialPage = Data()
+    nonisolated(unsafe) private static var refreshedPage = Data()
+    nonisolated(unsafe) private static var staleNextPage = Data()
+    nonisolated(unsafe) private static var servedInitialPage = false
+    nonisolated(unsafe) private static var pendingNextPage: OverlappingCardListPageURLProtocol?
+
+    static var hasPendingNextPage: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingNextPage != nil
+    }
+
+    static func configure(initialPage: Data, refreshedPage: Data, staleNextPage: Data) {
+        lock.lock()
+        self.initialPage = initialPage
+        self.refreshedPage = refreshedPage
+        self.staleNextPage = staleNextPage
+        servedInitialPage = false
+        pendingNextPage = nil
+        lock.unlock()
+    }
+
+    static func releasePendingNextPage() {
+        lock.lock()
+        let request = pendingNextPage
+        pendingNextPage = nil
+        let data = staleNextPage
+        lock.unlock()
+        request?.respond(with: data)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        if request.url?.query?.contains("cursor=") == true {
+            Self.lock.lock()
+            Self.pendingNextPage = self
+            Self.lock.unlock()
+            return
+        }
+
+        Self.lock.lock()
+        let data = Self.servedInitialPage ? Self.refreshedPage : Self.initialPage
+        Self.servedInitialPage = true
+        Self.lock.unlock()
+        respond(with: data)
     }
 
     override func stopLoading() {}
