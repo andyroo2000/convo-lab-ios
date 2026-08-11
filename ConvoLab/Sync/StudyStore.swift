@@ -588,13 +588,12 @@ final class StudyStore {
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
-        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
-        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
-        studySettings = StudySettings(
-            newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+        let resolvedSettings = StudySettingsPolicy.settings(
+            from: session.overview,
+            fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
+        overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
+        studySettings = resolvedSettings
         cards = activeCards
         sessionKind = "reviews"
         sessionInitialCardCount = activeCards.count
@@ -637,13 +636,12 @@ final class StudyStore {
         }
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
-        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: session.overview)
-        overview = session.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
-        studySettings = StudySettings(
-            newCardsPerDay: session.overview.newCardsPerDay,
-            lessonBatchSize: session.overview.lessonBatchSize,
-            reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+        let resolvedSettings = StudySettingsPolicy.settings(
+            from: session.overview,
+            fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
+        overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
+        studySettings = resolvedSettings
         cards = lessonCards
         sessionKind = "lessons"
         sessionInitialCardCount = lessonCards.count
@@ -671,11 +669,14 @@ final class StudyStore {
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard activeUserID == userID else { return }
-            let resolvedResponse = preservingReviewTimeBudget(in: response)
-            studySettings = resolvedResponse
-            overview = overview?.updatingReviewTimeBudget(
-                to: resolvedResponse.reviewTimeBudgetMinutes
+            let resolvedResponse = StudySettingsPolicy.resolving(
+                response,
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
             )
+            studySettings = resolvedResponse
+            if let current = overview {
+                overview = StudySettingsPolicy.applying(resolvedResponse, to: current)
+            }
             studySettingsErrorMessage = nil
         } catch {
             guard activeUserID == userID else { return }
@@ -699,9 +700,11 @@ final class StudyStore {
     ) async -> Bool {
         guard
             let userID = activeUserID,
-            (0...1_000).contains(newCardsPerDay),
-            (3...10).contains(lessonBatchSize),
-            reviewTimeBudgetMinutes.map({ (15...240).contains($0) }) ?? true
+            StudySettingsPolicy.accepts(
+                newCardsPerDay: newCardsPerDay,
+                lessonBatchSize: lessonBatchSize,
+                reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+            )
         else { return false }
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
@@ -722,27 +725,14 @@ final class StudyStore {
                 )
             )
             guard activeUserID == userID else { return false }
-            let resolvedResponse = preservingReviewTimeBudget(
-                in: response,
-                requestedBudget: reviewTimeBudgetMinutes
+            let resolvedResponse = StudySettingsPolicy.resolving(
+                response,
+                requestedReviewTimeBudget: reviewTimeBudgetMinutes,
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
             )
             studySettings = resolvedResponse
             if let current = overview {
-                overview = StudyOverview(
-                    dueCount: current.dueCount,
-                    newCount: current.newCount,
-                    reviewCount: current.reviewCount,
-                    totalCards: current.totalCards,
-                    newCardsPerDay: resolvedResponse.newCardsPerDay,
-                    newCardsAvailableToday: current.newCardsAvailableToday,
-                    failedCount: current.failedCount,
-                    failedDueCount: current.failedDueCount,
-                    lessonBatchSize: resolvedResponse.lessonBatchSize,
-                    reviewTimeBudgetMinutes: resolvedResponse.reviewTimeBudgetMinutes,
-                    masterySpread: current.masterySpread,
-                    learningReadiness: current.learningReadiness?
-                        .updatingReviewTimeBudget(to: resolvedResponse.reviewTimeBudgetMinutes)
-                )
+                overview = StudySettingsPolicy.applying(resolvedResponse, to: current)
             }
             // The server may now admit a different set of new cards and build a
             // different offline reserve. Force the next Study-page entry to refresh.
@@ -1167,26 +1157,10 @@ final class StudyStore {
     }
 
     private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
-        let resolvedBudget = responseOverview?.reviewTimeBudgetMinutes
-            ?? responseOverview?.learningReadiness?.reviewTimeBudgetMinutes
-            ?? studySettings?.reviewTimeBudgetMinutes
-            ?? overview?.reviewTimeBudgetMinutes
-            ?? overview?.learningReadiness?.reviewTimeBudgetMinutes
-            ?? 90
-        return min(max(resolvedBudget, 15), 240)
-    }
-
-    private func preservingReviewTimeBudget(
-        in response: StudySettings,
-        requestedBudget: Int? = nil
-    ) -> StudySettings {
-        let resolvedBudget = response.includesReviewTimeBudgetMinutes
-            ? response.reviewTimeBudgetMinutes
-            : requestedBudget ?? resolvedReviewTimeBudget()
-        return StudySettings(
-            newCardsPerDay: response.newCardsPerDay,
-            lessonBatchSize: response.lessonBatchSize,
-            reviewTimeBudgetMinutes: min(max(resolvedBudget, 15), 240)
+        StudySettingsPolicy.resolvedReviewTimeBudget(
+            responseOverview: responseOverview,
+            settings: studySettings,
+            currentOverview: overview
         )
     }
 
