@@ -7327,16 +7327,17 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000001U",
-            expression: "戻す"
+            expression: "戻す",
+            masteryLevel: "guru"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
+        let localRecord = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
         )
+        localRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 1_000)
+        container.mainContext.insert(localRecord)
         try container.mainContext.save()
         let requestCount = LockedCounter()
         let client = makeClient { _ in
@@ -7373,7 +7374,10 @@ final class StudyStoreTests: XCTestCase {
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
         )
         XCTAssertTrue(record.isInActiveSession)
-        XCTAssertEqual(try persistedCard(in: container).state, card.state)
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.state, card.state)
+        XCTAssertEqual(persisted.masteryLevel, "guru")
+        XCTAssertEqual(store.cards.first?.masteryLevel, "guru")
     }
 
     @MainActor
@@ -7815,7 +7819,8 @@ final class StudyStoreTests: XCTestCase {
         let locallyEditedCard = makeCard(
             id: originalID,
             expression: "Local pending edit",
-            queueState: "review"
+            queueState: "review",
+            masteryLevel: "guru"
         )
         let dirtyAt = Date(timeIntervalSince1970: 1_000)
         let record = LocalCardRecord(
@@ -7833,7 +7838,8 @@ final class StudyStoreTests: XCTestCase {
             id: originalID,
             expression: "Stale server expression",
             queueState: "learning",
-            dueAt: Date(timeIntervalSince1970: 2_000)
+            dueAt: Date(timeIntervalSince1970: 2_000),
+            masteryLevel: "apprentice"
         )
         let overview = StudyOverview(
             dueCount: 1,
@@ -7898,6 +7904,7 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertEqual(restoredCard.id, canonicalID)
         XCTAssertEqual(restoredCard.promptText, "Local pending edit")
+        XCTAssertEqual(restoredCard.masteryLevel, "guru")
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
     }

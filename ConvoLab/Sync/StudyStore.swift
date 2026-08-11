@@ -1727,6 +1727,9 @@ final class StudyStore {
             answerAudioSource: record.locallyUpdatedAt == nil
                 ? card.answerAudioSource
                 : localCard?.answerAudioSource ?? card.answerAudioSource,
+            masteryLevel: record.locallyUpdatedAt == nil
+                ? card.masteryLevel
+                : localCard?.masteryLevel ?? card.masteryLevel,
             createdAt: record.locallyUpdatedAt == nil
                 ? card.createdAt
                 : localCard?.createdAt ?? card.createdAt,
