@@ -356,18 +356,14 @@ final class StudyStore {
             else {
                 return
             }
-            let updatedCard = StudyCard(
-                id: latestCard.id,
-                syncId: latestCard.syncId,
-                noteId: latestCard.noteId,
-                cardType: latestCard.cardType,
+            let updatedCard = StudyCardEditorProjection.reconcilingMedia(
+                latest: latestCard,
+                serverCard: serverCard,
                 prompt: latestCard.prompt,
                 answer: latestCard.answer.replacingObjectValues([
                     "pitchAccent": pitchAccent,
                 ]),
-                state: latestCard.state,
                 answerAudioSource: latestCard.answerAudioSource,
-                createdAt: latestCard.createdAt,
                 updatedAt: latestCard.updatedAt
             )
             record.payload = try StorageCodec.encoder.encode(updatedCard)
@@ -1358,34 +1354,9 @@ final class StudyStore {
     func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
         guard let userID = activeUserID else { throw CancellationError() }
         let id = ClientIdentifier.ulid()
-        let prompt = draft.prompt()
-        let answer = draft.answer()
-        let request = CreateStudyCardRequest(
-            id: id,
-            cardType: draft.cardType.rawValue,
-            prompt: prompt,
-            answer: answer
-        )
         let now = Date.now
-        let optimistic = StudyCard(
-            id: id,
-            syncId: id,
-            noteId: nil,
-            cardType: draft.cardType.rawValue,
-            prompt: prompt,
-            answer: answer,
-            state: .init(
-                dueAt: nil,
-                introducedAt: nil,
-                failedAt: nil,
-                queueState: "new",
-                scheduler: nil,
-                source: .object([:])
-            ),
-            answerAudioSource: "missing",
-            createdAt: now,
-            updatedAt: now
-        )
+        let projection = StudyCardEditorProjection.creating(draft, id: id, at: now)
+        let optimistic = projection.card
         let cardData = try StorageCodec.encoder.encode(optimistic)
         let record = LocalCardRecord(
             card: optimistic,
@@ -1395,7 +1366,7 @@ final class StudyStore {
         )
         record.locallyUpdatedAt = now
         context.insert(record)
-        try cardOutbox.stageCreate(cardID: id, request: request)
+        try cardOutbox.stageCreate(cardID: id, request: projection.request)
         cards.append(optimistic)
         libraryCards.append(optimistic)
         upsertAllCardsPresentation(optimistic)
@@ -1426,23 +1397,14 @@ final class StudyStore {
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
         guard activeUserID != nil else { throw CancellationError() }
         let currentCard = try currentLocalCard(for: card)
-        let promptPayload = draft.prompt(merging: currentCard.prompt)
-        let answerPayload = draft.answer(merging: currentCard.answer)
-        let request = UpdateStudyCardRequest(prompt: promptPayload, answer: answerPayload)
-        let updated = StudyCard(
-            id: currentCard.id,
-            syncId: currentCard.syncId,
-            noteId: currentCard.noteId,
-            cardType: currentCard.cardType,
-            prompt: promptPayload,
-            answer: answerPayload,
-            state: currentCard.state,
-            answerAudioSource: currentCard.answerAudioSource,
-            createdAt: currentCard.createdAt,
-            updatedAt: .now
+        let projection = StudyCardEditorProjection.updating(
+            currentCard,
+            with: draft,
+            at: .now
         )
+        let updated = projection.card
         try updateLocalCard(updated, markedDirty: true)
-        try cardOutbox.stageUpdate(cardID: currentCard.id, request: request)
+        try cardOutbox.stageUpdate(cardID: currentCard.id, request: projection.request)
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -1817,6 +1779,7 @@ final class StudyStore {
             answer: preservingPendingEdit ? localCard.answer : serverCard.answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: serverCard.answerAudioSource,
+            masteryLevel: serverCard.masteryLevel ?? localCard.masteryLevel,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt

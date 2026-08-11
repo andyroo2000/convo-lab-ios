@@ -2182,7 +2182,8 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000000AA",
-            expression: "会社"
+            expression: "会社",
+            masteryLevel: "guru"
         )
         container.mainContext.insert(
             LocalCardRecord(
@@ -2273,6 +2274,8 @@ final class StudyStoreTests: XCTestCase {
             "regenerated-audio"
         )
         let stored = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(result.card.masteryLevel, "guru")
+        XCTAssertEqual(stored.masteryLevel, "guru")
         XCTAssertEqual(stored.answerAudioSource, "generated")
         XCTAssertEqual(
             stored.answer["answerAudioVoiceId"]?.stringValue,
@@ -3326,7 +3329,8 @@ final class StudyStoreTests: XCTestCase {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J000000000000000000000UE",
-            expression: "元"
+            expression: "元",
+            masteryLevel: "guru"
         )
         container.mainContext.insert(
             LocalCardRecord(
@@ -3440,6 +3444,7 @@ final class StudyStoreTests: XCTestCase {
         let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
         XCTAssertEqual(persisted.prompt["cueText"]?.stringValue, "二回目")
         XCTAssertEqual(persisted.answer["meaning"]?.stringValue, "second")
+        XCTAssertEqual(persisted.masteryLevel, "guru")
         XCTAssertNotNil(record.locallyUpdatedAt)
         let pending = try container.mainContext.fetch(FetchDescriptor<PendingMutation>())
         XCTAssertEqual(pending.map(\.kind), ["cardUpdate"])
@@ -3841,6 +3846,7 @@ final class StudyStoreTests: XCTestCase {
             answer: original.answer,
             state: original.state,
             answerAudioSource: original.answerAudioSource,
+            masteryLevel: "guru",
             createdAt: original.createdAt,
             updatedAt: original.updatedAt
         )
@@ -3913,11 +3919,13 @@ final class StudyStoreTests: XCTestCase {
 
         let updated = try XCTUnwrap(store.cards.first)
         XCTAssertEqual(updated.state, card.state)
+        XCTAssertEqual(updated.masteryLevel, "guru")
         XCTAssertEqual(updated.presentation.back.pitchAccent?.reading, "かいしゃ")
         let record = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
         )
         let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.masteryLevel, "guru")
         XCTAssertEqual(persisted.presentation.back.pitchAccent?.pattern, [0, 1, 1])
     }
 
@@ -5141,6 +5149,7 @@ final class StudyStoreTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "generated",
+            masteryLevel: "guru",
             createdAt: .now,
             updatedAt: .now
         )
@@ -5174,6 +5183,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(updated.answer["meaning"]?.stringValue, "new sentence")
         XCTAssertEqual(updated.answer["answerAudio"], card.answer["answerAudio"])
         XCTAssertEqual(updated.answer["notes"]?.stringValue, "Keep this note")
+        XCTAssertEqual(updated.masteryLevel, "guru")
 
         let mutation = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<PendingMutation>())
@@ -7995,7 +8005,8 @@ final class StudyStoreTests: XCTestCase {
         mediaURL: String? = nil,
         queueState: String = "review",
         dueAt: Date? = nil,
-        scheduler: JSONValue? = nil
+        scheduler: JSONValue? = nil,
+        masteryLevel: String? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -8017,6 +8028,7 @@ final class StudyStoreTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "missing",
+            masteryLevel: masteryLevel,
             createdAt: .now,
             updatedAt: .now
         )
