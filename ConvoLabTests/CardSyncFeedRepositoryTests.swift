@@ -355,6 +355,48 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingReviewPreservesSchedulingStateWithoutHidingServerContent() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(id: "reviewed", expression: "local text", queueState: "review")
+        let server = makeCard(id: local.id, expression: "server text", queueState: "learning")
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        insert(local, userID: 1, in: container)
+        container.mainContext.insert(PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: local.id,
+            payload: Data()
+        ))
+        try container.mainContext.save()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let record = try XCTUnwrap(records(for: 1, in: container).first)
+        let storedCard = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(storedCard.promptText, "server text")
+        XCTAssertEqual(storedCard.state.queueState, "review")
+        XCTAssertNil(record.locallyUpdatedAt)
+        XCTAssertEqual(record.serverUpdatedAt, server.updatedAt)
+    }
+
+    @MainActor
     func testPendingDeletePreventsInboundUpsertFromRecreatingCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let server = makeCard(id: "deleted", expression: "server copy")

@@ -252,7 +252,9 @@ final class CardSyncFeedRepository {
         let hasPendingReview = pending.contains {
             $0.kind == "review" && $0.lastError == nil
         }
-        let preservesLocalContent = record?.locallyUpdatedAt != nil || !pending.isEmpty
+        let preservesLocalContent = record?.locallyUpdatedAt != nil || pending.contains {
+            $0.kind == "cardCreate" || $0.kind == "cardUpdate"
+        }
         let merged = mergedCard(
             serverCard,
             localCard: localCard,
