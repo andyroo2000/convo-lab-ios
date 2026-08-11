@@ -65,6 +65,7 @@ final class StudyStore {
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
+    @ObservationIgnored private var newCardQueueReorderToken: UUID?
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -220,6 +221,7 @@ final class StudyStore {
         newCardQueueTotal = 0
         newCardQueueNextCursor = nil
         newCardQueueRefreshRevision += 1
+        newCardQueueReorderToken = nil
         isRefreshingNewCardQueue = false
         isLoadingMoreNewCardQueue = false
         overview = nil
@@ -781,7 +783,8 @@ final class StudyStore {
             let userID = activeUserID,
             let cursor = newCardQueueNextCursor,
             !isRefreshingNewCardQueue,
-            !isLoadingMoreNewCardQueue
+            !isLoadingMoreNewCardQueue,
+            newCardQueueReorderToken == nil
         else { return }
         let refreshRevision = newCardQueueRefreshRevision
         isLoadingMoreNewCardQueue = true
@@ -896,8 +899,17 @@ final class StudyStore {
         guard
             let userID = activeUserID,
             !fromOffsets.isEmpty,
-            !isRefreshingNewCardQueue
+            !isRefreshingNewCardQueue,
+            !isLoadingMoreNewCardQueue,
+            newCardQueueReorderToken == nil
         else { return }
+        let reorderToken = UUID()
+        newCardQueueReorderToken = reorderToken
+        defer {
+            if newCardQueueReorderToken == reorderToken {
+                newCardQueueReorderToken = nil
+            }
+        }
         let refreshRevision = newCardQueueRefreshRevision
         let previousItems = newCardQueue
         newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
