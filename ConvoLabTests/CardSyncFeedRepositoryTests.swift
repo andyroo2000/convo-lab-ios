@@ -53,7 +53,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
 
         let result = try await repository.pullChanges()
 
-        XCTAssertEqual(result, .completed)
+        XCTAssertEqual(result, .completed(deletedCardIdentifiers: []))
         XCTAssertEqual(requestedCheckpoints.values, ["4", "5"])
         XCTAssertEqual(try checkpoint(for: 1, in: container), 6)
         XCTAssertEqual(Set(try cards(for: 1, in: container).map(\.id)), ["card-1", "card-2"])
@@ -93,12 +93,47 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
         repository.activate(userID: 1)
 
-        _ = try await repository.pullChanges()
+        let result = try await repository.pullChanges()
 
         let stored = try cards(for: 1, in: container)
+        XCTAssertEqual(result, .completed(deletedCardIdentifiers: [removed.id]))
         XCTAssertEqual(stored.map(\.id), [restored.id])
         XCTAssertEqual(stored.first?.promptText, "restored-server")
         XCTAssertEqual(try checkpoint(for: 1, in: container), 4)
+    }
+
+    @MainActor
+    func testLaterPageUpsertCancelsEarlierPageDeletionSignal() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "restored-across-pages", expression: "server")
+        let cardID = card.id
+        insert(makeCard(id: card.id, expression: "local"), userID: 1, in: container)
+        try container.mainContext.save()
+        let feedRequests = LockedCounter()
+        let batchData = try Self.batchData([card])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                let isFirstPage = feedRequests.next() == 1
+                return Self.response(data: Self.feedData(
+                    entries: [(isFirstPage ? 1 : 2, cardID, isFirstPage ? "delete" : "update")],
+                    nextCheckpoint: isFirstPage ? 1 : 2,
+                    hasMore: isFirstPage
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        let result = try await repository.pullChanges()
+
+        XCTAssertEqual(result, .completed(deletedCardIdentifiers: []))
+        XCTAssertEqual(try cards(for: 1, in: container).map(\.id), [card.id])
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
     }
 
     @MainActor
@@ -489,10 +524,49 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         }
         try container.mainContext.save()
 
-        _ = try await repository.pullChanges()
+        let deletionResult = try await repository.pullChanges()
 
         XCTAssertTrue(try cards(for: 1, in: container).isEmpty)
+        XCTAssertEqual(
+            deletionResult,
+            .completed(deletedCardIdentifiers: [
+                feedUsesSyncID.id,
+                forwardFeedID,
+                reverseFeedID,
+                try XCTUnwrap(feedUsesLocalID.syncId),
+            ])
+        )
         XCTAssertEqual(try checkpoint(for: 1, in: container), 4)
+    }
+
+    @MainActor
+    func testDirtyCardIgnoresTombstoneAndIsNotReportedAsDeleted() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dirty = makeCard(
+            id: "local-dirty",
+            syncId: "server-dirty",
+            expression: "local edit"
+        )
+        let record = insert(dirty, userID: 1, in: container)
+        record.locallyUpdatedAt = .now
+        try container.mainContext.save()
+        let feedID = try XCTUnwrap(dirty.syncId)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [(1, feedID, "delete")],
+                nextCheckpoint: 1,
+                hasMore: false
+            ))
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        let result = try await repository.pullChanges()
+
+        XCTAssertEqual(result, .completed(deletedCardIdentifiers: []))
+        XCTAssertEqual(try cards(for: 1, in: container).map(\.id), [dirty.id])
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 1)
     }
 
     @MainActor

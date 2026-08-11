@@ -384,6 +384,7 @@ final class StudyStore {
         syncStatus = .syncing
         var firstError: (any Error)?
         var refreshed = false
+        var checkpointWasReset = false
 
         do {
             try await flushCardOutbox()
@@ -405,12 +406,26 @@ final class StudyStore {
         guard activeUserID == userID else { return }
         do {
             let result = try await cardSyncFeedRepository.pullChanges()
-            if result == .discardedStaleResponse {
-                return
-            }
-            if result == .checkpointReset {
+            switch result {
+            case let .completed(deletedCardIdentifiers):
+                cards.removeAll {
+                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
+                        .isDisjoint(with: deletedCardIdentifiers)
+                }
+                libraryCards.removeAll {
+                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
+                        .isDisjoint(with: deletedCardIdentifiers)
+                }
+                allCards.removeAll {
+                    !Set([$0.id.lowercased(), $0.reviewCardID.lowercased()])
+                        .isDisjoint(with: deletedCardIdentifiers)
+                }
+            case .checkpointReset:
+                checkpointWasReset = true
                 loadLocalCards(userID: userID)
                 loadLibraryCards(userID: userID)
+            case .discardedStaleResponse:
+                return
             }
         } catch {
             firstError = firstError ?? error
@@ -433,7 +448,7 @@ final class StudyStore {
         do {
             try await refreshOfflineReserve(
                 userID: userID,
-                clearingOtherRecords: refreshed
+                clearingOtherRecords: checkpointWasReset || refreshed
             )
         } catch {
             firstError = firstError ?? error

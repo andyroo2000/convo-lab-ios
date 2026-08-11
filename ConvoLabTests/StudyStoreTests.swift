@@ -5215,6 +5215,169 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSynchronizationPrunesTombstoneFromEveryPublishedCardCollection() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let deleted = makeCard(
+            id: "local-deleted",
+            syncId: "server-deleted",
+            expression: "削除"
+        )
+        let survivor = makeCard(id: "survivor", expression: "保持")
+        for (index, card) in [deleted, survivor].enumerated() {
+            container.mainContext.insert(LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: index,
+                payload: try StorageCodec.encoder.encode(card)
+            ))
+        }
+        try container.mainContext.save()
+        let allCardsData = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [deleted, survivor], limit: 50, nextCursor: nil)
+        )
+        let deletedSyncID = try XCTUnwrap(deleted.syncId)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/study/cards":
+                return Self.response(data: allCardsData)
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    """
+                    {"data":[{"checkpoint":1,"resource_id":"\(deletedSyncID)","operation":"delete"}],
+                    "meta":{"next_checkpoint":1,"has_more":false}}
+                    """.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/offline-reserve":
+                return Self.response(
+                    statusCode: 500,
+                    data: Data(#"{"message":"Unavailable"}"#.utf8)
+                )
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        try await store.refreshAllCards()
+        store.beginLessonSessionPresentation()
+        defer { store.endLessonSessionPresentation() }
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.cards.map(\.id), [survivor.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [survivor.id])
+        XCTAssertEqual(store.allCards.map(\.id), [survivor.id])
+        XCTAssertEqual(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).map(\.id),
+            [survivor.id]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            1
+        )
+        XCTAssertFalse(paths.values.contains("/api/study/session/start"))
+        guard case .failed = store.syncStatus else {
+            return XCTFail("The later reserve failure should not undo tombstone pruning.")
+        }
+    }
+
+    @MainActor
+    func testCheckpointResetClearsOtherPreparedMarkersDuringPresentedLesson() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dirty = makeCard(
+            id: "dirty",
+            expression: "編集中",
+            dueAt: .distantFuture
+        )
+        let dirtyRecord = LocalCardRecord(
+            card: dirty,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(dirty)
+        )
+        dirtyRecord.isInActiveSession = false
+        dirtyRecord.locallyUpdatedAt = .now
+        dirtyRecord.mediaPreparedAt = .now
+        container.mainContext.insert(dirtyRecord)
+        container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/sync/feed":
+                return Self.response(
+                    statusCode: 409,
+                    data: Data(#"{"message":"Checkpoint expired"}"#.utf8)
+                )
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/offline-reserve":
+                return Self.response(data: Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                ))
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.beginLessonSessionPresentation()
+        defer { store.endLessonSessionPresentation() }
+
+        await store.synchronize()
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/sync/feed",
+                "/api/study/known-kanji",
+                "/api/study/offline-reserve",
+            ]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            0
+        )
+        let preservedDirtyRecord = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertNotNil(preservedDirtyRecord.locallyUpdatedAt)
+        XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
     func testOfflineReadinessCountsPreparedReserveCardsOutsideActiveSession() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
@@ -7136,6 +7299,21 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.cards.first, restoredCard)
     }
 
+    private static func response(
+        statusCode: Int = 200,
+        data: Data
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: URL(string: "https://learning-os.example")!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
+        )
+    }
+
     @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.handler = handler
@@ -7219,6 +7397,7 @@ final class StudyStoreTests: XCTestCase {
     @MainActor
     private func makeCard(
         id: String,
+        syncId: String? = nil,
         expression: String,
         mediaURL: String? = nil,
         queueState: String = "review",
@@ -7231,6 +7410,7 @@ final class StudyStoreTests: XCTestCase {
         }
         return StudyCard(
             id: id,
+            syncId: syncId,
             noteId: nil,
             cardType: "recognition",
             prompt: .object(prompt),

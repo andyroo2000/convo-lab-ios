@@ -4,7 +4,7 @@ import SwiftData
 @MainActor
 final class CardSyncFeedRepository {
     enum PullResult: Equatable {
-        case completed
+        case completed(deletedCardIdentifiers: Set<String>)
         case checkpointReset
         case discardedStaleResponse
     }
@@ -68,10 +68,11 @@ final class CardSyncFeedRepository {
     }
 
     func pullChanges() async throws -> PullResult {
-        guard let activeUserID else { return .completed }
+        guard let activeUserID else { return .completed(deletedCardIdentifiers: []) }
         try ensureCleanContext()
         let activation = Activation(userID: activeUserID, generation: generation)
         var checkpoint = try syncState(userID: activeUserID).cardCheckpoint
+        var deletedCardIdentifiers: Set<String> = []
 
         do {
             while true {
@@ -88,19 +89,22 @@ final class CardSyncFeedRepository {
                 try validate(page, after: checkpoint)
                 let resolvedPage = try await resolve(page.data, activation: activation)
                 try ensureActive(activation)
-                try commit(
+                deletedCardIdentifiers = try commit(
                     resolvedPage.entries,
                     checkpoint: page.meta.nextCheckpoint,
-                    activation: activation
+                    activation: activation,
+                    deletedCardIdentifiers: deletedCardIdentifiers
                 )
                 checkpoint = page.meta.nextCheckpoint
 
                 // A partial-but-successful batch response is anomalous. Resolve
                 // at most this page and leave later pages for the next sync.
                 if resolvedPage.usedIndividualResolution {
-                    return .completed
+                    return .completed(deletedCardIdentifiers: deletedCardIdentifiers)
                 }
-                guard page.meta.hasMore else { return .completed }
+                guard page.meta.hasMore else {
+                    return .completed(deletedCardIdentifiers: deletedCardIdentifiers)
+                }
             }
         } catch is StaleActivationError {
             return .discardedStaleResponse
@@ -207,8 +211,10 @@ final class CardSyncFeedRepository {
     private func commit(
         _ entries: [ResolvedEntry],
         checkpoint: Int64,
-        activation: Activation
-    ) throws {
+        activation: Activation,
+        deletedCardIdentifiers initialDeletedCardIdentifiers: Set<String>
+    ) throws -> Set<String> {
+        var deletedCardIdentifiers = initialDeletedCardIdentifiers
         try performTransaction {
             try ensureActive(activation)
             for (index, entry) in entries.enumerated() {
@@ -216,18 +222,26 @@ final class CardSyncFeedRepository {
                 try ensureActive(activation)
                 switch entry {
                 case let .upsert(card):
-                    try upsert(card, userID: activation.userID)
+                    if let appliedIdentifiers = try upsert(card, userID: activation.userID) {
+                        deletedCardIdentifiers.subtract(appliedIdentifiers)
+                    }
                 case let .delete(resourceID):
-                    try removeServerCard(resourceID: resourceID, userID: activation.userID)
+                    deletedCardIdentifiers.formUnion(
+                        try removeServerCard(
+                            resourceID: resourceID,
+                            userID: activation.userID
+                        )
+                    )
                 }
             }
             let state = try syncState(userID: activation.userID, savingIfCreated: false)
             state.cardCheckpoint = checkpoint
             state.updatedAt = .now
         }
+        return deletedCardIdentifiers
     }
 
-    private func upsert(_ serverCard: StudyCard, userID: Int) throws {
+    private func upsert(_ serverCard: StudyCard, userID: Int) throws -> Set<String>? {
         let serverID = serverCard.id
         var descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.userID == userID && $0.id == serverID }
@@ -248,7 +262,7 @@ final class CardSyncFeedRepository {
         // A local delete is authoritative until its outbox item is acknowledged.
         // Recreating the row from the feed would make the deleted card visible
         // in the library while that retry is still pending.
-        guard !pending.contains(where: { $0.kind == "cardDelete" }) else { return }
+        guard !pending.contains(where: { $0.kind == "cardDelete" }) else { return nil }
         let hasPendingReview = pending.contains {
             $0.kind == "review" && $0.lastError == nil
         }
@@ -287,6 +301,7 @@ final class CardSyncFeedRepository {
             record.locallyUpdatedAt = preservesLocalContent ? .now : nil
             context.insert(record)
         }
+        return identifiers
     }
 
     private func mergedCard(
@@ -314,20 +329,41 @@ final class CardSyncFeedRepository {
         )
     }
 
-    private func removeServerCard(resourceID: String, userID: Int) throws {
-        let normalizedResourceID = resourceID.lowercased()
-        let records = try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        )
+    private func removeServerCard(resourceID: String, userID: Int) throws -> Set<String> {
+        let records = try matchingRecords(resourceID: resourceID, userID: userID)
+        var deletedCardIdentifiers: Set<String> = []
         for record in records {
             let identifiers = try identifiers(for: record)
-            guard identifiers.contains(normalizedResourceID) else { continue }
-            guard try pendingMutations(userID: userID, matching: identifiers).isEmpty else {
+            guard record.locallyUpdatedAt == nil,
+                  try pendingMutations(userID: userID, matching: identifiers).isEmpty
+            else {
                 continue
             }
             context.delete(record)
+            deletedCardIdentifiers.formUnion(identifiers)
+        }
+        return deletedCardIdentifiers
+    }
+
+    private func matchingRecords(
+        resourceID: String,
+        userID: Int
+    ) throws -> [LocalCardRecord] {
+        var exactDescriptor = FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.userID == userID && $0.id == resourceID }
+        )
+        exactDescriptor.fetchLimit = 1
+        if let exact = try context.fetch(exactDescriptor).first {
+            return [exact]
+        }
+
+        let normalizedResourceID = resourceID.lowercased()
+        return try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        ).filter {
+            try identifiers(for: $0).contains(normalizedResourceID)
         }
     }
 
