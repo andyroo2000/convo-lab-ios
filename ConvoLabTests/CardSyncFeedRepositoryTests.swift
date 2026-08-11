@@ -540,6 +540,47 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteHeavyPageBuildsAliasIndexOnlyOnce() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let libraryCards = (0..<10).map {
+            makeCard(
+                id: "local-\($0)",
+                syncId: "server-\($0)",
+                expression: "card \($0)"
+            )
+        }
+        for card in libraryCards {
+            insert(card, userID: 1, in: container)
+        }
+        try container.mainContext.save()
+        let firstSyncID = try XCTUnwrap(libraryCards[0].syncId)
+        let secondSyncID = try XCTUnwrap(libraryCards[1].syncId)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [
+                    (1, firstSyncID, "delete"),
+                    (2, secondSyncID, "delete"),
+                ],
+                nextCheckpoint: 2,
+                hasMore: false
+            ))
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        XCTAssertEqual(indexedRecords.current, libraryCards.count)
+        XCTAssertEqual(try cards(for: 1, in: container).count, libraryCards.count - 2)
+    }
+
+    @MainActor
     func testDirtyCardIgnoresTombstoneAndIsNotReportedAsDeleted() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dirty = makeCard(

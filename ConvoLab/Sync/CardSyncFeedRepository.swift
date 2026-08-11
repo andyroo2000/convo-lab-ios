@@ -43,22 +43,35 @@ final class CardSyncFeedRepository {
         let usedIndividualResolution: Bool
     }
 
+    private struct AppliedUpsert {
+        let record: LocalCardRecord
+        let identifiers: Set<String>
+    }
+
+    private struct RemovedRecord {
+        let record: LocalCardRecord
+        let identifiers: Set<String>
+    }
+
     private struct StaleActivationError: Error {}
 
     private let api: APIClient
     private let context: ModelContext
     private let beforeApplyingEntry: (Int) throws -> Void
+    private let onIndexingRecord: () -> Void
     private var activeUserID: Int?
     private var generation = 0
 
     init(
         api: APIClient,
         context: ModelContext,
-        beforeApplyingEntry: @escaping (Int) throws -> Void = { _ in }
+        beforeApplyingEntry: @escaping (Int) throws -> Void = { _ in },
+        onIndexingRecord: @escaping () -> Void = {}
     ) {
         self.api = api
         self.context = context
         self.beforeApplyingEntry = beforeApplyingEntry
+        self.onIndexingRecord = onIndexingRecord
     }
 
     func activate(userID: Int) {
@@ -239,21 +252,40 @@ final class CardSyncFeedRepository {
         var deletedCardIdentifiers = initialDeletedCardIdentifiers
         try performTransaction {
             try ensureActive(activation)
+            var recordsByIdentifier: [String: [LocalCardRecord]] = [:]
+            var recordIndexWasBuilt = false
             for (index, entry) in entries.enumerated() {
                 try beforeApplyingEntry(index)
                 try ensureActive(activation)
                 switch entry {
                 case let .upsert(card):
-                    if let appliedIdentifiers = try upsert(card, userID: activation.userID) {
-                        deletedCardIdentifiers.subtract(appliedIdentifiers)
+                    if let applied = try upsert(card, userID: activation.userID) {
+                        deletedCardIdentifiers.subtract(applied.identifiers)
+                        if recordIndexWasBuilt {
+                            addToIndex(
+                                applied.record,
+                                identifiers: applied.identifiers,
+                                in: &recordsByIdentifier
+                            )
+                        }
                     }
                 case let .delete(resourceID):
-                    deletedCardIdentifiers.formUnion(
-                        try removeServerCard(
-                            resourceID: resourceID,
-                            userID: activation.userID
-                        )
+                    if !recordIndexWasBuilt {
+                        recordsByIdentifier = try indexedRecords(userID: activation.userID)
+                        recordIndexWasBuilt = true
+                    }
+                    let removed = try removeServerCards(
+                        recordsByIdentifier[resourceID.lowercased()] ?? [],
+                        userID: activation.userID
                     )
+                    for removal in removed {
+                        deletedCardIdentifiers.formUnion(removal.identifiers)
+                        remove(
+                            removal.record,
+                            identifiers: removal.identifiers,
+                            from: &recordsByIdentifier
+                        )
+                    }
                 }
             }
             let state = try syncState(userID: activation.userID, savingIfCreated: false)
@@ -263,7 +295,7 @@ final class CardSyncFeedRepository {
         return deletedCardIdentifiers
     }
 
-    private func upsert(_ serverCard: StudyCard, userID: Int) throws -> Set<String>? {
+    private func upsert(_ serverCard: StudyCard, userID: Int) throws -> AppliedUpsert? {
         let serverID = serverCard.id
         var descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.userID == userID && $0.id == serverID }
@@ -299,6 +331,7 @@ final class CardSyncFeedRepository {
         )
         let payload = try StorageCodec.encoder.encode(merged)
 
+        let appliedRecord: LocalCardRecord
         if let record {
             record.payload = payload
             record.serverUpdatedAt = serverCard.updatedAt
@@ -307,6 +340,7 @@ final class CardSyncFeedRepository {
             } else if !preservesLocalContent {
                 record.locallyUpdatedAt = nil
             }
+            appliedRecord = record
         } else {
             let queueIndex = try context.fetch(
                 FetchDescriptor<LocalCardRecord>(
@@ -322,8 +356,9 @@ final class CardSyncFeedRepository {
             record.serverUpdatedAt = serverCard.updatedAt
             record.locallyUpdatedAt = preservesLocalContent ? .now : nil
             context.insert(record)
+            appliedRecord = record
         }
-        return identifiers
+        return AppliedUpsert(record: appliedRecord, identifiers: identifiers)
     }
 
     private func mergedCard(
@@ -351,9 +386,11 @@ final class CardSyncFeedRepository {
         )
     }
 
-    private func removeServerCard(resourceID: String, userID: Int) throws -> Set<String> {
-        let records = try matchingRecords(resourceID: resourceID, userID: userID)
-        var deletedCardIdentifiers: Set<String> = []
+    private func removeServerCards(
+        _ records: [LocalCardRecord],
+        userID: Int
+    ) throws -> [RemovedRecord] {
+        var removed: [RemovedRecord] = []
         for record in records {
             let identifiers = try identifiers(for: record)
             guard record.locallyUpdatedAt == nil,
@@ -362,30 +399,49 @@ final class CardSyncFeedRepository {
                 continue
             }
             context.delete(record)
-            deletedCardIdentifiers.formUnion(identifiers)
+            removed.append(RemovedRecord(record: record, identifiers: identifiers))
         }
-        return deletedCardIdentifiers
+        return removed
     }
 
-    private func matchingRecords(
-        resourceID: String,
-        userID: Int
-    ) throws -> [LocalCardRecord] {
-        var exactDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == resourceID }
-        )
-        exactDescriptor.fetchLimit = 1
-        if let exact = try context.fetch(exactDescriptor).first {
-            return [exact]
-        }
-
-        let normalizedResourceID = resourceID.lowercased()
-        return try context.fetch(
+    private func indexedRecords(userID: Int) throws -> [String: [LocalCardRecord]] {
+        var recordsByIdentifier: [String: [LocalCardRecord]] = [:]
+        for record in try context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == userID }
             )
-        ).filter {
-            try identifiers(for: $0).contains(normalizedResourceID)
+        ) {
+            onIndexingRecord()
+            addToIndex(
+                record,
+                identifiers: try identifiers(for: record),
+                in: &recordsByIdentifier
+            )
+        }
+        return recordsByIdentifier
+    }
+
+    private func addToIndex(
+        _ record: LocalCardRecord,
+        identifiers: Set<String>,
+        in recordsByIdentifier: inout [String: [LocalCardRecord]]
+    ) {
+        for identifier in identifiers {
+            recordsByIdentifier[identifier, default: []].removeAll { $0 === record }
+            recordsByIdentifier[identifier, default: []].append(record)
+        }
+    }
+
+    private func remove(
+        _ record: LocalCardRecord,
+        identifiers: Set<String>,
+        from recordsByIdentifier: inout [String: [LocalCardRecord]]
+    ) {
+        for identifier in identifiers {
+            recordsByIdentifier[identifier]?.removeAll { $0 === record }
+            if recordsByIdentifier[identifier]?.isEmpty == true {
+                recordsByIdentifier.removeValue(forKey: identifier)
+            }
         }
     }
 
