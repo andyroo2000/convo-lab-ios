@@ -3,67 +3,6 @@ import SwiftData
 
 @Observable
 final class StudyStore {
-    private static let reviewUploadBatchSize = 100
-
-    private struct PendingReviewCardState: Codable {
-        let id: String
-        let failedAt: Date?
-
-        init(card: StudyCard) {
-            id = card.id
-            failedAt = card.state.failedAt
-        }
-
-        init(id: String, failedAt: Date?) {
-            self.id = id
-            self.failedAt = failedAt
-        }
-    }
-
-    private struct PendingReviewPayload: Codable {
-        let event: ReviewBatchRequest.Event
-        let cardBefore: PendingReviewCardState
-    }
-
-    private struct LegacyPendingReviewPayload: Codable {
-        let event: ReviewBatchRequest.Event
-        let cardBefore: StudyCard
-    }
-
-    private struct PendingReviewState {
-        var cardIDs: Set<String> = []
-        var newlyFailedCardIDs: Set<String> = []
-        var retainedFailedCardIDs: Set<String> = []
-        var resolvedFailedCardIDs: Set<String> = []
-
-        mutating func record(card: PendingReviewCardState, rating: ReviewRating) {
-            if rating == .again {
-                let wasResolved = resolvedFailedCardIDs.remove(card.id) != nil
-                if newlyFailedCardIDs.contains(card.id) {
-                    retainedFailedCardIDs.remove(card.id)
-                } else if wasResolved || card.failedAt != nil {
-                    retainedFailedCardIDs.insert(card.id)
-                } else {
-                    newlyFailedCardIDs.insert(card.id)
-                }
-            } else {
-                let wasNewlyFailed = newlyFailedCardIDs.remove(card.id) != nil
-                retainedFailedCardIDs.remove(card.id)
-                if card.failedAt != nil, !wasNewlyFailed {
-                    resolvedFailedCardIDs.insert(card.id)
-                }
-            }
-        }
-    }
-
-    private struct QuarantinedReviewError: LocalizedError {
-        let count: Int
-
-        var errorDescription: String? {
-            "\(count) review \(count == 1 ? "event was" : "events were") rejected and held for inspection."
-        }
-    }
-
     private struct QuarantinedCardError: LocalizedError {
         let count: Int
 
@@ -166,9 +105,9 @@ final class StudyStore {
     private let context: ModelContext
     private let mediaCache: MediaCache
     private let knownKanjiService: KnownKanjiService
+    private let reviewOutbox: ReviewEventOutbox
     private let deviceID: String
     @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
-    @ObservationIgnored private var reviewOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var draftCreateTasks: [String: Task<StudyManualCardDraft, Error>] = [:]
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
@@ -263,6 +202,7 @@ final class StudyStore {
         self.context = context
         self.mediaCache = mediaCache
         knownKanjiService = KnownKanjiService(api: api, context: context)
+        reviewOutbox = ReviewEventOutbox(api: api, context: context)
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -276,6 +216,7 @@ final class StudyStore {
         mediaCache.activate(userID: userID)
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
+        reviewOutbox.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
@@ -285,18 +226,17 @@ final class StudyStore {
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
         cardOutboxFlushTask?.cancel()
-        reviewOutboxFlushTask?.cancel()
         draftCreateTasks.values.forEach { $0.cancel() }
         draftCommitTasks.values.forEach { $0.cancel() }
         manualDraftRefreshTask?.cancel()
         cardOutboxFlushTask = nil
-        reviewOutboxFlushTask = nil
         draftCreateTasks.removeAll()
         draftCommitTasks.removeAll()
         manualDraftRefreshTask = nil
         activeUserID = nil
         mediaCache.deactivate()
         knownKanjiService.deactivate()
+        reviewOutbox.deactivate()
         cards = []
         libraryCards = []
         allCards = []
@@ -504,7 +444,7 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            try await flushReviewOutbox()
+            try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
         }
@@ -593,7 +533,7 @@ final class StudyStore {
         )
         let session = response.session
         guard activeUserID == userID else { return }
-        let pendingReviewState = try pendingReviewState()
+        let pendingReviewState = try reviewOutbox.pendingState()
         var seenCardIDs: Set<String> = []
         let activeCards = Self.orderSessionCards(try session.cards.filter { card in
             try !hasPendingDelete(for: card.id)
@@ -640,7 +580,7 @@ final class StudyStore {
         )
         let session = response.session
         guard activeUserID == userID else { return }
-        let pendingReviewState = try pendingReviewState()
+        let pendingReviewState = try reviewOutbox.pendingState()
         var seenCardIDs: Set<String> = []
         let eligibleLessonCards = try session.cards.filter { card in
             try !hasPendingDelete(for: card.id)
@@ -1077,7 +1017,7 @@ final class StudyStore {
 
     private func apply(_ card: StudyCard, userID: Int) throws {
         guard activeUserID == userID else { return }
-        let hasPendingReview = try pendingReviewState().cardIDs.contains(card.id)
+        let hasPendingReview = try reviewOutbox.pendingState().cardIDs.contains(card.id)
         let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
         let merged = try acknowledgedCard(
             card,
@@ -1245,18 +1185,7 @@ final class StudyStore {
         )
         var queuedLocally = false
         do {
-            let payload = try StorageCodec.encoder.encode(
-                PendingReviewPayload(
-                    event: event,
-                    cardBefore: PendingReviewCardState(card: card)
-                )
-            )
-            context.insert(PendingMutation(
-                kind: "review",
-                userID: userID,
-                resourceID: card.id,
-                payload: payload
-            ))
+            try reviewOutbox.stageEnqueue(event: event, cardBefore: card)
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == userID && $0.id == cardID }
@@ -1324,7 +1253,7 @@ final class StudyStore {
             if try hasPendingCreate(for: card.id) {
                 try await flushCardOutbox()
             }
-            try await flushReviewOutbox()
+            try await reviewOutbox.flush()
         } catch {
             handleSyncError(error)
         }
@@ -1332,16 +1261,13 @@ final class StudyStore {
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
-        if let reviewOutboxFlushTask {
-            _ = try? await reviewOutboxFlushTask.value
-        }
+        await reviewOutbox.waitForCurrentFlush()
         guard try !hasPendingDelete(for: cardBefore.id) else {
             throw DeletedCardUndoError()
         }
-        if let pending = try pendingReview(eventID: eventID) {
-            context.delete(pending)
+        if try reviewOutbox.stageRemoval(eventID: eventID) {
             try restoreReviewedCard(cardBefore)
-            apply(try pendingReviewState())
+            apply(try reviewOutbox.pendingState())
             restoreSessionFailure(for: cardBefore.id, before: eventID)
             return
         }
@@ -1358,7 +1284,7 @@ final class StudyStore {
         try restoreReviewedCard(response.card)
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
         overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
-        apply(try pendingReviewState())
+        apply(try reviewOutbox.pendingState())
         restoreSessionFailure(for: cardBefore.id, before: eventID)
     }
 
@@ -2054,96 +1980,6 @@ final class StudyStore {
         return (try? context.fetchCount(descriptor)) ?? 0
     }
 
-    private func flushReviewOutbox() async throws {
-        if let reviewOutboxFlushTask {
-            return try await reviewOutboxFlushTask.value
-        }
-
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try await drainReviewOutbox()
-        }
-        reviewOutboxFlushTask = task
-        do {
-            try await task.value
-            reviewOutboxFlushTask = nil
-        } catch {
-            reviewOutboxFlushTask = nil
-            throw error
-        }
-    }
-
-    private func drainReviewOutbox() async throws {
-        guard let userID = activeUserID else { return }
-        var quarantinedCount = 0
-        while true {
-            let descriptor = FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt)]
-            )
-            let pending = try context.fetch(descriptor)
-            let ready = try pending.filter { try !hasPendingCreate(for: $0.resourceID) }
-            let batch = Array(ready.prefix(Self.reviewUploadBatchSize))
-            guard !batch.isEmpty else { break }
-
-            let events = try batch.map { try decodePendingReview($0.payload).event }
-            do {
-                try await api.request(
-                    "/api/card-review-events/batch",
-                    method: "POST",
-                    body: ReviewBatchRequest(events: events)
-                )
-                batch.forEach(context.delete)
-                try context.save()
-            } catch let APIClientError.rejected(status, _)
-                where [400, 404, 409, 410, 422].contains(status)
-            {
-                // A permanent batch rejection may be caused by only one event.
-                // Retry individually so valid reviews still sync and only the
-                // rejected event is quarantined for inspection.
-                for (mutation, event) in zip(batch, events) {
-                    do {
-                        try await api.request(
-                            "/api/card-review-events/batch",
-                            method: "POST",
-                            body: ReviewBatchRequest(events: [event])
-                        )
-                        context.delete(mutation)
-                        try context.save()
-                    } catch let APIClientError.rejected(individualStatus, individualMessage)
-                        where [400, 404, 409, 410, 422].contains(individualStatus)
-                    {
-                        mutation.attemptCount += 1
-                        mutation.lastAttemptAt = .now
-                        mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
-                        try context.save()
-                        quarantinedCount += 1
-                    } catch {
-                        mutation.attemptCount += 1
-                        mutation.lastAttemptAt = .now
-                        mutation.lastError = nil
-                        try context.save()
-                        throw error
-                    }
-                }
-            } catch {
-                for mutation in batch {
-                    mutation.attemptCount += 1
-                    mutation.lastAttemptAt = .now
-                    mutation.lastError = nil
-                }
-                try context.save()
-                throw error
-            }
-        }
-
-        if quarantinedCount > 0 {
-            throw QuarantinedReviewError(count: quarantinedCount)
-        }
-    }
-
     private func consumeOverviewCount(for card: StudyCard) {
         guard let current = overview else { return }
         overview = StudyOverview(
@@ -2274,7 +2110,7 @@ final class StudyStore {
                     )
                     let acknowledgedCard = try acknowledgedCard(
                         serverCard,
-                        preservingPendingReview: hasPendingReview(for: serverCard.id),
+                        preservingPendingReview: reviewOutbox.hasPendingReview(for: serverCard.id),
                         preservingPendingEdit: preservesPendingEdit
                     )
                     try updateLocalCard(
@@ -2360,34 +2196,11 @@ final class StudyStore {
 
         for pending in aliasMutations
         where pending.resourceID == clientID && pending.kind != "cardCreate" {
-            pending.resourceID = serverID
-            guard
-                pending.kind == "review",
-                let decoded = try? decodePendingReview(pending.payload),
-                let cardBefore = decoded.cardBefore
-            else {
-                continue
+            if pending.kind == "review" {
+                try reviewOutbox.retarget(pending, cardID: serverID)
+            } else {
+                pending.resourceID = serverID
             }
-            let event = decoded.event
-            let canonicalEvent = ReviewBatchRequest.Event(
-                id: event.id,
-                cardID: serverID,
-                rating: event.rating,
-                reviewedAt: event.reviewedAt,
-                durationMilliseconds: event.durationMilliseconds,
-                clientEventID: event.clientEventID,
-                deviceID: event.deviceID,
-                clientCreatedAt: event.clientCreatedAt
-            )
-            pending.payload = try StorageCodec.encoder.encode(
-                PendingReviewPayload(
-                    event: canonicalEvent,
-                    cardBefore: PendingReviewCardState(
-                        id: serverID,
-                        failedAt: cardBefore.failedAt
-                    )
-                )
-            )
         }
     }
 
@@ -2465,20 +2278,6 @@ final class StudyStore {
         ).contains { $0.resourceID.lowercased() == normalizedID }
     }
 
-    private func hasPendingReview(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "review"
-                    && $0.resourceID == cardID
-                    && $0.lastError == nil
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
-    }
-
     private func hasPendingUpdate(
         for cardID: String,
         excluding mutationID: String
@@ -2498,7 +2297,7 @@ final class StudyStore {
     }
 
     private func restorePendingReviewState() {
-        guard let state = try? pendingReviewState() else { return }
+        guard let state = try? reviewOutbox.pendingState() else { return }
         apply(state)
     }
 
@@ -2506,89 +2305,6 @@ final class StudyStore {
         newlyFailedCardIDs = state.newlyFailedCardIDs
         retainedFailedCardIDs = state.retainedFailedCardIDs
         resolvedFailedCardIDs = state.resolvedFailedCardIDs
-    }
-
-    private func pendingReviewState() throws -> PendingReviewState {
-        guard let userID = activeUserID else { return PendingReviewState() }
-        let pending = try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt)]
-            )
-        )
-        let pendingCardIDs = pending.map(\.resourceID)
-        let records = try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate {
-                    $0.userID == userID && pendingCardIDs.contains($0.id)
-                }
-            )
-        )
-        let cardsByID = Dictionary(
-            records.compactMap { record in
-                (try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload))
-                    .map { ($0.id, $0) }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var state = PendingReviewState()
-
-        for mutation in pending {
-            state.cardIDs.insert(mutation.resourceID)
-        }
-        let decodedPending = pending.compactMap { mutation in
-            (try? decodePendingReview(mutation.payload)).map { (mutation, $0) }
-        }
-        .sorted { left, right in
-            if left.1.event.reviewedAt != right.1.event.reviewedAt {
-                return left.1.event.reviewedAt < right.1.event.reviewedAt
-            }
-            return left.1.event.id < right.1.event.id
-        }
-
-        for (mutation, decoded) in decodedPending {
-            guard let card = decoded.cardBefore
-                ?? cardsByID[mutation.resourceID].map(PendingReviewCardState.init)
-            else {
-                continue
-            }
-            state.record(card: card, rating: decoded.event.rating)
-        }
-        return state
-    }
-
-    private func decodePendingReview(
-        _ payload: Data
-    ) throws -> (event: ReviewBatchRequest.Event, cardBefore: PendingReviewCardState?) {
-        if let legacy = try? StorageCodec.decoder.decode(
-            LegacyPendingReviewPayload.self,
-            from: payload
-        ) {
-            return (legacy.event, PendingReviewCardState(card: legacy.cardBefore))
-        }
-        if let wrapped = try? StorageCodec.decoder.decode(
-            PendingReviewPayload.self,
-            from: payload
-        ) {
-            return (wrapped.event, wrapped.cardBefore)
-        }
-        return (
-            try StorageCodec.decoder.decode(ReviewBatchRequest.Event.self, from: payload),
-            nil
-        )
-    }
-
-    private func pendingReview(eventID: String) throws -> PendingMutation? {
-        guard let userID = activeUserID else { return nil }
-        return try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate { $0.userID == userID && $0.kind == "review" }
-            )
-        ).first {
-            (try? decodePendingReview($0.payload).event.id) == eventID
-        }
     }
 
     private func restoreReviewedCard(_ card: StudyCard) throws {
