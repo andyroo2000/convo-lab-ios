@@ -59,6 +59,7 @@ final class StudyStore {
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
     private let cardSyncFeedRepository: CardSyncFeedRepository
+    private let localCardRepository: StudyCardLocalRepository
     private let reviewProjection: (StudyCard, ReviewRating, Date) throws -> StudyCard
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -133,7 +134,7 @@ final class StudyStore {
         if sessionKind == "lessons" {
             sessionKind = "reviews"
             if let userID = activeUserID {
-                try? persist(cards: [], userID: userID)
+                try? localCardRepository.replaceActiveSession(with: [], userID: userID)
             }
             cards = []
             sessionInitialCardCount = 0
@@ -168,6 +169,7 @@ final class StudyStore {
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
+        localCardRepository = StudyCardLocalRepository(context: context)
         self.reviewProjection = reviewProjection
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
@@ -593,7 +595,7 @@ final class StudyStore {
         sessionCompletedCardIDs = []
         masteryAnimation = nil
         apply(pendingReviewState)
-        try persist(cards: activeCards, userID: userID)
+        try localCardRepository.replaceActiveSession(with: activeCards, userID: userID)
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
 
@@ -641,7 +643,7 @@ final class StudyStore {
         sessionInitialCardCount = lessonCards.count
         sessionCompletedCardIDs = []
         masteryAnimation = nil
-        try persist(cards: lessonCards, userID: userID)
+        try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
@@ -931,7 +933,7 @@ final class StudyStore {
             method: "POST"
         )
         guard activeUserID == userID else { return }
-        try persistReserve(reserve.cards, userID: userID)
+        try localCardRepository.mergeOfflineReserve(reserve.cards, userID: userID)
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
         await mediaCache.prepare(
@@ -1744,7 +1746,7 @@ final class StudyStore {
             )
         }
         guard let userID = activeUserID else { throw CancellationError() }
-        try persist(cards: cards, userID: userID)
+        try localCardRepository.replaceActiveSession(with: cards, userID: userID)
         scheduleNextOfflineActivation()
     }
 
@@ -1787,91 +1789,15 @@ final class StudyStore {
         )
     }
 
-    private func persist(cards: [StudyCard], userID: Int) throws {
-        let existing = try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        )
-        existing.forEach { $0.isInActiveSession = false }
-        let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-
-        for (index, card) in cards.enumerated() {
-            let payload = try StorageCodec.encoder.encode(card)
-            if let record = byID[card.id] {
-                record.isInActiveSession = true
-                guard record.locallyUpdatedAt == nil else { continue }
-                record.payload = payload
-                record.queueIndex = index
-                record.serverUpdatedAt = card.updatedAt
-            } else {
-                context.insert(LocalCardRecord(
-                    card: card,
-                    userID: userID,
-                    queueIndex: index,
-                    payload: payload
-                ))
-            }
-        }
-        try context.save()
-    }
-
-    private func persistReserve(_ cards: [StudyCard], userID: Int) throws {
-        let existing = try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        )
-        let byID = Dictionary(
-            existing.map { ($0.id.lowercased(), $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        for (index, card) in cards.enumerated() {
-            let payload = try StorageCodec.encoder.encode(card)
-            if let record = byID[card.id.lowercased()] {
-                guard record.locallyUpdatedAt == nil else { continue }
-                record.payload = payload
-                record.queueIndex = index
-                record.serverUpdatedAt = card.updatedAt
-            } else {
-                let record = LocalCardRecord(
-                    card: card,
-                    userID: userID,
-                    queueIndex: index,
-                    payload: payload
-                )
-                record.isInActiveSession = false
-                context.insert(record)
-            }
-        }
-        try context.save()
-    }
-
     private func markPrepared(cards: [StudyCard], clearingOtherRecords: Bool = false) {
         guard let userID = activeUserID else { return }
-        let cardsByID = Dictionary(
-            cards.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         let cachedKeys = mediaCache.cachedKeys(for: cards.flatMap(\.mediaURLs))
-        let records = (try? context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        )) ?? []
-        for record in records {
-            guard let card = cardsByID[record.id] else {
-                if clearingOtherRecords {
-                    record.mediaPreparedAt = nil
-                }
-                continue
-            }
-            let isPrepared = card.mediaURLs.allSatisfy {
-                cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
-            }
-            record.mediaPreparedAt = isPrepared ? .now : nil
-        }
-        try? context.save()
+        try? localCardRepository.updateMediaPreparedState(
+            for: cards,
+            userID: userID,
+            cachedKeys: cachedKeys,
+            clearingOtherRecords: clearingOtherRecords
+        )
     }
 
     private func acknowledgedCard(
@@ -2026,13 +1952,7 @@ final class StudyStore {
     }
 
     private func loadLocalCards(userID: Int) {
-        let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
-            sortBy: [SortDescriptor(\.queueIndex)]
-        )
-        cards = ((try? context.fetch(descriptor)) ?? []).compactMap {
-            try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
-        }
+        cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
         cards = Self.orderSessionCards(cards)
     }
 
@@ -2040,14 +1960,9 @@ final class StudyStore {
         preservingNormalizedOrder order: [String],
         userID: Int
     ) {
-        let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
-            sortBy: [SortDescriptor(\.queueIndex)]
-        )
         var persistedByNormalizedID = Dictionary(
-            ((try? context.fetch(descriptor)) ?? []).compactMap { record in
-                try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
-            }.map { ($0.id.lowercased(), $0) },
+            ((try? localCardRepository.activeCards(userID: userID)) ?? [])
+                .map { ($0.id.lowercased(), $0) },
             uniquingKeysWith: { first, _ in first }
         )
         let preserved = order.compactMap { persistedByNormalizedID.removeValue(forKey: $0) }
@@ -2055,13 +1970,7 @@ final class StudyStore {
     }
 
     private func loadLibraryCards(userID: Int) {
-        let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID },
-            sortBy: [SortDescriptor(\.serverUpdatedAt, order: .reverse)]
-        )
-        libraryCards = ((try? context.fetch(descriptor)) ?? []).compactMap {
-            try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
-        }
+        libraryCards = (try? localCardRepository.libraryCards(userID: userID)) ?? []
     }
 
     private func scheduleNextOfflineActivation() {

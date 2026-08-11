@@ -4831,6 +4831,11 @@ final class StudyStoreTests: XCTestCase {
         )
         try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
         let card = try XCTUnwrap(store.cards.first)
+        let initialRecord = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        initialRecord.queueIndex = 42
+        try container.mainContext.save()
         let session = StudySession(
             overview: StudyOverview(
                 dueCount: 0,
@@ -4863,6 +4868,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(records.count, 1)
         XCTAssertTrue(try XCTUnwrap(records.first).isInActiveSession)
         XCTAssertNotNil(records.first?.locallyUpdatedAt)
+        XCTAssertEqual(records.first?.queueIndex, 0)
     }
 
     @MainActor
