@@ -15,36 +15,6 @@ final class StudyStore {
         }
     }
 
-    private struct MissingGeneratedAudioError: LocalizedError {
-        var errorDescription: String? {
-            "The server regenerated this card without returning playable audio."
-        }
-    }
-
-    private struct MissingGeneratedImageError: LocalizedError {
-        var errorDescription: String? {
-            "The server regenerated this card without returning a usable image."
-        }
-    }
-
-    private struct MismatchedGeneratedImagesError: LocalizedError {
-        var errorDescription: String? {
-            "The server returned different front and back images for a shared-image request."
-        }
-    }
-
-    private struct InvalidImagePromptError: LocalizedError {
-        var errorDescription: String? {
-            "Enter a non-empty image prompt no longer than 1,000 characters."
-        }
-    }
-
-    private struct InvalidImagePlacementError: LocalizedError {
-        var errorDescription: String? {
-            "Choose Front, Back, or Front and back before regenerating an image."
-        }
-    }
-
     private struct PendingCardChangesError: LocalizedError {
         let medium: String
 
@@ -53,15 +23,8 @@ final class StudyStore {
         }
     }
 
-    struct AnswerAudioRegenerationResult {
-        let card: StudyCard
-        let localURL: URL
-    }
-
-    struct ImageRegenerationResult {
-        let card: StudyCard
-        let localURL: URL
-    }
+    typealias AnswerAudioRegenerationResult = CardAnswerAudioRegenerationResult
+    typealias ImageRegenerationResult = CardImageMutationResult
 
     struct DraftPreviewAudioResult {
         let draft: StudyManualCardDraft
@@ -89,6 +52,7 @@ final class StudyStore {
     private let reviewOutbox: ReviewEventOutbox
     private let cardOutbox: CardMutationOutbox
     private let manualDraftOutbox: ManualDraftOutbox
+    private let cardMediaService: CardMediaMutationService
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var activeUserID: Int?
@@ -188,6 +152,7 @@ final class StudyStore {
             reviewOutbox: reviewOutbox
         )
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
+        cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -204,6 +169,7 @@ final class StudyStore {
         reviewOutbox.activate(userID: userID)
         cardOutbox.activate(userID: userID)
         manualDraftOutbox.activate(userID: userID)
+        cardMediaService.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
@@ -217,6 +183,7 @@ final class StudyStore {
         knownKanjiService.deactivate()
         cardOutbox.deactivate()
         manualDraftOutbox.deactivate()
+        cardMediaService.deactivate()
         reviewOutbox.deactivate()
         cards = []
         libraryCards = []
@@ -1429,7 +1396,7 @@ final class StudyStore {
             timeout: 180
         )
         guard let remoteURL = response.previewImage.mediaURLs.first else {
-            throw MissingGeneratedImageError()
+            throw MissingGeneratedCardImageError()
         }
         let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
         let refreshed = try await fetchManualDraft(id: updated.id)
@@ -1605,74 +1572,28 @@ final class StudyStore {
         voiceID: String,
         textOverride: String
     ) async throws -> AnswerAudioRegenerationResult {
-        do {
-            try await flushCardOutbox()
-        } catch is QuarantinedCardMutationError {
-            // A rejected write for another card should not block this generated
-            // media action. The per-card guard below still blocks when this
-            // card itself owns the unresolved write.
-        }
-        let currentCard = try currentLocalCard(for: card)
-        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
-            throw PendingCardChangesError(medium: "audio")
-        }
-        let request = RegenerateAnswerAudioRequest(
-            answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
-            answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
+        let currentCard = try await prepareCardMediaMutation(for: card, medium: "audio")
+        return try await cardMediaService.regenerateAnswerAudio(
+            currentCard: currentCard,
+            voiceID: voiceID,
+            textOverride: textOverride,
+            latestCard: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try self.currentLocalCard(for: currentCard)
+            },
+            hasPendingWrite: { [weak self] cardID in
+                guard let self else { throw CancellationError() }
+                return try self.cardOutbox.hasPendingCardWrite(for: cardID)
+            },
+            onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
+                guard let self else { throw CancellationError() }
+                try self.reconcileCardMedia(
+                    card,
+                    pendingWrite: pendingWrite,
+                    serverUpdatedAt: serverUpdatedAt
+                )
+            }
         )
-        // learning-os compatibility endpoint returns the card directly, without
-        // the data envelope used by newer API endpoints.
-        let serverCard: StudyCard = try await api.request(
-            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-answer-audio",
-            method: "POST",
-            body: request,
-            timeout: 180
-        )
-        guard
-            let generatedAudio = serverCard.answer["answerAudio"],
-            let remoteURL = serverCard.audioURL
-        else {
-            throw MissingGeneratedAudioError()
-        }
-        let localURL = try await mediaCache.refresh(
-            remoteURL,
-            category: "active-study"
-        )
-        // Once the server and cache have changed, always reconcile local card
-        // metadata even if the editor that initiated the request was dismissed.
-        let latestCard = try currentLocalCard(for: currentCard)
-        let pendingCardWrite = try cardOutbox.hasPendingCardWrite(for: latestCard.id)
-        let updatedCard = StudyCard(
-            id: latestCard.id,
-            syncId: serverCard.syncId ?? latestCard.syncId,
-            noteId: serverCard.noteId ?? latestCard.noteId,
-            cardType: latestCard.cardType,
-            prompt: latestCard.prompt,
-            answer: latestCard.answer.replacingObjectValues([
-                "answerAudio": generatedAudio,
-                "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
-                    ?? request.answerAudioVoiceId.map(JSONValue.string)
-                    ?? .null,
-                "answerAudioTextOverride": serverCard.answer["answerAudioTextOverride"]
-                    ?? request.answerAudioTextOverride.map(JSONValue.string)
-                    ?? .null,
-            ]),
-            state: latestCard.state,
-            answerAudioSource: serverCard.answerAudioSource
-                ?? latestCard.answerAudioSource,
-            createdAt: latestCard.createdAt,
-            updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
-        )
-        try updateLocalCard(
-            updatedCard,
-            markedDirty: pendingCardWrite,
-            serverUpdatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
-        )
-        cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
-        libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
-        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
-        try context.save()
-        return AnswerAudioRegenerationResult(card: updatedCard, localURL: localURL)
     }
 
     func regenerateImage(
@@ -1680,40 +1601,39 @@ final class StudyStore {
         prompt: String,
         placement: StudyCardDraft.ImagePlacement
     ) async throws -> ImageRegenerationResult {
+        // Validate before the preflight flush so bad editor input cannot send an
+        // unrelated queued card mutation. The service repeats this for direct callers.
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             !imagePrompt.isEmpty,
             imagePrompt.count <= 1_000
         else {
-            throw InvalidImagePromptError()
+            throw InvalidCardImagePromptError()
         }
         guard placement != .none else {
-            throw InvalidImagePlacementError()
+            throw InvalidCardImagePlacementError()
         }
-        do {
-            try await flushCardOutbox()
-        } catch is QuarantinedCardMutationError {
-            // Rejected writes for other cards do not block this card's media.
-        }
-        let currentCard = try currentLocalCard(for: card)
-        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
-            throw PendingCardChangesError(medium: "image")
-        }
-        let request = RegenerateImageRequest(
-            imagePrompt: imagePrompt,
-            imageRole: placement.rawValue
-        )
-        // learning-os compatibility endpoint returns the card directly.
-        let serverCard: StudyCard = try await api.request(
-            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-image",
-            method: "POST",
-            body: request,
-            timeout: 180
-        )
-        return try await reconcileImageMutation(
+        let currentCard = try await prepareCardMediaMutation(for: card, medium: "image")
+        return try await cardMediaService.regenerateImage(
             currentCard: currentCard,
-            serverCard: serverCard,
-            placement: placement
+            prompt: imagePrompt,
+            placement: placement,
+            latestCard: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try self.currentLocalCard(for: currentCard)
+            },
+            hasPendingWrite: { [weak self] cardID in
+                guard let self else { throw CancellationError() }
+                return try self.cardOutbox.hasPendingCardWrite(for: cardID)
+            },
+            onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
+                guard let self else { throw CancellationError() }
+                try self.reconcileCardMedia(
+                    card,
+                    pendingWrite: pendingWrite,
+                    serverUpdatedAt: serverUpdatedAt
+                )
+            }
         )
     }
 
@@ -1722,112 +1642,64 @@ final class StudyStore {
         jpegData: Data,
         placement: StudyCardDraft.ImagePlacement
     ) async throws -> ImageRegenerationResult {
+        // As above, reject invalid editor state before the outbox preflight.
         guard placement != .none else {
-            throw InvalidImagePlacementError()
+            throw InvalidCardImagePlacementError()
         }
-        do {
-            try await flushCardOutbox()
-        } catch is QuarantinedCardMutationError {
-            // Rejected writes for other cards do not block this card's media.
-        }
-        let currentCard = try currentLocalCard(for: card)
-        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
-            throw PendingCardChangesError(medium: "image")
-        }
-        let serverCard: StudyCard = try await api.upload(
-            "/api/study/cards/\(currentCard.reviewCardID)/image",
-            fields: ["imageRole": placement.rawValue],
-            fileData: jpegData,
-            fileField: "image",
-            fileName: "iphone-photo.jpg",
-            mimeType: "image/jpeg",
-            timeout: 120
-        )
-        return try await reconcileImageMutation(
+        let currentCard = try await prepareCardMediaMutation(for: card, medium: "image")
+        return try await cardMediaService.uploadImage(
             currentCard: currentCard,
-            serverCard: serverCard,
-            placement: placement
+            jpegData: jpegData,
+            placement: placement,
+            latestCard: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try self.currentLocalCard(for: currentCard)
+            },
+            hasPendingWrite: { [weak self] cardID in
+                guard let self else { throw CancellationError() }
+                return try self.cardOutbox.hasPendingCardWrite(for: cardID)
+            },
+            onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
+                guard let self else { throw CancellationError() }
+                try self.reconcileCardMedia(
+                    card,
+                    pendingWrite: pendingWrite,
+                    serverUpdatedAt: serverUpdatedAt
+                )
+            }
         )
     }
 
-    private func reconcileImageMutation(
-        currentCard: StudyCard,
-        serverCard: StudyCard,
-        placement: StudyCardDraft.ImagePlacement
-    ) async throws -> ImageRegenerationResult {
-        if
-            placement == .both,
-            let promptImage = serverCard.prompt["cueImage"],
-            let answerImage = serverCard.answer["answerImage"],
-            !promptImage.mediaURLs.isEmpty,
-            !answerImage.mediaURLs.isEmpty,
-            Set(promptImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
-                != Set(answerImage.mediaURLs.map(MediaCache.stableCacheKey(for:)))
-        {
-            throw MismatchedGeneratedImagesError()
+    private func prepareCardMediaMutation(
+        for card: StudyCard,
+        medium: String
+    ) async throws -> StudyCard {
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardMutationError {
+            // A rejected write for another card does not block this card.
         }
-        let generatedImageCandidates = placement == .answer
-            ? [serverCard.answer["answerImage"], serverCard.prompt["cueImage"]]
-            : [serverCard.prompt["cueImage"], serverCard.answer["answerImage"]]
-        let generatedImage = generatedImageCandidates
-            .compactMap(\.self)
-            .first { !$0.mediaURLs.isEmpty }
-        guard let generatedImage, let remoteURL = generatedImage.mediaURLs.first else {
-            throw MissingGeneratedImageError()
+        let currentCard = try currentLocalCard(for: card)
+        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError(medium: medium)
         }
-        let localURL = try await mediaCache.refresh(
-            remoteURL,
-            category: "active-study"
-        )
+        return currentCard
+    }
 
-        // As with audio, complete reconciliation after server/cache side effects
-        // even if the editor has since been dismissed.
-        let latestCard = try currentLocalCard(for: currentCard)
-        let pendingCardWrite = try cardOutbox.hasPendingCardWrite(for: latestCard.id)
-        let latestPromptImage = latestCard.prompt["cueImage"]
-        let latestAnswerImage = latestCard.answer["answerImage"]
-        let promptImage: JSONValue = if placement.includesPrompt {
-            generatedImage
-        } else if latestPromptImage != currentCard.prompt["cueImage"] {
-            latestPromptImage ?? .null
-        } else {
-            .null
-        }
-        let answerImage: JSONValue = if placement.includesAnswer {
-            generatedImage
-        } else if latestAnswerImage != currentCard.answer["answerImage"] {
-            latestAnswerImage ?? .null
-        } else {
-            .null
-        }
-        let updatedCard = StudyCard(
-            id: latestCard.id,
-            syncId: serverCard.syncId ?? latestCard.syncId,
-            noteId: serverCard.noteId ?? latestCard.noteId,
-            cardType: latestCard.cardType,
-            prompt: latestCard.prompt.replacingObjectValues([
-                "cueImage": promptImage,
-            ]),
-            answer: latestCard.answer.replacingObjectValues([
-                "answerImage": answerImage,
-            ]),
-            state: latestCard.state,
-            // Image generation does not mutate answer audio. Preserve the
-            // freshest local value rather than trusting a lean/stale projection.
-            answerAudioSource: latestCard.answerAudioSource,
-            createdAt: latestCard.createdAt,
-            updatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
-        )
+    private func reconcileCardMedia(
+        _ card: StudyCard,
+        pendingWrite: Bool,
+        serverUpdatedAt: Date
+    ) throws {
         try updateLocalCard(
-            updatedCard,
-            markedDirty: pendingCardWrite,
-            serverUpdatedAt: max(latestCard.updatedAt, serverCard.updatedAt)
+            card,
+            markedDirty: pendingWrite,
+            serverUpdatedAt: serverUpdatedAt
         )
-        cards = cards.map { $0.id == latestCard.id ? updatedCard : $0 }
-        libraryCards = libraryCards.map { $0.id == latestCard.id ? updatedCard : $0 }
-        allCards = allCards.map { $0.id == latestCard.id ? updatedCard : $0 }
+        cards = cards.map { $0.id == card.id ? card : $0 }
+        libraryCards = libraryCards.map { $0.id == card.id ? card : $0 }
+        allCards = allCards.map { $0.id == card.id ? card : $0 }
         try context.save()
-        return ImageRegenerationResult(card: updatedCard, localURL: localURL)
     }
 
     var quarantinedMutationCount: Int {
