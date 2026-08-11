@@ -572,12 +572,12 @@ final class StudyStore {
         let session = response.session
         guard activeUserID == userID else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
-        var seenCardIDs: Set<String> = []
-        let activeCards = StudySessionPolicy.orderedCards(try session.cards.filter { card in
-            try !cardOutbox.hasPendingDelete(for: card.id)
-                && !pendingReviewState.cardIDs.contains(card.id)
-                && seenCardIDs.insert(card.id.lowercased()).inserted
-        })
+        let activeCards = StudySessionPolicy.orderedCards(
+            try eligibleSessionCards(
+                from: session.cards,
+                pendingReviewState: pendingReviewState
+            )
+        )
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -618,12 +618,10 @@ final class StudyStore {
         let session = response.session
         guard activeUserID == userID else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
-        var seenCardIDs: Set<String> = []
-        let eligibleLessonCards = try session.cards.filter { card in
-            try !cardOutbox.hasPendingDelete(for: card.id)
-                && !pendingReviewState.cardIDs.contains(card.id)
-                && seenCardIDs.insert(card.id.lowercased()).inserted
-        }
+        let eligibleLessonCards = try eligibleSessionCards(
+            from: session.cards,
+            pendingReviewState: pendingReviewState
+        )
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         let resolvedSettings = StudySettingsPolicy.settings(
@@ -642,6 +640,22 @@ final class StudyStore {
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
         markPrepared(cards: lessonCards)
+    }
+
+    private func eligibleSessionCards(
+        from candidates: [StudyCard],
+        pendingReviewState: PendingReviewState
+    ) throws -> [StudyCard] {
+        let pendingReviewCardIDs = Set(
+            pendingReviewState.cardIDs.map { $0.lowercased() }
+        )
+        var seenCardIDs: Set<String> = []
+        return try candidates.filter { card in
+            let normalizedID = card.id.lowercased()
+            return try !cardOutbox.hasPendingDelete(for: card.id)
+                && !pendingReviewCardIDs.contains(normalizedID)
+                && seenCardIDs.insert(normalizedID).inserted
+        }
     }
 
     func retryLessonCard(_ card: StudyCard) {

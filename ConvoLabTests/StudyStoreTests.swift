@@ -4589,6 +4589,83 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingReviewFiltersCaseCanonicalizedCardsFromEverySession() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J0000000000000000000001R",
+            expression: "保留"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        await store.recordReview(card: card, rating: .good, duration: nil)
+
+        let serverCard = makeCard(
+            id: card.id.lowercased(),
+            expression: "保留"
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 0,
+                newCardsAvailableToday: 0
+            ),
+            cards: [serverCard]
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(
+            withJSONObject: ["data": sessionObject]
+        )
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            XCTAssertTrue(
+                ["/api/study/session/start", "/api/study/lessons/start"]
+                    .contains(path)
+            )
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                sessionData
+            )
+        }
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        try await relaunchedStore.refreshSession()
+        XCTAssertTrue(relaunchedStore.cards.isEmpty)
+
+        try await relaunchedStore.refreshLessons()
+        XCTAssertTrue(relaunchedStore.cards.isEmpty)
+    }
+
+    @MainActor
     func testUndoReviewRestoresFrozenSessionProgress() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
