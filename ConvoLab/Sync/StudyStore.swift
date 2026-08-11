@@ -3,14 +3,6 @@ import SwiftData
 
 @Observable
 final class StudyStore {
-    private struct QuarantinedCardError: LocalizedError {
-        let count: Int
-
-        var errorDescription: String? {
-            "\(count) card \(count == 1 ? "change was" : "changes were") rejected and held for inspection."
-        }
-    }
-
     private struct MissingLocalCardError: LocalizedError {
         var errorDescription: String? {
             "This card changed during sync. Close the editor and try again."
@@ -106,8 +98,8 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let knownKanjiService: KnownKanjiService
     private let reviewOutbox: ReviewEventOutbox
+    private let cardOutbox: CardMutationOutbox
     private let deviceID: String
-    @ObservationIgnored private var cardOutboxFlushTask: Task<Void, Error>?
     @ObservationIgnored private var draftCreateTasks: [String: Task<StudyManualCardDraft, Error>] = [:]
     @ObservationIgnored private var draftCommitTasks: [String: Task<Void, Error>] = [:]
     @ObservationIgnored private var manualDraftRefreshTask: Task<Void, Error>?
@@ -202,7 +194,13 @@ final class StudyStore {
         self.context = context
         self.mediaCache = mediaCache
         knownKanjiService = KnownKanjiService(api: api, context: context)
-        reviewOutbox = ReviewEventOutbox(api: api, context: context)
+        let reviewOutbox = ReviewEventOutbox(api: api, context: context)
+        self.reviewOutbox = reviewOutbox
+        cardOutbox = CardMutationOutbox(
+            api: api,
+            context: context,
+            reviewOutbox: reviewOutbox
+        )
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -217,6 +215,7 @@ final class StudyStore {
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
         reviewOutbox.activate(userID: userID)
+        cardOutbox.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
@@ -225,17 +224,16 @@ final class StudyStore {
     func deactivate() {
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
-        cardOutboxFlushTask?.cancel()
         draftCreateTasks.values.forEach { $0.cancel() }
         draftCommitTasks.values.forEach { $0.cancel() }
         manualDraftRefreshTask?.cancel()
-        cardOutboxFlushTask = nil
         draftCreateTasks.removeAll()
         draftCommitTasks.removeAll()
         manualDraftRefreshTask = nil
         activeUserID = nil
         mediaCache.deactivate()
         knownKanjiService.deactivate()
+        cardOutbox.deactivate()
         reviewOutbox.deactivate()
         cards = []
         libraryCards = []
@@ -364,7 +362,7 @@ final class StudyStore {
                 method: "POST"
             )
             guard
-                try !hasPendingDelete(for: card.id),
+                try !cardOutbox.hasPendingDelete(for: card.id),
                 let pitchAccent = serverCard.answer["pitchAccent"]
             else {
                 return
@@ -536,7 +534,7 @@ final class StudyStore {
         let pendingReviewState = try reviewOutbox.pendingState()
         var seenCardIDs: Set<String> = []
         let activeCards = Self.orderSessionCards(try session.cards.filter { card in
-            try !hasPendingDelete(for: card.id)
+            try !cardOutbox.hasPendingDelete(for: card.id)
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         })
@@ -583,7 +581,7 @@ final class StudyStore {
         let pendingReviewState = try reviewOutbox.pendingState()
         var seenCardIDs: Set<String> = []
         let eligibleLessonCards = try session.cards.filter { card in
-            try !hasPendingDelete(for: card.id)
+            try !cardOutbox.hasPendingDelete(for: card.id)
                 && !pendingReviewState.cardIDs.contains(card.id)
                 && seenCardIDs.insert(card.id).inserted
         }
@@ -1018,7 +1016,7 @@ final class StudyStore {
     private func apply(_ card: StudyCard, userID: Int) throws {
         guard activeUserID == userID else { return }
         let hasPendingReview = try reviewOutbox.pendingState().cardIDs.contains(card.id)
-        let hasPendingEdit = try hasPendingCardMutation(for: card.id, userID: userID)
+        let hasPendingEdit = try cardOutbox.hasPendingMutation(for: card.id, userID: userID)
         let merged = try acknowledgedCard(
             card,
             preservingPendingReview: hasPendingReview,
@@ -1044,7 +1042,9 @@ final class StudyStore {
 
     private func removeServerCard(resourceID: String, userID: Int) throws {
         guard activeUserID == userID else { return }
-        guard try !hasPendingCardMutation(for: resourceID, userID: userID) else { return }
+        guard try !cardOutbox.hasPendingMutation(for: resourceID, userID: userID) else {
+            return
+        }
         let normalizedID = resourceID.lowercased()
         let records = try context.fetch(
             FetchDescriptor<LocalCardRecord>(
@@ -1072,7 +1072,7 @@ final class StudyStore {
             )
         )
         for record in records where record.locallyUpdatedAt == nil {
-            if try !hasPendingCardMutation(for: record.id, userID: userID) {
+            if try !cardOutbox.hasPendingMutation(for: record.id, userID: userID) {
                 context.delete(record)
             }
         }
@@ -1250,7 +1250,7 @@ final class StudyStore {
                 libraryCards.append(updatedCard)
             }
             scheduleNextOfflineActivation()
-            if try hasPendingCreate(for: card.id) {
+            if try cardOutbox.hasPendingCreate(for: card.id) {
                 try await flushCardOutbox()
             }
             try await reviewOutbox.flush()
@@ -1262,7 +1262,7 @@ final class StudyStore {
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
         await reviewOutbox.waitForCurrentFlush()
-        guard try !hasPendingDelete(for: cardBefore.id) else {
+        guard try !cardOutbox.hasPendingDelete(for: cardBefore.id) else {
             throw DeletedCardUndoError()
         }
         if try reviewOutbox.stageRemoval(eventID: eventID) {
@@ -1636,7 +1636,6 @@ final class StudyStore {
             createdAt: now,
             updatedAt: now
         )
-        let mutationData = try StorageCodec.encoder.encode(request)
         let cardData = try StorageCodec.encoder.encode(optimistic)
         let record = LocalCardRecord(
             card: optimistic,
@@ -1646,12 +1645,7 @@ final class StudyStore {
         )
         record.locallyUpdatedAt = now
         context.insert(record)
-        context.insert(PendingMutation(
-            kind: "cardCreate",
-            userID: userID,
-            resourceID: id,
-            payload: mutationData
-        ))
+        try cardOutbox.stageCreate(cardID: id, request: request)
         cards.append(optimistic)
         libraryCards.append(optimistic)
         upsertAllCardsPresentation(optimistic)
@@ -1680,7 +1674,7 @@ final class StudyStore {
     }
 
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
-        guard let userID = activeUserID else { throw CancellationError() }
+        guard activeUserID != nil else { throw CancellationError() }
         let currentCard = try currentLocalCard(for: card)
         let promptPayload = draft.prompt(merging: currentCard.prompt)
         let answerPayload = draft.answer(merging: currentCard.answer)
@@ -1698,12 +1692,7 @@ final class StudyStore {
             updatedAt: .now
         )
         try updateLocalCard(updated, markedDirty: true)
-        context.insert(PendingMutation(
-            kind: "cardUpdate",
-            userID: userID,
-            resourceID: currentCard.id,
-            payload: try StorageCodec.encoder.encode(request)
-        ))
+        try cardOutbox.stageUpdate(cardID: currentCard.id, request: request)
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -1718,12 +1707,7 @@ final class StudyStore {
     func deleteCard(_ card: StudyCard) async throws {
         guard let userID = activeUserID else { throw CancellationError() }
         let currentCard = try currentLocalCard(for: card)
-        context.insert(PendingMutation(
-            kind: "cardDelete",
-            userID: userID,
-            resourceID: currentCard.id,
-            payload: Data()
-        ))
+        try cardOutbox.stageDelete(cardID: currentCard.id)
         let cardID = currentCard.id
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.userID == userID && $0.id == cardID }
@@ -1749,13 +1733,13 @@ final class StudyStore {
     ) async throws -> AnswerAudioRegenerationResult {
         do {
             try await flushCardOutbox()
-        } catch is QuarantinedCardError {
+        } catch is QuarantinedCardMutationError {
             // A rejected write for another card should not block this generated
             // media action. The per-card guard below still blocks when this
             // card itself owns the unresolved write.
         }
         let currentCard = try currentLocalCard(for: card)
-        guard try !hasPendingCardWrite(for: currentCard.id) else {
+        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
             throw PendingCardChangesError(medium: "audio")
         }
         let request = RegenerateAnswerAudioRequest(
@@ -1783,7 +1767,7 @@ final class StudyStore {
         // Once the server and cache have changed, always reconcile local card
         // metadata even if the editor that initiated the request was dismissed.
         let latestCard = try currentLocalCard(for: currentCard)
-        let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let pendingCardWrite = try cardOutbox.hasPendingCardWrite(for: latestCard.id)
         let updatedCard = StudyCard(
             id: latestCard.id,
             syncId: serverCard.syncId ?? latestCard.syncId,
@@ -1834,11 +1818,11 @@ final class StudyStore {
         }
         do {
             try await flushCardOutbox()
-        } catch is QuarantinedCardError {
+        } catch is QuarantinedCardMutationError {
             // Rejected writes for other cards do not block this card's media.
         }
         let currentCard = try currentLocalCard(for: card)
-        guard try !hasPendingCardWrite(for: currentCard.id) else {
+        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
             throw PendingCardChangesError(medium: "image")
         }
         let request = RegenerateImageRequest(
@@ -1869,11 +1853,11 @@ final class StudyStore {
         }
         do {
             try await flushCardOutbox()
-        } catch is QuarantinedCardError {
+        } catch is QuarantinedCardMutationError {
             // Rejected writes for other cards do not block this card's media.
         }
         let currentCard = try currentLocalCard(for: card)
-        guard try !hasPendingCardWrite(for: currentCard.id) else {
+        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
             throw PendingCardChangesError(medium: "image")
         }
         let serverCard: StudyCard = try await api.upload(
@@ -1925,7 +1909,7 @@ final class StudyStore {
         // As with audio, complete reconciliation after server/cache side effects
         // even if the editor has since been dismissed.
         let latestCard = try currentLocalCard(for: currentCard)
-        let pendingCardWrite = try hasPendingCardWrite(for: latestCard.id)
+        let pendingCardWrite = try cardOutbox.hasPendingCardWrite(for: latestCard.id)
         let latestPromptImage = latestCard.prompt["cueImage"]
         let latestAnswerImage = latestCard.answer["answerImage"]
         let promptImage: JSONValue = if placement.includesPrompt {
@@ -2011,289 +1995,31 @@ final class StudyStore {
     }
 
     private func flushCardOutbox() async throws {
-        if let cardOutboxFlushTask {
-            return try await cardOutboxFlushTask.value
-        }
-
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try await drainCardOutbox()
-        }
-        cardOutboxFlushTask = task
-        do {
-            try await task.value
-            cardOutboxFlushTask = nil
-        } catch {
-            cardOutboxFlushTask = nil
-            throw error
-        }
-    }
-
-    private func drainCardOutbox() async throws {
         guard let userID = activeUserID else { return }
-        var quarantinedCount = 0
         let activeCardOrder = cards.map { $0.id.lowercased() }
-        defer {
-            // Reconciliation can rename or remove records. Refresh once after
-            // the drain instead of decoding the entire library after every
-            // queued mutation in a large offline backlog. Preserve the active
-            // array's current order so background sync cannot replace the card
-            // at the front of an in-progress session.
-            loadLocalCards(preservingNormalizedOrder: activeCardOrder, userID: userID)
-            loadLibraryCards(userID: userID)
-        }
-        while true {
-            var descriptor = FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID
-                        && ($0.kind == "cardCreate"
-                        || $0.kind == "cardUpdate"
-                        || $0.kind == "cardDelete")
-                        && $0.lastError == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt)]
+        try await cardOutbox.flush(
+            onDrainFinished: { [weak self] in
+                guard let self, self.activeUserID == userID else { return }
+                // Reconciliation can rename or remove records. Refresh once after
+                // the drain while preserving an in-progress session's order.
+                loadLocalCards(preservingNormalizedOrder: activeCardOrder, userID: userID)
+                loadLibraryCards(userID: userID)
+            }
+        ) { [weak self] acknowledgement in
+            guard let self, self.activeUserID == userID else {
+                throw CancellationError()
+            }
+            let acknowledgedCard = try acknowledgedCard(
+                acknowledgement.card,
+                preservingPendingReview: acknowledgement.preservingPendingReview,
+                preservingPendingEdit: acknowledgement.preservingPendingEdit
             )
-            descriptor.fetchLimit = 1
-            guard let mutation = try context.fetch(descriptor).first else {
-                if quarantinedCount > 0 {
-                    throw QuarantinedCardError(count: quarantinedCount)
-                }
-                return
-            }
-
-            do {
-                let clientResourceID = mutation.resourceID
-                let serverCard: StudyCard?
-                switch mutation.kind {
-                case "cardCreate":
-                    let request = try StorageCodec.decoder.decode(
-                        CreateStudyCardRequest.self,
-                        from: mutation.payload
-                    )
-                    // The ConvoLab-compatible /api/study/cards mutations intentionally return
-                    // StudyCardSummaryResource directly (without Laravel's `data` envelope).
-                    serverCard = try await api.request(
-                        "/api/study/cards",
-                        method: "POST",
-                        body: request
-                    )
-                case "cardUpdate":
-                    let request = try StorageCodec.decoder.decode(
-                        UpdateStudyCardRequest.self,
-                        from: mutation.payload
-                    )
-                    serverCard = try await api.request(
-                        "/api/study/cards/\(mutation.resourceID)",
-                        method: "PATCH",
-                        body: request
-                    )
-                case "cardDelete":
-                    try await api.request(
-                        "/api/study/cards/\(mutation.resourceID)",
-                        method: "DELETE"
-                    )
-                    serverCard = nil
-                default:
-                    return
-                }
-
-                if mutation.kind == "cardCreate", let serverCard {
-                    try reconcileCreatedCardID(
-                        from: clientResourceID,
-                        to: serverCard.id
-                    )
-                }
-                if let serverCard, try !hasPendingDelete(for: serverCard.id) {
-                    let preservesPendingEdit = try hasPendingUpdate(
-                        for: serverCard.id,
-                        excluding: mutation.id
-                    )
-                    let acknowledgedCard = try acknowledgedCard(
-                        serverCard,
-                        preservingPendingReview: reviewOutbox.hasPendingReview(for: serverCard.id),
-                        preservingPendingEdit: preservesPendingEdit
-                    )
-                    try updateLocalCard(
-                        acknowledgedCard,
-                        markedDirty: preservesPendingEdit,
-                        serverUpdatedAt: serverCard.updatedAt
-                    )
-                }
-                context.delete(mutation)
-                try context.save()
-            } catch let APIClientError.rejected(status, _)
-                where mutation.kind == "cardDelete" && status == 404
-            {
-                // A missing server record satisfies an idempotent delete.
-                context.delete(mutation)
-                try context.save()
-            } catch let APIClientError.rejected(status, message)
-                where [400, 404, 409, 410, 422].contains(status)
-            {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = "HTTP \(status): \(message)"
-                try context.save()
-                quarantinedCount += 1
-            } catch {
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = nil
-                try context.save()
-                throw error
-            }
-        }
-    }
-
-    private func reconcileCreatedCardID(from clientID: String, to serverID: String) throws {
-        guard clientID != serverID else { return }
-        guard let userID = activeUserID else { throw CancellationError() }
-
-        var clientDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == clientID }
-        )
-        clientDescriptor.fetchLimit = 1
-        var serverDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == serverID }
-        )
-        serverDescriptor.fetchLimit = 1
-        let clientRecord = try context.fetch(clientDescriptor).first
-        let serverRecord = try context.fetch(serverDescriptor).first
-        let mutationDescriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && ($0.resourceID == clientID || $0.resourceID == serverID)
-            }
-        )
-        let aliasMutations = try context.fetch(mutationDescriptor)
-        if let clientRecord {
-            if let serverRecord, serverRecord !== clientRecord {
-                let clientHasPendingActivity = aliasMutations.contains {
-                    $0.resourceID == clientID && $0.kind != "cardCreate"
-                }
-                let serverHasPendingActivity = aliasMutations.contains {
-                    $0.resourceID == serverID && $0.kind != "cardCreate"
-                }
-                let preferServerRecord = if
-                    clientHasPendingActivity != serverHasPendingActivity
-                {
-                    serverHasPendingActivity
-                } else {
-                    localActivityDate(for: serverRecord) > localActivityDate(for: clientRecord)
-                }
-                if preferServerRecord {
-                    context.delete(clientRecord)
-                } else {
-                    context.delete(serverRecord)
-                    try context.save()
-                    clientRecord.id = serverID
-                }
-                try context.save()
-            } else {
-                clientRecord.id = serverID
-            }
-        }
-
-        for pending in aliasMutations
-        where pending.resourceID == clientID && pending.kind != "cardCreate" {
-            if pending.kind == "review" {
-                try reviewOutbox.retarget(pending, cardID: serverID)
-            } else {
-                pending.resourceID = serverID
-            }
-        }
-    }
-
-    private func localActivityDate(for record: LocalCardRecord) -> Date {
-        let cardUpdatedAt = (try? StorageCodec.decoder.decode(
-            StudyCard.self,
-            from: record.payload
-        ))?.updatedAt ?? .distantPast
-        return max(record.locallyUpdatedAt ?? .distantPast, cardUpdatedAt)
-    }
-
-    private func hasPendingDelete(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.kind == "cardDelete" && $0.resourceID == cardID
-            }
-        )
-        descriptor.fetchLimit = 1
-        if try !context.fetch(descriptor).isEmpty {
-            return true
-        }
-
-        let normalizedID = cardID.lowercased()
-        return try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID && $0.kind == "cardDelete"
-                }
+            try updateLocalCard(
+                acknowledgedCard,
+                markedDirty: acknowledgement.preservingPendingEdit,
+                serverUpdatedAt: acknowledgement.card.updatedAt
             )
-        ).contains {
-            $0.resourceID.lowercased() == normalizedID
         }
-    }
-
-    private func hasPendingCreate(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "cardCreate"
-                    && $0.resourceID == cardID
-                    && $0.lastError == nil
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
-    }
-
-    private func hasPendingCardWrite(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                    && $0.resourceID == cardID
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
-    }
-
-    private func hasPendingCardMutation(for cardID: String, userID: Int) throws -> Bool {
-        let normalizedID = cardID.lowercased()
-        return try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID
-                        && ($0.kind == "cardCreate"
-                            || $0.kind == "cardUpdate"
-                            || $0.kind == "cardDelete"
-                            || $0.kind == "review")
-                }
-            )
-        ).contains { $0.resourceID.lowercased() == normalizedID }
-    }
-
-    private func hasPendingUpdate(
-        for cardID: String,
-        excluding mutationID: String
-    ) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "cardUpdate"
-                    && $0.resourceID == cardID
-                    && $0.id != mutationID
-                    && $0.lastError == nil
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
     }
 
     private func restorePendingReviewState() {
@@ -2308,7 +2034,7 @@ final class StudyStore {
     }
 
     private func restoreReviewedCard(_ card: StudyCard) throws {
-        guard try !hasPendingDelete(for: card.id) else {
+        guard try !cardOutbox.hasPendingDelete(for: card.id) else {
             throw DeletedCardUndoError()
         }
         let record = try localCardRecord(forID: card.id)
