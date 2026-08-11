@@ -289,16 +289,10 @@ final class StudyStore {
     }
 
     private var nextOfflineDueAt: Date? {
-        let activeCardIDs = Set(cards.map(\.id))
-        return libraryCards.compactMap { card in
-            guard !activeCardIDs.contains(card.id) else { return nil }
-            guard ["learning", "review", "relearning"].contains(card.state.queueState) else {
-                return nil
-            }
-            return card.state.dueAt
-        }
-        .filter { $0 > .now }
-        .min()
+        StudySessionPolicy.nextOfflineDueAt(
+            activeCards: cards,
+            libraryCards: libraryCards
+        )
     }
 
     func localMediaURL(for remoteURL: URL) -> URL? {
@@ -578,12 +572,12 @@ final class StudyStore {
         let session = response.session
         guard activeUserID == userID else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
-        var seenCardIDs: Set<String> = []
-        let activeCards = Self.orderSessionCards(try session.cards.filter { card in
-            try !cardOutbox.hasPendingDelete(for: card.id)
-                && !pendingReviewState.cardIDs.contains(card.id)
-                && seenCardIDs.insert(card.id).inserted
-        })
+        let activeCards = StudySessionPolicy.orderedCards(
+            try eligibleSessionCards(
+                from: session.cards,
+                pendingReviewState: pendingReviewState
+            )
+        )
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -624,12 +618,10 @@ final class StudyStore {
         let session = response.session
         guard activeUserID == userID else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
-        var seenCardIDs: Set<String> = []
-        let eligibleLessonCards = try session.cards.filter { card in
-            try !cardOutbox.hasPendingDelete(for: card.id)
-                && !pendingReviewState.cardIDs.contains(card.id)
-                && seenCardIDs.insert(card.id).inserted
-        }
+        let eligibleLessonCards = try eligibleSessionCards(
+            from: session.cards,
+            pendingReviewState: pendingReviewState
+        )
         let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         let resolvedSettings = StudySettingsPolicy.settings(
@@ -648,6 +640,22 @@ final class StudyStore {
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
         markPrepared(cards: lessonCards)
+    }
+
+    private func eligibleSessionCards(
+        from candidates: [StudyCard],
+        pendingReviewState: PendingReviewState
+    ) throws -> [StudyCard] {
+        let pendingReviewCardIDs = Set(
+            pendingReviewState.cardIDs.map { $0.lowercased() }
+        )
+        var seenCardIDs: Set<String> = []
+        return try candidates.filter { card in
+            let normalizedID = card.id.lowercased()
+            return try !cardOutbox.hasPendingDelete(for: card.id)
+                && !pendingReviewCardIDs.contains(normalizedID)
+                && seenCardIDs.insert(normalizedID).inserted
+        }
     }
 
     func retryLessonCard(_ card: StudyCard) {
@@ -994,10 +1002,10 @@ final class StudyStore {
         }
 
         if changed {
-            let orderedNewCards = Self.orderSessionCards(newlyDueCards)
+            let orderedNewCards = StudySessionPolicy.orderedCards(newlyDueCards)
             cards = preservingCurrentOrder
                 ? cards + orderedNewCards
-                : Self.orderSessionCards(cards + orderedNewCards)
+                : StudySessionPolicy.orderedCards(cards + orderedNewCards)
             do {
                 try context.save()
             } catch {
@@ -1892,7 +1900,7 @@ final class StudyStore {
         try updateLocalCard(card, markedDirty: false)
         cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         cards.append(card)
-        cards = Self.orderSessionCards(cards)
+        cards = StudySessionPolicy.orderedCards(cards)
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
         upsertAllCardsPresentation(card)
@@ -1908,7 +1916,7 @@ final class StudyStore {
 
     private func loadLocalCards(userID: Int) {
         cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
-        cards = Self.orderSessionCards(cards)
+        cards = StudySessionPolicy.orderedCards(cards)
     }
 
     private func loadLocalCards(
@@ -1921,7 +1929,9 @@ final class StudyStore {
             uniquingKeysWith: { first, _ in first }
         )
         let preserved = order.compactMap { persistedByNormalizedID.removeValue(forKey: $0) }
-        cards = preserved + Self.orderSessionCards(Array(persistedByNormalizedID.values))
+        cards = preserved + StudySessionPolicy.orderedCards(
+            Array(persistedByNormalizedID.values)
+        )
     }
 
     private func loadLibraryCards(userID: Int) {
@@ -1957,99 +1967,11 @@ final class StudyStore {
             syncStatus = .failed(error.localizedDescription)
         }
     }
-
-    private static func orderSessionCards(_ cards: [StudyCard]) -> [StudyCard] {
-        cards.enumerated().sorted { leftEntry, rightEntry in
-            let left = leftEntry.element
-            let right = rightEntry.element
-            let leftIsNew = left.state.queueState == "new"
-            let rightIsNew = right.state.queueState == "new"
-            if leftIsNew != rightIsNew {
-                return !leftIsNew
-            }
-            if leftIsNew {
-                return leftEntry.offset < rightEntry.offset
-            }
-            let leftDueAt = left.state.dueAt ?? .distantFuture
-            let rightDueAt = right.state.dueAt ?? .distantFuture
-            if leftDueAt != rightDueAt {
-                return leftDueAt < rightDueAt
-            }
-            if left.id != right.id {
-                return left.id < right.id
-            }
-            return leftEntry.offset < rightEntry.offset
-        }
-        .map(\.element)
-    }
 }
 
 private extension String {
     var nilIfTrimmedEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-struct StudySessionCounts: Equatable {
-    let failedDue: Int
-    let reviewRemaining: Int
-    let newRemaining: Int
-
-    var hasRemainingReviews: Bool {
-        failedDue > 0 || reviewRemaining > 0
-    }
-
-    var hasRemainingStudy: Bool {
-        hasRemainingReviews || newRemaining > 0
-    }
-
-    func offlineReadinessTarget(
-        loadedCardCount: Int,
-        fiveDayNewCardTarget: Int
-    ) -> Int {
-        max(
-            loadedCardCount,
-            failedDue + reviewRemaining,
-            fiveDayNewCardTarget
-        )
-    }
-
-    static func calculate(
-        cards: [StudyCard],
-        overview: StudyOverview?,
-        retainedFailedCardIDs: Set<String> = [],
-        resolvedFailedCardIDs: Set<String> = [],
-        at date: Date = .now
-    ) -> StudySessionCounts {
-        let loadedFailedDueCardIDs = Set(
-            cards.lazy.filter {
-                $0.state.failedAt != nil
-                    && ($0.state.dueAt.map { $0 <= date } ?? true)
-            }.map(\.id)
-        )
-        let pendingReviewedFailedCardIDs = retainedFailedCardIDs
-            .union(resolvedFailedCardIDs)
-        let authoritativeFailedDueCount = max(
-            0,
-            (overview?.failedDueCount ?? overview?.failedCount ?? 0)
-                - pendingReviewedFailedCardIDs.count
-        )
-        let loadedNewRemaining = cards.count(where: {
-            $0.state.failedAt == nil && $0.state.queueState == "new"
-        })
-        let newRemaining = overview?.newCount
-            ?? loadedNewRemaining
-        let loadedReviewRemaining = cards.count(where: {
-            $0.state.failedAt == nil && $0.state.queueState != "new"
-        })
-        let reviewRemaining = overview.map { max(0, $0.dueCount) }
-            ?? loadedReviewRemaining
-
-        return StudySessionCounts(
-            failedDue: max(authoritativeFailedDueCount, loadedFailedDueCardIDs.count),
-            reviewRemaining: reviewRemaining,
-            newRemaining: newRemaining
-        )
     }
 }
