@@ -893,7 +893,11 @@ final class StudyStore {
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
-        guard let userID = activeUserID, !fromOffsets.isEmpty else { return }
+        guard
+            let userID = activeUserID,
+            !fromOffsets.isEmpty,
+            !isRefreshingNewCardQueue
+        else { return }
         let refreshRevision = newCardQueueRefreshRevision
         let previousItems = newCardQueue
         newCardQueue.move(fromOffsets: fromOffsets, toOffset: toOffset)
