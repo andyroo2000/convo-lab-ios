@@ -8,6 +8,23 @@ struct FSRSReviewSchedule: Equatable, Sendable {
 }
 
 enum FSRSReviewScheduler {
+    struct InvalidRatingStatesError: LocalizedError, Equatable {
+        let missingGrades: [Int]
+        let unexpectedGrades: [Int]
+
+        var errorDescription: String? {
+            let details = [
+                missingGrades.isEmpty
+                    ? nil
+                    : "missing grades: \(missingGrades.map(String.init).joined(separator: ", "))",
+                unexpectedGrades.isEmpty
+                    ? nil
+                    : "unexpected grades: \(unexpectedGrades.map(String.init).joined(separator: ", "))",
+            ].compactMap(\.self).joined(separator: "; ")
+            return "FSRS produced invalid rating states (\(details))."
+        }
+    }
+
     // Defaults from ts-fsrs 5.3.3 (FSRS-6), with fuzzing disabled for
     // deterministic parity between learning-os and offline clients.
     private static let weights = [
@@ -69,7 +86,7 @@ enum FSRSReviewScheduler {
         queueState: String,
         rating: ReviewRating,
         reviewedAt: Date
-    ) -> FSRSReviewSchedule {
+    ) throws -> FSRSReviewSchedule {
         let current = normalizedState(
             schedulerState,
             queueState: queueState,
@@ -101,9 +118,9 @@ enum FSRSReviewScheduler {
                 forceFreshMemory: false
             )
         case .review:
-            next = reviewReviewState(
+            next = try reviewReviewState(
                 current,
-                grade: grade,
+                rating: rating,
                 reviewedAt: reviewedAt,
                 elapsedDays: elapsedDays
             )
@@ -167,10 +184,10 @@ enum FSRSReviewScheduler {
 
     private static func reviewReviewState(
         _ current: State,
-        grade: Int,
+        rating: ReviewRating,
         reviewedAt: Date,
         elapsedDays: Int
-    ) -> State {
+    ) throws -> State {
         let retrievability = forgettingCurve(
             elapsedDays: elapsedDays,
             stability: current.stability
@@ -189,40 +206,69 @@ enum FSRSReviewScheduler {
             candidate.stability = memory.stability
             candidates[candidateGrade] = candidate
         }
+        let ratingStates = try validatedRatingStates(candidates)
 
         let hardDays = min(
-            nextInterval(stability: candidates[2]!.stability),
-            nextInterval(stability: candidates[3]!.stability)
+            nextInterval(stability: ratingStates.hard.stability),
+            nextInterval(stability: ratingStates.good.stability)
         )
         let goodDays = max(
-            nextInterval(stability: candidates[3]!.stability),
+            nextInterval(stability: ratingStates.good.stability),
             hardDays + 1
         )
         let easyDays = max(
-            nextInterval(stability: candidates[4]!.stability),
+            nextInterval(stability: ratingStates.easy.stability),
             goodDays + 1
         )
 
-        for (candidateGrade, days) in [(2, hardDays), (3, goodDays), (4, easyDays)] {
-            var candidate = candidates[candidateGrade]!
+        func scheduled(_ state: State, days: Int) -> State {
+            var candidate = state
             candidate.scheduledDays = days
             candidate.due = reviewedAt.addingTimeInterval(Double(days) * 86_400)
             candidate.learningSteps = 0
             candidate.state = .review
-            candidates[candidateGrade] = candidate
+            return candidate
         }
+        let hard = scheduled(ratingStates.hard, days: hardDays)
+        let good = scheduled(ratingStates.good, days: goodDays)
+        let easy = scheduled(ratingStates.easy, days: easyDays)
 
         var again = applyLearningSteps(
-            to: candidates[1]!,
+            to: ratingStates.again,
             originalState: .review,
             currentStep: current.learningSteps,
             grade: 1,
             reviewedAt: reviewedAt
         )
         again.lapses = current.lapses + 1
-        candidates[1] = again
 
-        return candidates[grade]!
+        switch rating {
+        case .again: return again
+        case .hard: return hard
+        case .good: return good
+        case .easy: return easy
+        }
+    }
+
+    static func validatedRatingStates<Value>(
+        _ states: [Int: Value]
+    ) throws -> (again: Value, hard: Value, good: Value, easy: Value) {
+        let expectedGrades = Set(1...4)
+        let actualGrades = Set(states.keys)
+        let missingGrades = expectedGrades.subtracting(actualGrades).sorted()
+        let unexpectedGrades = actualGrades.subtracting(expectedGrades).sorted()
+        guard missingGrades.isEmpty, unexpectedGrades.isEmpty,
+              let again = states[1],
+              let hard = states[2],
+              let good = states[3],
+              let easy = states[4]
+        else {
+            throw InvalidRatingStatesError(
+                missingGrades: missingGrades,
+                unexpectedGrades: unexpectedGrades
+            )
+        }
+        return (again, hard, good, easy)
     }
 
     private static func applyLearningSteps(

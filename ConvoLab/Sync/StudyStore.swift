@@ -53,6 +53,7 @@ final class StudyStore {
     private let cardOutbox: CardMutationOutbox
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
+    private let reviewProjection: (StudyCard, ReviewRating, Date) throws -> StudyCard
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var activeUserID: Int?
@@ -138,7 +139,14 @@ final class StudyStore {
         initialUserID: Int? = nil,
         api: APIClient,
         context: ModelContext,
-        mediaCache: MediaCache
+        mediaCache: MediaCache,
+        reviewProjection: @escaping (
+            StudyCard,
+            ReviewRating,
+            Date
+        ) throws -> StudyCard = { card, rating, reviewedAt in
+            try card.applyingReview(rating, at: reviewedAt)
+        }
     ) {
         self.api = api
         self.context = context
@@ -153,6 +161,7 @@ final class StudyStore {
         )
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
+        self.reviewProjection = reviewProjection
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -1128,13 +1137,16 @@ final class StudyStore {
         )
         var queuedLocally = false
         do {
+            // Scheduling must succeed before the durable event is staged. If the
+            // FSRS engine violates its rating-state contract, surface that error
+            // without leaving a review queued against an unchanged local card.
+            let updatedCard = try reviewProjection(card, rating, now)
             try reviewOutbox.stageEnqueue(event: event, cardBefore: card)
             let cardID = card.id
             var descriptor = FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == userID && $0.id == cardID }
             )
             descriptor.fetchLimit = 1
-            let updatedCard = card.applyingReview(rating, at: now)
             sessionCompletedCardIDs.insert(card.id)
             // The animation retains this reviewed card as its presentation snapshot until
             // dismissal, while the queue can optimistically advance underneath it.

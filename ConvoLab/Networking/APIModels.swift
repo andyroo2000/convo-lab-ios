@@ -616,8 +616,11 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var mediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
 
-    func reviewSchedule(_ rating: ReviewRating, at reviewedAt: Date) -> FSRSReviewSchedule {
-        FSRSReviewScheduler.schedule(
+    func reviewSchedule(
+        _ rating: ReviewRating,
+        at reviewedAt: Date
+    ) throws -> FSRSReviewSchedule {
+        try FSRSReviewScheduler.schedule(
             schedulerState: state.scheduler,
             queueState: state.queueState,
             rating: rating,
@@ -625,8 +628,8 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
-    func applyingReview(_ rating: ReviewRating, at reviewedAt: Date) -> StudyCard {
-        let schedule = reviewSchedule(rating, at: reviewedAt)
+    func applyingReview(_ rating: ReviewRating, at reviewedAt: Date) throws -> StudyCard {
+        let schedule = try reviewSchedule(rating, at: reviewedAt)
         return StudyCard(
             id: id,
             syncId: syncId,

@@ -23,8 +23,8 @@ final class StudyReviewSchedulingTests: XCTestCase {
         let card = makeCard(queueState: "review", scheduler: matureScheduler)
 
         for expectation in expectations {
-            let schedule = card.reviewSchedule(expectation.rating, at: reviewedAt)
-            let reviewed = card.applyingReview(expectation.rating, at: reviewedAt)
+            let schedule = try card.reviewSchedule(expectation.rating, at: reviewedAt)
+            let reviewed = try card.applyingReview(expectation.rating, at: reviewedAt)
 
             XCTAssertEqual(schedule.dueAt, try date(expectation.due))
             XCTAssertEqual(schedule.queueState, expectation.queueState)
@@ -81,7 +81,7 @@ final class StudyReviewSchedulingTests: XCTestCase {
         ]
 
         for expectation in expectations {
-            let reviewed = card.applyingReview(expectation.rating, at: reviewedAt)
+            let reviewed = try card.applyingReview(expectation.rating, at: reviewedAt)
 
             XCTAssertEqual(reviewed.state.dueAt, try date(expectation.due))
             XCTAssertEqual(reviewed.state.queueState, expectation.queueState)
@@ -102,20 +102,20 @@ final class StudyReviewSchedulingTests: XCTestCase {
     func testPromotionComparisonUsesFsrsProjectionOnBothSides() throws {
         let reviewedAt = try date("2026-07-25T12:00:00.000Z")
         let card = makeCard(queueState: "review", scheduler: matureScheduler)
-        let reviewed = card.applyingReview(.good, at: reviewedAt)
+        let reviewed = try card.applyingReview(.good, at: reviewedAt)
 
         XCTAssertEqual(card.fsrsMasteryLevel, .master)
         XCTAssertEqual(reviewed.fsrsMasteryLevel, .enlightened)
     }
 
-    func testHardKeepsLearningAndRelearningState() {
+    func testHardKeepsLearningAndRelearningState() throws {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
-        let learning = makeCard(
+        let learning = try makeCard(
             queueState: "learning",
             scheduler: learningScheduler(state: 1)
         ).applyingReview(.hard, at: reviewedAt)
-        let relearning = makeCard(
+        let relearning = try makeCard(
             queueState: "relearning",
             scheduler: learningScheduler(state: 3)
         ).applyingReview(.hard, at: reviewedAt)
@@ -132,7 +132,7 @@ final class StudyReviewSchedulingTests: XCTestCase {
         )
     }
 
-    func testHardUsesTheSameSixMinuteDelayAfterAdvancingToTheSecondLearningStep() {
+    func testHardUsesTheSameSixMinuteDelayAfterAdvancingToTheSecondLearningStep() throws {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let card = makeCard(
             queueState: "learning",
@@ -150,7 +150,7 @@ final class StudyReviewSchedulingTests: XCTestCase {
             ])
         )
 
-        let reviewed = card.applyingReview(.hard, at: reviewedAt)
+        let reviewed = try card.applyingReview(.hard, at: reviewedAt)
 
         XCTAssertEqual(reviewed.state.queueState, "learning")
         XCTAssertEqual(reviewed.state.dueAt, reviewedAt.addingTimeInterval(6 * 60))
@@ -175,9 +175,49 @@ final class StudyReviewSchedulingTests: XCTestCase {
             ])
         )
 
-        let reviewed = card.applyingReview(.good, at: reviewedAt)
+        let reviewed = try card.applyingReview(.good, at: reviewedAt)
 
         XCTAssertEqual(reviewed.state.scheduler?["elapsed_days"], .number(1))
+    }
+
+    func testRatingStateValidationRejectsIncompleteEngineOutput() {
+        XCTAssertThrowsError(
+            try FSRSReviewScheduler.validatedRatingStates([
+                1: "again",
+                2: "hard",
+                3: "good",
+            ])
+        ) { error in
+            XCTAssertEqual(
+                error as? FSRSReviewScheduler.InvalidRatingStatesError,
+                .init(missingGrades: [4], unexpectedGrades: [])
+            )
+            XCTAssertEqual(
+                error.localizedDescription,
+                "FSRS produced invalid rating states (missing grades: 4)."
+            )
+        }
+    }
+
+    func testRatingStateValidationRejectsUnexpectedEngineOutput() {
+        XCTAssertThrowsError(
+            try FSRSReviewScheduler.validatedRatingStates([
+                0: "unexpected",
+                1: "again",
+                2: "hard",
+                3: "good",
+                4: "easy",
+            ])
+        ) { error in
+            XCTAssertEqual(
+                error as? FSRSReviewScheduler.InvalidRatingStatesError,
+                .init(missingGrades: [], unexpectedGrades: [0])
+            )
+            XCTAssertEqual(
+                error.localizedDescription,
+                "FSRS produced invalid rating states (unexpected grades: 0)."
+            )
+        }
     }
 
     private var matureScheduler: JSONValue {

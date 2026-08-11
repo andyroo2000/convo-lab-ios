@@ -3632,7 +3632,7 @@ final class StudyStoreTests: XCTestCase {
         await waitUntil { gate.hasStarted }
         XCTAssertTrue(gate.hasStarted)
         let reviewedAt = Date.now
-        let reviewed = card.applyingReview(.good, at: reviewedAt)
+        let reviewed = try card.applyingReview(.good, at: reviewedAt)
         let reviewedCard = StudyCard(
             id: reviewed.id,
             syncId: reviewed.syncId,
@@ -4365,6 +4365,71 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.cards.map(\.id), lessonCards.prefix(5).map(\.id))
         XCTAssertEqual(store.sessionInitialCardCount, 5)
         XCTAssertEqual(store.overview?.lessonBatchSize, 5)
+    }
+
+    @MainActor
+    func testSchedulerFailureDoesNotStageReviewOrMutateCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000SF",
+            expression: "安全",
+            queueState: "review"
+        )
+        let originalPayload = try StorageCodec.encoder.encode(card)
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: originalPayload
+            )
+        )
+        try container.mainContext.save()
+        let requests = LockedCounter()
+        let client = makeClient { request in
+            _ = requests.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data()
+            )
+        }
+        let failure = FSRSReviewScheduler.InvalidRatingStatesError(
+            missingGrades: [4],
+            unexpectedGrades: []
+        )
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            reviewProjection: { _, _, _ in throw failure }
+        )
+
+        let eventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNil(eventID)
+        XCTAssertEqual(store.syncStatus, .failed(failure.localizedDescription))
+        XCTAssertEqual(requests.current, 0)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(try XCTUnwrap(records.first).payload, originalPayload)
+        XCTAssertEqual(store.cards.first?.id, card.id)
+        XCTAssertEqual(store.cards.first?.state, card.state)
     }
 
     @MainActor
