@@ -5299,6 +5299,100 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSynchronizationPublishesOnlyCommittedPageTombstonesWhenLaterPageFails() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let deleted = makeCard(
+            id: "committed-delete",
+            syncId: "committed-delete-sync",
+            expression: "削除"
+        )
+        let retained = makeCard(
+            id: "failed-delete",
+            syncId: "failed-delete-sync",
+            expression: "保持"
+        )
+        for (index, card) in [deleted, retained].enumerated() {
+            container.mainContext.insert(LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: index,
+                payload: try StorageCodec.encoder.encode(card)
+            ))
+        }
+        try container.mainContext.save()
+        let allCardsData = try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: [deleted, retained], limit: 50, nextCursor: nil)
+        )
+        let deletedSyncID = try XCTUnwrap(deleted.syncId)
+        let retainedSyncID = try XCTUnwrap(retained.syncId)
+        let feedRequests = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards":
+                return Self.response(data: allCardsData)
+            case "/api/sync/feed":
+                if feedRequests.next() == 1 {
+                    return Self.response(data: Data(
+                        """
+                        {"data":[{"checkpoint":1,"resource_id":"\(deletedSyncID)","operation":"delete"}],
+                        "meta":{"next_checkpoint":1,"has_more":true}}
+                        """.utf8
+                    ))
+                }
+                return Self.response(data: Data(
+                    """
+                    {"data":[{"checkpoint":2,"resource_id":"\(retainedSyncID)","operation":"delete"}],
+                    "meta":{"next_checkpoint":1,"has_more":false}}
+                    """.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/offline-reserve":
+                return Self.response(
+                    statusCode: 500,
+                    data: Data(#"{"message":"Unavailable"}"#.utf8)
+                )
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        try await store.refreshAllCards()
+        store.beginLessonSessionPresentation()
+        defer { store.endLessonSessionPresentation() }
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.cards.map(\.id), [retained.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [retained.id])
+        XCTAssertEqual(store.allCards.map(\.id), [retained.id])
+        XCTAssertEqual(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).map(\.id),
+            [retained.id]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                container.mainContext.fetch(FetchDescriptor<LocalSyncState>()).first
+            ).cardCheckpoint,
+            1
+        )
+        guard case .failed = store.syncStatus else {
+            return XCTFail("The rejected second page should fail synchronization.")
+        }
+    }
+
+    @MainActor
     func testCheckpointResetClearsOtherPreparedMarkersDuringPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dirty = makeCard(

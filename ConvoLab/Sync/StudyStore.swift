@@ -405,7 +405,9 @@ final class StudyStore {
         }
         guard activeUserID == userID else { return }
         do {
-            let result = try await cardSyncFeedRepository.pullChanges()
+            let result = try await cardSyncFeedRepository.pullChanges {
+                self.prunePublishedCards(matching: $0)
+            }
             switch result {
             case let .completed(deletedCardIdentifiers):
                 prunePublishedCards(matching: deletedCardIdentifiers)

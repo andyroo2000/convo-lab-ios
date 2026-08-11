@@ -67,7 +67,9 @@ final class CardSyncFeedRepository {
         activeUserID = nil
     }
 
-    func pullChanges() async throws -> PullResult {
+    func pullChanges(
+        onPageCommitted: (Set<String>) -> Void = { _ in }
+    ) async throws -> PullResult {
         guard let activeUserID else { return .completed(deletedCardIdentifiers: []) }
         try ensureCleanContext()
         let activation = Activation(userID: activeUserID, generation: generation)
@@ -89,11 +91,16 @@ final class CardSyncFeedRepository {
                 try validate(page, after: checkpoint)
                 let resolvedPage = try await resolve(page.data, activation: activation)
                 try ensureActive(activation)
+                let previouslyDeletedCardIdentifiers = deletedCardIdentifiers
                 deletedCardIdentifiers = try commit(
                     resolvedPage.entries,
                     checkpoint: page.meta.nextCheckpoint,
                     activation: activation,
                     deletedCardIdentifiers: deletedCardIdentifiers
+                )
+                try ensureActive(activation)
+                onPageCommitted(
+                    deletedCardIdentifiers.subtracting(previouslyDeletedCardIdentifiers)
                 )
                 checkpoint = page.meta.nextCheckpoint
 
@@ -262,9 +269,9 @@ final class CardSyncFeedRepository {
             identifiers.insert(record.id.lowercased())
         }
         let pending = try pendingMutations(userID: userID, matching: identifiers)
-        // A local delete is authoritative until its outbox item is acknowledged.
-        // Recreating the row from the feed would make the deleted card visible
-        // in the library while that retry is still pending.
+        // Local content mutations, including rejected mutations held for user
+        // inspection, remain authoritative until explicitly resolved. The feed
+        // must not silently overwrite or recreate that unsynced local intent.
         guard !pending.contains(where: { $0.kind == "cardDelete" }) else { return nil }
         let hasPendingReview = pending.contains {
             $0.kind == "review" && $0.lastError == nil
