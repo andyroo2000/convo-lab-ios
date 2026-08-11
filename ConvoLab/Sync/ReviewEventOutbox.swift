@@ -270,6 +270,8 @@ final class ReviewEventOutbox {
                     method: "POST",
                     body: ReviewBatchRequest(events: events)
                 )
+                // A switch here deliberately leaves the event for an idempotent retry
+                // under its original account, using the same event and client IDs.
                 try ensureActive(userID: userID, generation: generation)
                 batch.forEach(context.delete)
                 try context.save()
