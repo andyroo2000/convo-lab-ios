@@ -4648,6 +4648,85 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testReviewFromStaleSnapshotUpdatesCanonicalRecordWithoutDuplicate() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000RV"
+        let canonicalID = clientID.lowercased()
+        let staleCard = makeCard(
+            id: clientID,
+            expression: "古い識別子",
+            queueState: "review"
+        )
+        let canonicalCard = makeCard(
+            id: canonicalID,
+            expression: "現在のローカル内容",
+            queueState: "review"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: canonicalCard,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(canonicalCard)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let mediaCache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext
+        )
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+
+        let eventID = await store.recordReview(
+            card: staleCard,
+            rating: .again,
+            duration: nil,
+            reviewedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        XCTAssertNotNil(eventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.libraryCards.map(\.id), [canonicalID])
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record.id, canonicalID)
+        XCTAssertFalse(record.isInActiveSession)
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.id, canonicalID)
+        XCTAssertEqual(persisted.promptText, "現在のローカル内容")
+        XCTAssertNotEqual(persisted.state, canonicalCard.state)
+        let review = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "review" })
+        )
+        XCTAssertEqual(review.resourceID, canonicalID)
+        let pendingReview = try StorageCodec.decoder.decode(
+            PendingReviewPayload.self,
+            from: review.payload
+        )
+        XCTAssertEqual(pendingReview.event.cardID, canonicalID)
+        XCTAssertEqual(pendingReview.cardBefore.id, canonicalID)
+        XCTAssertEqual(store.sessionFailureCount, 1)
+
+        try await store.undoReview(
+            eventID: try XCTUnwrap(eventID),
+            cardBefore: staleCard
+        )
+
+        XCTAssertEqual(store.sessionFailureCount, 0)
+        XCTAssertEqual(store.cards.map(\.id), [canonicalID])
+        XCTAssertEqual(store.cards.first?.promptText, "現在のローカル内容")
+    }
+
+    @MainActor
     func testPendingReviewFiltersCaseCanonicalizedCardsFromEverySession() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
