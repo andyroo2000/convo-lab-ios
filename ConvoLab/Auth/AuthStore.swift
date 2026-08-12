@@ -17,6 +17,8 @@ final class AuthStore {
     private let keychain: any CredentialStore
     private let tokenAccount = "learning-os-mobile-token"
     private let userAccount = "learning-os-current-user"
+    private var authenticationGeneration = 0
+    private var workingOperationID: UUID?
 
     init(api: APIClient, keychain: any CredentialStore = KeychainStore()) {
         self.api = api
@@ -104,19 +106,24 @@ final class AuthStore {
     }
 
     func updateProfile(name: String, email: String) async -> Bool {
+        let generation = authenticationGeneration
+        let operationID = UUID()
+        workingOperationID = operationID
         isWorking = true
         errorMessage = nil
-        defer { isWorking = false }
+        defer { finishWorking(operationID) }
         do {
             let response: APIEnvelope<CurrentUser> = try await api.request(
                 "/api/me",
                 method: "PUT",
                 body: UpdateProfileRequest(name: name, email: email)
             )
+            guard authenticationGeneration == generation else { return false }
             try cacheUser(response.data)
             state = .signedIn(response.data)
             return true
         } catch {
+            guard authenticationGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
@@ -127,9 +134,12 @@ final class AuthStore {
         password: String,
         passwordConfirmation: String
     ) async -> Bool {
+        let generation = authenticationGeneration
+        let operationID = UUID()
+        workingOperationID = operationID
         isWorking = true
         errorMessage = nil
-        defer { isWorking = false }
+        defer { finishWorking(operationID) }
         do {
             try await api.request(
                 "/api/me/password",
@@ -140,27 +150,36 @@ final class AuthStore {
                     passwordConfirmation: passwordConfirmation
                 )
             )
+            guard authenticationGeneration == generation else { return false }
             return true
         } catch {
+            guard authenticationGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
     }
 
     func deleteAccount(currentPassword: String) async -> Bool {
+        let generation = authenticationGeneration
+        let operationID = UUID()
+        workingOperationID = operationID
         isWorking = true
         errorMessage = nil
-        defer { isWorking = false }
+        defer { finishWorking(operationID) }
         do {
             try await api.request(
                 "/api/me",
                 method: "DELETE",
                 body: DeleteAccountRequest(currentPassword: currentPassword)
             )
+            guard authenticationGeneration == generation else { return false }
+            authenticationGeneration += 1
+            errorMessage = nil
             clearCredentials()
             state = .signedOut
             return true
         } catch {
+            guard authenticationGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
@@ -185,6 +204,10 @@ final class AuthStore {
     }
 
     func logout() async {
+        authenticationGeneration += 1
+        workingOperationID = nil
+        isWorking = false
+        errorMessage = nil
         if api.accessToken != nil {
             try? await api.request(
                 "/api/auth/tokens/current",
@@ -217,5 +240,11 @@ final class AuthStore {
         api.setAccessToken(nil)
         try? keychain.remove(account: tokenAccount)
         try? keychain.remove(account: userAccount)
+    }
+
+    private func finishWorking(_ operationID: UUID) {
+        guard workingOperationID == operationID else { return }
+        workingOperationID = nil
+        isWorking = false
     }
 }
