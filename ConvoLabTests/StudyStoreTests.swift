@@ -3637,6 +3637,72 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineReserveFromOldActivationCannotMergeAfterSameUserReactivation() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let staleReserveCard = makeCard(
+            id: "reserve-from-old-activation",
+            expression: "古い予備"
+        )
+        let emptySessionData = try sessionResponseData(cards: [])
+        let staleReserveObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(staleReserveCard)
+        )
+        let staleReserveData = try JSONSerialization.data(withJSONObject: [
+            "cards": [staleReserveObject],
+            "reserveDays": 5,
+            "generatedAt": "2026-07-25T12:00:00.000Z",
+            "horizonEndsAt": "2026-07-30T12:00:00.000Z",
+        ])
+        let deferredReserve = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                completion(.success(Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))))
+            case "/api/study/known-kanji":
+                completion(.success(Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))))
+            case "/api/study/session/start":
+                completion(.success(Self.response(data: emptySessionData)))
+            case "/api/study/offline-reserve":
+                deferredReserve.hold(completion)
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let syncTask = Task { await store.synchronize() }
+        await waitUntil { deferredReserve.hasPendingResponse }
+
+        store.activate(userID: 2)
+        store.activate(userID: 1)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+
+        deferredReserve.succeed(with: Self.response(data: staleReserveData))
+        await syncTask.value
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testSynchronizationPrunesTombstoneFromEveryPublishedCardCollection() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let deleted = makeCard(
