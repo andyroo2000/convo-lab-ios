@@ -146,6 +146,72 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testSavedLocalAliasBetweenPagesInvalidatesCachedIndex() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let first = makeCard(id: "first-card", expression: "first")
+        let target = makeCard(id: "server-target", expression: "server target")
+        let firstID = first.id
+        let targetID = target.id
+        let firstData = try Self.batchData([first])
+        let targetData = try Self.batchData([target])
+        let feedRequests = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                let isFirstPage = feedRequests.next() == 1
+                return Self.response(data: Self.feedData(
+                    entries: [(
+                        isFirstPage ? 1 : 2,
+                        isFirstPage ? firstID : targetID,
+                        "update"
+                    )],
+                    nextCheckpoint: isFirstPage ? 1 : 2,
+                    hasMore: isFirstPage
+                ))
+            case "/api/study/cards/batch":
+                let ids = try Self.batchIDs(in: request)
+                return Self.response(data: ids == [firstID] ? firstData : targetData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+        let committedPages = LockedCounter()
+        var insertedAlias: LocalCardRecord?
+
+        _ = try await repository.pullChanges { _ in
+            guard committedPages.next() == 1 else { return }
+            let localAlias = makeCard(
+                id: "local-target",
+                syncId: targetID,
+                expression: "local target"
+            )
+            let record = insert(localAlias, userID: 1, in: container)
+            record.locallyUpdatedAt = Date(timeIntervalSince1970: 200)
+            try! container.mainContext.save()
+            insertedAlias = record
+        }
+
+        let storedRecords = try records(for: 1, in: container)
+        let storedAlias = try XCTUnwrap(insertedAlias)
+        let storedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: storedAlias.payload
+        )
+        XCTAssertEqual(storedRecords.count, 2)
+        XCTAssertTrue(storedRecords.contains { $0 === storedAlias })
+        XCTAssertFalse(storedRecords.contains { $0.id == targetID })
+        XCTAssertEqual(storedCard.promptText, "local target")
+        XCTAssertEqual(indexedRecords.current, 2)
+    }
+
+    @MainActor
     func testMalformedAdvancingPageDoesNotApplyCardsOrMoveCheckpoint() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 8))
@@ -287,6 +353,93 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testLaterEntryFailureRollsBackAbsorbedAliasAndSurvivorChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "server-id",
+            expression: "original local",
+            audioURL: "https://example.com/local.mp3"
+        )
+        let canonical = makeCard(
+            id: "server-id",
+            expression: "original canonical",
+            audioURL: "https://example.com/server.mp3"
+        )
+        let localRecord = insert(local, userID: 1, in: container)
+        localRecord.isInActiveSession = false
+        localRecord.queueIndex = 8
+        localRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 200)
+        let canonicalRecord = insert(canonical, userID: 1, in: container)
+        canonicalRecord.queueIndex = 2
+        let preparedAt = Date(timeIntervalSince1970: 100)
+        canonicalRecord.mediaPreparedAt = preparedAt
+        try container.mainContext.save()
+        let server = makeCard(
+            id: canonical.id,
+            expression: "fresh server",
+            audioURL: "https://example.com/server.mp3"
+        )
+        let trailing = makeCard(id: "trailing", expression: "never applied")
+        let serverID = server.id
+        let trailingID = trailing.id
+        let batchData = try Self.batchData([server, trailing])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [
+                        (1, serverID, "update"),
+                        (2, trailingID, "create"),
+                    ],
+                    nextCheckpoint: 2,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            beforeApplyingEntry: { index in
+                if index == 1 {
+                    throw InjectedPageFailure()
+                }
+            }
+        )
+        repository.activate(userID: 1)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await repository.pullChanges()
+        }
+
+        let restoredRecords = try records(for: 1, in: container)
+        XCTAssertEqual(restoredRecords.count, 2)
+        XCTAssertTrue(restoredRecords.contains { $0 === localRecord })
+        XCTAssertTrue(restoredRecords.contains { $0 === canonicalRecord })
+        let restoredLocal = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: localRecord.payload
+        )
+        let restoredCanonical = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: canonicalRecord.payload
+        )
+        XCTAssertEqual(restoredLocal.promptText, "original local")
+        XCTAssertEqual(restoredCanonical.promptText, "original canonical")
+        XCTAssertFalse(localRecord.isInActiveSession)
+        XCTAssertEqual(localRecord.queueIndex, 8)
+        XCTAssertTrue(canonicalRecord.isInActiveSession)
+        XCTAssertEqual(canonicalRecord.queueIndex, 2)
+        XCTAssertNil(localRecord.mediaPreparedAt)
+        XCTAssertEqual(canonicalRecord.mediaPreparedAt, preparedAt)
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 0)
+    }
+
+    @MainActor
     func testDirtySharedContextIsRefusedWithoutRollingBackUnrelatedWork() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let existing = makeCard(id: "existing", expression: "unrelated")
@@ -407,6 +560,364 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         XCTAssertEqual(storedCard.promptText, "local edit")
         XCTAssertEqual(storedRecord.locallyUpdatedAt, dirtyAt)
         XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
+    }
+
+    @MainActor
+    func testServerUpsertReconcilesCanonicalDuplicateIntoDirtyLocalAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "server-id",
+            expression: "local edit",
+            queueState: "review",
+            masteryLevel: "guru"
+        )
+        let staleCanonical = makeCard(
+            id: "server-id",
+            expression: "stale server",
+            queueState: "review",
+            masteryLevel: "apprentice"
+        )
+        let server = makeCard(
+            id: "server-id",
+            expression: "fresh server",
+            queueState: "learning",
+            masteryLevel: "enlightened"
+        )
+        let localRecord = insert(local, userID: 1, in: container)
+        localRecord.isInActiveSession = false
+        localRecord.queueIndex = 8
+        let canonicalRecord = insert(staleCanonical, userID: 1, in: container)
+        canonicalRecord.queueIndex = 2
+        let preparedAt = Date(timeIntervalSince1970: 50)
+        canonicalRecord.mediaPreparedAt = preparedAt
+        container.mainContext.insert(PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: local.id,
+            payload: Data()
+        ))
+        try container.mainContext.save()
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+        var publishedCards = [local, staleCanonical]
+        var publishedReconciler = StudyPublishedCardReconciler()
+
+        _ = try await repository.pullChanges { changes in
+            publishedReconciler.apply(changes, to: &publishedCards)
+        }
+
+        let storedRecords = try records(for: 1, in: container)
+        let storedRecord = try XCTUnwrap(storedRecords.first)
+        let storedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: storedRecord.payload
+        )
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertTrue(storedRecord === localRecord)
+        XCTAssertEqual(storedRecord.id, local.id)
+        XCTAssertEqual(storedCard.id, local.id)
+        XCTAssertEqual(storedCard.reviewCardID, serverID)
+        XCTAssertEqual(storedCard.promptText, "local edit")
+        XCTAssertEqual(storedCard.state.queueState, "learning")
+        XCTAssertEqual(storedCard.masteryLevel, "enlightened")
+        XCTAssertTrue(storedRecord.isInActiveSession)
+        XCTAssertEqual(storedRecord.queueIndex, 2)
+        XCTAssertEqual(storedRecord.mediaPreparedAt, preparedAt)
+        XCTAssertEqual(storedRecord.serverUpdatedAt, server.updatedAt)
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 1)
+        XCTAssertEqual(publishedCards.count, 1)
+        XCTAssertEqual(publishedCards.first?.id, local.id)
+        XCTAssertEqual(publishedCards.first?.promptText, "local edit")
+    }
+
+    @MainActor
+    func testServerUpsertRetainsPendingDuplicateTargetedThroughItsSyncAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "server-id",
+            expression: "local edit"
+        )
+        let pendingDuplicate = makeCard(
+            id: "server-id",
+            syncId: "pending-alias",
+            expression: "pending duplicate"
+        )
+        let server = makeCard(id: "server-id", expression: "fresh server")
+        let localRecord = insert(local, userID: 1, in: container)
+        localRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 200)
+        let pendingRecord = insert(pendingDuplicate, userID: 1, in: container)
+        pendingRecord.locallyUpdatedAt = nil
+        container.mainContext.insert(PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: "pending-alias",
+            payload: Data()
+        ))
+        try container.mainContext.save()
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let storedRecords = try records(for: 1, in: container)
+        XCTAssertEqual(storedRecords.count, 2)
+        XCTAssertTrue(storedRecords.contains { $0 === localRecord })
+        XCTAssertTrue(storedRecords.contains { $0 === pendingRecord })
+    }
+
+    @MainActor
+    func testServerUpsertDoesNotBorrowMediaReadinessFromDifferentAliasPayload() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "server-id",
+            expression: "local edit",
+            audioURL: "https://example.com/local.mp3"
+        )
+        let staleCanonical = makeCard(
+            id: "server-id",
+            expression: "stale server",
+            audioURL: "https://example.com/stale.mp3"
+        )
+        let server = makeCard(
+            id: "server-id",
+            expression: "fresh server",
+            audioURL: "https://example.com/server.mp3"
+        )
+        let localRecord = insert(local, userID: 1, in: container)
+        let canonicalRecord = insert(staleCanonical, userID: 1, in: container)
+        canonicalRecord.mediaPreparedAt = Date(timeIntervalSince1970: 50)
+        container.mainContext.insert(PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: local.id,
+            payload: Data()
+        ))
+        try container.mainContext.save()
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let storedRecords = try records(for: 1, in: container)
+        let storedRecord = try XCTUnwrap(storedRecords.first)
+        let storedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: storedRecord.payload
+        )
+        XCTAssertEqual(storedRecords.count, 1)
+        XCTAssertTrue(storedRecord === localRecord)
+        XCTAssertEqual(storedCard.mediaURLs, local.mediaURLs)
+        XCTAssertNil(storedRecord.mediaPreparedAt)
+    }
+
+    @MainActor
+    func testServerUpsertTraversesAliasChainWithoutDuplicatingRetainedDirtySessionRow() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "bridge-id",
+            expression: "newest local edit"
+        )
+        let bridge = makeCard(
+            id: "bridge-id",
+            syncId: "server-id",
+            expression: "older local edit"
+        )
+        let staleCanonical = makeCard(id: "server-id", expression: "stale server")
+        let server = makeCard(
+            id: "server-id",
+            expression: "fresh server",
+            queueState: "learning",
+            masteryLevel: "enlightened"
+        )
+        let localRecord = insert(local, userID: 1, in: container)
+        localRecord.isInActiveSession = false
+        localRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 200)
+        let bridgeRecord = insert(bridge, userID: 1, in: container)
+        bridgeRecord.queueIndex = 3
+        bridgeRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 100)
+        let canonicalRecord = insert(staleCanonical, userID: 1, in: container)
+        canonicalRecord.isInActiveSession = false
+        try container.mainContext.save()
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let storedRecords = try records(for: 1, in: container)
+        let updatedLocal = try XCTUnwrap(storedRecords.first { $0.id == local.id })
+        let updatedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: updatedLocal.payload
+        )
+        XCTAssertEqual(storedRecords.count, 2)
+        XCTAssertTrue(updatedLocal === localRecord)
+        XCTAssertTrue(storedRecords.contains { $0 === bridgeRecord })
+        XCTAssertFalse(storedRecords.contains { $0 === canonicalRecord })
+        XCTAssertEqual(updatedCard.promptText, "newest local edit")
+        XCTAssertEqual(updatedCard.state.queueState, "learning")
+        XCTAssertEqual(updatedCard.masteryLevel, "enlightened")
+        XCTAssertTrue(updatedLocal.isInActiveSession)
+        XCTAssertEqual(updatedLocal.queueIndex, 3)
+        XCTAssertFalse(bridgeRecord.isInActiveSession)
+        XCTAssertEqual(storedRecords.filter(\.isInActiveSession).count, 1)
+    }
+
+    @MainActor
+    func testServerUpsertPreservesSchedulingFromPendingReviewAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let olderReviewed = makeCard(
+            id: "a-reviewed-alias",
+            syncId: "server-id",
+            expression: "older reviewed copy",
+            queueState: "learning",
+            masteryLevel: "apprentice"
+        )
+        let reviewed = makeCard(
+            id: "reviewed-alias",
+            syncId: "server-id",
+            expression: "reviewed copy",
+            queueState: "review",
+            masteryLevel: "enlightened"
+        )
+        let edited = makeCard(
+            id: "edited-alias",
+            syncId: "server-id",
+            expression: "local edit",
+            queueState: "learning",
+            masteryLevel: "apprentice"
+        )
+        let server = makeCard(
+            id: "server-id",
+            expression: "fresh server",
+            queueState: "relearning",
+            masteryLevel: "guru"
+        )
+        let olderReviewedRecord = insert(olderReviewed, userID: 1, in: container)
+        let reviewedRecord = insert(reviewed, userID: 1, in: container)
+        let editedRecord = insert(edited, userID: 1, in: container)
+        editedRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 200)
+        let olderReviewMutation = PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: olderReviewed.id,
+            payload: Data()
+        )
+        olderReviewMutation.createdAt = Date(timeIntervalSince1970: 100)
+        container.mainContext.insert(olderReviewMutation)
+        let latestReviewMutation = PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: reviewed.id,
+            payload: Data()
+        )
+        latestReviewMutation.createdAt = Date(timeIntervalSince1970: 200)
+        container.mainContext.insert(latestReviewMutation)
+        try container.mainContext.save()
+        let serverID = server.id
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, serverID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let storedRecords = try records(for: 1, in: container)
+        let storedEdited = try XCTUnwrap(storedRecords.first { $0 === editedRecord })
+        let storedCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: storedEdited.payload
+        )
+        XCTAssertEqual(storedRecords.count, 3)
+        XCTAssertTrue(storedRecords.contains { $0 === olderReviewedRecord })
+        XCTAssertTrue(storedRecords.contains { $0 === reviewedRecord })
+        XCTAssertEqual(storedCard.promptText, "local edit")
+        XCTAssertEqual(storedCard.state.queueState, reviewed.state.queueState)
+        XCTAssertEqual(storedCard.masteryLevel, reviewed.masteryLevel)
+        XCTAssertTrue(storedEdited.isInActiveSession)
+        XCTAssertFalse(olderReviewedRecord.isInActiveSession)
+        XCTAssertFalse(reviewedRecord.isInActiveSession)
+        XCTAssertEqual(storedRecords.filter(\.isInActiveSession).count, 1)
     }
 
     @MainActor
@@ -571,7 +1082,43 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
-    func testDeleteHeavyPageBuildsAliasIndexOnlyOnce() async throws {
+    func testServerDeleteTraversesEntireAliasChain() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "bridge-id",
+            expression: "local"
+        )
+        let bridge = makeCard(
+            id: "bridge-id",
+            syncId: "server-id",
+            expression: "bridge"
+        )
+        insert(local, userID: 1, in: container)
+        insert(bridge, userID: 1, in: container)
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [(1, "server-id", "delete")],
+                nextCheckpoint: 1,
+                hasMore: false
+            ))
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        let result = try await repository.pullChanges()
+
+        XCTAssertTrue(try records(for: 1, in: container).isEmpty)
+        XCTAssertEqual(
+            result,
+            .completed(deletedCardIdentifiers: ["local-id", "bridge-id", "server-id"])
+        )
+    }
+
+    @MainActor
+    func testMultiPageFeedBuildsAliasIndexOnlyOnce() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let libraryCards = (0..<10).map {
             makeCard(
@@ -586,15 +1133,18 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         try container.mainContext.save()
         let firstSyncID = try XCTUnwrap(libraryCards[0].syncId)
         let secondSyncID = try XCTUnwrap(libraryCards[1].syncId)
+        let feedRequests = LockedCounter()
         let client = makeClient { request in
             XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            let isFirstPage = feedRequests.next() == 1
             return Self.response(data: Self.feedData(
-                entries: [
-                    (1, firstSyncID, "delete"),
-                    (2, secondSyncID, "delete"),
-                ],
-                nextCheckpoint: 2,
-                hasMore: false
+                entries: [(
+                    isFirstPage ? 1 : 2,
+                    isFirstPage ? firstSyncID : secondSyncID,
+                    "delete"
+                )],
+                nextCheckpoint: isFirstPage ? 1 : 2,
+                hasMore: isFirstPage
             ))
         }
         let indexedRecords = LockedCounter()
@@ -609,6 +1159,147 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
 
         XCTAssertEqual(indexedRecords.current, libraryCards.count)
         XCTAssertEqual(try cards(for: 1, in: container).count, libraryCards.count - 2)
+    }
+
+    @MainActor
+    func testSequentialUpsertPullsReuseUnchangedAliasIndex() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let libraryCards = (0..<10).map {
+            makeCard(id: "card-\($0)", expression: "card \($0)")
+        }
+        for card in libraryCards {
+            insert(card, userID: 1, in: container)
+        }
+        try container.mainContext.save()
+        let serverCard = makeCard(id: libraryCards[0].id, expression: "fresh server")
+        let serverCardID = serverCard.id
+        let batchData = try Self.batchData([serverCard])
+        let feedRequests = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                let checkpoint = feedRequests.next()
+                return Self.response(data: Self.feedData(
+                    entries: [(Int64(checkpoint), serverCardID, "update")],
+                    nextCheckpoint: Int64(checkpoint),
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+        _ = try await repository.pullChanges()
+
+        XCTAssertEqual(indexedRecords.current, libraryCards.count)
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
+        XCTAssertEqual(try cards(for: 1, in: container).first?.promptText, "fresh server")
+    }
+
+    @MainActor
+    func testSavedRecordBetweenPullsInvalidatesCachedAliasIndex() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let libraryCards = (0..<10).map {
+            makeCard(id: "card-\($0)", expression: "card \($0)")
+        }
+        for card in libraryCards {
+            insert(card, userID: 1, in: container)
+        }
+        try container.mainContext.save()
+        let insertedServerCard = makeCard(id: "inserted-card", expression: "fresh server")
+        let firstServerCard = makeCard(id: libraryCards[0].id, expression: "first server")
+        let insertedServerCardID = insertedServerCard.id
+        let firstServerCardID = firstServerCard.id
+        let firstData = try Self.batchData([firstServerCard])
+        let insertedData = try Self.batchData([insertedServerCard])
+        let feedRequests = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                let checkpoint = feedRequests.next()
+                return Self.response(data: Self.feedData(
+                    entries: [(
+                        Int64(checkpoint),
+                        checkpoint == 1 ? firstServerCardID : insertedServerCardID,
+                        "update"
+                    )],
+                    nextCheckpoint: Int64(checkpoint),
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                let ids = try Self.batchIDs(in: request)
+                return Self.response(
+                    data: ids == [firstServerCardID] ? firstData : insertedData
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+        insert(
+            makeCard(id: insertedServerCardID, expression: "inserted local"),
+            userID: 1,
+            in: container
+        )
+        try container.mainContext.save()
+        _ = try await repository.pullChanges()
+
+        XCTAssertEqual(indexedRecords.current, 21)
+        let inserted = try XCTUnwrap(
+            cards(for: 1, in: container).first { $0.id == insertedServerCardID }
+        )
+        XCTAssertEqual(inserted.promptText, "fresh server")
+    }
+
+    @MainActor
+    func testEmptyFeedDoesNotBuildAliasIndex() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        for index in 0..<10 {
+            insert(
+                makeCard(id: "card-\(index)", expression: "card \(index)"),
+                userID: 1,
+                in: container
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [],
+                nextCheckpoint: 0,
+                hasMore: false
+            ))
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        XCTAssertEqual(indexedRecords.current, 0)
+        XCTAssertEqual(try cards(for: 1, in: container).count, 10)
     }
 
     @MainActor
@@ -797,15 +1488,20 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         id: String,
         syncId: String? = nil,
         expression: String,
+        audioURL: String? = nil,
         queueState: String = "review",
         masteryLevel: String? = nil
     ) -> StudyCard {
-        StudyCard(
+        var prompt: [String: JSONValue] = ["cueText": .string(expression)]
+        if let audioURL {
+            prompt["audioUrl"] = .string(audioURL)
+        }
+        return StudyCard(
             id: id,
             syncId: syncId,
             noteId: nil,
             cardType: "recognition",
-            prompt: .object(["cueText": .string(expression)]),
+            prompt: .object(prompt),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
                 dueAt: nil,
