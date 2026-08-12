@@ -8,6 +8,43 @@ final class PitchAccentResolutionService {
         let generation: Int
     }
 
+    private struct ResolutionInput: Equatable {
+        let cardType: String
+        let expression: String?
+        let expressionReading: String?
+        let promptReading: String?
+        let answerAudioTextOverride: String?
+        let sentence: String?
+        let sentenceReading: String?
+
+        init(card: StudyCard) {
+            cardType = card.cardType
+            if card.cardType == "cloze" {
+                expression = card.answer.firstNonEmptyString(
+                    for: ["restoredText", "restoredTextReading", "expression"]
+                )
+                expressionReading = card.answer.firstNonEmptyString(
+                    for: ["restoredTextReading"]
+                )
+                promptReading = nil
+                sentence = card.answer.firstNonEmptyString(
+                    for: ["restoredText", "sentenceJp"]
+                )
+            } else {
+                expression = card.answer.firstNonEmptyString(for: ["expression"])
+                expressionReading = card.answer.firstNonEmptyString(
+                    for: ["expressionReading"]
+                )
+                promptReading = card.prompt.firstNonEmptyString(for: ["cueReading"])
+                sentence = card.answer.firstNonEmptyString(for: ["sentenceJp"])
+            }
+            answerAudioTextOverride = card.answer.firstNonEmptyString(
+                for: ["answerAudioTextOverride"]
+            )
+            sentenceReading = card.answer.firstNonEmptyString(for: ["sentenceJpKana"])
+        }
+    }
+
     private let api: APIClient
     private let context: ModelContext
     private let localCardRepository: StudyCardLocalRepository
@@ -53,6 +90,7 @@ final class PitchAccentResolutionService {
         else {
             return nil
         }
+        let resolutionInput = ResolutionInput(card: currentCard)
         guard onCardPrepared(currentCard) else { throw CancellationError() }
 
         // The ConvoLab-compatible pitch endpoint returns StudyCard directly,
@@ -72,7 +110,9 @@ final class PitchAccentResolutionService {
             let latestCard = try? StorageCodec.decoder.decode(
                 StudyCard.self,
                 from: latestRecord.payload
-            )
+            ),
+            latestCard.answer["pitchAccent"]?["status"]?.stringValue == nil,
+            ResolutionInput(card: latestCard) == resolutionInput
         else {
             return nil
         }
