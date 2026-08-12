@@ -220,8 +220,17 @@ final class KnownKanjiServiceTests: XCTestCase {
     }
 
     @MainActor
-    func testAccountSwitchDropsAnOlderInFlightRefresh() async throws {
+    func testReactivationDropsAnOlderInFlightRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(
+            LocalKnownKanjiSnapshot(
+                userID: 7,
+                payload: Data(
+                    Self.snapshotJSON(version: 10, kanji: ["社"], connected: false).utf8
+                )
+            )
+        )
+        try container.mainContext.save()
         let (requestStarted, requestStartedContinuation) = AsyncStream<Void>.makeStream()
         let (releaseRequest, releaseRequestContinuation) = AsyncStream<Void>.makeStream()
         let client = makeDeferredClient { request, completion in
@@ -230,7 +239,7 @@ final class KnownKanjiServiceTests: XCTestCase {
                 for await _ in releaseRequest {
                     completion(.success(Self.jsonResponse(
                         for: request,
-                        body: Self.snapshotJSON(version: 9, kanji: ["会"], connected: true)
+                        body: Self.snapshotJSON(version: 11, kanji: ["会"], connected: true)
                     )))
                     return
                 }
@@ -244,13 +253,21 @@ final class KnownKanjiServiceTests: XCTestCase {
         }
 
         service.activate(userID: 8)
+        service.activate(userID: 7)
+        XCTAssertEqual(service.knownKanji, ["社"])
+        XCTAssertEqual(service.version, 10)
         releaseRequestContinuation.yield()
         try await refresh.value
 
-        XCTAssertTrue(service.knownKanji.isEmpty)
-        XCTAssertEqual(service.version, -1)
-        XCTAssertTrue(
-            try container.mainContext.fetch(FetchDescriptor<LocalKnownKanjiSnapshot>()).isEmpty
+        XCTAssertEqual(service.knownKanji, ["社"])
+        XCTAssertEqual(service.version, 10)
+        let persisted = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalKnownKanjiSnapshot>()).first
+        )
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(KnownKanjiSnapshot.self, from: persisted.payload)
+                .kanji,
+            ["社"]
         )
     }
 

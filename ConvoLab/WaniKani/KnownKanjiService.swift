@@ -3,9 +3,15 @@ import SwiftData
 
 @Observable
 final class KnownKanjiService {
+    private struct Operation: Equatable {
+        let userID: Int
+        let generation: Int
+    }
+
     private let api: APIClient
     private let context: ModelContext
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var activationGeneration = 0
     private var snapshot: KnownKanjiSnapshot?
 
     private(set) var isWorking = false
@@ -38,6 +44,7 @@ final class KnownKanjiService {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        activationGeneration += 1
         activeUserID = userID
         snapshot = loadSnapshot(userID: userID)
         isWorking = false
@@ -45,6 +52,7 @@ final class KnownKanjiService {
     }
 
     func deactivate() {
+        activationGeneration += 1
         activeUserID = nil
         snapshot = nil
         isWorking = false
@@ -61,13 +69,13 @@ final class KnownKanjiService {
     }
 
     func refresh() async throws {
-        guard let userID = activeUserID else { return }
-        try await refresh(userID: userID)
+        guard let operation = activeOperation() else { return }
+        try await refresh(operation: operation)
     }
 
     func connect(apiToken: String) async {
-        guard let userID = beginOperation() else { return }
-        defer { finishOperation(for: userID) }
+        guard let operation = beginOperation() else { return }
+        defer { finishOperation(operation) }
 
         do {
             let connectedSnapshot: KnownKanjiSnapshot = try await api.request(
@@ -75,78 +83,87 @@ final class KnownKanjiService {
                 method: "PUT",
                 body: ConnectWaniKaniRequest(apiToken: apiToken)
             )
-            try apply(connectedSnapshot, userID: userID)
-            try await synchronize(userID: userID)
+            try apply(connectedSnapshot, operation: operation)
+            guard isCurrent(operation) else { return }
+            try await synchronize(operation: operation)
         } catch {
-            report(error, for: userID)
+            report(error, operation: operation)
         }
     }
 
     func synchronize() async {
-        guard let userID = beginOperation() else { return }
-        defer { finishOperation(for: userID) }
+        guard let operation = beginOperation() else { return }
+        defer { finishOperation(operation) }
 
         do {
-            try await synchronize(userID: userID)
+            try await synchronize(operation: operation)
         } catch {
-            report(error, for: userID)
+            report(error, operation: operation)
         }
     }
 
     func disconnect() async {
-        guard let userID = beginOperation() else { return }
-        defer { finishOperation(for: userID) }
+        guard let operation = beginOperation() else { return }
+        defer { finishOperation(operation) }
 
         do {
             try await api.request(
                 "/api/study/wanikani",
                 method: "DELETE"
             )
-            guard activeUserID == userID else { return }
-            try await refresh(userID: userID)
+            guard isCurrent(operation) else { return }
+            try await refresh(operation: operation)
         } catch {
-            report(error, for: userID)
+            report(error, operation: operation)
         }
     }
 
-    private func beginOperation() -> Int? {
-        guard let activeUserID, !isWorking else { return nil }
-        isWorking = true
-        errorMessage = nil
-        return activeUserID
+    private func activeOperation() -> Operation? {
+        guard let activeUserID else { return nil }
+        return Operation(userID: activeUserID, generation: activationGeneration)
     }
 
-    private func finishOperation(for userID: Int) {
-        guard activeUserID == userID else { return }
+    private func beginOperation() -> Operation? {
+        guard let operation = activeOperation(), !isWorking else { return nil }
+        isWorking = true
+        errorMessage = nil
+        return operation
+    }
+
+    private func finishOperation(_ operation: Operation) {
+        guard isCurrent(operation) else { return }
         isWorking = false
     }
 
-    private func report(_ error: any Error, for userID: Int) {
-        guard activeUserID == userID else { return }
+    private func report(_ error: any Error, operation: Operation) {
+        guard isCurrent(operation) else { return }
         errorMessage = error.localizedDescription
     }
 
-    private func synchronize(userID: Int) async throws {
-        guard activeUserID == userID else { return }
+    private func synchronize(operation: Operation) async throws {
+        guard isCurrent(operation) else { return }
         let _: WaniKaniSyncResult = try await api.request(
             "/api/study/wanikani/sync",
             method: "POST"
         )
-        guard activeUserID == userID else { return }
-        try await refresh(userID: userID)
+        guard isCurrent(operation) else { return }
+        try await refresh(operation: operation)
     }
 
-    private func refresh(userID: Int) async throws {
-        guard activeUserID == userID else { return }
+    private func refresh(operation: Operation) async throws {
+        guard isCurrent(operation) else { return }
         let refreshedSnapshot: KnownKanjiSnapshot = try await api.request(
             "/api/study/known-kanji"
         )
-        try apply(refreshedSnapshot, userID: userID)
+        try apply(refreshedSnapshot, operation: operation)
     }
 
-    private func apply(_ newSnapshot: KnownKanjiSnapshot, userID: Int) throws {
-        guard activeUserID == userID else { return }
-        guard newSnapshot.version >= version else { return }
+    private func apply(
+        _ newSnapshot: KnownKanjiSnapshot,
+        operation: Operation
+    ) throws {
+        guard isCurrent(operation), newSnapshot.version >= version else { return }
+        let userID = operation.userID
         let payload = try StorageCodec.encoder.encode(newSnapshot)
         var descriptor = FetchDescriptor<LocalKnownKanjiSnapshot>(
             predicate: #Predicate { $0.userID == userID }
@@ -160,6 +177,11 @@ final class KnownKanjiService {
         }
         try context.save()
         snapshot = newSnapshot
+    }
+
+    private func isCurrent(_ operation: Operation) -> Bool {
+        activeUserID == operation.userID
+            && activationGeneration == operation.generation
     }
 
     private func loadSnapshot(userID: Int) -> KnownKanjiSnapshot? {
