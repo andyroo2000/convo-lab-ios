@@ -120,8 +120,10 @@ enum ConvoLabSchemaV1: VersionedSchema {
 @Model
 final class LocalCardRecord {
     #Unique<LocalCardRecord>([\.userID, \.id])
+    #Index<LocalCardRecord>([\.userID, \.syncID])
     var id: String
     var userID: Int = 0
+    var syncID: String = ""
     var payload: Data
     var queueIndex: Int
     var isInActiveSession: Bool
@@ -132,10 +134,27 @@ final class LocalCardRecord {
     init(card: StudyCard, userID: Int, queueIndex: Int, payload: Data) {
         id = card.id
         self.userID = userID
+        syncID = Self.canonicalSyncID(cardID: card.id, payload: payload)
         self.payload = payload
         self.queueIndex = queueIndex
         isInActiveSession = true
         serverUpdatedAt = card.updatedAt
+    }
+
+    func replacePayload(encoded payload: Data) {
+        syncID = Self.canonicalSyncID(cardID: id, payload: payload)
+        self.payload = payload
+    }
+
+    nonisolated static func canonicalSyncID(cardID: String, payload: Data) -> String {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+            let syncID = object["syncId"] as? String,
+            !syncID.isEmpty
+        else {
+            return cardID.lowercased()
+        }
+        return syncID.lowercased()
     }
 }
 
@@ -244,17 +263,185 @@ enum ConvoLabSchemaV2: VersionedSchema {
         LocalKnownKanjiSnapshot.self,
         LocalSyncState.self,
     ]
+
+    @Model
+    final class LocalCardRecord {
+        #Unique<LocalCardRecord>([\.userID, \.id])
+        var id: String
+        var userID: Int = 0
+        var payload: Data
+        var queueIndex: Int
+        var isInActiveSession: Bool
+        var mediaPreparedAt: Date?
+        var serverUpdatedAt: Date
+        var locallyUpdatedAt: Date?
+
+        init(
+            id: String,
+            userID: Int,
+            payload: Data,
+            queueIndex: Int,
+            isInActiveSession: Bool = true,
+            mediaPreparedAt: Date? = nil,
+            serverUpdatedAt: Date,
+            locallyUpdatedAt: Date? = nil
+        ) {
+            self.id = id
+            self.userID = userID
+            self.payload = payload
+            self.queueIndex = queueIndex
+            self.isInActiveSession = isInActiveSession
+            self.mediaPreparedAt = mediaPreparedAt
+            self.serverUpdatedAt = serverUpdatedAt
+            self.locallyUpdatedAt = locallyUpdatedAt
+        }
+    }
+
+    @Model
+    final class PendingMutation {
+        @Attribute(.unique) var id: String
+        var kind: String
+        var userID: Int = 0
+        var resourceID: String
+        var payload: Data
+        var createdAt: Date
+        var attemptCount: Int
+        var lastAttemptAt: Date?
+        var lastError: String?
+
+        init(
+            id: String,
+            kind: String,
+            userID: Int,
+            resourceID: String,
+            payload: Data
+        ) {
+            self.id = id
+            self.kind = kind
+            self.userID = userID
+            self.resourceID = resourceID
+            self.payload = payload
+            createdAt = .now
+            attemptCount = 0
+        }
+    }
+
+    @Model
+    final class CachedMediaRecord {
+        #Unique<CachedMediaRecord>([\.userID, \.remoteURL])
+        var remoteURL: String
+        var userID: Int = 0
+        var relativePath: String
+        var byteCount: Int64
+        var lastAccessedAt: Date
+        var category: String
+
+        init(
+            remoteURL: String,
+            userID: Int,
+            relativePath: String,
+            byteCount: Int64,
+            category: String
+        ) {
+            self.remoteURL = remoteURL
+            self.userID = userID
+            self.relativePath = relativePath
+            self.byteCount = byteCount
+            lastAccessedAt = .now
+            self.category = category
+        }
+    }
+
+    @Model
+    final class LocalDailyAudioPractice {
+        #Unique<LocalDailyAudioPractice>([\.userID, \.id])
+        var id: String
+        var userID: Int = 0
+        var payload: Data
+        var practiceDate: String
+        var status: String
+        var updatedAt: Date
+
+        init(
+            id: String,
+            userID: Int,
+            payload: Data,
+            practiceDate: String,
+            status: String,
+            updatedAt: Date
+        ) {
+            self.id = id
+            self.userID = userID
+            self.payload = payload
+            self.practiceDate = practiceDate
+            self.status = status
+            self.updatedAt = updatedAt
+        }
+    }
+
+    @Model
+    final class LocalKnownKanjiSnapshot {
+        @Attribute(.unique) var userID: Int
+        var payload: Data
+        var updatedAt: Date
+
+        init(userID: Int, payload: Data, updatedAt: Date = .now) {
+            self.userID = userID
+            self.payload = payload
+            self.updatedAt = updatedAt
+        }
+    }
+
+    @Model
+    final class LocalSyncState {
+        @Attribute(.unique) var userID: Int
+        var cardCheckpoint: Int64
+        var updatedAt: Date
+
+        init(userID: Int, cardCheckpoint: Int64 = 0) {
+            self.userID = userID
+            self.cardCheckpoint = cardCheckpoint
+            updatedAt = .now
+        }
+    }
+}
+
+enum ConvoLabSchemaV3: VersionedSchema {
+    static let versionIdentifier = Schema.Version(3, 0, 0)
+    static let models: [any PersistentModel.Type] = [
+        LocalCardRecord.self,
+        PendingMutation.self,
+        CachedMediaRecord.self,
+        LocalDailyAudioPractice.self,
+        LocalKnownKanjiSnapshot.self,
+        LocalSyncState.self,
+    ]
 }
 
 enum ConvoLabMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         ConvoLabSchemaV1.self,
         ConvoLabSchemaV2.self,
+        ConvoLabSchemaV3.self,
     ]
     static let stages: [MigrationStage] = [
         .lightweight(
             fromVersion: ConvoLabSchemaV1.self,
             toVersion: ConvoLabSchemaV2.self
+        ),
+        .custom(
+            fromVersion: ConvoLabSchemaV2.self,
+            toVersion: ConvoLabSchemaV3.self,
+            willMigrate: nil,
+            didMigrate: { context in
+                for record in try context.fetch(FetchDescriptor<LocalCardRecord>()) {
+                    record.syncID = LocalCardRecord.canonicalSyncID(
+                        cardID: record.id,
+                        payload: record.payload
+                    )
+                }
+                try context.save()
+            }
         ),
     ]
 }
@@ -309,7 +496,7 @@ enum Persistence {
         inMemory: Bool = false,
         storeURL: URL? = nil
     ) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: ConvoLabSchemaV2.self)
+        let schema = Schema(versionedSchema: ConvoLabSchemaV3.self)
         let configuration: ModelConfiguration
         if let storeURL {
             configuration = ModelConfiguration(
