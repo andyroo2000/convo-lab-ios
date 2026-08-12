@@ -137,6 +137,7 @@ final class StudyTimeStore {
             guard let previousRecord = record(
                 clientSessionID: previousActive.clientSessionID
             ) else {
+                loadLocalSessions()
                 storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable
                     .localizedDescription
                 return false
@@ -343,7 +344,9 @@ final class StudyTimeStore {
         do {
             try contextSaver.save()
         } catch {
-            if let identifier = record.calendarEventIdentifier {
+            let calendarEventIdentifier = record.calendarEventIdentifier
+            context.rollback()
+            if let identifier = calendarEventIdentifier {
                 try? await calendar.updateEvent(
                     identifier: identifier,
                     title: previousSession.name ?? previousSession.activity.title,
@@ -351,7 +354,6 @@ final class StudyTimeStore {
                     end: previousSession.endedAt
                 )
             }
-            context.rollback()
             loadLocalSessions()
             storageWriteErrorMessage = error.localizedDescription
             throw error
@@ -507,6 +509,7 @@ final class StudyTimeStore {
         enqueueSync: Bool = true
     ) -> Bool {
         guard let record = record(clientSessionID: current.clientSessionID) else {
+            loadLocalSessions()
             storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
             return false
         }

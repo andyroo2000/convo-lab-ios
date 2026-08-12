@@ -160,6 +160,29 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store, saves)
     }
 
+    func testMissingActiveRecordClearsStrandedTimer() throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .reading, source: .manual))
+        let record = try savedRecord(in: container)
+        container.mainContext.delete(record)
+        try container.mainContext.save()
+
+        XCTAssertFalse(store.stop())
+
+        XCTAssertNil(store.active)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(
+            store.storageWriteErrorMessage,
+            "This study entry is no longer available. Refresh and try again."
+        )
+        retainSaveFixtures(container, store)
+    }
+
     func testManualEditSaveFailureRollsBackRecordAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)
