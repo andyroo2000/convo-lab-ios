@@ -131,6 +131,7 @@ final class AuthStore {
         password: String,
         passwordConfirmation: String
     ) async -> Bool {
+        let generation = authenticationGeneration
         isWorking = true
         errorMessage = nil
         defer { isWorking = false }
@@ -144,8 +145,10 @@ final class AuthStore {
                     passwordConfirmation: passwordConfirmation
                 )
             )
+            guard authenticationGeneration == generation else { return false }
             return true
         } catch {
+            guard authenticationGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
@@ -162,6 +165,7 @@ final class AuthStore {
                 body: DeleteAccountRequest(currentPassword: currentPassword)
             )
             authenticationGeneration += 1
+            errorMessage = nil
             clearCredentials()
             state = .signedOut
             return true
@@ -191,6 +195,8 @@ final class AuthStore {
 
     func logout() async {
         authenticationGeneration += 1
+        isWorking = false
+        errorMessage = nil
         if api.accessToken != nil {
             try? await api.request(
                 "/api/auth/tokens/current",

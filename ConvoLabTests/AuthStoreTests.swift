@@ -212,6 +212,62 @@ final class AuthStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPasswordErrorCannotLeakOntoLoginAfterLogout() async throws {
+        let originalUser = CurrentUser(
+            id: 1,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = MemoryCredentialStore(values: [
+            "learning-os-mobile-token": "valid-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(originalUser),
+                encoding: .utf8
+            )!,
+        ])
+        let deferredPassword = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/me", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
+                ))))
+            case ("/api/me/password", "PUT"):
+                deferredPassword.hold(completion)
+            case ("/api/auth/tokens/current", "DELETE"):
+                completion(.success(Self.response(statusCode: 204)))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = AuthStore(api: client, keychain: credentials)
+        await store.restore()
+
+        let update = Task {
+            await store.updatePassword(
+                currentPassword: "old-password",
+                password: "new-password",
+                passwordConfirmation: "new-password"
+            )
+        }
+        await waitUntil { deferredPassword.hasPendingResponse }
+        await store.logout()
+        deferredPassword.succeed(with: Self.response(
+            statusCode: 422,
+            data: Data(#"{"message":"The current password is incorrect."}"#.utf8)
+        ))
+        _ = await update.value
+
+        guard case .signedOut = store.state else {
+            return XCTFail("Expected logout to remain authoritative")
+        }
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.isWorking)
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
