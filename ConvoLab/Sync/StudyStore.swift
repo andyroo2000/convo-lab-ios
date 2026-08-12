@@ -1694,23 +1694,29 @@ final class StudyStore {
         if let record {
             let wasLocallyUpdated = record.locallyUpdatedAt != nil
             record.replacePayload(encoded: payload)
-            record.isInActiveSession = true
+            if !lessonSessionIsPresented {
+                record.isInActiveSession = true
+            }
             if !wasLocallyUpdated {
                 record.serverUpdatedAt = restoredCard.updatedAt
             }
         } else {
             guard let userID = activeUserID else { throw CancellationError() }
-            context.insert(
-                LocalCardRecord(
-                    card: restoredCard,
-                    userID: userID,
-                    queueIndex: 0,
-                    payload: payload
-                )
+            let newRecord = LocalCardRecord(
+                card: restoredCard,
+                userID: userID,
+                queueIndex: 0,
+                payload: payload
             )
+            newRecord.isInActiveSession = !lessonSessionIsPresented
+            context.insert(newRecord)
         }
         guard let userID = activeUserID else { throw CancellationError() }
-        try localCardRepository.replaceActiveSession(with: cards, userID: userID)
+        if lessonSessionIsPresented {
+            try context.save()
+        } else {
+            try localCardRepository.replaceActiveSession(with: cards, userID: userID)
+        }
         scheduleNextOfflineActivation()
         return restoredCard
     }

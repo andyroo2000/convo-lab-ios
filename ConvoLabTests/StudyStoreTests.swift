@@ -2221,8 +2221,14 @@ final class StudyStoreTests: XCTestCase {
         try container.mainContext.save()
         let lessonData = try sessionResponseData(cards: [lessonCard], lessonBatchSize: 3)
         let client = makeClient { request in
-            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
-            return Self.response(data: lessonData)
+            switch request.url?.path {
+            case "/api/study/lessons/start":
+                return Self.response(data: lessonData)
+            case "/api/study/reviews/batch":
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.badURL)
+            }
         }
         let store = StudyStore(
             initialUserID: 1,
@@ -2243,6 +2249,15 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
         XCTAssertEqual(store.sessionKind, "lessons")
+        let recordedEventID = await store.recordReview(
+            card: lessonCard,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        try await store.undoReview(eventID: eventID, cardBefore: lessonCard)
+        XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
         store.endLessonSessionPresentation()
 
         XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
