@@ -57,6 +57,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
             operations: relaunchedProbe.operations
         )
 
+        XCTAssertEqual(relaunchedCoordinator.pendingFailures.count, 2)
+        XCTAssertTrue(relaunchedCoordinator.pendingFailures.allSatisfy { $0.userID == 42 })
         XCTAssertTrue(relaunchedCoordinator.retryPendingCleanup().isEmpty)
         XCTAssertEqual(relaunchedProbe.attempted.count, 2)
         XCTAssertTrue(relaunchedProbe.attempted.contains(.study))
@@ -66,6 +68,26 @@ final class AccountDeletionCleanupTests: XCTestCase {
         Self.retainedFixtures.append(firstCoordinator)
         Self.retainedFixtures.append(relaunchedProbe)
         Self.retainedFixtures.append(relaunchedCoordinator)
+    }
+
+    func testCleanupRetryRemainsScopedToDeletedUser() throws {
+        let defaults = try makeDefaults()
+        let ledger = AccountDeletionCleanupLedger(defaults: defaults)
+        ledger.schedule(userID: 42)
+        let probe = CleanupProbe()
+        let coordinator = AccountDeletionCleanupCoordinator(
+            ledger: ledger,
+            operations: probe.operations
+        )
+        Self.retainedFixtures.append(probe)
+        Self.retainedFixtures.append(coordinator)
+
+        let failures = coordinator.retryPendingCleanup()
+
+        XCTAssertEqual(Set(probe.attemptedUserIDs), [42])
+        XCTAssertFalse(probe.attemptedUserIDs.contains(84))
+        XCTAssertTrue(failures.isEmpty)
+        XCTAssertTrue(ledger.pendingItems.isEmpty)
     }
 
     func testSignedOutLaunchRetriesDeletionCleanupBeforeAuthenticationRestore() async throws {
@@ -108,6 +130,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         )
         XCTAssertTrue(ledger.pendingItems.isEmpty)
         XCTAssertTrue(model.accountDeletionCleanupFailures.isEmpty)
+        XCTAssertEqual(model.accountDeletionCleanupStatus, .complete)
     }
 
     func testConfirmedAccountDeletionSchedulesEveryCleanupBeforeFailedAttempts() async throws {
@@ -161,9 +184,13 @@ final class AccountDeletionCleanupTests: XCTestCase {
         let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
         XCTAssertEqual(pending.count, AccountDeletionCleanupDomain.allCases.count)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
+        XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy { domain in
             pending.contains { $0.userID == user.id && $0.domain == domain }
         })
+        model.retryAccountDeletionCleanup()
+        XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
+        XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
     }
 
     func testRejectedAccountDeletionDoesNotScheduleCleanup() async throws {
@@ -436,6 +463,7 @@ private enum CleanupContainerFailure: Error {
 private final class CleanupProbe {
     private let failing: Set<AccountDeletionCleanupDomain>
     private(set) var attempted: [AccountDeletionCleanupDomain] = []
+    private(set) var attemptedUserIDs: [Int] = []
 
     init(failing: Set<AccountDeletionCleanupDomain> = []) {
         self.failing = failing
@@ -446,9 +474,10 @@ private final class CleanupProbe {
     ] {
         Dictionary(
             uniqueKeysWithValues: AccountDeletionCleanupDomain.allCases.map { domain in
-                (domain, { [weak self] (_: Int) in
+                (domain, { [weak self] userID in
                     guard let self else { return false }
                     attempted.append(domain)
+                    attemptedUserIDs.append(userID)
                     return !failing.contains(domain)
                 })
             }

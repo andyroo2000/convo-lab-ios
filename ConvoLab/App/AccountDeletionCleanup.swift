@@ -37,6 +37,11 @@ struct AccountDeletionCleanupFailure: Equatable, Sendable {
     var domain: AccountDeletionCleanupDomain { item.domain }
 }
 
+enum AccountDeletionCleanupStatus: Equatable, Sendable {
+    case complete
+    case cleanupRequired
+}
+
 final class AccountDeletionCleanupLedger {
     private static let pendingItemsKey = "ConvoLab.accountDeletion.pendingLocalCleanup"
     private let defaults: UserDefaults
@@ -90,6 +95,10 @@ final class AccountDeletionCleanupCoordinator {
         // Persist every domain before the first deletion attempt. A crash or thrown
         // save error can therefore only cause an idempotent retry, never forgotten data.
         ledger.schedule(userID: userID)
+    }
+
+    var pendingFailures: [AccountDeletionCleanupFailure] {
+        ledger.pendingItems.map(AccountDeletionCleanupFailure.init(item:))
     }
 
     @discardableResult

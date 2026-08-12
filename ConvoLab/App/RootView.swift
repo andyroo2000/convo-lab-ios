@@ -6,18 +6,46 @@ struct RootView: View {
     var body: some View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
-                if let message = model.storageStatus.warningMessage {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(ConvoLabTheme.navy)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Color.orange.opacity(0.22))
-                        .accessibilityIdentifier("degraded-storage-warning")
-                        .accessibilityLabel(message)
+                VStack(spacing: 0) {
+                    if let message = model.storageStatus.warningMessage {
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(ConvoLabTheme.navy)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(Color.orange.opacity(0.22))
+                            .accessibilityIdentifier("degraded-storage-warning")
+                            .accessibilityLabel(message)
+                    }
+                    if model.accountDeletionCleanupStatus == .cleanupRequired {
+                        accountDeletionCleanupWarning
+                    }
                 }
             }
+    }
+
+    private var accountDeletionCleanupWarning: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label(
+                "Some local data from a deleted account still needs to be removed from this device.",
+                systemImage: "hand.raised.fill"
+            )
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(ConvoLabTheme.navy)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Retry") {
+                model.retryAccountDeletionCleanup()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(ConvoLabTheme.navy)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.22))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("account-deletion-cleanup-warning")
     }
 
     @ViewBuilder
