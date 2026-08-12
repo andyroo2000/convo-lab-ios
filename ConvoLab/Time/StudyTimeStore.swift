@@ -156,6 +156,7 @@ final class StudyTimeStore {
             active = session
             storageWriteErrorMessage = nil
             if previousActive != nil {
+                loadLocalSessions()
                 Task {
                     await pushPending()
                     await refreshAnalytics()
@@ -601,7 +602,6 @@ final class StudyTimeStore {
                     }
                 )
             )
-            var deletedAny = false
             for record in deletions {
                 if let identifier = record.calendarEventIdentifier {
                     do {
@@ -636,9 +636,9 @@ final class StudyTimeStore {
                     generation: mutationGeneration
                 ) else { return }
                 record.syncPending = record.calendarEventIdentifier != nil
-                deletedAny = true
-            }
-            if deletedAny {
+                // Do not carry dirty ModelContext state across the next network
+                // await. Foreground write failures use context.rollback(), so
+                // each background mutation must be committed first.
                 try context.save()
             }
             let pending = try context.fetch(

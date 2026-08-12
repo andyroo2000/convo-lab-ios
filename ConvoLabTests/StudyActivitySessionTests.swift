@@ -5,8 +5,8 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
-    // The iOS 26 XCTest runtime can double-free closure-backed fixture teardown
-    // state. Retain injected save probes until the test process exits.
+    // The iOS 26 XCTest runtime can double-free injected persistence fixture
+    // teardown state. Retain these fixtures until the test process exits.
     private nonisolated(unsafe) static var retainedSaveFixtures: [AnyObject] = []
 
     func testStartSaveFailureRollsBackActiveStateAndCanRetry() async throws {
@@ -58,6 +58,12 @@ final class StudyActivitySessionTests: XCTestCase {
                 FetchDescriptor<LocalStudyActivitySession>()
             ),
             2
+        )
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions.first?.activity, .reading)
+        XCTAssertEqual(
+            store.sessions.first?.endedAt,
+            startedAt.addingTimeInterval(60)
         )
         await store.synchronize()
         try await Task.sleep(for: .milliseconds(50))
