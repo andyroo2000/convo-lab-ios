@@ -5,9 +5,10 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
-    // The iOS 26 XCTest runtime can double-free injected persistence fixture
-    // teardown state. Retain these fixtures until the test process exits.
-    private nonisolated(unsafe) static var retainedSaveFixtures: [AnyObject] = []
+    // Confirmed with a weak saver and no unstructured task in the card-count
+    // case: iOS 26 XCTest can double-free an injected SwiftData container at
+    // method teardown. Keep this bounded set of six containers for the suite.
+    private static var retainedSaveFixtures: [AnyObject] = []
 
     func testStartSaveFailureRollsBackActiveStateAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
@@ -156,7 +157,7 @@ final class StudyActivitySessionTests: XCTestCase {
         await Task.yield()
         await store.synchronize()
         try await Task.sleep(for: .milliseconds(50))
-        retainSaveFixtures(container, saves)
+        retainSaveFixtures(container, store, saves)
     }
 
     func testManualEditSaveFailureRollsBackRecordAndCanRetry() async throws {
@@ -205,7 +206,111 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(store.sessions.first?.activity, .podcast)
         XCTAssertEqual(store.sessions.first?.name, "Edited")
         XCTAssertNil(store.storageWriteErrorMessage)
-        retainSaveFixtures(container, saves)
+        retainSaveFixtures(container, store, saves)
+    }
+
+    func testRecordCompletedSaveFailureRemovesCalendarEventAndCanRetry() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [1]
+        )
+        let calendar = DeterministicStudyCalendar()
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves,
+            calendar: calendar
+        )
+        store.activate(userID: 42)
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        do {
+            _ = try await store.recordCompleted(
+                activity: .conversation,
+                source: .manual,
+                name: "Tutor lesson",
+                startedAt: startedAt,
+                duration: 1_800,
+                addToCalendar: true
+            )
+            XCTFail("Expected the injected save failure")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Forced save failure")
+        }
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            0
+        )
+        XCTAssertEqual(calendar.deletedIdentifiers, ["event-1"])
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+
+        _ = try await store.recordCompleted(
+            activity: .conversation,
+            source: .manual,
+            name: "Tutor lesson",
+            startedAt: startedAt,
+            duration: 1_800,
+            addToCalendar: false
+        )
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertNil(store.storageWriteErrorMessage)
+        retainSaveFixtures(container, store, saves, calendar)
+    }
+
+    func testDeleteSaveFailureRollsBackTombstoneAndCanRetry() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let original = makeSession(source: .manual)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: original, userID: 42)
+        )
+        try container.mainContext.save()
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [1]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { request in
+                switch (request.httpMethod, request.url?.path) {
+                case ("DELETE", _):
+                    return (
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url),
+                            statusCode: 204,
+                            httpVersion: nil,
+                            headerFields: nil
+                        )!,
+                        Data()
+                    )
+                case ("GET", "/api/study/activity-analytics"):
+                    return try analyticsResponse(for: request)
+                default:
+                    XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                    throw URLError(.badURL)
+                }
+            },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+
+        do {
+            try await store.delete(session: original)
+            XCTFail("Expected the injected save failure")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Forced save failure")
+        }
+        XCTAssertEqual(store.sessions, [original])
+        XCTAssertFalse(try savedRecord(in: container).isTombstone)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+
+        try await store.delete(session: original)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertNil(store.storageWriteErrorMessage)
+        retainSaveFixtures(container, store, saves)
     }
 
     func testAnalyticsDurationsRespectSelectedCategories() {
@@ -1659,7 +1764,7 @@ final class StudyActivitySessionTests: XCTestCase {
 
 @MainActor
 private final class DeterministicStudyTimeSaves: StudyTimeContextSaving {
-    private let context: ModelContext
+    private weak var context: ModelContext?
     private let failingAttempts: Set<Int>
     private var attempt = 0
 
@@ -1673,7 +1778,29 @@ private final class DeterministicStudyTimeSaves: StudyTimeContextSaving {
         if failingAttempts.contains(attempt) {
             throw DeterministicStudyTimeSaveError.forced
         }
-        try context.save()
+        try context?.save()
+    }
+}
+
+@MainActor
+private final class DeterministicStudyCalendar: StudyCalendarProviding {
+    private(set) var deletedIdentifiers: [String] = []
+    private var nextIdentifier = 1
+
+    func addEvent(title: String, start: Date, end: Date) async throws -> String {
+        defer { nextIdentifier += 1 }
+        return "event-\(nextIdentifier)"
+    }
+
+    func updateEvent(
+        identifier: String,
+        title: String,
+        start: Date,
+        end: Date
+    ) async throws {}
+
+    func deleteEvent(identifier: String) async throws {
+        deletedIdentifiers.append(identifier)
     }
 }
 

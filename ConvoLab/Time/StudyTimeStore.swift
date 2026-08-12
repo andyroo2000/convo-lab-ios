@@ -52,6 +52,7 @@ final class StudyTimeStore {
     private let context: ModelContext
     private let storageMode: StorageMode
     private let contextSaver: any StudyTimeContextSaving
+    private let calendar: any StudyCalendarProviding
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
@@ -73,12 +74,14 @@ final class StudyTimeStore {
         api: APIClient,
         context: ModelContext,
         storageMode: StorageMode = .persistent,
-        contextSaver: (any StudyTimeContextSaving)? = nil
+        contextSaver: (any StudyTimeContextSaving)? = nil,
+        calendar: (any StudyCalendarProviding)? = nil
     ) {
         self.api = api
         self.context = context
         self.storageMode = storageMode
         self.contextSaver = contextSaver ?? ModelContextStudyTimeSaver(context: context)
+        self.calendar = calendar ?? LiveStudyCalendar()
     }
 
     func activate(userID: Int) {
@@ -242,7 +245,7 @@ final class StudyTimeStore {
         var calendarWarning: String?
         if addToCalendar {
             do {
-                calendarEventIdentifier = try await StudyCalendarService.addEvent(
+                calendarEventIdentifier = try await calendar.addEvent(
                     title: name ?? activity.title,
                     start: startedAt,
                     end: endedAt
@@ -271,7 +274,7 @@ final class StudyTimeStore {
         } catch {
             context.rollback()
             if let calendarEventIdentifier {
-                try? await StudyCalendarService.deleteEvent(identifier: calendarEventIdentifier)
+                try? await calendar.deleteEvent(identifier: calendarEventIdentifier)
             }
             storageWriteErrorMessage = error.localizedDescription
             throw error
@@ -309,7 +312,7 @@ final class StudyTimeStore {
         var calendarWarning: String?
         if let identifier = record.calendarEventIdentifier {
             do {
-                try await StudyCalendarService.updateEvent(
+                try await calendar.updateEvent(
                     identifier: identifier,
                     title: name ?? activity.title,
                     start: startedAt,
@@ -341,7 +344,7 @@ final class StudyTimeStore {
             try contextSaver.save()
         } catch {
             if let identifier = record.calendarEventIdentifier {
-                try? await StudyCalendarService.updateEvent(
+                try? await calendar.updateEvent(
                     identifier: identifier,
                     title: previousSession.name ?? previousSession.activity.title,
                     start: previousSession.startedAt,
@@ -605,7 +608,7 @@ final class StudyTimeStore {
             for record in deletions {
                 if let identifier = record.calendarEventIdentifier {
                     do {
-                        try await StudyCalendarService.deleteEvent(identifier: identifier)
+                        try await calendar.deleteEvent(identifier: identifier)
                         guard isCurrentMutation(
                             userID: userID,
                             generation: mutationGeneration

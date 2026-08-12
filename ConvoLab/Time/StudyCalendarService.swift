@@ -1,6 +1,33 @@
 import EventKit
 import Foundation
 
+@MainActor
+protocol StudyCalendarProviding: AnyObject {
+    func addEvent(title: String, start: Date, end: Date) async throws -> String
+    func updateEvent(identifier: String, title: String, start: Date, end: Date) async throws
+    func deleteEvent(identifier: String) async throws
+}
+
+@MainActor
+final class LiveStudyCalendar: StudyCalendarProviding {
+    func addEvent(title: String, start: Date, end: Date) async throws -> String {
+        try await StudyCalendarService.addEvent(title: title, start: start, end: end)
+    }
+
+    func updateEvent(identifier: String, title: String, start: Date, end: Date) async throws {
+        try await StudyCalendarService.updateEvent(
+            identifier: identifier,
+            title: title,
+            start: start,
+            end: end
+        )
+    }
+
+    func deleteEvent(identifier: String) async throws {
+        try await StudyCalendarService.deleteEvent(identifier: identifier)
+    }
+}
+
 enum StudyCalendarError: LocalizedError {
     case accessDenied
     case noDefaultCalendar
