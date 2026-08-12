@@ -20,6 +20,13 @@ final class AuthStore {
     private var authenticationGeneration = 0
     private var workingOperationID: UUID?
 
+    private struct CredentialSnapshot {
+        let token: String?
+        let cachedUser: String?
+        let apiToken: String?
+        let state: State
+    }
+
     init(api: APIClient, keychain: any CredentialStore = KeychainStore()) {
         self.api = api
         self.keychain = keychain
@@ -51,25 +58,38 @@ final class AuthStore {
     }
 
     func login(email: String, password: String) async {
-        isWorking = true
+        let operation = beginAuthenticationOperation()
         errorMessage = nil
-        defer { isWorking = false }
+        defer { finishWorking(operation.id) }
 
         do {
+            let snapshot = try credentialSnapshot()
             let deviceName = UIDevice.current.name
             let response: MobileTokenResponse = try await api.request(
                 "/api/auth/tokens",
                 method: "POST",
                 body: LoginRequest(email: email, password: password, deviceName: deviceName)
             )
-            try keychain.save(response.data.token, account: tokenAccount)
-            api.setAccessToken(response.data.token)
-            let user: APIEnvelope<CurrentUser> = try await api.request("/api/me")
-            try cacheUser(user.data)
+            guard authenticationGeneration == operation.generation else { return }
+            let user: APIEnvelope<CurrentUser> = try await api.request(
+                "/api/me",
+                authorizationToken: response.data.token
+            )
+            guard authenticationGeneration == operation.generation else { return }
+            try commitCredentials(
+                token: response.data.token,
+                user: user.data,
+                restoring: snapshot
+            )
             state = .signedIn(user.data)
         } catch {
+            guard authenticationGeneration == operation.generation else { return }
             errorMessage = error.localizedDescription
-            state = .signedOut
+            if case .signedIn = state {
+                // A failed reauthentication attempt must not evict the current account.
+            } else {
+                state = .signedOut
+            }
         }
     }
 
@@ -79,11 +99,12 @@ final class AuthStore {
         password: String,
         inviteCode: String
     ) async {
-        isWorking = true
+        let operation = beginAuthenticationOperation()
         errorMessage = nil
-        defer { isWorking = false }
+        defer { finishWorking(operation.id) }
 
         do {
+            let snapshot = try credentialSnapshot()
             let response: RegistrationResponse = try await api.request(
                 "/api/convolab/auth/register",
                 method: "POST",
@@ -95,13 +116,21 @@ final class AuthStore {
                     deviceName: UIDevice.current.name
                 )
             )
-            try keychain.save(response.data.token, account: tokenAccount)
-            api.setAccessToken(response.data.token)
-            try cacheUser(response.data.user)
+            guard authenticationGeneration == operation.generation else { return }
+            try commitCredentials(
+                token: response.data.token,
+                user: response.data.user,
+                restoring: snapshot
+            )
             state = .signedIn(response.data.user)
         } catch {
+            guard authenticationGeneration == operation.generation else { return }
             errorMessage = error.localizedDescription
-            state = .signedOut
+            if case .signedIn = state {
+                // A failed registration attempt must not evict the current account.
+            } else {
+                state = .signedOut
+            }
         }
     }
 
@@ -231,6 +260,55 @@ final class AuthStore {
             return
         }
         try keychain.save(value, account: userAccount)
+    }
+
+    private func beginAuthenticationOperation() -> (generation: Int, id: UUID) {
+        authenticationGeneration += 1
+        let operationID = UUID()
+        workingOperationID = operationID
+        isWorking = true
+        return (authenticationGeneration, operationID)
+    }
+
+    private func credentialSnapshot() throws -> CredentialSnapshot {
+        try CredentialSnapshot(
+            token: keychain.read(account: tokenAccount),
+            cachedUser: keychain.read(account: userAccount),
+            apiToken: api.accessToken,
+            state: state
+        )
+    }
+
+    private func commitCredentials(
+        token: String,
+        user: CurrentUser,
+        restoring snapshot: CredentialSnapshot
+    ) throws {
+        do {
+            // Commit the profile first. If that write fails, the newly issued token
+            // has never entered persistent storage or the shared API client.
+            try cacheUser(user)
+            try keychain.save(token, account: tokenAccount)
+        } catch {
+            restoreCredentials(snapshot)
+            throw error
+        }
+        api.setAccessToken(token)
+    }
+
+    private func restoreCredentials(_ snapshot: CredentialSnapshot) {
+        restore(snapshot.cachedUser, account: userAccount)
+        restore(snapshot.token, account: tokenAccount)
+        api.setAccessToken(snapshot.apiToken)
+        state = snapshot.state
+    }
+
+    private func restore(_ value: String?, account: String) {
+        if let value {
+            try? keychain.save(value, account: account)
+        } else {
+            try? keychain.remove(account: account)
+        }
     }
 
     private func cachedUser() throws -> CurrentUser? {

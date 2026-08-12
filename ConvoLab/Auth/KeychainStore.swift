@@ -17,12 +17,19 @@ struct KeychainStore: CredentialStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
-
-        var insertion = query
-        insertion[kSecValueData as String] = data
-        insertion[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(insertion as CFDictionary, nil)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        let status: OSStatus
+        if updateStatus == errSecItemNotFound {
+            var insertion = query
+            attributes.forEach { insertion[$0.key] = $0.value }
+            status = SecItemAdd(insertion as CFDictionary, nil)
+        } else {
+            status = updateStatus
+        }
         guard status == errSecSuccess else {
             throw KeychainError(status: status)
         }
