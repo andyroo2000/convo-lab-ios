@@ -3366,6 +3366,7 @@ final class StudyStoreTests: XCTestCase {
         let allCardsData = try StorageCodec.encoder.encode(
             StudyCardListResponse(items: [deleted, survivor], limit: 50, nextCursor: nil)
         )
+        let lessonData = try sessionResponseData(cards: [deleted, survivor])
         let deletedSyncID = try XCTUnwrap(deleted.syncId)
         let paths = LockedRequestPaths()
         let client = makeClient { request in
@@ -3374,6 +3375,8 @@ final class StudyStoreTests: XCTestCase {
             switch path {
             case "/api/study/cards":
                 return Self.response(data: allCardsData)
+            case "/api/study/lessons/start":
+                return Self.response(data: lessonData)
             case "/api/sync/feed":
                 return Self.response(data: Data(
                     """
@@ -3407,10 +3410,11 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
+        try await store.refreshLessons()
 
         await store.synchronize()
 
-        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.cards.map(\.id), [survivor.id])
         XCTAssertEqual(store.libraryCards.map(\.id), [survivor.id])
         XCTAssertEqual(store.allCards.map(\.id), [survivor.id])
         XCTAssertEqual(

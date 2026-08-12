@@ -437,18 +437,16 @@ final class StudyStore {
             var libraryCardsReconciler = StudyPublishedCardReconciler()
             var allCardsReconciler = StudyPublishedCardReconciler()
             let result = try await cardSyncFeedRepository.pullChanges { changes in
-                if !lessonSessionIsPresented {
-                    cardsReconciler.apply(changes, to: &self.cards)
-                }
+                // A presented lesson ignores ordinary session refreshes, but a
+                // committed tombstone must still remove the deleted card. Keeping
+                // it visible would let review staging recreate the deleted record.
+                cardsReconciler.apply(changes, to: &self.cards)
                 libraryCardsReconciler.apply(changes, to: &self.libraryCards)
                 allCardsReconciler.apply(changes, to: &self.allCards)
             }
             switch result {
             case let .completed(deletedCardIdentifiers):
-                prunePublishedCards(
-                    matching: deletedCardIdentifiers,
-                    preservingPresentedLesson: lessonSessionIsPresented
-                )
+                prunePublishedCards(matching: deletedCardIdentifiers)
             case let .checkpointReset(deletedCardIdentifiers):
                 checkpointWasReset = true
                 if !lessonSessionIsPresented {
