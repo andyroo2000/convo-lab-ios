@@ -1,0 +1,41 @@
+name: iOS Simulator Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-simulator-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Xcode 26.2 tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Verify toolchain and simulator
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun simctl list devices available
+
+      - name: Run simulator tests serially
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project ConvoLab.xcodeproj \
+            -scheme ConvoLab \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
+            -parallel-testing-enabled NO \
+            -maximum-concurrent-test-simulator-destinations 1
