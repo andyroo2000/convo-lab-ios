@@ -217,6 +217,126 @@ final class ManualDraftOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testConflictLookupCannotOverwriteNewerDraftWhileRequestIsInFlight() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DK"
+        let clientCardID = "01J0000000000000000000000CK"
+        let stale = makeDraft(
+            id: draftID,
+            committedCardID: "01J0000000000000000000000FK",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let newer = makeDraft(
+            id: draftID,
+            committedCardID: clientCardID,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )
+        let staleData = try StorageCodec.encoder.encode(stale)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.httpMethod == "POST" {
+                completion(.success(Self.response(
+                    status: 409,
+                    data: Data(#"{"message":"already committed"}"#.utf8),
+                    request: request
+                )))
+            } else {
+                deferredFetch.hold(completion)
+            }
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        let mutation = try outbox.stageCommit(draftID: draftID, cardID: clientCardID)
+
+        let retry = Task { try await outbox.retryPendingCommits { _ in } }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.replace(newer)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: staleData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        do {
+            try await retry.value
+            XCTFail("Expected conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+        XCTAssertEqual(mutation.kind, "draftCommit")
+        XCTAssertNil(mutation.lastError)
+        XCTAssertEqual(outbox.drafts.first?.committedCardId, clientCardID)
+    }
+
+    @MainActor
+    func testConflictLookupDoesNotReuseFetchStartedBeforeConflict() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DN"
+        let clientCardID = "01J0000000000000000000000CN"
+        let otherCardID = "01J0000000000000000000000FN"
+        let stale = makeDraft(id: draftID)
+        let committed = makeDraft(id: draftID, committedCardID: otherCardID)
+        let staleData = try StorageCodec.encoder.encode(stale)
+        let committedData = try StorageCodec.encoder.encode(committed)
+        let detailRequestCounter = LockedCounter()
+        let initialFetch = LockedDeferredResponse()
+        let conflictFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.httpMethod == "POST" {
+                completion(.success(Self.response(
+                    status: 409,
+                    data: Data(#"{"message":"already committed"}"#.utf8),
+                    request: request
+                )))
+            } else if detailRequestCounter.next() == 1 {
+                initialFetch.hold(completion)
+            } else {
+                conflictFetch.hold(completion)
+            }
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+
+        let olderFetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !initialFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(initialFetch.hasPendingResponse)
+        let mutation = try outbox.stageCommit(draftID: draftID, cardID: clientCardID)
+        let retry = Task { try await outbox.retryPendingCommits { _ in } }
+        for _ in 0..<100 where !conflictFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(conflictFetch.hasPendingResponse)
+        XCTAssertEqual(detailRequestCounter.current, 2)
+        conflictFetch.succeed(with: Self.response(
+            status: 200,
+            data: committedData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        do {
+            try await retry.value
+            XCTFail("Expected conflict")
+        } catch let APIClientError.rejected(status, _) {
+            XCTAssertEqual(status, 409)
+        }
+        XCTAssertEqual(mutation.kind, "draftCommitRejected")
+        XCTAssertNotNil(mutation.lastError)
+
+        initialFetch.succeed(with: Self.response(
+            status: 200,
+            data: staleData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+        _ = try await olderFetch.value
+        XCTAssertEqual(outbox.drafts.first?.committedCardId, otherCardID)
+    }
+
+    @MainActor
     func testCleanupFailureKeepsConfirmedCardAndRetryableMutation() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let draftID = "01J0000000000000000000000D7"
@@ -363,6 +483,290 @@ final class ManualDraftOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderDraftFetchCannotReplaceNewerPublishedDraft() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DE"
+        let stale = makeDraft(
+            id: draftID,
+            cue: "stale",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let newer = makeDraft(
+            id: draftID,
+            cue: "newer",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )
+        let staleData = try StorageCodec.encoder.encode(stale)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.replace(newer)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: staleData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        let fetched = try await fetch.value
+        XCTAssertEqual(fetched.prompt["cueText"]?.stringValue, "newer")
+        XCTAssertEqual(outbox.drafts.first?.prompt["cueText"]?.stringValue, "newer")
+    }
+
+    @MainActor
+    func testDraftFetchCannotResurrectDraftDeletedWhileRequestIsInFlight() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DF"
+        let draft = makeDraft(id: draftID)
+        let draftData = try StorageCodec.encoder.encode(draft)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.httpMethod == "DELETE" {
+                completion(.success(Self.response(status: 204, request: request)))
+            } else {
+                deferredFetch.hold(completion)
+            }
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(draft)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        try await outbox.deleteDraft(id: draftID)
+        XCTAssertTrue(outbox.drafts.isEmpty)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: draftData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        do {
+            _ = try await fetch.value
+            XCTFail("Expected the deleted draft fetch to be discarded")
+        } catch is CancellationError {}
+        XCTAssertTrue(outbox.drafts.isEmpty)
+    }
+
+    @MainActor
+    func testDraftFetchCannotResurrectDraftRemovedByConcurrentRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DG"
+        let draft = makeDraft(id: draftID)
+        let draftData = try StorageCodec.encoder.encode(draft)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(draft)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.applyFetchedDrafts([])
+        XCTAssertTrue(outbox.drafts.isEmpty)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: draftData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        do {
+            _ = try await fetch.value
+            XCTFail("Expected the removed draft fetch to be discarded")
+        } catch is CancellationError {}
+        XCTAssertTrue(outbox.drafts.isEmpty)
+    }
+
+    @MainActor
+    func testEqualTimestampFetchCanApplyServerGeneratedFields() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DH"
+        let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let cached = makeDraft(id: draftID, cue: "before", updatedAt: timestamp)
+        let fetched = makeDraft(id: draftID, cue: "with preview", updatedAt: timestamp)
+        let fetchedData = try StorageCodec.encoder.encode(fetched)
+        let client = makeClient { request in
+            Self.response(status: 200, data: fetchedData, request: request)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(cached)
+
+        let result = try await outbox.fetch(id: draftID)
+
+        XCTAssertEqual(result.prompt["cueText"]?.stringValue, "with preview")
+        XCTAssertEqual(outbox.drafts.first?.prompt["cueText"]?.stringValue, "with preview")
+    }
+
+    @MainActor
+    func testListPayloadDifferenceDoesNotSuppressConcurrentDetailFetch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DI"
+        let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let cached = makeDraft(id: draftID, cue: "cached detail", updatedAt: timestamp)
+        let listDraft = makeDraft(id: draftID, cue: "list payload", updatedAt: timestamp)
+        let fetched = makeDraft(id: draftID, cue: "fresh detail", updatedAt: timestamp)
+        let fetchedData = try StorageCodec.encoder.encode(fetched)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(cached)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.applyFetchedDrafts([listDraft])
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: fetchedData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        let result = try await fetch.value
+        XCTAssertEqual(result.prompt["cueText"]?.stringValue, "fresh detail")
+        XCTAssertEqual(outbox.drafts.first?.prompt["cueText"]?.stringValue, "fresh detail")
+    }
+
+    @MainActor
+    func testNewerDetailFetchWinsOverIntermediateConcurrentRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DL"
+        let cached = makeDraft(
+            id: draftID,
+            cue: "cached",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let intermediate = makeDraft(
+            id: draftID,
+            cue: "intermediate refresh",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )
+        let fetched = makeDraft(
+            id: draftID,
+            cue: "newer detail",
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_200)
+        )
+        let fetchedData = try StorageCodec.encoder.encode(fetched)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(cached)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.applyFetchedDrafts([intermediate])
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: fetchedData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        let result = try await fetch.value
+        XCTAssertEqual(result.prompt["cueText"]?.stringValue, "newer detail")
+        XCTAssertEqual(outbox.drafts.first?.prompt["cueText"]?.stringValue, "newer detail")
+    }
+
+    @MainActor
+    func testEqualTimestampFetchCannotUndoConcurrentCommitState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DM"
+        let cardID = "01J0000000000000000000000CM"
+        let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let stale = makeDraft(id: draftID, updatedAt: timestamp)
+        let committed = makeDraft(
+            id: draftID,
+            committedCardID: cardID,
+            updatedAt: timestamp
+        )
+        let staleData = try StorageCodec.encoder.encode(stale)
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        outbox.replace(stale)
+
+        let fetch = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        outbox.replace(committed)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: staleData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        let result = try await fetch.value
+        XCTAssertEqual(result.status, "committed")
+        XCTAssertEqual(result.committedCardId, cardID)
+        XCTAssertEqual(outbox.drafts.first?.committedCardId, cardID)
+    }
+
+    @MainActor
+    func testConcurrentFetchesForSameDraftShareOneRequest() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J0000000000000000000000DJ"
+        let draft = makeDraft(id: draftID)
+        let draftData = try StorageCodec.encoder.encode(draft)
+        let requestCounter = LockedCounter()
+        let deferredFetch = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in
+            _ = requestCounter.next()
+            deferredFetch.hold(completion)
+        }
+        let outbox = ManualDraftOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+
+        let first = Task { try await outbox.fetch(id: draftID) }
+        let second = Task { try await outbox.fetch(id: draftID) }
+        for _ in 0..<100 where !deferredFetch.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredFetch.hasPendingResponse)
+        XCTAssertEqual(requestCounter.current, 1)
+        deferredFetch.succeed(with: Self.response(
+            status: 200,
+            data: draftData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+
+        let results = try await (first.value, second.value)
+        XCTAssertEqual(results.0, draft)
+        XCTAssertEqual(results.1, draft)
+        XCTAssertEqual(requestCounter.current, 1)
+    }
+
+    @MainActor
     private func makeOutbox(container: ModelContainer) -> ManualDraftOutbox {
         ManualDraftOutbox(
             api: makeClient { _ in throw URLError(.notConnectedToInternet) },
@@ -428,7 +832,9 @@ final class ManualDraftOutboxTests: XCTestCase {
 
     private func makeDraft(
         id: String,
-        committedCardID: String? = nil
+        committedCardID: String? = nil,
+        cue: String = "draft",
+        updatedAt: Date = Date(timeIntervalSince1970: 1_800_000_000)
     ) -> StudyManualCardDraft {
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         return StudyManualCardDraft(
@@ -437,7 +843,7 @@ final class ManualDraftOutboxTests: XCTestCase {
             committedCardId: committedCardID,
             creationKind: .textRecognition,
             cardType: "recognition",
-            prompt: .object(["cueText": .string("draft")]),
+            prompt: .object(["cueText": .string(cue)]),
             answer: .object(["meaning": .string("meaning")]),
             imagePlacement: .none,
             imagePrompt: nil,
@@ -446,7 +852,7 @@ final class ManualDraftOutboxTests: XCTestCase {
             previewImage: nil,
             errorMessage: nil,
             createdAt: date,
-            updatedAt: date
+            updatedAt: updatedAt
         )
     }
 
