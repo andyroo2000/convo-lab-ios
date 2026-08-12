@@ -208,6 +208,7 @@ final class StudyTimeStore {
     func addCreatedCards(_ count: Int = 1) -> Bool {
         guard var current = active, current.activity == .cardCreation else { return false }
         guard let record = record(clientSessionID: current.clientSessionID) else {
+            loadLocalSessions()
             storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
             return false
         }
