@@ -34,6 +34,7 @@ final class PitchAccentResolutionService {
     func resolve(
         _ card: StudyCard,
         prepare: @escaping () async throws -> Void,
+        onCardPrepared: @escaping (StudyCard) -> Bool,
         hasPendingDelete: @escaping (StudyCard) throws -> Bool
     ) async throws -> StudyCard? {
         let operation = try activeOperation()
@@ -52,6 +53,7 @@ final class PitchAccentResolutionService {
         else {
             return nil
         }
+        guard onCardPrepared(currentCard) else { throw CancellationError() }
 
         // The ConvoLab-compatible pitch endpoint returns StudyCard directly,
         // matching the direct card create/update compatibility responses.

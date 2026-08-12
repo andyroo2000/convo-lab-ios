@@ -326,9 +326,12 @@ final class StudyStore {
         pitchAccentResolutionTokens[card.id] = resolutionToken
         resolvingPitchAccentCardIDs.insert(card.id)
         defer {
-            if pitchAccentResolutionTokens[card.id] == resolutionToken {
-                pitchAccentResolutionTokens.removeValue(forKey: card.id)
-                resolvingPitchAccentCardIDs.remove(card.id)
+            let trackedIDs = pitchAccentResolutionTokens.compactMap { id, token in
+                token == resolutionToken ? id : nil
+            }
+            for id in trackedIDs {
+                pitchAccentResolutionTokens.removeValue(forKey: id)
+                resolvingPitchAccentCardIDs.remove(id)
             }
         }
 
@@ -338,6 +341,15 @@ final class StudyStore {
                 prepare: { [weak self] in
                     guard let self else { throw CancellationError() }
                     try await self.flushCardOutbox()
+                },
+                onCardPrepared: { [weak self] preparedCard in
+                    guard let self, self.activeUserID == userID else { return false }
+                    if let existingToken = self.pitchAccentResolutionTokens[preparedCard.id] {
+                        return existingToken == resolutionToken
+                    }
+                    self.pitchAccentResolutionTokens[preparedCard.id] = resolutionToken
+                    self.resolvingPitchAccentCardIDs.insert(preparedCard.id)
+                    return true
                 },
                 hasPendingDelete: { [weak self] resolvedCard in
                     guard let self else { throw CancellationError() }

@@ -2069,12 +2069,18 @@ extension StudyStoreTests {
             cardWithResolvedPitchAccent(serverCard)
         )
         let paths = LockedRequestPaths()
+        let gate = LockedRequestGate()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             paths.append(path)
-            let responseData = path.hasSuffix("/pitch-accent")
-                ? pitchResponse
-                : createResponse
+            let responseData: Data
+            if path.hasSuffix("/pitch-accent") {
+                gate.markStarted()
+                gate.waitForRelease()
+                responseData = pitchResponse
+            } else {
+                responseData = createResponse
+            }
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -2096,7 +2102,13 @@ extension StudyStoreTests {
             )
         )
 
-        await store.resolvePitchAccent(for: clientCard)
+        let resolution = Task { await store.resolvePitchAccent(for: clientCard) }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        XCTAssertEqual(store.cards.first?.id, serverID)
+        XCTAssertTrue(store.resolvingPitchAccentCardIDs.contains(serverID))
+        gate.release()
+        await resolution.value
 
         XCTAssertEqual(paths.values, [
             "/api/study/cards",
