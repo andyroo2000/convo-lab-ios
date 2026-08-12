@@ -82,6 +82,10 @@ final class StudyStore {
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
     @ObservationIgnored private var studySurfaceRevision = 0
+    // Session freshness can suppress redundant UI refreshes, but only retryable
+    // domain failures decide whether synchronizeIfNeeded must bypass that cache.
+    @ObservationIgnored private var lastSessionRefreshAt: Date?
+    @ObservationIgnored private var syncRetryNeeded = false
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -277,6 +281,8 @@ final class StudyStore {
         sessionFailureWasPresentByEventID = [:]
         syncStatus = .idle
         lastSyncAt = nil
+        lastSessionRefreshAt = nil
+        syncRetryNeeded = false
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
@@ -425,6 +431,7 @@ final class StudyStore {
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
+        var retryNeeded = false
         var refreshed = false
         var checkpointWasReset = false
 
@@ -432,6 +439,7 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch {
             firstError = error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -444,6 +452,7 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -453,6 +462,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -485,6 +495,7 @@ final class StudyStore {
             }
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         // Fetch small, user-visible metadata before session media preparation
@@ -493,12 +504,14 @@ final class StudyStore {
             try await refreshKnownKanji()
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -509,12 +522,15 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
 
+        let completedAt = Date.now
         if refreshed {
-            lastSyncAt = .now
+            lastSessionRefreshAt = completedAt
         }
+        syncRetryNeeded = retryNeeded
         if let firstError {
             handleSyncError(
                 firstError,
@@ -522,6 +538,11 @@ final class StudyStore {
                 activationGeneration: activationGeneration
             )
         } else {
+            // This timestamp represents a successful end-to-end sync, not merely
+            // a successful session refresh after another domain failed.
+            if refreshed {
+                lastSyncAt = completedAt
+            }
             syncStatus = .idle
         }
     }
@@ -537,7 +558,10 @@ final class StudyStore {
         let components = maxAge.components
         let maxAgeSeconds = TimeInterval(components.seconds)
             + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-        if let lastSyncAt, Date.now.timeIntervalSince(lastSyncAt) < maxAgeSeconds {
+        if !syncRetryNeeded,
+           let lastSessionRefreshAt,
+           Date.now.timeIntervalSince(lastSessionRefreshAt) < maxAgeSeconds
+        {
             activateOfflineDueCards()
             return
         }
@@ -779,6 +803,7 @@ final class StudyStore {
             // The server may now admit a different set of new cards and build a
             // different offline reserve. Force the next Study-page entry to refresh.
             lastSyncAt = nil
+            lastSessionRefreshAt = nil
             return true
         } catch {
             guard isCurrentActivation(
@@ -2171,6 +2196,10 @@ final class StudyStore {
         } else {
             syncStatus = .failed(error.localizedDescription)
         }
+    }
+
+    private func requiresAutomaticRetry(_ error: any Error) -> Bool {
+        !(error is QuarantinedCardMutationError || error is QuarantinedReviewError)
     }
 
     private func requirePersistentWrites() throws {
