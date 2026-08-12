@@ -61,6 +61,7 @@ final class StudyStore {
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
     private let pitchAccentService: PitchAccentResolutionService
+    private let sessionLoadingService: StudySessionLoadingService
     private let cardSyncFeedRepository: CardSyncFeedRepository
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
@@ -133,10 +134,12 @@ final class StudyStore {
 
     func beginLessonSessionPresentation() {
         lessonSessionIsPresented = true
+        sessionLoadingService.invalidate()
     }
 
     func endLessonSessionPresentation() {
         lessonSessionIsPresented = false
+        sessionLoadingService.invalidate()
         if sessionKind == "lessons" {
             sessionKind = "reviews"
             if let userID = activeUserID {
@@ -180,6 +183,7 @@ final class StudyStore {
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         pitchAccentService = PitchAccentResolutionService(api: api, context: context)
+        sessionLoadingService = StudySessionLoadingService(api: api)
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
@@ -202,6 +206,7 @@ final class StudyStore {
         manualDraftOutbox.activate(userID: userID)
         cardMediaService.activate(userID: userID)
         pitchAccentService.activate(userID: userID)
+        sessionLoadingService.activate(userID: userID)
         cardSyncFeedRepository.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
@@ -218,6 +223,7 @@ final class StudyStore {
         manualDraftOutbox.deactivate()
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
+        sessionLoadingService.deactivate()
         cardSyncFeedRepository.deactivate()
         reviewRecordingService.deactivate()
         reviewOutbox.deactivate()
@@ -515,14 +521,9 @@ final class StudyStore {
 
     func refreshSession() async throws {
         guard let userID = activeUserID else { return }
-        let timeZone = TimeZone.current.identifier
-        let response: StudySessionResponse = try await api.request(
-            "/api/study/session/start",
-            method: "POST",
-            body: ["time_zone": timeZone]
-        )
-        let session = response.session
-        guard activeUserID == userID else { return }
+        guard let load = try await sessionLoadingService.load(.reviews) else { return }
+        let session = load.response.session
+        guard activeUserID == userID, sessionLoadingService.isCurrent(load) else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
         let activeCards = StudySessionPolicy.orderedCards(
             try eligibleSessionCards(
@@ -548,6 +549,7 @@ final class StudyStore {
 
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
+        guard sessionLoadingService.isCurrent(load) else { return }
         markPrepared(cards: activeCards)
     }
 
@@ -561,14 +563,9 @@ final class StudyStore {
 
     func refreshLessons() async throws {
         guard let userID = activeUserID else { return }
-        let timeZone = TimeZone.current.identifier
-        let response: StudySessionResponse = try await api.request(
-            "/api/study/lessons/start",
-            method: "POST",
-            body: ["time_zone": timeZone]
-        )
-        let session = response.session
-        guard activeUserID == userID else { return }
+        guard let load = try await sessionLoadingService.load(.lessons) else { return }
+        let session = load.response.session
+        guard activeUserID == userID, sessionLoadingService.isCurrent(load) else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
         let eligibleLessonCards = try eligibleSessionCards(
             from: session.cards,
@@ -591,6 +588,7 @@ final class StudyStore {
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
+        guard sessionLoadingService.isCurrent(load) else { return }
         markPrepared(cards: lessonCards)
     }
 
