@@ -39,7 +39,7 @@ struct RootView: View {
                     .controlSize(.small)
             } else {
                 Button("Retry") {
-                    model.retryAccountDeletionCleanup()
+                    Task { await model.retryAccountDeletionCleanup() }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)

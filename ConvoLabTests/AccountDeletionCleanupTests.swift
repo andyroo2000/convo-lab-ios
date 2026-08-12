@@ -190,7 +190,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy { domain in
             pending.contains { $0.userID == user.id && $0.domain == domain }
         })
-        model.retryAccountDeletionCleanup()
+        await model.retryAccountDeletionCleanup()
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
     }

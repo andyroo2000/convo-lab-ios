@@ -21,8 +21,8 @@ final class AppModel {
     }
     var shouldShowAccountDeletionCleanupWarning: Bool {
         guard accountDeletionCleanupStatus == .cleanupRequired else { return false }
-        if case .signedIn = auth.state { return false }
-        return true
+        if case .signedOut = auth.state { return true }
+        return false
     }
     var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
@@ -183,7 +183,7 @@ final class AppModel {
     func start() async {
         // The retry ledger is independent of credentials: account deletion already
         // removed them, and a signed-out relaunch must still finish local purging.
-        retryAccountDeletionCleanup()
+        await retryAccountDeletionCleanup()
         await auth.restore()
         guard case .signedIn = auth.state else { return }
         // Only a credential restored at cold launch can establish ownership of
@@ -251,7 +251,7 @@ final class AppModel {
             }
         ) else {
             if serverConfirmedDeletion {
-                retryAccountDeletionCleanup()
+                await retryAccountDeletionCleanup()
             }
             if case let .signedIn(currentUser) = auth.state,
                currentUser.id == user.id {
@@ -272,14 +272,17 @@ final class AppModel {
         study.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
-        retryAccountDeletionCleanup()
+        await retryAccountDeletionCleanup()
         return true
     }
 
-    func retryAccountDeletionCleanup() {
+    func retryAccountDeletionCleanup() async {
         guard !isRetryingAccountDeletionCleanup else { return }
         isRetryingAccountDeletionCleanup = true
         defer { isRetryingAccountDeletionCleanup = false }
+        // Give SwiftUI a render pass so the synchronous, main-actor cleanup has
+        // visible progress and cannot be queued again from the retry control.
+        await Task.yield()
         accountDeletionCleanupFailures = accountDeletionCleanup.retryPendingCleanup()
     }
 
