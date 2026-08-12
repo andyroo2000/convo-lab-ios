@@ -2271,6 +2271,97 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testServerUndoStartedInLessonCannotEnterReviewsAfterLessonExit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewCard = makeCard(id: "persisted-review-before-undo", expression: "復習")
+        let lessonCard = makeCard(
+            id: "lesson-with-delayed-undo",
+            expression: "新しい項目",
+            queueState: "new"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: reviewCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(reviewCard)
+        ))
+        try container.mainContext.save()
+        let lessonData = try sessionResponseData(cards: [lessonCard])
+        let lessonJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(lessonCard), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 0,
+            newCount: 1,
+            reviewCount: 0,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 1
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let undoGate = LockedRequestGate()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/lessons/start":
+                return Self.response(data: lessonData)
+            case "/api/card-review-events/batch":
+                return Self.response(statusCode: 201, data: Data())
+            case "/api/study/reviews/undo":
+                undoGate.markStarted()
+                undoGate.waitForRelease()
+                return Self.response(data: Data(
+                    """
+                    {
+                      "reviewLogId": "delayed-lesson-undo",
+                      "card": \(lessonJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                ))
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+        let recordedEventID = await store.recordReview(
+            card: lessonCard,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+
+        let undoTask = Task {
+            try await store.undoReview(eventID: eventID, cardBefore: lessonCard)
+        }
+        await waitUntil { undoGate.hasStarted }
+        store.endLessonSessionPresentation()
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+
+        undoGate.release()
+        try await undoTask.value
+
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+        let activeRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }
+            )
+        )
+        XCTAssertEqual(activeRecords.map(\.id), [reviewCard.id])
+    }
+
+    @MainActor
     func testOfflineDueCardsCannotEnterPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dueAt = Date.now.addingTimeInterval(3_600)
