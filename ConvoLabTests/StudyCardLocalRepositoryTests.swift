@@ -179,6 +179,107 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testIndexedLookupResolvesAliasesWithinOneAccountDeterministically() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let localAlias = makeCard(
+            id: "Mixed-Local-ID",
+            syncId: "server-id",
+            expression: "local alias"
+        )
+        let localRecord = insert(localAlias, userID: 1, queueIndex: 0, in: container)
+        let canonical = makeCard(id: "SERVER-ID", expression: "canonical")
+        let canonicalRecord = insert(canonical, userID: 1, queueIndex: 1, in: container)
+        let otherUserRecord = insert(
+            makeCard(
+                id: "other-user-local",
+                syncId: "server-id",
+                expression: "other user"
+            ),
+            userID: 2,
+            queueIndex: 0,
+            in: container
+        )
+        _ = insert(
+            makeCard(id: "z-alias", syncId: "shared-server-id", expression: "clean"),
+            userID: 3,
+            queueIndex: 0,
+            in: container
+        )
+        let dirtyAliasRecord = insert(
+            makeCard(id: "a-alias", syncId: "shared-server-id", expression: "dirty"),
+            userID: 3,
+            queueIndex: 1,
+            in: container
+        )
+        dirtyAliasRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 2)
+        let cardIDAliasRecord = insert(
+            makeCard(id: "card-id-alias", syncId: "searched-id", expression: "ID alias"),
+            userID: 4,
+            queueIndex: 0,
+            in: container
+        )
+        _ = insert(
+            makeCard(
+                id: "sync-id-alias",
+                syncId: "searched-sync-id",
+                expression: "sync ID alias"
+            ),
+            userID: 4,
+            queueIndex: 1,
+            in: container
+        )
+        _ = insert(
+            makeCard(id: "case-id", expression: "lowercase duplicate"),
+            userID: 5,
+            queueIndex: 0,
+            in: container
+        )
+        let exactCaseRecord = insert(
+            makeCard(id: "CASE-ID", expression: "exact-case duplicate"),
+            userID: 5,
+            queueIndex: 1,
+            in: container
+        )
+        try container.mainContext.save()
+        let repository = StudyCardLocalRepository(context: container.mainContext)
+
+        XCTAssertTrue(try repository.record(matching: canonical, userID: 1) === canonicalRecord)
+        let staleLocalSnapshot = makeCard(
+            id: localAlias.id,
+            syncId: canonical.id,
+            expression: "stale"
+        )
+        XCTAssertTrue(
+            try repository.record(matching: staleLocalSnapshot, userID: 1) === localRecord
+        )
+        XCTAssertTrue(
+            try repository.record(matching: canonical, userID: 2) === otherUserRecord
+        )
+        let unresolvedCanonical = makeCard(
+            id: "not-yet-stored",
+            syncId: "shared-server-id",
+            expression: "incoming"
+        )
+        XCTAssertTrue(
+            try repository.record(matching: unresolvedCanonical, userID: 3) === dirtyAliasRecord
+        )
+        let divergentSnapshot = makeCard(
+            id: "searched-id",
+            syncId: "searched-sync-id",
+            expression: "divergent"
+        )
+        XCTAssertTrue(
+            try repository.record(matching: divergentSnapshot, userID: 4) === cardIDAliasRecord
+        )
+        XCTAssertTrue(
+            try repository.record(
+                matching: makeCard(id: "CASE-ID", expression: "incoming"),
+                userID: 5
+            ) === exactCaseRecord
+        )
+    }
+
+    @MainActor
     private func insert(
         _ card: StudyCard,
         userID: Int,
