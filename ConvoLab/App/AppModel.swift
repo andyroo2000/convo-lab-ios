@@ -234,14 +234,17 @@ final class AppModel {
                 accountDeletionCleanup.scheduleCleanup(userID: user.id)
             }
         ) else {
-            studyTime.activate(userID: user.id)
-            if let interruptedSession {
-                studyTime.start(
-                    activity: interruptedSession.activity,
-                    source: interruptedSession.source,
-                    name: interruptedSession.name,
-                    at: deletionStartedAt
-                )
+            if case let .signedIn(currentUser) = auth.state,
+               currentUser.id == user.id {
+                studyTime.activate(userID: user.id)
+                if let interruptedSession {
+                    studyTime.start(
+                        activity: interruptedSession.activity,
+                        source: interruptedSession.source,
+                        name: interruptedSession.name,
+                        at: deletionStartedAt
+                    )
+                }
             }
             return false
         }

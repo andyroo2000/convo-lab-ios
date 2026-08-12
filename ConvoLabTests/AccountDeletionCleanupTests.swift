@@ -166,6 +166,97 @@ final class AccountDeletionCleanupTests: XCTestCase {
         })
     }
 
+    func testStaleDeletionDoesNotRestoreDeletedUsersInterruptedStudyTime() async throws {
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let defaults = try makeDefaults()
+        let originalUser = CurrentUser(
+            id: 42,
+            name: "Deleted User",
+            email: "deleted@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = CleanupCredentialStore(values: [
+            "learning-os-mobile-token": "old-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(originalUser),
+                encoding: .utf8
+            )!,
+        ])
+        let deferredDeletion = LockedDeferredResponse()
+        let authClient = makeDeferredClient { request, completion in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/me", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"data":{"id":42,"name":"Deleted User","email":"deleted@example.com","email_verified_at":null}}"#.utf8
+                ))))
+            case ("/api/me", "DELETE"):
+                deferredDeletion.hold(completion)
+            case ("/api/auth/tokens/current", "DELETE"):
+                completion(.success(Self.response(statusCode: 204)))
+            case ("/api/convolab/auth/register", "POST"):
+                completion(.success(Self.response(statusCode: 201, data: Data(
+                    #"{"data":{"user":{"id":84,"name":"New User","email":"new@example.com","email_verified_at":null},"token":"new-token"}}"#.utf8
+                ))))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let model = AppModel(
+            configuration: AppConfiguration(
+                apiBaseURL: URL(string: "https://example.test")!
+            ),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAuthStore: { _ in
+                AuthStore(api: authClient, keychain: credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+        await model.auth.restore()
+        model.studyTime.activate(userID: originalUser.id)
+        model.studyTime.start(
+            activity: .reading,
+            source: .manual,
+            name: "Deleted user's reading"
+        )
+
+        let deletion = Task {
+            await model.deleteAccount(currentPassword: "password")
+        }
+        await waitUntil { deferredDeletion.hasPendingResponse }
+        await model.auth.logout()
+        await model.auth.register(
+            name: "New User",
+            email: "new@example.com",
+            password: "password123",
+            inviteCode: "INVITE1"
+        )
+        model.studyTime.activate(userID: 84)
+        model.studyTime.start(
+            activity: .podcast,
+            source: .manual,
+            name: "New user's listening"
+        )
+        deferredDeletion.succeed(with: Self.response(statusCode: 204))
+
+        let deleted = await deletion.value
+        XCTAssertFalse(deleted)
+        guard case let .signedIn(currentUser) = model.auth.state else {
+            return XCTFail("New user must remain signed in")
+        }
+        XCTAssertEqual(currentUser.id, 84)
+        XCTAssertEqual(model.studyTime.active?.name, "New user's listening")
+        let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
+        XCTAssertEqual(pending.count, AccountDeletionCleanupDomain.allCases.count)
+        XCTAssertTrue(pending.allSatisfy { $0.userID == originalUser.id })
+    }
+
     private func makeDefaults() throws -> UserDefaults {
         let name = "AccountDeletionCleanupTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -191,6 +282,27 @@ final class AccountDeletionCleanupTests: XCTestCase {
             baseURL: URL(string: "https://example.test")!,
             session: URLSession(configuration: configuration)
         )
+    }
+
+    private func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://example.test")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @Sendable () -> Bool
+    ) async {
+        for _ in 0..<100 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private nonisolated static func response(
