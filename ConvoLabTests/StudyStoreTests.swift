@@ -1274,7 +1274,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testStaleManualDraftPatchCannotPopulateNewAccount() async throws {
+    func testStaleManualDraftPatchCannotPopulateReactivatedAccount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let oldDraft = makeManualDraft(
             id: "01J00000000000000000000O2",
@@ -1322,6 +1322,7 @@ final class StudyStoreTests: XCTestCase {
         await waitUntil { gate.hasStarted }
         XCTAssertTrue(gate.hasStarted)
         store.activate(userID: 2)
+        store.activate(userID: 1)
         store.replaceManualDraft(newDraft)
         gate.release()
 
@@ -1332,6 +1333,79 @@ final class StudyStoreTests: XCTestCase {
             // The response belongs to the previous account.
         }
         XCTAssertEqual(store.manualDrafts.map(\.id), [newDraft.id])
+    }
+
+    @MainActor
+    func testStaleManualDraftCommitRetryCannotPopulateReactivatedAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let draftID = "01J00000000000000000000O4"
+        let clientCardID = "01J00000000000000000000O5"
+        let committedCard = makeCard(
+            id: clientCardID.lowercased(),
+            expression: "前の利用者"
+        )
+        let responseData = try StorageCodec.encoder.encode(committedCard)
+        let mutation = PendingMutation(
+            kind: "draftCommit",
+            userID: 1,
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: clientCardID)
+            )
+        )
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/study/card-drafts/\(draftID)/create-card"
+            )
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let retry = Task {
+            try await store.retryPendingDraftCommits()
+        }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        store.activate(userID: 1)
+        gate.release()
+
+        do {
+            try await retry.value
+            XCTFail("Expected stale draft commit cancellation")
+        } catch is CancellationError {
+            // The committed card belongs to the previous account activation.
+        }
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(store.allCards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(store.hasPendingDraftCommit(for: draftID))
     }
 
     @MainActor
