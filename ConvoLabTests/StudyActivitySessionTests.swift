@@ -183,6 +183,35 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store)
     }
 
+    func testSwitchWithMissingActiveRecordClearsTimerWithoutInsertingDuplicate() throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .reading, source: .manual))
+        let record = try savedRecord(in: container)
+        container.mainContext.delete(record)
+        try container.mainContext.save()
+
+        XCTAssertFalse(store.start(activity: .podcast, source: .manual))
+
+        XCTAssertNil(store.active)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            0
+        )
+        XCTAssertEqual(
+            store.storageWriteErrorMessage,
+            "This study entry is no longer available. Refresh and try again."
+        )
+        retainSaveFixtures(container, store)
+    }
+
     func testMissingCardCreationRecordClearsStrandedTimer() throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let store = StudyTimeStore(
@@ -1914,7 +1943,10 @@ private final class DeterministicStudyTimeSaves: StudyTimeContextSaving {
         if failingAttempts.contains(attempt) {
             throw DeterministicStudyTimeSaveError.forced
         }
-        try context?.save()
+        guard let context else {
+            throw DeterministicStudyTimeSaveError.fixtureDeallocated
+        }
+        try context.save()
     }
 }
 
@@ -1957,8 +1989,16 @@ private final class DeterministicStudyCalendar: StudyCalendarProviding {
 
 private enum DeterministicStudyTimeSaveError: LocalizedError {
     case forced
+    case fixtureDeallocated
 
-    var errorDescription: String? { "Forced save failure" }
+    var errorDescription: String? {
+        switch self {
+        case .forced:
+            "Forced save failure"
+        case .fixtureDeallocated:
+            "The test persistence fixture was deallocated"
+        }
+    }
 }
 
 private func makeSession(
