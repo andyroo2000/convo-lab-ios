@@ -40,9 +40,7 @@ struct FailedStudyChangesView: View {
                     }
                 }
             } message: {
-                Text(discarding?.kind == .cardCreate
-                    ? "The unsaved card and changes that depend on it will be removed from this device."
-                    : "The local change will be removed and the server version will be restored when available.")
+                Text(discardMessage)
             }
             .alert("Couldn’t complete that action", isPresented: errorAlert) {
                 Button("OK", role: .cancel) { errorMessage = nil }
@@ -102,6 +100,21 @@ struct FailedStudyChangesView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )
+    }
+
+    private var discardMessage: String {
+        switch discarding?.kind {
+        case .cardCreate:
+            "The unsaved card and changes that depend on it will be removed from this device."
+        case .cardUpdate:
+            "The local edit will be discarded. The latest server version will be restored, or the card will be removed if it no longer exists."
+        case .cardDelete:
+            "The pending deletion will be discarded and the latest server version will be restored."
+        case .review:
+            "The rejected review will be discarded and the latest server version will be restored."
+        case nil:
+            "The local change will be discarded."
+        }
     }
 
     private func metadata(for change: FailedStudyChange) -> String {

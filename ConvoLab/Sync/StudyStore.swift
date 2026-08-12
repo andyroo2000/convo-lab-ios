@@ -1837,7 +1837,10 @@ final class StudyStore {
         else { return }
 
         let resourceID = mutation.resourceID.lowercased()
-        let canonicalCard: StudyCard? = if kind == .cardDelete || kind == .cardUpdate {
+        let canonicalCard: StudyCard? = if kind == .cardDelete
+            || kind == .cardUpdate
+            || kind == .review
+        {
             try await fetchCanonicalCard(id: mutation.resourceID)
         } else {
             nil
@@ -1848,7 +1851,9 @@ final class StudyStore {
         guard let currentMutation = try failedMutation(id: id, userID: userID),
               currentMutation.studyMutationKind == kind
         else { return }
-        if kind == .cardCreate || (kind == .cardUpdate && canonicalCard == nil) {
+        if kind == .cardCreate
+            || ((kind == .cardUpdate || kind == .review) && canonicalCard == nil)
+        {
             // A review/update against a card the server rejected cannot succeed on
             // its own. The same is true when an edited server card no longer exists.
             try discardLocalCardActivity(userID: userID, resourceID: resourceID)
