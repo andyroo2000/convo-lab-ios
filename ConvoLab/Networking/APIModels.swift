@@ -579,6 +579,22 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
 
     var reviewCardID: String { syncId ?? id }
 
+    func replacingIdentity(id: String, syncId: String?) -> Self {
+        Self(
+            id: id,
+            syncId: syncId,
+            noteId: noteId,
+            cardType: cardType,
+            prompt: prompt,
+            answer: answer,
+            state: state,
+            answerAudioSource: answerAudioSource,
+            masteryLevel: masteryLevel,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
     var promptText: String {
         if let heading = presentation.front.heading {
             return StudyRubyDocument.parse(heading, knownKanji: []).plainText

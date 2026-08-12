@@ -106,9 +106,36 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
     }
 
     @MainActor
-    private func makeCard(id: String, createdAt: Date = .now) -> StudyCard {
+    func testCardMergesDeduplicateLocalAndServerAliases() {
+        let local = makeCard(id: "local-id", syncId: "server-id")
+        let canonical = makeCard(id: "SERVER-ID")
+
+        XCTAssertEqual(
+            StudyCardCatalogRepository.appendingUniqueCards(
+                [canonical],
+                to: [local]
+            ).map(\.id),
+            ["local-id"]
+        )
+        XCTAssertEqual(
+            StudyCardCatalogRepository.upserting(
+                canonical,
+                into: [local],
+                matching: ""
+            ).map(\.id),
+            ["SERVER-ID"]
+        )
+    }
+
+    @MainActor
+    private func makeCard(
+        id: String,
+        syncId: String? = nil,
+        createdAt: Date = .now
+    ) -> StudyCard {
         StudyCard(
             id: id,
+            syncId: syncId,
             noteId: nil,
             cardType: "recognition",
             prompt: .object(["cueText": .string(id)]),

@@ -326,7 +326,7 @@ final class StudyStore {
                 method: "POST"
             )
             guard
-                try !cardOutbox.hasPendingDelete(for: card.id),
+                try !cardOutbox.hasPendingDelete(for: card),
                 let pitchAccent = serverCard.answer["pitchAccent"]
             else {
                 return
@@ -585,21 +585,22 @@ final class StudyStore {
         from candidates: [StudyCard],
         pendingReviewState: PendingReviewState
     ) throws -> [StudyCard] {
-        let pendingReviewCardIDs = Set(
-            pendingReviewState.cardIDs.map { $0.lowercased() }
-        )
-        var seenCardIDs: Set<String> = []
-        return try candidates.filter { card in
-            let normalizedID = card.id.lowercased()
-            return try !cardOutbox.hasPendingDelete(for: card.id)
-                && !pendingReviewCardIDs.contains(normalizedID)
-                && seenCardIDs.insert(normalizedID).inserted
+        guard activeUserID != nil else { return [] }
+        let pendingDeleteIdentifiers = try cardOutbox.pendingDeleteIdentifiers()
+        let candidatesWithoutPendingDeletes = candidates.filter { card in
+            !StudyCardIdentity.matches(card, any: pendingDeleteIdentifiers)
         }
+        return StudySessionPolicy.eligibleCards(
+            from: candidatesWithoutPendingDeletes,
+            excluding: pendingReviewState.cardIDs
+        )
     }
 
     func retryLessonCard(_ card: StudyCard) {
         guard sessionKind == "lessons",
-              let index = cards.firstIndex(where: { $0.id == card.id })
+              let index = cards.firstIndex(where: {
+                  StudyCardIdentity.matches($0, card)
+              })
         else {
             return
         }
@@ -906,37 +907,33 @@ final class StudyStore {
                 }
             )
         )) ?? []
-        let pendingDeleteIDs = Set(
-            ((try? context.fetch(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate {
-                        $0.userID == userID && $0.kind == "cardDelete"
-                    }
-                )
-            )) ?? []).map { $0.resourceID.lowercased() }
-        )
-        var activeCardIDs = Set(cards.map(\.id))
+        let pendingDeleteIDs = (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        var activeCardIdentifiers = cards.reduce(into: Set<String>()) {
+            $0.formUnion(StudyCardIdentity.identifiers(for: $1))
+        }
         var newlyDueCards: [StudyCard] = []
         var changed = false
 
         for record in records {
-            guard !pendingDeleteIDs.contains(record.id.lowercased()) else { continue }
             guard
                 let card = try? StorageCodec.decoder.decode(
                     StudyCard.self,
                     from: record.payload
                 ),
+                !StudyCardIdentity.matches(card, any: pendingDeleteIDs),
                 card.isEligibleForOfflineStudy(at: date)
             else {
                 continue
             }
-            if activeCardIDs.insert(card.id).inserted {
+            let identifiers = StudyCardIdentity.identifiers(for: card)
+            if activeCardIdentifiers.isDisjoint(with: identifiers) {
+                activeCardIdentifiers.formUnion(identifiers)
                 newlyDueCards.append(card)
                 changed = true
-            }
-            if !record.isInActiveSession {
-                record.isInActiveSession = true
-                changed = true
+                if !record.isInActiveSession {
+                    record.isInActiveSession = true
+                    changed = true
+                }
             }
         }
 
@@ -1073,7 +1070,7 @@ final class StudyStore {
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
         await reviewOutbox.waitForCurrentFlush()
-        guard try !cardOutbox.hasPendingDelete(for: cardBefore.id) else {
+        guard try !cardOutbox.hasPendingDelete(for: cardBefore) else {
             throw DeletedCardUndoError()
         }
         if try reviewOutbox.stageRemoval(eventID: eventID) {
@@ -1598,10 +1595,10 @@ final class StudyStore {
     }
 
     private func restoreReviewedCard(_ card: StudyCard) throws {
-        guard try !cardOutbox.hasPendingDelete(for: card.id) else {
+        guard try !cardOutbox.hasPendingDelete(for: card) else {
             throw DeletedCardUndoError()
         }
-        let record = try localCardRecord(forID: card.id)
+        let record = try localCardRecord(for: card)
         let restoredCard = restoredCard(card, matching: record)
         let normalizedID = restoredCard.id.lowercased()
         masteryAnimation = nil
@@ -1743,7 +1740,7 @@ final class StudyStore {
 
     private func currentLocalCard(for card: StudyCard) throws -> StudyCard {
         if
-            let record = try localCardRecord(forID: card.id),
+            let record = try localCardRecord(for: card),
             let current = try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
         {
             return current
@@ -1752,26 +1749,37 @@ final class StudyStore {
         throw MissingLocalCardError()
     }
 
-    private func localCardRecord(forID cardID: String) throws -> LocalCardRecord? {
+    private func localCardRecord(for card: StudyCard) throws -> LocalCardRecord? {
         guard let userID = activeUserID else { return nil }
-        var exactDescriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-        )
-        exactDescriptor.fetchLimit = 1
-        if let record = try context.fetch(exactDescriptor).first {
-            return record
+        for cardID in Set([card.id, card.reviewCardID]) {
+            var exactDescriptor = FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
+            )
+            exactDescriptor.fetchLimit = 1
+            if let record = try context.fetch(exactDescriptor).first {
+                return record
+            }
         }
 
         // learning-os canonicalizes client-generated ULIDs to lowercase. An editor
         // can still hold the original snapshot while background sync renames the
         // persisted record, so resolve that alias before saving.
-        let normalizedID = cardID.lowercased()
+        let identifiers = StudyCardIdentity.identifiers(for: card)
         return try context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == userID }
             )
         ).first(
-            where: { $0.id.lowercased() == normalizedID }
+            where: { record in
+                if identifiers.contains(record.id.lowercased()) {
+                    return true
+                }
+                guard let storedCard = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                ) else { return false }
+                return StudyCardIdentity.matches(storedCard, card)
+            }
         )
     }
 

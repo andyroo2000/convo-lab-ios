@@ -6,8 +6,12 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     @MainActor
     func testActiveSessionRefreshPreservesDirtyContentButUpdatesQueueMetadata() throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let localDirty = makeCard(id: "dirty", expression: "local dirty")
-        let serverDirty = makeCard(id: localDirty.id, expression: "server dirty")
+        let localDirty = makeCard(
+            id: "local-dirty",
+            syncId: "server-dirty",
+            expression: "local dirty"
+        )
+        let serverDirty = makeCard(id: "SERVER-DIRTY", expression: "server dirty")
         let stale = makeCard(id: "stale", expression: "stale")
         let otherUser = makeCard(id: "other-user", expression: "other")
         let dirtyRecord = insert(
@@ -31,6 +35,7 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
         XCTAssertTrue(dirtyRecord.isInActiveSession)
         XCTAssertEqual(dirtyRecord.queueIndex, 1)
         XCTAssertEqual(try decode(dirtyRecord).promptText, localDirty.promptText)
+        XCTAssertNil(try record(id: "SERVER-DIRTY", userID: 1, in: container))
         XCTAssertFalse(staleRecord.isInActiveSession)
         XCTAssertTrue(otherRecord.isInActiveSession)
         XCTAssertEqual(otherRecord.queueIndex, 7)
@@ -74,10 +79,42 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testReserveMergeUpdatesExistingLocalServerAliasWithoutPersistingDuplicate() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "local-id",
+            syncId: "server-id",
+            expression: "local"
+        )
+        let localRecord = insert(local, userID: 1, queueIndex: 10, in: container)
+        try container.mainContext.save()
+        let repository = StudyCardLocalRepository(context: container.mainContext)
+        let canonical = makeCard(id: "SERVER-ID", expression: "server")
+
+        try repository.mergeOfflineReserve([canonical], userID: 1)
+
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertTrue(records.first === localRecord)
+        XCTAssertEqual(localRecord.id, "local-id")
+        XCTAssertEqual(localRecord.queueIndex, 0)
+        let merged = try decode(localRecord)
+        XCTAssertEqual(merged.id, "local-id")
+        XCTAssertEqual(merged.reviewCardID, "SERVER-ID")
+        XCTAssertEqual(merged.promptText, "server")
+    }
+
+    @MainActor
     func testPreparedMediaUpdatesAreAccountScopedAndCanClearOmittedCards() throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let cached = makeCard(
-            id: "cached",
+            id: "local-cached",
+            syncId: "server-cached",
+            expression: "cached",
+            mediaURL: "/api/study/media/cached"
+        )
+        let canonicalCached = makeCard(
+            id: "SERVER-CACHED",
             expression: "cached",
             mediaURL: "/api/study/media/cached"
         )
@@ -104,7 +141,7 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
         let cachedURL = try XCTUnwrap(cached.mediaURLs.first)
 
         try repository.updateMediaPreparedState(
-            for: [cached, missing, textOnly],
+            for: [canonicalCached, missing, textOnly],
             userID: 1,
             cachedKeys: [MediaCache.stableCacheKey(for: cachedURL)],
             clearingOtherRecords: true
@@ -183,6 +220,7 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     @MainActor
     private func makeCard(
         id: String,
+        syncId: String? = nil,
         expression: String,
         mediaURL: String? = nil
     ) -> StudyCard {
@@ -192,6 +230,7 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
         }
         return StudyCard(
             id: id,
+            syncId: syncId,
             noteId: nil,
             cardType: "recognition",
             prompt: .object(prompt),
