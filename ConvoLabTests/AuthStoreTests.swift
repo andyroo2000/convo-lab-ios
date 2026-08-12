@@ -149,12 +149,6 @@ final class AuthStoreTests: XCTestCase {
             email: "original@example.com",
             emailVerifiedAt: nil
         )
-        let replacementUser = CurrentUser(
-            id: 2,
-            name: "Replacement",
-            email: "replacement@example.com",
-            emailVerifiedAt: nil
-        )
         let originalUserJSON = String(
             data: try JSONEncoder().encode(originalUser),
             encoding: .utf8

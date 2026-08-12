@@ -328,7 +328,7 @@ final class DailyAudioStoreTests: XCTestCase {
     func testRefreshIfNeededThrottlesRecentSuccessfulRefresh() async throws {
         let requestCount = LockedCounter()
         let client = makeClient { request in
-            requestCount.next()
+            _ = requestCount.next()
             return (
                 HTTPURLResponse(
                     url: request.url!,
