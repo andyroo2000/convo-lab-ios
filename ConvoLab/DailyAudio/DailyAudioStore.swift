@@ -417,15 +417,23 @@ final class DailyAudioStore {
             )
             guard
                 isCurrentActivation(userID, generation: operationGeneration),
-                practice.id == track.practiceId,
-                let detailedTrack = practice.tracks.first(where: { $0.id == track.id })
+                practice.id == track.practiceId
             else {
                 return nil
             }
-            practices.removeAll { $0.id == practice.id }
-            practices.append(practice)
+            let latestPractice = practices.first { $0.id == practice.id }
+                ?? persistedPractice(id: practice.id, userID: userID)
+            let reconciledPractice = latestPractice?.preservingTrackDetails(from: practice)
+                ?? practice
+            guard let detailedTrack = reconciledPractice.tracks.first(where: {
+                $0.id == track.id && $0.scriptUnitsJson != nil && $0.timingData != nil
+            }) else {
+                return nil
+            }
+            practices.removeAll { $0.id == reconciledPractice.id }
+            practices.append(reconciledPractice)
             practices = orderedPractices(practices)
-            try persist([practice], userID: userID)
+            try persist([reconciledPractice], userID: userID)
             clearError(from: .playback(track.id))
             return detailedTrack
         } catch {
@@ -580,9 +588,16 @@ final class DailyAudioStore {
         practiceID: String,
         userID: Int
     ) -> DailyAudioTrack? {
+        persistedPractice(id: practiceID, userID: userID)?.tracks.first { $0.id == id }
+    }
+
+    private func persistedPractice(
+        id: String,
+        userID: Int
+    ) -> DailyAudioPractice? {
         let descriptor = FetchDescriptor<LocalDailyAudioPractice>(
             predicate: #Predicate {
-                $0.userID == userID && $0.id == practiceID
+                $0.userID == userID && $0.id == id
             }
         )
         guard
@@ -594,7 +609,7 @@ final class DailyAudioStore {
         else {
             return nil
         }
-        return practice.tracks.first { $0.id == id }
+        return practice
     }
 
     private func loadLocal(userID: Int) {

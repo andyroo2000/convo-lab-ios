@@ -927,6 +927,138 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertEqual(persisted.tracks.first?.scriptUnitsJson?.first?.translation, "It is a cat.")
     }
 
+    func testOlderTrackDetailResponseCannotReplaceNewerPracticeRefresh() async throws {
+        let oldDate = Date(timeIntervalSince1970: 2_000)
+        let newDate = Date(timeIntervalSince1970: 3_000)
+        let summaryTrack = dailyAudioTrack(updatedAt: oldDate)
+        let detailedTrack = DailyAudioTrack(
+            id: summaryTrack.id,
+            practiceId: summaryTrack.practiceId,
+            mode: summaryTrack.mode,
+            status: summaryTrack.status,
+            title: "Old title",
+            sortOrder: summaryTrack.sortOrder,
+            scriptUnitsJson: [
+                DailyAudioScriptUnit(
+                    type: "L2",
+                    text: "猫です",
+                    reading: "猫[ねこ]です",
+                    translation: "It is a cat."
+                ),
+            ],
+            audioUrl: summaryTrack.audioUrl,
+            timingData: [
+                DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_500),
+            ],
+            approxDurationSeconds: summaryTrack.approxDurationSeconds,
+            updatedAt: oldDate
+        )
+        let staleDetail = DailyAudioPractice(
+            id: summaryTrack.practiceId,
+            practiceDate: "2026-07-25",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: oldDate,
+            updatedAt: oldDate,
+            tracks: [detailedTrack]
+        )
+        let refreshedTrack = DailyAudioTrack(
+            id: summaryTrack.id,
+            practiceId: summaryTrack.practiceId,
+            mode: summaryTrack.mode,
+            status: summaryTrack.status,
+            title: "New title",
+            sortOrder: summaryTrack.sortOrder,
+            audioUrl: summaryTrack.audioUrl,
+            approxDurationSeconds: summaryTrack.approxDurationSeconds,
+            updatedAt: oldDate
+        )
+        let refreshedPractice = DailyAudioPractice(
+            id: summaryTrack.practiceId,
+            practiceDate: "2026-07-25",
+            status: "failed",
+            targetDurationMinutes: 45,
+            errorMessage: "New server status",
+            createdAt: oldDate,
+            updatedAt: newDate,
+            tracks: [refreshedTrack]
+        )
+        let practiceID = summaryTrack.practiceId
+        let detailData = try StorageCodec.encoder.encode(staleDetail)
+        let refreshData = try StorageCodec.encoder.encode(DailyAudioPracticePage(
+            items: [refreshedPractice],
+            total: 1,
+            limit: 14,
+            nextCursor: nil
+        ))
+        let deferredDetail = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.url?.path == "/api/daily-audio-practice/\(practiceID)" {
+                deferredDetail.hold(completion)
+                return
+            }
+            completion(.success((
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                refreshData
+            )))
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        try insertPractice(containing: summaryTrack, userID: 1, into: container)
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let detail = Task { await store.detailedTrack(for: summaryTrack) }
+        for _ in 0..<100 where !deferredDetail.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredDetail.hasPendingResponse)
+        let refreshed = await store.refresh()
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(store.practices.first?.status, "failed")
+        XCTAssertEqual(store.practices.first?.tracks.first?.title, "New title")
+        deferredDetail.succeed(with: (
+            HTTPURLResponse(
+                url: URL(string: "https://learning-os.example")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            detailData
+        ))
+        _ = await detail.value
+
+        XCTAssertEqual(store.practices.first?.status, "failed")
+        XCTAssertEqual(store.practices.first?.targetDurationMinutes, 45)
+        XCTAssertEqual(store.practices.first?.tracks.first?.title, "New title")
+        XCTAssertEqual(
+            store.practices.first?.tracks.first?.scriptUnitsJson?.first?.text,
+            "猫です"
+        )
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalDailyAudioPractice>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(
+            DailyAudioPractice.self,
+            from: record.payload
+        )
+        XCTAssertEqual(persisted.status, "failed")
+        XCTAssertEqual(persisted.tracks.first?.title, "New title")
+    }
+
     func testTranscriptSelectsOnlyTheCurrentlySpokenTargetLanguageUnit() {
         let track = transcriptTrack(
             timings: [
@@ -1052,6 +1184,7 @@ final class DailyAudioStoreTests: XCTestCase {
     }
 
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
@@ -1060,4 +1193,18 @@ final class DailyAudioStoreTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
     }
+
+    private func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
 }
