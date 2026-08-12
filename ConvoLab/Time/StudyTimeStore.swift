@@ -44,6 +44,8 @@ final class StudyTimeStore {
     private var synchronizationTask: Task<Void, Never>?
     private var synchronizingUserID: Int?
     private var pendingPushTask: Task<Void, Never>?
+    private var pendingPushID: UUID?
+    private var pendingPushNeedsAnotherPass = false
     private var localMutationGeneration = 0
     private var analyticsRequestGeneration = 0
     private var requestedAnalyticsAnchor: Date?
@@ -461,20 +463,46 @@ final class StudyTimeStore {
 
     private func pushPending() async {
         if let pendingPushTask {
+            pendingPushNeedsAnotherPass = true
             await pendingPushTask.value
             return
         }
-        guard let userID = activeUserID else { return }
+        guard activeUserID != nil else { return }
+        let pushID = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.performPushPending(userID: userID)
+            await self.drainPendingPushes()
+            if self.pendingPushID == pushID {
+                self.pendingPushTask = nil
+                self.pendingPushID = nil
+            }
         }
+        pendingPushID = pushID
         pendingPushTask = task
         await task.value
-        pendingPushTask = nil
     }
 
-    private func performPushPending(userID: Int) async {
+    private func drainPendingPushes() async {
+        repeat {
+            pendingPushNeedsAnotherPass = false
+            guard let userID = activeUserID else { return }
+            let mutationGeneration = localMutationGeneration
+            await performPushPending(
+                userID: userID,
+                mutationGeneration: mutationGeneration
+            )
+            if activeUserID != nil,
+               !isCurrentMutation(userID: userID, generation: mutationGeneration)
+            {
+                pendingPushNeedsAnotherPass = true
+            }
+        } while pendingPushNeedsAnotherPass
+    }
+
+    private func performPushPending(
+        userID: Int,
+        mutationGeneration: Int
+    ) async {
         var failures: [String] = []
         do {
             let deletions = try context.fetch(
@@ -489,6 +517,10 @@ final class StudyTimeStore {
                 if let identifier = record.calendarEventIdentifier {
                     do {
                         try await StudyCalendarService.deleteEvent(identifier: identifier)
+                        guard isCurrentMutation(
+                            userID: userID,
+                            generation: mutationGeneration
+                        ) else { return }
                         record.calendarEventIdentifier = nil
                         try context.save()
                     } catch {
@@ -510,6 +542,10 @@ final class StudyTimeStore {
                     failures.append(error.localizedDescription)
                     continue
                 }
+                guard isCurrentMutation(
+                    userID: userID,
+                    generation: mutationGeneration
+                ) else { return }
                 record.syncPending = record.calendarEventIdentifier != nil
                 deletedAny = true
             }
@@ -534,6 +570,10 @@ final class StudyTimeStore {
                     body: StudyActivityBatchRequest(sessions: payload),
                     response: [StudyActivitySession].self
                 )
+                guard isCurrentMutation(
+                    userID: userID,
+                    generation: mutationGeneration
+                ) else { return }
                 let savedIDs = Set(saved.map(\.clientSessionId))
                 pending.filter { savedIDs.contains($0.clientSessionID) }.forEach {
                     $0.syncPending = false
@@ -541,12 +581,22 @@ final class StudyTimeStore {
                 try context.save()
             }
         } catch {
+            guard isCurrentMutation(
+                userID: userID,
+                generation: mutationGeneration
+            ) else { return }
             failures.append(error.localizedDescription)
         }
-        if activeUserID == userID {
-            syncErrorMessage = failures.first
-        }
+        guard isCurrentMutation(
+            userID: userID,
+            generation: mutationGeneration
+        ) else { return }
+        syncErrorMessage = failures.first
         loadLocalSessions()
+    }
+
+    private func isCurrentMutation(userID: Int, generation: Int) -> Bool {
+        activeUserID == userID && localMutationGeneration == generation
     }
 
     private func loadLocalSessions(recoverAbandonedAutomatic: Bool = false) {
