@@ -14,8 +14,10 @@ final class AppModel {
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
     let storageStatus: StorageStatus
+    private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
     var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
+    @ObservationIgnored private let accountDeletionCleanup: AccountDeletionCleanupCoordinator
 
     init(
         configuration: AppConfiguration = .load(),
@@ -24,7 +26,9 @@ final class AppModel {
         },
         makeStudyTimeContainer: (Bool) throws -> ModelContainer = {
             try StudyTimePersistence.makeContainer(inMemory: $0)
-        }
+        },
+        makeAuthStore: (APIClient) -> AuthStore = { AuthStore(api: $0) },
+        accountDeletionCleanupDefaults: UserDefaults = .standard
     ) {
         let container: ModelContainer
         let studyStorageMode: StorageMode
@@ -67,26 +71,80 @@ final class AppModel {
             context: timeContainer.mainContext,
             storageMode: studyTimeStorageMode
         )
-
-        self.container = container
-        studyTimeContainer = timeContainer
-        self.api = api
-        auth = AuthStore(api: api)
-        self.mediaCache = mediaCache
-        self.studyTime = studyTime
-        self.storageStatus = storageStatus
-        study = StudyStore(
+        let study = StudyStore(
             api: api,
             context: container.mainContext,
             mediaCache: mediaCache,
             storageMode: studyStorageMode
         )
-        // Daily Audio creation is server-first and downloaded media is a disposable
-        // cache, so those features remain available while study storage is temporary.
-        dailyAudio = DailyAudioStore(
+        let dailyAudio = DailyAudioStore(
             api: api,
             context: container.mainContext,
             mediaCache: mediaCache
+        )
+
+        self.container = container
+        studyTimeContainer = timeContainer
+        self.api = api
+        auth = makeAuthStore(api)
+        self.mediaCache = mediaCache
+        self.studyTime = studyTime
+        self.storageStatus = storageStatus
+        self.study = study
+        // Daily Audio creation is server-first and downloaded media is a disposable
+        // cache, so those features remain available while study storage is temporary.
+        self.dailyAudio = dailyAudio
+        let cleanupLedger = AccountDeletionCleanupLedger(
+            defaults: accountDeletionCleanupDefaults
+        )
+        accountDeletionCleanup = AccountDeletionCleanupCoordinator(
+            ledger: cleanupLedger,
+            operations: [
+                .mediaCache: { userID in
+                    guard studyStorageMode == .persistent else {
+                        return false
+                    }
+                    do {
+                        try mediaCache.deleteLocalData(userID: userID)
+                        return true
+                    } catch {
+                        return false
+                    }
+                },
+                .dailyAudio: { userID in
+                    guard studyStorageMode == .persistent else {
+                        return false
+                    }
+                    do {
+                        try dailyAudio.deleteLocalData(userID: userID)
+                        return true
+                    } catch {
+                        return false
+                    }
+                },
+                .study: { userID in
+                    guard studyStorageMode == .persistent else {
+                        return false
+                    }
+                    do {
+                        try study.deleteLocalData(userID: userID)
+                        return true
+                    } catch {
+                        return false
+                    }
+                },
+                .studyTime: { userID in
+                    guard studyTimeStorageMode == .persistent else {
+                        return false
+                    }
+                    do {
+                        try studyTime.deleteLocalData(userID: userID)
+                        return true
+                    } catch {
+                        return false
+                    }
+                },
+            ]
         )
         let audioPlayer = AudioPlayer()
         let studyAudioPlayer = StudyAudioPlayer(
@@ -113,6 +171,9 @@ final class AppModel {
     }
 
     func start() async {
+        // The retry ledger is independent of credentials: account deletion already
+        // removed them, and a signed-out relaunch must still finish local purging.
+        retryPendingAccountDeletionCleanup()
         await auth.restore()
         guard case .signedIn = auth.state else { return }
         // Only a credential restored at cold launch can establish ownership of
@@ -167,7 +228,12 @@ final class AppModel {
         let interruptedSession = studyTime.active
         let deletionStartedAt = Date.now
         await studyTime.deactivate(at: deletionStartedAt)
-        guard await auth.deleteAccount(currentPassword: currentPassword) else {
+        guard await auth.deleteAccount(
+            currentPassword: currentPassword,
+            onConfirmed: { [accountDeletionCleanup] in
+                accountDeletionCleanup.scheduleCleanup(userID: user.id)
+            }
+        ) else {
             studyTime.activate(userID: user.id)
             if let interruptedSession {
                 studyTime.start(
@@ -184,11 +250,12 @@ final class AppModel {
         study.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
-        try? mediaCache.deleteLocalData(userID: user.id)
-        try? dailyAudio.deleteLocalData(userID: user.id)
-        try? study.deleteLocalData(userID: user.id)
-        try? studyTime.deleteLocalData(userID: user.id)
+        retryPendingAccountDeletionCleanup()
         return true
+    }
+
+    private func retryPendingAccountDeletionCleanup() {
+        accountDeletionCleanupFailures = accountDeletionCleanup.retryPendingCleanup()
     }
 
     private func refreshAuthenticatedData() async {

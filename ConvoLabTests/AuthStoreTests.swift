@@ -304,9 +304,13 @@ final class AuthStoreTests: XCTestCase {
         }
         let store = AuthStore(api: client, keychain: credentials)
         await store.restore()
+        var deletionWasConfirmed = false
 
         let deletion = Task {
-            await store.deleteAccount(currentPassword: "password")
+            await store.deleteAccount(
+                currentPassword: "password",
+                onConfirmed: { deletionWasConfirmed = true }
+            )
         }
         await waitUntil { deferredDeletion.hasPendingResponse }
         await store.logout()
@@ -320,6 +324,7 @@ final class AuthStoreTests: XCTestCase {
         let deleted = await deletion.value
 
         XCTAssertFalse(deleted)
+        XCTAssertTrue(deletionWasConfirmed)
         guard case let .signedIn(user) = store.state else {
             return XCTFail("The new registration must remain signed in")
         }
