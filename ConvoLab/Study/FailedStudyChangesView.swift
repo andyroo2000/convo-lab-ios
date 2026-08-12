@@ -111,7 +111,7 @@ struct FailedStudyChangesView: View {
         case .cardDelete:
             "The pending deletion will be discarded and the latest server version will be restored."
         case .review:
-            "The rejected review will be discarded and the latest server version will be restored."
+            "The rejected review will be discarded. The latest server version will be restored, or the card will be removed if it no longer exists."
         case nil:
             "The local change will be discarded."
         }

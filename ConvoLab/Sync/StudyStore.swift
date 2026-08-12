@@ -1859,22 +1859,23 @@ final class StudyStore {
             try discardLocalCardActivity(userID: userID, resourceID: resourceID)
         } else {
             context.delete(currentMutation)
-            if kind == .cardUpdate {
-                let remaining = try context.fetch(
-                    FetchDescriptor<PendingMutation>(
-                        predicate: #Predicate {
-                            $0.userID == userID
-                                && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                        }
-                    )
-                ).contains { $0.resourceID.lowercased() == resourceID && $0.id != id }
-                if !remaining {
-                    try localRecords(userID: userID, matching: resourceID).forEach {
-                        $0.locallyUpdatedAt = nil
-                    }
+            let remaining = try context.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.userID == userID }
+                )
+            ).contains {
+                $0.id != id
+                    && $0.resourceID.lowercased() == resourceID
+                    && $0.studyMutationKind != nil
+            }
+            if kind == .cardUpdate && !remaining {
+                try localRecords(userID: userID, matching: resourceID).forEach {
+                    $0.locallyUpdatedAt = nil
                 }
             }
-            if let canonicalCard {
+            // Any remaining card write or review owns the optimistic replica.
+            // Restoring a server snapshot here would clobber that newer local work.
+            if !remaining, let canonicalCard {
                 try upsertLocalCard(
                     canonicalCard,
                     markedDirty: false,
