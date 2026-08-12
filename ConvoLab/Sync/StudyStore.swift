@@ -82,8 +82,9 @@ final class StudyStore {
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
     @ObservationIgnored private var studySurfaceRevision = 0
-    // Session freshness can suppress redundant UI refreshes, but only retryable
-    // domain failures decide whether synchronizeIfNeeded must bypass that cache.
+    // Session freshness suppresses redundant UI refreshes. A failed mutation
+    // outbox receives one prompt retry before returning to that throttle; the
+    // read-only refresh domains use the ordinary max-age cadence.
     @ObservationIgnored private var lastSessionRefreshAt: Date?
     @ObservationIgnored private var syncRetryNeeded = false
 
@@ -563,8 +564,7 @@ final class StudyStore {
         let components = maxAge.components
         let maxAgeSeconds = TimeInterval(components.seconds)
             + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-        if !syncRetryNeeded,
-           let lastSessionRefreshAt,
+        if let lastSessionRefreshAt,
            Date.now.timeIntervalSince(lastSessionRefreshAt) < maxAgeSeconds
         {
             activateOfflineDueCards()
