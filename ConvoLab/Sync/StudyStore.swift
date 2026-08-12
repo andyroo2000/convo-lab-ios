@@ -134,22 +134,30 @@ final class StudyStore {
     }
 
     func beginLessonSessionPresentation() {
+        guard !lessonSessionIsPresented else { return }
         lessonSessionIsPresented = true
         sessionLoadingService.invalidate()
+        offlineDueActivationTimer?.invalidate()
+        offlineDueActivationTimer = nil
+        cards = []
+        sessionInitialCardCount = 0
+        sessionCompletedCardIDs = []
+        masteryAnimation = nil
     }
 
     func endLessonSessionPresentation() {
+        guard lessonSessionIsPresented else { return }
         lessonSessionIsPresented = false
         sessionLoadingService.invalidate()
-        if sessionKind == "lessons" {
-            sessionKind = "reviews"
-            if let userID = activeUserID {
-                try? localCardRepository.replaceActiveSession(with: [], userID: userID)
-            }
-            cards = []
-            sessionInitialCardCount = 0
-            sessionCompletedCardIDs = []
+        sessionKind = "reviews"
+        if let userID = activeUserID {
+            loadLocalCards(userID: userID)
+            loadLibraryCards(userID: userID)
         }
+        sessionInitialCardCount = cards.count
+        sessionCompletedCardIDs = []
+        masteryAnimation = nil
+        scheduleNextOfflineActivation()
     }
 
     init(
@@ -592,7 +600,13 @@ final class StudyStore {
         sessionInitialCardCount = lessonCards.count
         sessionCompletedCardIDs = []
         masteryAnimation = nil
-        try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
+        if lessonSessionIsPresented {
+            // Keep the review queue durable while its presentation is suspended.
+            // Lesson cards are cached locally without taking over active-review flags.
+            try localCardRepository.mergeOfflineReserve(lessonCards, userID: userID)
+        } else {
+            try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
+        }
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
@@ -920,7 +934,7 @@ final class StudyStore {
         at date: Date = .now,
         preservingCurrentOrder: Bool = true
     ) {
-        guard let userID = activeUserID else { return }
+        guard let userID = activeUserID, !lessonSessionIsPresented else { return }
         let records = (try? context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate {
@@ -1926,7 +1940,7 @@ final class StudyStore {
 
     private func scheduleNextOfflineActivation() {
         offlineDueActivationTimer?.invalidate()
-        guard let dueAt = nextOfflineDueAt else {
+        guard !lessonSessionIsPresented, let dueAt = nextOfflineDueAt else {
             offlineDueActivationTimer = nil
             return
         }

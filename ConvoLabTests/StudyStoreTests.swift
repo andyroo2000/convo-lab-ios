@@ -2187,6 +2187,7 @@ final class StudyStoreTests: XCTestCase {
         }
         await waitUntil { OverlappingStudySessionURLProtocol.hasPendingFirstReview }
         store.beginLessonSessionPresentation()
+        XCTAssertTrue(store.cards.isEmpty)
         let lessonRefresh = Task { try await store.refreshLessons() }
         await waitUntil { OverlappingStudySessionURLProtocol.hasPendingLesson }
         XCTAssertTrue(OverlappingStudySessionURLProtocol.hasPendingLesson)
@@ -2200,6 +2201,58 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertFalse(lessonApplied)
         XCTAssertEqual(store.cards.map(\.id), [existingCard.id])
         XCTAssertEqual(store.libraryCards.map(\.id), [existingCard.id])
+    }
+
+    @MainActor
+    func testLeavingSuccessfulLessonRestoresPersistedReviewQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewCard = makeCard(id: "persisted-review-card", expression: "復習")
+        let lessonCard = makeCard(
+            id: "presented-lesson-card",
+            expression: "新しい項目",
+            queueState: "new"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: reviewCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(reviewCard)
+        ))
+        try container.mainContext.save()
+        let lessonData = try sessionResponseData(cards: [lessonCard], lessonBatchSize: 3)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            return Self.response(data: lessonData)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+        store.beginLessonSessionPresentation()
+        XCTAssertTrue(store.cards.isEmpty)
+
+        try await store.refreshLessons()
+
+        XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
+        XCTAssertEqual(store.sessionKind, "lessons")
+        store.endLessonSessionPresentation()
+
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+        XCTAssertEqual(store.sessionKind, "reviews")
+        let activeRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }
+            )
+        )
+        XCTAssertEqual(activeRecords.map(\.id), [reviewCard.id])
     }
 
     @MainActor
