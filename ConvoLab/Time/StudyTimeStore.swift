@@ -34,11 +34,13 @@ final class StudyTimeStore {
 
     private let api: APIClient
     private let context: ModelContext
+    private let storageMode: StorageMode
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
     private(set) var analyticsCacheGeneration = 0
     private(set) var active: ActiveSession?
+    private(set) var storageWriteErrorMessage: String?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
     private var synchronizationTask: Task<Void, Never>?
@@ -50,9 +52,14 @@ final class StudyTimeStore {
     private var analyticsRequestGeneration = 0
     private var requestedAnalyticsAnchor: Date?
 
-    init(api: APIClient, context: ModelContext) {
+    init(
+        api: APIClient,
+        context: ModelContext,
+        storageMode: StorageMode = .persistent
+    ) {
         self.api = api
         self.context = context
+        self.storageMode = storageMode
     }
 
     func activate(userID: Int) {
@@ -91,6 +98,11 @@ final class StudyTimeStore {
         at date: Date = .now
     ) {
         guard let userID = activeUserID else { return }
+        guard storageMode == .persistent else {
+            storageWriteErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
+                .localizedDescription
+            return
+        }
         if active?.activity == activity, active?.source == source, active?.name == name {
             return
         }
@@ -159,6 +171,7 @@ final class StudyTimeStore {
         duration: TimeInterval,
         addToCalendar: Bool = false
     ) async throws -> String? {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { return nil }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
@@ -213,6 +226,7 @@ final class StudyTimeStore {
         startedAt: Date,
         duration: TimeInterval
     ) async throws -> String? {
+        try requirePersistentWrites()
         guard session.source != .automatic else {
             throw StudyTimeStoreError.automaticSession
         }
@@ -288,6 +302,7 @@ final class StudyTimeStore {
     }
 
     func delete(session: StudyActivitySession) async throws {
+        try requirePersistentWrites()
         guard session.source != .automatic else {
             throw StudyTimeStoreError.automaticSession
         }
@@ -442,6 +457,12 @@ final class StudyTimeStore {
                 await pushPending()
                 await refreshAnalytics()
             }
+        }
+    }
+
+    private func requirePersistentWrites() throws {
+        guard storageMode == .persistent else {
+            throw StorageWriteUnavailableError(domain: .studyTime)
         }
     }
 

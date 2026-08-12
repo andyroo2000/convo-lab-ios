@@ -125,7 +125,10 @@ struct StudyTimeView: View {
                     }
                 }
 
-                if let message = entryErrorMessage ?? store.syncErrorMessage {
+                if let message = entryErrorMessage
+                    ?? store.storageWriteErrorMessage
+                    ?? store.syncErrorMessage
+                {
                     Section("Sync") {
                         Label(message, systemImage: "exclamationmark.icloud")
                             .foregroundStyle(.red)

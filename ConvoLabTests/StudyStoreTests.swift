@@ -1806,6 +1806,82 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSuccessfulSynchronizationDoesNotClearBlockedStorageWriteWarning() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(
+            withJSONObject: ["data": sessionObject]
+        )
+        let client = makeClient { request in
+            let data: Data
+            switch request.url?.path {
+            case "/api/sync/feed":
+                data = Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                )
+            case "/api/study/known-kanji":
+                data = Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                )
+            case "/api/study/session/start":
+                data = sessionData
+            case "/api/study/offline-reserve":
+                data = Data(
+                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
+                )
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            storageMode: .temporary
+        )
+
+        let eventID = await store.recordReview(
+            card: makeCard(id: "blocked-review", expression: "保存不可"),
+            rating: .good,
+            duration: nil
+        )
+        await store.synchronize()
+
+        XCTAssertNil(eventID)
+        XCTAssertEqual(store.syncStatus, .idle)
+        XCTAssertEqual(
+            store.storageWriteErrorMessage,
+            StorageWriteUnavailableError(domain: .study).localizedDescription
+        )
+    }
+
+    @MainActor
     func testOfflineDueActivationDoesNotResurrectAliasedPendingDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

@@ -4,6 +4,24 @@ struct RootView: View {
     let model: AppModel
 
     var body: some View {
+        content
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let message = model.storageStatus.warningMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(ConvoLabTheme.navy)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.orange.opacity(0.22))
+                        .accessibilityIdentifier("degraded-storage-warning")
+                        .accessibilityLabel(message)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch model.auth.state {
         case .restoring:
             ZStack {

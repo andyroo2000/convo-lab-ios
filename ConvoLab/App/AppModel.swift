@@ -13,37 +13,60 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
-    let isUsingEphemeralStorage: Bool
+    let storageStatus: StorageStatus
+    var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
 
-    init(configuration: AppConfiguration = .load()) {
+    init(
+        configuration: AppConfiguration = .load(),
+        makeContainer: (Bool) throws -> ModelContainer = {
+            try Persistence.makeContainer(inMemory: $0)
+        },
+        makeStudyTimeContainer: (Bool) throws -> ModelContainer = {
+            try StudyTimePersistence.makeContainer(inMemory: $0)
+        }
+    ) {
         let container: ModelContainer
+        let studyStorageMode: StorageMode
         do {
-            container = try Persistence.makeContainer()
-            isUsingEphemeralStorage = false
+            container = try makeContainer(false)
+            studyStorageMode = .persistent
         } catch {
             do {
-                // Keep the app usable if a future schema change makes the on-disk store
-                // unreadable. Server-backed data can still sync while the store is repaired.
-                container = try Persistence.makeContainer(inMemory: true)
-                isUsingEphemeralStorage = true
+                // Keep read-only and server-backed features available when an on-disk
+                // schema or file error prevents launch, while guarded writes stay disabled.
+                container = try makeContainer(true)
+                studyStorageMode = .temporary
             } catch {
                 fatalError("Unable to initialize persistent or recovery storage: \(error)")
             }
         }
         let timeContainer: ModelContainer
+        let studyTimeStorageMode: StorageMode
         do {
-            timeContainer = try StudyTimePersistence.makeContainer()
+            timeContainer = try makeStudyTimeContainer(false)
+            studyTimeStorageMode = .persistent
         } catch {
             do {
-                timeContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+                // Study-time reads and server refreshes remain useful even though local
+                // recording must wait for a launch that can reopen the durable store.
+                timeContainer = try makeStudyTimeContainer(true)
+                studyTimeStorageMode = .temporary
             } catch {
                 fatalError("Unable to initialize study time storage: \(error)")
             }
         }
+        let storageStatus = StorageStatus(
+            study: studyStorageMode,
+            studyTime: studyTimeStorageMode
+        )
         let api = APIClient(baseURL: configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
-        let studyTime = StudyTimeStore(api: api, context: timeContainer.mainContext)
+        let studyTime = StudyTimeStore(
+            api: api,
+            context: timeContainer.mainContext,
+            storageMode: studyTimeStorageMode
+        )
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -51,7 +74,15 @@ final class AppModel {
         auth = AuthStore(api: api)
         self.mediaCache = mediaCache
         self.studyTime = studyTime
-        study = StudyStore(api: api, context: container.mainContext, mediaCache: mediaCache)
+        self.storageStatus = storageStatus
+        study = StudyStore(
+            api: api,
+            context: container.mainContext,
+            mediaCache: mediaCache,
+            storageMode: studyStorageMode
+        )
+        // Daily Audio creation is server-first and downloaded media is a disposable
+        // cache, so those features remain available while study storage is temporary.
         dailyAudio = DailyAudioStore(
             api: api,
             context: container.mainContext,
