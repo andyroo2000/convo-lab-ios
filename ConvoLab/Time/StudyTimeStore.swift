@@ -133,9 +133,11 @@ final class StudyTimeStore {
             return false
         }
         if active?.activity == activity, active?.source == source, active?.name == name {
+            storageWriteErrorMessage = nil
             return true
         }
         if active?.source == .manual, source == .automatic {
+            storageWriteErrorMessage = nil
             return true
         }
         let previousActive = active
@@ -212,7 +214,7 @@ final class StudyTimeStore {
 
     @discardableResult
     func addCreatedCards(_ count: Int = 1) -> Bool {
-        guard var current = active, current.activity == .cardCreation else { return false }
+        guard var current = active, current.activity == .cardCreation else { return true }
         guard let record = record(clientSessionID: current.clientSessionID) else {
             loadLocalSessions()
             storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription

@@ -290,6 +290,29 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store, saves)
     }
 
+    func testSuccessfulNoOpStartClearsStaleStorageWriteError() throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .cardCreation, source: .manual))
+        XCTAssertFalse(store.addCreatedCards())
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+
+        XCTAssertTrue(store.start(activity: .cardCreation, source: .manual))
+
+        XCTAssertNil(store.storageWriteErrorMessage)
+        XCTAssertTrue(store.addCreatedCards())
+        retainSaveFixtures(container, store, saves)
+    }
+
     func testManualEditSaveFailureRollsBackRecordAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)
