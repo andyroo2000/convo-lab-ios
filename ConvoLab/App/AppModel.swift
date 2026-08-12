@@ -33,6 +33,8 @@ final class AppModel {
             studyStorageMode = .persistent
         } catch {
             do {
+                // Keep read-only and server-backed features available when an on-disk
+                // schema or file error prevents launch, while guarded writes stay disabled.
                 container = try makeContainer(true)
                 studyStorageMode = .temporary
             } catch {
@@ -46,6 +48,8 @@ final class AppModel {
             studyTimeStorageMode = .persistent
         } catch {
             do {
+                // Study-time reads and server refreshes remain useful even though local
+                // recording must wait for a launch that can reopen the durable store.
                 timeContainer = try makeStudyTimeContainer(true)
                 studyTimeStorageMode = .temporary
             } catch {

@@ -47,6 +47,23 @@ final class AppModelStorageTests: XCTestCase {
             try model.container.mainContext.fetchCount(FetchDescriptor<PendingMutation>()),
             0
         )
+
+        let card = reviewCard()
+        let eventID = await model.study.recordReview(
+            card: card,
+            rating: .good,
+            duration: .seconds(2)
+        )
+
+        XCTAssertNil(eventID)
+        XCTAssertEqual(
+            model.study.syncStatus,
+            .failed(StorageWriteUnavailableError(domain: .study).localizedDescription)
+        )
+        XCTAssertEqual(
+            try model.container.mainContext.fetchCount(FetchDescriptor<PendingMutation>()),
+            0
+        )
     }
 
     func testLaunchReportsStudyTimeFallbackAndRejectsTimerWrites() async throws {
@@ -145,5 +162,28 @@ final class AppModelStorageTests: XCTestCase {
 
     private func testConfiguration() -> AppConfiguration {
         AppConfiguration(apiBaseURL: URL(string: "https://example.com")!)
+    }
+
+    private func reviewCard() -> StudyCard {
+        StudyCard(
+            id: "01J0000000000000000000000RV",
+            syncId: nil,
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("復習")]),
+            answer: .object(["meaning": .string("review")]),
+            state: .init(
+                dueAt: .now,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "review",
+                scheduler: .object([:]),
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            masteryLevel: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
     }
 }

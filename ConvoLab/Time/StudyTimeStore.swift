@@ -96,12 +96,12 @@ final class StudyTimeStore {
         name: String? = nil,
         at date: Date = .now
     ) {
+        guard let userID = activeUserID else { return }
         guard storageMode == .persistent else {
             syncErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
                 .localizedDescription
             return
         }
-        guard let userID = activeUserID else { return }
         if active?.activity == activity, active?.source == source, active?.name == name {
             return
         }
