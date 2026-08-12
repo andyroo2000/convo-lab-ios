@@ -159,6 +159,59 @@ final class AuthStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testProfileResponseCannotSignBackInAfterAccountDeletion() async throws {
+        let originalUser = CurrentUser(
+            id: 1,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = MemoryCredentialStore(values: [
+            "learning-os-mobile-token": "valid-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(originalUser),
+                encoding: .utf8
+            )!,
+        ])
+        let deferredProfile = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/me", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
+                ))))
+            case ("/api/me", "PUT"):
+                deferredProfile.hold(completion)
+            case ("/api/me", "DELETE"):
+                completion(.success(Self.response(statusCode: 204)))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = AuthStore(api: client, keychain: credentials)
+        await store.restore()
+
+        let update = Task {
+            await store.updateProfile(name: "Updated", email: "updated@example.com")
+        }
+        await waitUntil { deferredProfile.hasPendingResponse }
+        let deleted = await store.deleteAccount(currentPassword: "password")
+        XCTAssertTrue(deleted)
+        deferredProfile.succeed(with: Self.response(data: Data(
+            #"{"data":{"id":1,"name":"Updated","email":"updated@example.com","email_verified_at":null}}"#.utf8
+        )))
+        _ = await update.value
+
+        guard case .signedOut = store.state else {
+            return XCTFail("A stale profile response must not revive a deleted account")
+        }
+        XCTAssertNil(client.accessToken)
+        XCTAssertNil(try credentials.read(account: "learning-os-mobile-token"))
+        XCTAssertNil(try credentials.read(account: "learning-os-current-user"))
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler

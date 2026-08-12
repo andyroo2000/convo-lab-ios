@@ -161,6 +161,7 @@ final class AuthStore {
                 method: "DELETE",
                 body: DeleteAccountRequest(currentPassword: currentPassword)
             )
+            authenticationGeneration += 1
             clearCredentials()
             state = .signedOut
             return true
