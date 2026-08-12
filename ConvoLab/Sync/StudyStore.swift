@@ -72,6 +72,8 @@ final class StudyStore {
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var accountActivationGeneration = 0
+    @ObservationIgnored private var studySettingsRequestRevision = 0
+    @ObservationIgnored private var studySettingsUpdateID: UUID?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
@@ -227,6 +229,8 @@ final class StudyStore {
 
     func deactivate() {
         accountActivationGeneration += 1
+        studySettingsRequestRevision += 1
+        studySettingsUpdateID = nil
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
         activeUserID = nil
@@ -674,12 +678,14 @@ final class StudyStore {
     func refreshStudySettings() async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
+        studySettingsRequestRevision += 1
+        let requestRevision = studySettingsRequestRevision
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ) else { return }
+            ), studySettingsRequestRevision == requestRevision else { return }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -693,7 +699,7 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ) else { return }
+            ), studySettingsRequestRevision == requestRevision else { return }
             studySettingsErrorMessage = error.localizedDescription
         }
     }
@@ -721,11 +727,18 @@ final class StudyStore {
             )
         else { return false }
         let activationGeneration = accountActivationGeneration
+        studySettingsRequestRevision += 1
+        let requestRevision = studySettingsRequestRevision
+        let updateID = UUID()
+        studySettingsUpdateID = updateID
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
         defer {
-            if isCurrentActivation(userID, generation: activationGeneration) {
+            if isCurrentActivation(userID, generation: activationGeneration),
+               studySettingsUpdateID == updateID
+            {
                 isUpdatingStudySettings = false
+                studySettingsUpdateID = nil
             }
         }
 
@@ -742,7 +755,7 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ) else { return false }
+            ), studySettingsRequestRevision == requestRevision else { return false }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 requestedReviewTimeBudget: reviewTimeBudgetMinutes,
@@ -760,7 +773,7 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ) else { return false }
+            ), studySettingsRequestRevision == requestRevision else { return false }
             studySettingsErrorMessage = error.localizedDescription
             return false
         }

@@ -4517,6 +4517,51 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderSettingsRefreshCannotOverwriteNewerSavedSettings() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let deferredRefresh = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            if request.httpMethod == "PATCH" {
+                completion(.success(Self.response(data: Data(
+                    #"{"newCardsPerDay":24,"lessonBatchSize":8,"reviewTimeBudgetMinutes":150}"#.utf8
+                ))))
+            } else {
+                deferredRefresh.hold(completion)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { await store.refreshStudySettings() }
+        await waitUntil { deferredRefresh.hasPendingResponse }
+        let saved = await store.updateStudySettings(
+            newCardsPerDay: 24,
+            lessonBatchSize: 8,
+            reviewTimeBudgetMinutes: 150
+        )
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+
+        deferredRefresh.succeed(with: Self.response(data: Data(
+            #"{"newCardsPerDay":12,"lessonBatchSize":5,"reviewTimeBudgetMinutes":90}"#.utf8
+        )))
+        await refresh.value
+
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 8)
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+    }
+
+    @MainActor
     func testSessionRefreshPreservesBudgetWhenReadinessBudgetIsAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let session = StudySession(
