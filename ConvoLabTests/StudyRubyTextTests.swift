@@ -62,6 +62,25 @@ final class StudyRubyTextTests: XCTestCase {
         )
     }
 
+    func testParticleMatchingStartOfFollowingReadingIsNotRemoved() {
+        let document = StudyRubyDocument.parse(
+            "虫[むし]は本当[ほんとう]に苦手[にがて]。",
+            knownKanji: []
+        )
+
+        XCTAssertEqual(
+            document.segments,
+            [
+                .ruby(base: "虫", reading: "むし"),
+                .text("は"),
+                .ruby(base: "本当", reading: "ほんとう"),
+                .text("に"),
+                .ruby(base: "苦手", reading: "にがて"),
+                .text("。"),
+            ]
+        )
+    }
+
     func testAnkiParentheticalReadingIsParsedButOrdinaryParentheticalTextIsPreserved() {
         let document = StudyRubyDocument.parse(
             "予定(よてい)（変更あり）計画(plan)",
