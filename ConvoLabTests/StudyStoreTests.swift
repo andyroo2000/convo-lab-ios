@@ -2145,6 +2145,64 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRapidLessonOpenAndCloseReportsDiscardedSessionLoads() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let existingCard = makeCard(id: "existing-card", expression: "既存")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: existingCard,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(existingCard)
+            )
+        )
+        try container.mainContext.save()
+        let reviewData = try sessionResponseData(
+            cards: [makeCard(id: "discarded-review", expression: "破棄する復習")]
+        )
+        let lessonData = try sessionResponseData(
+            cards: [makeCard(id: "discarded-lesson", expression: "破棄するレッスン")],
+            lessonBatchSize: 3
+        )
+        OverlappingStudySessionURLProtocol.configure(
+            firstReview: reviewData,
+            secondReview: reviewData,
+            lesson: lessonData,
+            holdLesson: true
+        )
+        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let reviewRefresh = Task {
+            try await store.refreshSessionPreservingActiveLessons()
+        }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingFirstReview }
+        store.beginLessonSessionPresentation()
+        let lessonRefresh = Task { try await store.refreshLessons() }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingLesson }
+        XCTAssertTrue(OverlappingStudySessionURLProtocol.hasPendingLesson)
+        store.endLessonSessionPresentation()
+        OverlappingStudySessionURLProtocol.releaseFirstReview()
+        OverlappingStudySessionURLProtocol.releaseLesson()
+
+        let reviewApplied = try await reviewRefresh.value
+        let lessonApplied = try await lessonRefresh.value
+        XCTAssertFalse(reviewApplied)
+        XCTAssertFalse(lessonApplied)
+        XCTAssertEqual(store.cards.map(\.id), [existingCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [existingCard.id])
+    }
+
+    @MainActor
     func testLessonRefreshUsesDedicatedEndpointAndStartsFrozenBatchProgress() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let lessonCards = [
@@ -5958,7 +6016,9 @@ final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable
     nonisolated(unsafe) private static var secondReviewData = Data()
     nonisolated(unsafe) private static var lessonData = Data()
     nonisolated(unsafe) private static var pendingFirstReview: OverlappingStudySessionURLProtocol?
+    nonisolated(unsafe) private static var pendingLesson: OverlappingStudySessionURLProtocol?
     nonisolated(unsafe) private static var reviewRequestCount = 0
+    nonisolated(unsafe) private static var holdsLesson = false
 
     static var hasPendingFirstReview: Bool {
         lock.lock()
@@ -5966,13 +6026,26 @@ final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable
         return pendingFirstReview != nil
     }
 
-    static func configure(firstReview: Data, secondReview: Data, lesson: Data) {
+    static var hasPendingLesson: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingLesson != nil
+    }
+
+    static func configure(
+        firstReview: Data,
+        secondReview: Data,
+        lesson: Data,
+        holdLesson: Bool = false
+    ) {
         lock.lock()
         firstReviewData = firstReview
         secondReviewData = secondReview
         lessonData = lesson
         pendingFirstReview = nil
+        pendingLesson = nil
         reviewRequestCount = 0
+        holdsLesson = holdLesson
         lock.unlock()
     }
 
@@ -5985,6 +6058,15 @@ final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable
         request?.respond(with: data)
     }
 
+    static func releaseLesson() {
+        lock.lock()
+        let request = pendingLesson
+        let data = lessonData
+        pendingLesson = nil
+        lock.unlock()
+        request?.respond(with: data)
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -5992,6 +6074,11 @@ final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable
     override func startLoading() {
         Self.lock.lock()
         if request.url?.path == "/api/study/lessons/start" {
+            if Self.holdsLesson {
+                Self.pendingLesson = self
+                Self.lock.unlock()
+                return
+            }
             let data = Self.lessonData
             Self.lock.unlock()
             respond(with: data)

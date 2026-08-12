@@ -519,11 +519,11 @@ final class StudyStore {
         masteryAnimation = nil
     }
 
-    func refreshSession() async throws {
-        guard let userID = activeUserID else { return }
-        guard let load = try await sessionLoadingService.load(.reviews) else { return }
+    @discardableResult
+    func refreshSession() async throws -> Bool {
+        guard let load = try await sessionLoadingService.load(.reviews) else { return false }
+        let userID = load.userID
         let session = load.response.session
-        guard activeUserID == userID, sessionLoadingService.isCurrent(load) else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
         let activeCards = StudySessionPolicy.orderedCards(
             try eligibleSessionCards(
@@ -549,23 +549,24 @@ final class StudyStore {
 
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
-        guard sessionLoadingService.isCurrent(load) else { return }
-        markPrepared(cards: activeCards)
+        if sessionLoadingService.isCurrent(load) {
+            markPrepared(cards: activeCards)
+        }
+        return true
     }
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
     func refreshSessionPreservingActiveLessons() async throws -> Bool {
         guard !lessonSessionIsPresented else { return false }
-        try await refreshSession()
-        return true
+        return try await refreshSession()
     }
 
-    func refreshLessons() async throws {
-        guard let userID = activeUserID else { return }
-        guard let load = try await sessionLoadingService.load(.lessons) else { return }
+    @discardableResult
+    func refreshLessons() async throws -> Bool {
+        guard let load = try await sessionLoadingService.load(.lessons) else { return false }
+        let userID = load.userID
         let session = load.response.session
-        guard activeUserID == userID, sessionLoadingService.isCurrent(load) else { return }
         let pendingReviewState = try reviewOutbox.pendingState()
         let eligibleLessonCards = try eligibleSessionCards(
             from: session.cards,
@@ -588,8 +589,10 @@ final class StudyStore {
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
-        guard sessionLoadingService.isCurrent(load) else { return }
-        markPrepared(cards: lessonCards)
+        if sessionLoadingService.isCurrent(load) {
+            markPrepared(cards: lessonCards)
+        }
+        return true
     }
 
     private func eligibleSessionCards(

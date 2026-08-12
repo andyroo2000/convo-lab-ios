@@ -14,7 +14,7 @@ enum StudySessionLoadKind {
 
 struct StudySessionLoad {
     let response: StudySessionResponse
-    fileprivate let userID: Int
+    let userID: Int
     fileprivate let generation: Int
     fileprivate let revision: Int
 }
