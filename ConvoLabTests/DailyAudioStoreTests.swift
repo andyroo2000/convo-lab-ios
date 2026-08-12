@@ -5,6 +5,84 @@ import XCTest
 
 @MainActor
 final class DailyAudioStoreTests: XCTestCase {
+    func testStaleRefreshCannotPopulateReactivatedAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date.now
+        let currentPractice = DailyAudioPractice(
+            id: "39ac4e14-b8b0-482c-8831-a3c1cb1987e1",
+            practiceDate: "2026-08-12",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now,
+            tracks: []
+        )
+        let stalePractice = DailyAudioPractice(
+            id: "39ac4e14-b8b0-482c-8831-a3c1cb1987e2",
+            practiceDate: "2026-08-11",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: now,
+            updatedAt: now,
+            tracks: []
+        )
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: currentPractice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(currentPractice)
+        ))
+        try container.mainContext.save()
+        let responseData = try StorageCodec.encoder.encode(DailyAudioPracticePage(
+            items: [stalePractice],
+            total: 1,
+            limit: 14,
+            nextCursor: nil
+        ))
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/daily-audio-practice")
+            gate.markStarted()
+            gate.waitForRelease()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let refresh = Task { await store.refresh() }
+        for _ in 0..<100 where !gate.hasStarted {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        store.activate(userID: 1)
+        XCTAssertEqual(store.practices.map(\.id), [currentPractice.id])
+        XCTAssertFalse(store.isLoading)
+        gate.release()
+
+        let refreshed = await refresh.value
+        XCTAssertFalse(refreshed)
+        XCTAssertEqual(store.practices.map(\.id), [currentPractice.id])
+        XCTAssertNil(store.errorMessage)
+    }
+
     func testInterruptedOrStaleGenerationCanBeRetried() {
         let now = Date(timeIntervalSince1970: 10_000)
         let recent = dailyAudioPractice(

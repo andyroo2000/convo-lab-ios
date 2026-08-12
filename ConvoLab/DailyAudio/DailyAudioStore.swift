@@ -15,6 +15,7 @@ final class DailyAudioStore {
     private let context: ModelContext
     private let mediaCache: MediaCache
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var activationGeneration = 0
     @ObservationIgnored private var generationPollingTask: Task<Void, Never>?
     @ObservationIgnored private var generationPollingID: UUID?
     @ObservationIgnored private var errorSource: ErrorSource?
@@ -55,6 +56,7 @@ final class DailyAudioStore {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        activationGeneration += 1
         generationPollingTask?.cancel()
         generationPollingTask = nil
         generationPollingID = nil
@@ -64,6 +66,8 @@ final class DailyAudioStore {
         errorSource = nil
         generationStartWasInterrupted = false
         lastRefreshAt = nil
+        isLoading = false
+        isLoadingMore = false
         downloadingTrackIDs = []
         practiceDownloadProgress = [:]
         loadLocal(userID: userID)
@@ -73,6 +77,7 @@ final class DailyAudioStore {
     }
 
     func deactivate() {
+        activationGeneration += 1
         activeUserID = nil
         generationPollingTask?.cancel()
         generationPollingTask = nil
@@ -107,13 +112,16 @@ final class DailyAudioStore {
     @discardableResult
     func refresh(showsErrors: Bool = true) async -> Bool {
         let requestedUserID = activeUserID
+        let requestedGeneration = activationGeneration
         while showsErrors, isLoading || isLoadingMore {
             do {
                 try await Task.sleep(for: .milliseconds(50))
             } catch {
                 return false
             }
-            guard activeUserID == requestedUserID else { return false }
+            guard activeUserID == requestedUserID,
+                  activationGeneration == requestedGeneration
+            else { return false }
         }
         guard
             let userID = activeUserID,
@@ -122,11 +130,16 @@ final class DailyAudioStore {
         else {
             return false
         }
+        let operationGeneration = activationGeneration
         isLoading = true
         if showsErrors {
             clearError(from: .refresh)
         }
-        defer { isLoading = false }
+        defer {
+            if isCurrentActivation(userID, generation: operationGeneration) {
+                isLoading = false
+            }
+        }
         do {
             let response: DailyAudioPracticePage = try await api.request(
                 "/api/daily-audio-practice",
@@ -136,7 +149,10 @@ final class DailyAudioStore {
                     URLQueryItem(name: "limit", value: "14"),
                 ]
             )
-            guard activeUserID == userID else { return false }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return false }
             practices = orderedPractices(response.items)
             total = response.total
             nextCursor = response.nextCursor
@@ -148,7 +164,10 @@ final class DailyAudioStore {
             clearError(from: .refresh)
             return true
         } catch {
-            guard activeUserID == userID else { return false }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return false }
             if showsErrors {
                 if Self.isCancellation(error) {
                     setError(practices.contains(where: { $0.status == "generating" })
@@ -183,8 +202,13 @@ final class DailyAudioStore {
         else {
             return
         }
+        let operationGeneration = activationGeneration
         isLoadingMore = true
-        defer { isLoadingMore = false }
+        defer {
+            if isCurrentActivation(userID, generation: operationGeneration) {
+                isLoadingMore = false
+            }
+        }
 
         do {
             let response: DailyAudioPracticePage = try await api.request(
@@ -195,7 +219,10 @@ final class DailyAudioStore {
                     URLQueryItem(name: "limit", value: "14"),
                 ]
             )
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return }
             let existingIDs = Set(practices.map(\.id))
             let newPractices = response.items.filter { !existingIDs.contains($0.id) }
             practices.append(contentsOf: newPractices)
@@ -206,7 +233,10 @@ final class DailyAudioStore {
             refreshDownloadedTrackIDs(for: newPractices)
             clearError(from: .loadMore)
         } catch {
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return }
             setError(error.localizedDescription, from: .loadMore)
         }
     }
@@ -219,9 +249,14 @@ final class DailyAudioStore {
         else {
             return
         }
+        let operationGeneration = activationGeneration
         isLoading = true
         clearError(from: .create)
-        defer { isLoading = false }
+        defer {
+            if isCurrentActivation(userID, generation: operationGeneration) {
+                isLoading = false
+            }
+        }
         do {
             // The backend upserts by user and practice date, so retrying an interrupted
             // response requeues today's existing practice rather than creating a duplicate.
@@ -233,7 +268,10 @@ final class DailyAudioStore {
                     targetDurationMinutes: 30
                 )
             )
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return }
             let wasAlreadyLoaded = practices.contains { $0.id == response.id }
             practices.removeAll { $0.id == response.id }
             practices.insert(response, at: 0)
@@ -246,7 +284,10 @@ final class DailyAudioStore {
             beginGenerationPollingIfNeeded()
             clearError(from: .create)
         } catch {
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return }
             if Self.isCancellation(error) {
                 generationStartWasInterrupted = true
                 setError("Generation was interrupted. You can retry it.", from: .create)
@@ -265,14 +306,17 @@ final class DailyAudioStore {
         else {
             return
         }
+        let operationGeneration = activationGeneration
         let downloadableTracks = downloadableTracks(in: practice)
         guard !downloadableTracks.isEmpty else { return }
         clearError(from: .download(practice.id))
         refreshDownloadedTrackIDs(for: [practice])
         updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
         defer {
-            downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
-            practiceDownloadProgress[practice.id] = nil
+            if isCurrentActivation(userID, generation: operationGeneration) {
+                downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
+                practiceDownloadProgress[practice.id] = nil
+            }
         }
 
         let pendingTracks = downloadableTracks.filter { !downloadedTrackIDs.contains($0.id) }
@@ -281,7 +325,10 @@ final class DailyAudioStore {
         let downloadTasks = pendingTracks.map { track in
             Task { @MainActor [weak self] in
                 guard let self else { return (track, nil as String?) }
-                guard activeUserID == userID else { return (track, nil) }
+                guard isCurrentActivation(
+                    userID,
+                    generation: operationGeneration
+                ) else { return (track, nil) }
                 guard let raw = track.audioUrl, let remote = URL(string: raw) else {
                     downloadingTrackIDs.remove(track.id)
                     updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
@@ -295,14 +342,20 @@ final class DailyAudioStore {
                         category: "daily-audio",
                         cacheKey: cacheKey
                     )
-                    guard activeUserID == userID else { return (track, nil) }
+                    guard isCurrentActivation(
+                        userID,
+                        generation: operationGeneration
+                    ) else { return (track, nil) }
                     try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
                     downloadedTrackIDs.insert(track.id)
                     downloadError = nil
                 } catch {
                     downloadError = Self.isCancellation(error) ? nil : error.localizedDescription
                 }
-                guard activeUserID == userID else { return (track, nil) }
+                guard isCurrentActivation(
+                    userID,
+                    generation: operationGeneration
+                ) else { return (track, nil) }
                 downloadingTrackIDs.remove(track.id)
                 updateDownloadProgress(for: practice.id, tracks: downloadableTracks)
                 return (track, downloadError)
@@ -310,7 +363,10 @@ final class DailyAudioStore {
         }
         for task in downloadTasks {
             let (_, downloadError) = await task.value
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return }
             if let downloadError {
                 firstError = firstError ?? downloadError
             }
@@ -343,6 +399,7 @@ final class DailyAudioStore {
         else {
             return nil
         }
+        let operationGeneration = activationGeneration
         if track.scriptUnitsJson != nil, track.timingData != nil {
             return track
         }
@@ -359,7 +416,7 @@ final class DailyAudioStore {
                 "/api/daily-audio-practice/\(track.practiceId)"
             )
             guard
-                activeUserID == userID,
+                isCurrentActivation(userID, generation: operationGeneration),
                 practice.id == track.practiceId,
                 let detailedTrack = practice.tracks.first(where: { $0.id == track.id })
             else {
@@ -372,7 +429,10 @@ final class DailyAudioStore {
             clearError(from: .playback(track.id))
             return detailedTrack
         } catch {
-            guard activeUserID == userID else { return nil }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return nil }
             setError(error.localizedDescription, from: .playback(track.id))
             return nil
         }
@@ -387,6 +447,7 @@ final class DailyAudioStore {
         else {
             return nil
         }
+        let operationGeneration = activationGeneration
         guard let raw = track.audioUrl, let remote = URL(string: raw) else { return nil }
         let cacheKey = cacheKey(for: track)
         if let local = mediaCache.localURL(for: remote, cacheKey: cacheKey) {
@@ -395,19 +456,29 @@ final class DailyAudioStore {
             return local
         }
         downloadingTrackIDs.insert(track.id)
-        defer { downloadingTrackIDs.remove(track.id) }
+        defer {
+            if isCurrentActivation(userID, generation: operationGeneration) {
+                downloadingTrackIDs.remove(track.id)
+            }
+        }
         do {
             let local = try await mediaCache.download(
                 remote,
                 category: "daily-audio",
                 cacheKey: cacheKey
             )
-            guard activeUserID == userID else { return nil }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return nil }
             try? removePreviousCachedRevisions(of: track, keeping: cacheKey)
             downloadedTrackIDs.insert(track.id)
             return local
         } catch {
-            guard activeUserID == userID else { return nil }
+            guard isCurrentActivation(
+                userID,
+                generation: operationGeneration
+            ) else { return nil }
             setError(error.localizedDescription, from: .playback(track.id))
             return nil
         }
@@ -554,12 +625,13 @@ final class DailyAudioStore {
     }
 
     private func beginGenerationPollingIfNeeded() {
-        guard generationPollingTask == nil,
+        guard let userID = activeUserID,
+              generationPollingTask == nil,
               practices.contains(where: { $0.status == "generating" })
         else {
             return
         }
-        let userID = activeUserID
+        let operationGeneration = activationGeneration
         let pollingID = UUID()
         generationPollingID = pollingID
         generationPollingTask = Task { @MainActor [weak self] in
@@ -572,7 +644,7 @@ final class DailyAudioStore {
             }
             var delay: TimeInterval = 5
             while !Task.isCancelled,
-                  activeUserID == userID,
+                  isCurrentActivation(userID, generation: operationGeneration),
                   practices.contains(where: { $0.status == "generating" }) {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
@@ -580,6 +652,10 @@ final class DailyAudioStore {
                 delay = refreshed ? 5 : min(delay * 2, 60)
             }
         }
+    }
+
+    private func isCurrentActivation(_ userID: Int, generation: Int) -> Bool {
+        activeUserID == userID && activationGeneration == generation
     }
 
     private func setError(_ message: String, from source: ErrorSource) {
