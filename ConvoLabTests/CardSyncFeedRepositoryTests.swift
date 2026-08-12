@@ -1151,6 +1151,40 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteFindsMixedCaseLocalIDWithDistinctSyncAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "MixedCase-ID",
+            syncId: "different-server-alias",
+            expression: "mixed case"
+        )
+        insert(card, userID: 1, in: container)
+        try container.mainContext.save()
+        let cardID = card.id
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [(1, cardID, "delete")],
+                nextCheckpoint: 1,
+                hasMore: false
+            ))
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        let result = try await repository.pullChanges()
+
+        XCTAssertTrue(try cards(for: 1, in: container).isEmpty)
+        XCTAssertEqual(
+            result,
+            .completed(deletedCardIdentifiers: [
+                "mixedcase-id",
+                "different-server-alias",
+            ])
+        )
+    }
+
+    @MainActor
     func testMultiPageFeedQueriesOnlyMatchingAliasRecords() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let libraryCards = (0..<10).map {

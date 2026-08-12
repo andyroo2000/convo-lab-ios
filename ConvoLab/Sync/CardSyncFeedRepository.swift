@@ -646,7 +646,7 @@ final class CardSyncFeedRepository {
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate {
                     $0.userID == userID
-                        && ($0.id == identifier || $0.syncID == identifier)
+                        && ($0.normalizedID == identifier || $0.syncID == identifier)
                 }
             )
         )
@@ -838,7 +838,7 @@ final class CardSyncFeedRepository {
     }
 
     private func identifiers(for record: LocalCardRecord) throws -> Set<String> {
-        Set([record.id.lowercased(), record.syncID.lowercased()])
+        Set([record.normalizedID, record.syncID])
     }
 
     private func cardIdentifiers(for card: StudyCard) -> [String] {

@@ -325,9 +325,14 @@ final class AccountIsolationTests: XCTestCase {
         let syncStates = try context.fetch(FetchDescriptor<LocalSyncState>())
 
         XCTAssertEqual(cards.count, 3)
+        XCTAssertEqual(cards.first(where: { $0.id == "local-card" })?.normalizedID, "local-card")
         XCTAssertEqual(cards.first(where: { $0.id == "local-card" })?.syncID, "server-card")
         XCTAssertEqual(cards.first(where: { $0.id == "other-user-card" })?.syncID, "server-card")
         XCTAssertEqual(cards.first(where: { $0.id == "CORRUPT-CARD" })?.syncID, "corrupt-card")
+        XCTAssertEqual(
+            cards.first(where: { $0.id == "CORRUPT-CARD" })?.normalizedID,
+            "corrupt-card"
+        )
 
         let localCard = try XCTUnwrap(cards.first(where: { $0.id == "local-card" }))
         XCTAssertEqual(localCard.userID, 1)
@@ -376,6 +381,7 @@ final class AccountIsolationTests: XCTestCase {
         )
 
         XCTAssertEqual(record.syncID, "server-one")
+        XCTAssertEqual(record.normalizedID, "local-card")
         let replacement = try JSONSerialization.data(withJSONObject: [
             "syncId": "SERVER-TWO",
         ])

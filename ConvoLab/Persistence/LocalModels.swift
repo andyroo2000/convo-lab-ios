@@ -120,9 +120,13 @@ enum ConvoLabSchemaV1: VersionedSchema {
 @Model
 final class LocalCardRecord {
     #Unique<LocalCardRecord>([\.userID, \.id])
-    #Index<LocalCardRecord>([\.userID, \.syncID])
+    #Index<LocalCardRecord>(
+        [\.userID, \.normalizedID],
+        [\.userID, \.syncID]
+    )
     var id: String
     var userID: Int = 0
+    var normalizedID: String = ""
     var syncID: String = ""
     var payload: Data
     var queueIndex: Int
@@ -134,6 +138,7 @@ final class LocalCardRecord {
     init(card: StudyCard, userID: Int, queueIndex: Int, payload: Data) {
         id = card.id
         self.userID = userID
+        normalizedID = card.id.lowercased()
         syncID = Self.canonicalSyncID(cardID: card.id, payload: payload)
         self.payload = payload
         self.queueIndex = queueIndex
@@ -144,6 +149,11 @@ final class LocalCardRecord {
     func replacePayload(encoded payload: Data) {
         syncID = Self.canonicalSyncID(cardID: id, payload: payload)
         self.payload = payload
+    }
+
+    func replaceID(with id: String) {
+        self.id = id
+        normalizedID = id.lowercased()
     }
 
     nonisolated static func canonicalSyncID(cardID: String, payload: Data) -> String {
@@ -435,6 +445,7 @@ enum ConvoLabMigrationPlan: SchemaMigrationPlan {
             willMigrate: nil,
             didMigrate: { context in
                 for record in try context.fetch(FetchDescriptor<LocalCardRecord>()) {
+                    record.normalizedID = record.id.lowercased()
                     record.syncID = LocalCardRecord.canonicalSyncID(
                         cardID: record.id,
                         payload: record.payload
