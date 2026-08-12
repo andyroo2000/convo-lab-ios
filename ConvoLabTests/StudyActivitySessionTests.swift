@@ -206,6 +206,39 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store)
     }
 
+    func testDeactivateSaveFailureReportsFailureAndReactivationResumesSameRow() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .reading, source: .manual))
+        let originalID = try savedRecord(in: container).clientSessionID
+
+        let didDeactivateCleanly = await store.deactivate()
+        XCTAssertFalse(didDeactivateCleanly)
+        XCTAssertNil(store.active)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        XCTAssertNil(try savedRecord(in: container).endedAt)
+
+        store.activate(userID: 42)
+        XCTAssertEqual(store.active?.clientSessionID, originalID)
+        XCTAssertTrue(store.start(activity: .reading, source: .manual))
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            1
+        )
+        retainSaveFixtures(container, store, saves)
+    }
+
     func testManualEditSaveFailureRollsBackRecordAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)
@@ -253,6 +286,63 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(store.sessions.first?.name, "Edited")
         XCTAssertNil(store.storageWriteErrorMessage)
         retainSaveFixtures(container, store, saves)
+    }
+
+    func testCalendarEditSaveFailureRestoresPreviousCalendarValues() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let original = makeSession(source: .calendar)
+        let record = LocalStudyActivitySession(session: original, userID: 42)
+        record.calendarEventIdentifier = "calendar-event"
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [1]
+        )
+        let calendar = DeterministicStudyCalendar()
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves,
+            calendar: calendar
+        )
+        store.activate(userID: 42)
+        let editedStart = original.startedAt.addingTimeInterval(300)
+
+        do {
+            _ = try await store.update(
+                session: original,
+                activity: .podcast,
+                name: "Edited",
+                startedAt: editedStart,
+                duration: 900
+            )
+            XCTFail("Expected the injected save failure")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Forced save failure")
+        }
+
+        XCTAssertEqual(
+            calendar.updates,
+            [
+                .init(
+                    identifier: "calendar-event",
+                    title: "Edited",
+                    start: editedStart,
+                    end: editedStart.addingTimeInterval(900)
+                ),
+                .init(
+                    identifier: "calendar-event",
+                    title: original.name ?? original.activity.title,
+                    start: original.startedAt,
+                    end: original.endedAt
+                ),
+            ]
+        )
+        XCTAssertEqual(store.sessions, [original])
+        XCTAssertEqual(try savedRecord(in: container).name, original.name)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        retainSaveFixtures(container, store, saves, calendar)
     }
 
     func testRecordCompletedSaveFailureRemovesCalendarEventAndCanRetry() async throws {
@@ -1830,7 +1920,15 @@ private final class DeterministicStudyTimeSaves: StudyTimeContextSaving {
 
 @MainActor
 private final class DeterministicStudyCalendar: StudyCalendarProviding {
+    struct Update: Equatable {
+        let identifier: String
+        let title: String
+        let start: Date
+        let end: Date
+    }
+
     private(set) var deletedIdentifiers: [String] = []
+    private(set) var updates: [Update] = []
     private var nextIdentifier = 1
 
     func addEvent(title: String, start: Date, end: Date) async throws -> String {
@@ -1843,7 +1941,14 @@ private final class DeterministicStudyCalendar: StudyCalendarProviding {
         title: String,
         start: Date,
         end: Date
-    ) async throws {}
+    ) async throws {
+        updates.append(.init(
+            identifier: identifier,
+            title: title,
+            start: start,
+            end: end
+        ))
+    }
 
     func deleteEvent(identifier: String) async throws {
         deletedIdentifiers.append(identifier)

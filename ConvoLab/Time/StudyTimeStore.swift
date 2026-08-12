@@ -96,13 +96,14 @@ final class StudyTimeStore {
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
 
-    func deactivate(at date: Date = .now) async {
+    @discardableResult
+    func deactivate(at date: Date = .now) async -> Bool {
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
         requestedAnalyticsAnchor = nil
-        if let active {
-            finish(active, at: date, enqueueSync: false)
-        }
+        let didFinish = active.map {
+            finish($0, at: date, enqueueSync: false)
+        } ?? true
         await pushPending()
         activeUserID = nil
         sessions = []
@@ -111,6 +112,9 @@ final class StudyTimeStore {
         analyticsCacheGeneration += 1
         active = nil
         syncErrorMessage = nil
+        // A failed finish leaves its open row durable. A later activate() will
+        // reload that same session so callers can retry without duplication.
+        return didFinish
     }
 
     @discardableResult
