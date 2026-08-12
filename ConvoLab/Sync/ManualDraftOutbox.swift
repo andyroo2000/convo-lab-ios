@@ -24,8 +24,12 @@ final class ManualDraftOutbox {
         String: Task<StudyManualCardDraft, Error>
     ] = [:]
     @ObservationIgnored private var commitTasks: [String: Task<Void, Error>] = [:]
+    @ObservationIgnored private var fetchTasks: [
+        String: Task<StudyManualCardDraft, Error>
+    ] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Error>?
     @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var draftRevisions: [String: Int] = [:]
 
     private(set) var drafts: [StudyManualCardDraft] = []
 
@@ -44,13 +48,16 @@ final class ManualDraftOutbox {
         generation += 1
         createTasks.values.forEach { $0.cancel() }
         commitTasks.values.forEach { $0.cancel() }
+        fetchTasks.values.forEach { $0.cancel() }
         refreshTask?.cancel()
         createTasks.removeAll()
         commitTasks.removeAll()
+        fetchTasks.removeAll()
         refreshTask = nil
         activeUserID = nil
         drafts = []
         revision += 1
+        draftRevisions = [:]
     }
 
     func refresh() async throws {
@@ -68,7 +75,7 @@ final class ManualDraftOutbox {
             )
             try ensureActive(userID: userID, generation: operationGeneration)
             guard revision == startingRevision else { return }
-            drafts = fetched
+            applyFetchedDrafts(fetched)
         }
         refreshTask = task
         defer {
@@ -81,12 +88,52 @@ final class ManualDraftOutbox {
 
     @discardableResult
     func fetch(id: String) async throws -> StudyManualCardDraft {
+        if let task = fetchTasks[id] {
+            return try await task.value
+        }
         guard let userID = activeUserID else { throw CancellationError() }
         let operationGeneration = generation
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await performFetch(
+                id: id,
+                userID: userID,
+                generation: operationGeneration
+            )
+        }
+        fetchTasks[id] = task
+        defer {
+            if generation == operationGeneration {
+                fetchTasks[id] = nil
+            }
+        }
+        return try await task.value
+    }
+
+    private func performFetch(
+        id: String,
+        userID: Int,
+        generation operationGeneration: Int
+    ) async throws -> StudyManualCardDraft {
+        let startingDraftRevision = draftRevisions[id, default: 0]
         let draft: StudyManualCardDraft = try await api.request(
             "/api/study/card-drafts/\(id)"
         )
         try ensureActive(userID: userID, generation: operationGeneration)
+        let latest = drafts.first { $0.id == draft.id }
+        let changedDuringFetch = draftRevisions[id, default: 0]
+            != startingDraftRevision
+        if changedDuringFetch, latest == nil
+        {
+            throw CancellationError()
+        }
+        if let latest {
+            if latest.updatedAt > draft.updatedAt
+                || (changedDuringFetch && latest.updatedAt == draft.updatedAt)
+            {
+                return latest
+            }
+        }
         replace(draft)
         return draft
     }
@@ -96,6 +143,7 @@ final class ManualDraftOutbox {
         drafts.append(draft)
         drafts.sort { $0.createdAt > $1.createdAt }
         revision += 1
+        draftRevisions[draft.id, default: 0] += 1
     }
 
     @discardableResult
@@ -538,15 +586,18 @@ final class ManualDraftOutbox {
         userID: Int,
         generation: Int
     ) async -> Bool {
-        guard let draft: StudyManualCardDraft = try? await api.request(
-            "/api/study/card-drafts/\(draftID)"
-        ) else {
+        guard (try? ensureActive(userID: userID, generation: generation)) != nil,
+              let draft = try? await performFetch(
+                id: draftID,
+                userID: userID,
+                generation: generation
+              )
+        else {
             return false
         }
         guard (try? ensureActive(userID: userID, generation: generation)) != nil else {
             return false
         }
-        replace(draft)
         guard let committedCardID = draft.committedCardId else { return false }
         return committedCardID.lowercased() != clientCardID.lowercased()
     }
@@ -580,6 +631,39 @@ final class ManualDraftOutbox {
     private func removeDraft(id: String) {
         drafts.removeAll { $0.id == id }
         revision += 1
+        draftRevisions[id, default: 0] += 1
+    }
+
+    // Internal so concurrency tests can model a completed list refresh while
+    // an older individual-draft request is still in flight.
+    func applyFetchedDrafts(_ fetched: [StudyManualCardDraft]) {
+        let currentByID = Dictionary(
+            drafts.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let fetchedByID = Dictionary(
+            fetched.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for id in Set(currentByID.keys).union(fetchedByID.keys)
+        where draftVersionChanged(
+            from: currentByID[id],
+            to: fetchedByID[id]
+        ) {
+            draftRevisions[id, default: 0] += 1
+        }
+        drafts = fetched.sorted { $0.createdAt > $1.createdAt }
+        revision += 1
+    }
+
+    private func draftVersionChanged(
+        from current: StudyManualCardDraft?,
+        to fetched: StudyManualCardDraft?
+    ) -> Bool {
+        guard let current, let fetched else { return current != fetched }
+        return current.updatedAt != fetched.updatedAt
+            || current.status != fetched.status
+            || current.committedCardId != fetched.committedCardId
     }
 
     private func isPermanentCommitRejection(status: Int) -> Bool {
