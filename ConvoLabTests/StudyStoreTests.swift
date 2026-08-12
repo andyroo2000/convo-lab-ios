@@ -2337,10 +2337,11 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshLessons()
         let recordedEventID = await store.recordReview(
             card: lessonCard,
-            rating: .good,
+            rating: .again,
             duration: nil
         )
         let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertEqual(store.sessionFailureCount, 1)
 
         let undoTask = Task {
             try await store.undoReview(eventID: eventID, cardBefore: lessonCard)
@@ -2353,6 +2354,7 @@ final class StudyStoreTests: XCTestCase {
         try await undoTask.value
 
         XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+        XCTAssertEqual(store.sessionFailureCount, 1)
         let activeRecords = try container.mainContext.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }

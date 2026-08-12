@@ -1135,7 +1135,11 @@ final class StudyStore {
                 undoingPresentedLesson: undoingPresentedLesson
             )
             apply(try reviewOutbox.pendingState())
-            restoreSessionFailure(for: restoredCard.id, before: eventID)
+            restoreSessionFailure(
+                for: restoredCard.id,
+                before: eventID,
+                presentationRevision: presentationRevision
+            )
             return
         }
 
@@ -1159,7 +1163,11 @@ final class StudyStore {
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
         overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         apply(try reviewOutbox.pendingState())
-        restoreSessionFailure(for: restoredCard.id, before: eventID)
+        restoreSessionFailure(
+            for: restoredCard.id,
+            before: eventID,
+            presentationRevision: presentationRevision
+        )
     }
 
     private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
@@ -1170,10 +1178,15 @@ final class StudyStore {
         )
     }
 
-    private func restoreSessionFailure(for cardID: String, before eventID: String) {
+    private func restoreSessionFailure(
+        for cardID: String,
+        before eventID: String,
+        presentationRevision: Int
+    ) {
         guard let wasPresent = sessionFailureWasPresentByEventID.removeValue(forKey: eventID) else {
             return
         }
+        guard presentationRevision == studySurfaceRevision else { return }
         if wasPresent {
             sessionFailedCardIDs.insert(cardID)
         } else {
