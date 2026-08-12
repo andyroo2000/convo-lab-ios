@@ -5963,6 +5963,107 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardingRejectedCardCreateRemovesLocalCardAndDependentChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        try await store.createCard(expression: "仮", reading: "かり", meaning: "temporary")
+        let card = try XCTUnwrap(store.libraryCards.first)
+        let create = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardCreate" })
+        )
+        create.lastError = "HTTP 422: Invalid card"
+        let dependentUpdate = PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: card.id.uppercased(),
+            payload: try StorageCodec.encoder.encode(UpdateStudyCardRequest(
+                prompt: card.prompt,
+                answer: card.answer
+            ))
+        )
+        container.mainContext.insert(dependentUpdate)
+        try container.mainContext.save()
+        store.reloadFailedStudyChanges()
+
+        try await store.discardFailedStudyChange(id: create.id)
+
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+    }
+
+    @MainActor
+    func testRetryingRejectedCardUpdateDrainsCardOutbox() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(
+            id: "01J00000000000000000000F4",
+            expression: "再送信"
+        )
+        let payload = try StorageCodec.encoder.encode(UpdateStudyCardRequest(
+            prompt: serverCard.prompt,
+            answer: serverCard.answer
+        ))
+        let record = LocalCardRecord(
+            card: serverCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(serverCard)
+        )
+        record.locallyUpdatedAt = .now
+        let mutation = PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: serverCard.id,
+            payload: payload
+        )
+        mutation.lastError = "HTTP 422: Invalid card"
+        container.mainContext.insert(record)
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let serverCardID = serverCard.id
+        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/\(serverCardID)")
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            return Self.response(data: serverCardData)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.retryFailedStudyChange(id: mutation.id)
+
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertNil(record.locallyUpdatedAt)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+    }
+
+    @MainActor
     func testRetryingRejectedReviewUsesOriginalPayloadAndClearsFailure() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }

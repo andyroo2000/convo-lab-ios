@@ -109,7 +109,7 @@ struct FailedStudyChangesView: View {
         let lastAttempt = change.lastAttemptAt.map {
             "Last tried \($0.formatted(date: .abbreviated, time: .shortened))"
         } ?? "Not retried yet"
-        return "\(attempts) · \(lastAttempt) · ID \(change.resourceID)"
+        return "\(attempts) · \(lastAttempt)"
     }
 
     private func perform(
