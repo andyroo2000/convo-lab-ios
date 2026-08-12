@@ -230,7 +230,7 @@ struct StudyCardLocalRepository {
             return (lhs.locallyUpdatedAt ?? .distantPast) > (rhs.locallyUpdatedAt ?? .distantPast)
         }
         if lhs.serverUpdatedAt != rhs.serverUpdatedAt {
-            return (lhs.serverUpdatedAt ?? .distantPast) > (rhs.serverUpdatedAt ?? .distantPast)
+            return lhs.serverUpdatedAt > rhs.serverUpdatedAt
         }
         if lhs.normalizedID != rhs.normalizedID { return lhs.normalizedID < rhs.normalizedID }
         return lhs.id < rhs.id

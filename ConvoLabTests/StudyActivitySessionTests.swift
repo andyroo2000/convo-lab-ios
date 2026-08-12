@@ -1333,7 +1333,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let store = StudyTimeStore(api: client, context: container.mainContext)
         store.activate(userID: 42)
 
-        try await store.update(
+        _ = try await store.update(
             session: original,
             activity: .conversation,
             name: "iTalki lesson",
@@ -1434,23 +1434,23 @@ final class StudyActivitySessionTests: XCTestCase {
         let staleRemoteData = try JSONSerialization.data(
             withJSONObject: [
                 [
-                    "id": deletedSession.id,
+                    "id": deletedSession.id as Any,
                     "clientSessionId": deletedSession.clientSessionId,
                     "category": deletedSession.category.rawValue,
                     "activity": deletedSession.activity.rawValue,
                     "source": deletedSession.source.rawValue,
-                    "name": deletedSession.name,
+                    "name": deletedSession.name as Any,
                     "startedAt": deletedSession.startedAt.ISO8601Format(),
                     "endedAt": deletedSession.endedAt.ISO8601Format(),
                     "durationMs": deletedSession.durationMs,
                 ],
                 [
-                    "id": pendingSession.id,
+                    "id": pendingSession.id as Any,
                     "clientSessionId": pendingSession.clientSessionId,
                     "category": pendingSession.category.rawValue,
                     "activity": pendingSession.activity.rawValue,
                     "source": pendingSession.source.rawValue,
-                    "name": pendingSession.name,
+                    "name": pendingSession.name as Any,
                     "startedAt": pendingSession.startedAt.ISO8601Format(),
                     "endedAt": pendingSession.endedAt.ISO8601Format(),
                     "durationMs": pendingSession.durationMs,
@@ -1660,7 +1660,7 @@ final class StudyActivitySessionTests: XCTestCase {
         store.activate(userID: 42)
 
         do {
-            try await store.update(
+            _ = try await store.update(
                 session: calendarSession,
                 activity: .conversation,
                 name: "Changed lesson",
@@ -1691,12 +1691,12 @@ final class StudyActivitySessionTests: XCTestCase {
         let staleBody = try JSONSerialization.data(
             withJSONObject: [
                 [
-                    "id": original.id,
+                    "id": original.id as Any,
                     "clientSessionId": original.clientSessionId,
                     "category": original.category.rawValue,
                     "activity": original.activity.rawValue,
                     "source": original.source.rawValue,
-                    "name": original.name,
+                    "name": original.name as Any,
                     "startedAt": original.startedAt.ISO8601Format(),
                     "endedAt": original.endedAt.ISO8601Format(),
                     "durationMs": original.durationMs,
@@ -1757,7 +1757,7 @@ final class StudyActivitySessionTests: XCTestCase {
         _ = await getStartedIterator.next()
         defer { releaseStaleGetContinuation.yield() }
 
-        try await store.update(
+        _ = try await store.update(
             session: original,
             activity: .conversation,
             name: "Edited lesson",

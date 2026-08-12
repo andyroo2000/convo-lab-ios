@@ -2246,7 +2246,7 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshSession()
         XCTAssertEqual(store.cards.map(\.id), [newerCard.id])
         OverlappingStudySessionURLProtocol.releaseFirstReview()
-        try await olderRefresh.value
+        _ = try await olderRefresh.value
 
         XCTAssertEqual(store.cards.map(\.id), [newerCard.id])
         XCTAssertEqual(store.libraryCards.map(\.id), [newerCard.id])
@@ -2287,7 +2287,7 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshLessons()
         XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
         OverlappingStudySessionURLProtocol.releaseFirstReview()
-        try await reviewRefresh.value
+        _ = try await reviewRefresh.value
 
         XCTAssertEqual(store.sessionKind, "lessons")
         XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])

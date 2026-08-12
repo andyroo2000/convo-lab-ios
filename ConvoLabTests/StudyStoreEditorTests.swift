@@ -1435,7 +1435,7 @@ extension StudyStoreTests {
                     "scheduler": NSNull(),
                     "source": [:],
                 ],
-                "answerAudioSource": canonicalAudioSource,
+                "answerAudioSource": canonicalAudioSource as Any,
                 "createdAt": "2026-07-24T11:00:00Z",
                 "updatedAt": "2026-07-24T11:01:00Z",
             ]

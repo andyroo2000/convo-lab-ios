@@ -156,7 +156,7 @@ struct StudySessionView: View {
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
-                try? await store.refreshSession()
+                _ = try? await store.refreshSession()
             }
         }
         .onChange(of: card?.id) { _, newCardID in
