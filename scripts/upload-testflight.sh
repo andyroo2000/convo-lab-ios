@@ -73,6 +73,11 @@ security import "${distribution_p12}" \
     -P "${signing_keychain_password}" \
     -T /usr/bin/codesign \
     -T /usr/bin/security
+security set-key-partition-list \
+    -S apple-tool:,apple:,codesign: \
+    -s \
+    -k "${signing_keychain_password}" \
+    "${signing_keychain}"
 security find-identity -v -p codesigning "${signing_keychain}" \
     | grep -F "${distribution_identity}" >/dev/null
 security list-keychains -d user -s \
