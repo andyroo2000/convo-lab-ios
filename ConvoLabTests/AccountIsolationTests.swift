@@ -395,6 +395,56 @@ final class AccountIsolationTests: XCTestCase {
         XCTAssertEqual(record.syncID, "local-card")
     }
 
+    func testReplacingCardIDPreservesClientAliasUntilAcknowledgementPayloadArrives() throws {
+        let clientCard = StudyCard(
+            id: "CLIENT-ID",
+            syncId: "CLIENT-ID",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("prompt")]),
+            answer: .object(["meaning": .string("meaning")]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let record = LocalCardRecord(
+            card: clientCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(clientCard)
+        )
+
+        record.replaceID(with: "server-id")
+
+        XCTAssertEqual(record.id, "server-id")
+        XCTAssertEqual(record.normalizedID, "server-id")
+        XCTAssertEqual(record.syncID, "client-id")
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(StudyCard.self, from: record.payload).id,
+            "CLIENT-ID"
+        )
+
+        let serverCard = clientCard.replacingIdentity(
+            id: "server-id",
+            syncId: "server-id"
+        )
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(serverCard))
+
+        XCTAssertEqual(record.syncID, "server-id")
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(StudyCard.self, from: record.payload).id,
+            "server-id"
+        )
+    }
+
     func testDailyAudioDownloadStopsWhenTheAccountChanges() async throws {
         let gate = AccountIsolationGate()
         let requestCounter = AccountIsolationCounter()
