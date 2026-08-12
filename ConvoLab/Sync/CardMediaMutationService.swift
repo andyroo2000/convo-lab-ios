@@ -41,10 +41,23 @@ struct InvalidCardImagePlacementError: LocalizedError {
 }
 
 final class CardMediaMutationService {
+    private enum Medium: String {
+        case answerAudio
+        case image
+    }
+
+    private struct Operation: Equatable {
+        let userID: Int
+        let generation: Int
+        let key: String
+        let id: UUID
+    }
+
     private let api: APIClient
     private let mediaCache: MediaCache
     private var activeUserID: Int?
     private var generation = 0
+    private var latestOperationIDs: [String: UUID] = [:]
 
     init(api: APIClient, mediaCache: MediaCache) {
         self.api = api
@@ -54,11 +67,13 @@ final class CardMediaMutationService {
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         generation += 1
+        latestOperationIDs = [:]
         activeUserID = userID
     }
 
     func deactivate() {
         generation += 1
+        latestOperationIDs = [:]
         activeUserID = nil
     }
 
@@ -70,7 +85,8 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardAnswerAudioRegenerationResult {
-        let operation = try activeOperation()
+        let operation = try beginOperation(for: currentCard, medium: .answerAudio)
+        defer { finishOperation(operation) }
         let request = RegenerateAnswerAudioRequest(
             answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
             answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
@@ -132,7 +148,8 @@ final class CardMediaMutationService {
             throw InvalidCardImagePromptError()
         }
         guard placement != .none else { throw InvalidCardImagePlacementError() }
-        let operation = try activeOperation()
+        let operation = try beginOperation(for: currentCard, medium: .image)
+        defer { finishOperation(operation) }
         // learning-os compatibility endpoint returns the card directly.
         let serverCard: StudyCard = try await api.request(
             "/api/study/cards/\(currentCard.reviewCardID)/regenerate-image",
@@ -164,7 +181,8 @@ final class CardMediaMutationService {
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
         guard placement != .none else { throw InvalidCardImagePlacementError() }
-        let operation = try activeOperation()
+        let operation = try beginOperation(for: currentCard, medium: .image)
+        defer { finishOperation(operation) }
         let serverCard: StudyCard = try await api.upload(
             "/api/study/cards/\(currentCard.reviewCardID)/image",
             fields: ["imageRole": placement.rawValue],
@@ -190,7 +208,7 @@ final class CardMediaMutationService {
         currentCard: StudyCard,
         serverCard: StudyCard,
         placement: StudyCardDraft.ImagePlacement,
-        operation: (userID: Int, generation: Int),
+        operation: Operation,
         latestCard: () throws -> StudyCard,
         hasPendingWrite: (String) throws -> Bool,
         onReconciled: (StudyCard, Bool, Date) throws -> Void
@@ -251,15 +269,30 @@ final class CardMediaMutationService {
         return CardImageMutationResult(card: updated, localURL: localURL)
     }
 
-    private func activeOperation() throws -> (userID: Int, generation: Int) {
+    private func beginOperation(
+        for card: StudyCard,
+        medium: Medium
+    ) throws -> Operation {
         guard let userID = activeUserID else { throw CancellationError() }
-        return (userID, generation)
+        let key = "\(card.reviewCardID.lowercased()):\(medium.rawValue)"
+        let id = UUID()
+        latestOperationIDs[key] = id
+        return Operation(userID: userID, generation: generation, key: key, id: id)
     }
 
-    private func ensureActive(_ operation: (userID: Int, generation: Int)) throws {
-        guard activeUserID == operation.userID, generation == operation.generation else {
+    private func ensureActive(_ operation: Operation) throws {
+        guard
+            activeUserID == operation.userID,
+            generation == operation.generation,
+            latestOperationIDs[operation.key] == operation.id
+        else {
             throw CancellationError()
         }
+    }
+
+    private func finishOperation(_ operation: Operation) {
+        guard latestOperationIDs[operation.key] == operation.id else { return }
+        latestOperationIDs[operation.key] = nil
     }
 }
 

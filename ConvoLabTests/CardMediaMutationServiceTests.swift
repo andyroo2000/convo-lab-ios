@@ -318,6 +318,96 @@ final class CardMediaMutationServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderAnswerAudioRegenerationCannotReplaceNewerCompletion() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "card-audio-race", expression: "race")
+        let oldAudio: JSONValue = .object([
+            "url": .string("/api/study/media/old-audio"),
+        ])
+        let newAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-audio"),
+        ])
+        let oldServer = replacing(
+            card,
+            answer: card.answer.replacingObjectValues([
+                "answerAudio": oldAudio,
+                "answerAudioVoiceId": .string("old-voice"),
+            ]),
+            answerAudioSource: "generated"
+        )
+        let newServer = replacing(
+            oldServer,
+            answer: oldServer.answer.replacingObjectValues([
+                "answerAudio": newAudio,
+                "answerAudioVoiceId": .string("new-voice"),
+            ]),
+            answerAudioSource: "generated"
+        )
+        let oldData = try StorageCodec.encoder.encode(oldServer)
+        let newData = try StorageCodec.encoder.encode(newServer)
+        let deferredOld = LockedDeferredResponse()
+        let regenerationRequests = LockedCounter()
+        let client = makeDeferredClient { request, completion in
+            if request.url?.path.hasSuffix("/regenerate-answer-audio") == true {
+                if regenerationRequests.next() == 1 {
+                    deferredOld.hold(completion)
+                } else {
+                    completion(.success(Self.response(
+                        status: 200,
+                        data: newData,
+                        request: request
+                    )))
+                }
+                return
+            }
+            completion(.success(Self.response(
+                status: 200,
+                data: Data("audio".utf8),
+                mimeType: "audio/mpeg",
+                request: request
+            )))
+        }
+        let (service, _) = makeService(container: container, client: client)
+        var latest = card
+        let oldRegeneration = Task {
+            try await service.regenerateAnswerAudio(
+                currentCard: card,
+                voiceID: "old-voice",
+                textOverride: "",
+                latestCard: { latest },
+                hasPendingWrite: { _ in false },
+                onReconciled: { updated, _, _ in latest = updated }
+            )
+        }
+        for _ in 0..<100 where !deferredOld.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredOld.hasPendingResponse)
+
+        _ = try await service.regenerateAnswerAudio(
+            currentCard: card,
+            voiceID: "new-voice",
+            textOverride: "",
+            latestCard: { latest },
+            hasPendingWrite: { _ in false },
+            onReconciled: { updated, _, _ in latest = updated }
+        )
+        XCTAssertEqual(latest.answer["answerAudio"], newAudio)
+        deferredOld.succeed(with: Self.response(
+            status: 200,
+            data: oldData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+        do {
+            _ = try await oldRegeneration.value
+            XCTFail("Expected the older regeneration to be superseded")
+        } catch is CancellationError {}
+
+        XCTAssertEqual(latest.answer["answerAudio"], newAudio)
+        XCTAssertEqual(latest.answer["answerAudioVoiceId"]?.stringValue, "new-voice")
+    }
+
+    @MainActor
     private func makeService(
         container: ModelContainer,
         client: APIClient
