@@ -43,6 +43,10 @@ final class StudyRubyLineBreakDelegate: NSObject, NSTextLayoutManagerDelegate {
 }
 
 struct StudyRubyDocument: Equatable {
+    private static let particlePrefixes: Set<String> = [
+        "は", "が", "を", "に", "へ", "で", "と", "も", "の", "や", "か", "ね", "よ",
+    ]
+
     private static let annotationExpression = try? NSRegularExpression(
         pattern:
             #"([\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{F900}-\x{FAFF}々\x{3040}-\x{309F}\x{30A0}-\x{30FF}]+)(?:\[([^\]]+)\]|\(([^)]+)\))"#
@@ -155,7 +159,11 @@ struct StudyRubyDocument: Equatable {
         let suffix = String(characters[kanjiEnd...])
         let cleanReading = reading.removingWhitespace
         var adjustedReading = cleanReading
-        if !prefix.isEmpty, adjustedReading.hasPrefix(prefix) {
+        if
+            !prefix.isEmpty,
+            !particlePrefixes.contains(prefix),
+            adjustedReading.hasPrefix(prefix)
+        {
             adjustedReading.removeFirst(prefix.count)
         }
         if !suffix.isEmpty, adjustedReading.hasSuffix(suffix) {
