@@ -14,6 +14,7 @@ final class MediaCache {
 
     private(set) var activeDownloads = 0
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var ownershipGeneration = 0
     @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
     @ObservationIgnored private var inFlightRefreshes: [String: Task<URL, Error>] = [:]
 
@@ -37,6 +38,7 @@ final class MediaCache {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        ownershipGeneration += 1
         inFlightDownloads.values.forEach { $0.cancel() }
         inFlightRefreshes.values.forEach { $0.cancel() }
         inFlightDownloads.removeAll()
@@ -45,6 +47,7 @@ final class MediaCache {
     }
 
     func deactivate() {
+        ownershipGeneration += 1
         inFlightDownloads.values.forEach { $0.cancel() }
         inFlightRefreshes.values.forEach { $0.cancel() }
         inFlightDownloads.removeAll()
@@ -207,6 +210,7 @@ final class MediaCache {
 
     func prepare(urls: [URL], category: String) async {
         guard let userID = activeUserID else { return }
+        let operationGeneration = ownershipGeneration
         let uniqueURLs = Array(Set(urls))
         let uncachedURLs = uniqueURLs.filter { localURL(for: $0) == nil }
         let batchable = uncachedURLs.compactMap { url -> (url: URL, id: String)? in
@@ -225,7 +229,10 @@ final class MediaCache {
                     method: "POST",
                     body: StudyMediaBatchRequest(ids: chunk.map(\.id))
                 )
-                guard activeUserID == userID else { return }
+                guard isCurrentOperation(
+                    userID: userID,
+                    generation: operationGeneration
+                ) else { return }
                 let urlsByID = Dictionary(
                     chunk.map { ($0.id.lowercased(), $0.url) },
                     uniquingKeysWith: { first, _ in first }
@@ -267,12 +274,24 @@ final class MediaCache {
                 // Other transient batch failures retain the individual-download
                 // fallback so preparation remains best effort.
             }
+            guard isCurrentOperation(
+                userID: userID,
+                generation: operationGeneration
+            ) else { return }
         }
 
+        guard isCurrentOperation(
+            userID: userID,
+            generation: operationGeneration
+        ) else { return }
         for url in uncachedURLs where
             !preparedBatchKeys.contains(Self.stableCacheKey(for: url))
                 && !deferredBatchKeys.contains(Self.stableCacheKey(for: url))
         {
+            guard isCurrentOperation(
+                userID: userID,
+                generation: operationGeneration
+            ) else { return }
             do {
                 _ = try await download(url, category: category)
             } catch {
@@ -425,6 +444,9 @@ final class MediaCache {
     }
 
     func deleteLocalData(userID: Int) throws {
+        if activeUserID == userID {
+            ownershipGeneration += 1
+        }
         let taskPrefix = "\(userID):"
         let downloadKeys = inFlightDownloads.keys.filter { $0.hasPrefix(taskPrefix) }
         for key in downloadKeys {
@@ -448,6 +470,10 @@ final class MediaCache {
             context.delete(record)
         }
         try context.save()
+    }
+
+    private func isCurrentOperation(userID: Int, generation: Int) -> Bool {
+        activeUserID == userID && ownershipGeneration == generation
     }
 
     static func stableCacheKey(for url: URL) -> String {
