@@ -81,6 +81,8 @@ final class AppModel {
             mediaCache: mediaCache,
             storageMode: studyStorageMode
         )
+        // Daily Audio creation is server-first and downloaded media is a disposable
+        // cache, so those features remain available while study storage is temporary.
         dailyAudio = DailyAudioStore(
             api: api,
             context: container.mainContext,
