@@ -428,7 +428,10 @@ final class StudyStore {
             generation: activationGeneration
         ) else { return }
         do {
-            try await retryPendingDraftMutations(userID: userID)
+            try await retryPendingDraftMutations(
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
         } catch {
             firstError = firstError ?? error
         }
@@ -1262,6 +1265,7 @@ final class StudyStore {
         previewImage: JSONValue? = nil
     ) async throws -> StudyManualCardDraft {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         var prompt = draft.prompt(merging: serverDraft.prompt)
         var answer = draft.answer(merging: serverDraft.answer)
         if let previewAudio {
@@ -1299,7 +1303,10 @@ final class StudyStore {
             method: "PATCH",
             body: request
         )
-        guard activeUserID == userID else { throw CancellationError() }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         manualDraftOutbox.replace(updated)
         return updated
     }
@@ -1309,6 +1316,8 @@ final class StudyStore {
         draft: StudyCardDraft,
         previewImage: JSONValue?
     ) async throws -> DraftPreviewAudioResult {
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
             serverDraft,
             draft: draft,
@@ -1319,6 +1328,10 @@ final class StudyStore {
             method: "POST",
             timeout: 180
         )
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         let refreshed = try await fetchManualDraft(id: updated.id)
         let localURL: URL?
         if let remoteURL = response.previewAudio?.mediaURLs.first {
@@ -1326,6 +1339,10 @@ final class StudyStore {
         } else {
             localURL = nil
         }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
     }
 
@@ -1335,6 +1352,8 @@ final class StudyStore {
         previewAudio: JSONValue?,
         previewAudioRole: String?
     ) async throws -> DraftPreviewImageResult {
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
             serverDraft,
             draft: draft,
@@ -1346,10 +1365,18 @@ final class StudyStore {
             method: "POST",
             timeout: 180
         )
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         guard let remoteURL = response.previewImage.mediaURLs.first else {
             throw MissingGeneratedCardImageError()
         }
         let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         let refreshed = try await fetchManualDraft(id: updated.id)
         return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
     }
@@ -1362,6 +1389,7 @@ final class StudyStore {
         previewImage: JSONValue?
     ) async throws {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let recoveryState = manualDraftOutbox.recoveryState(for: serverDraft.id)
         let shouldUpdateDraft = recoveryState == .none || recoveryState == .rejected
         let updated = if shouldUpdateDraft {
@@ -1375,12 +1403,22 @@ final class StudyStore {
         } else {
             serverDraft
         }
-        guard activeUserID == userID else { throw CancellationError() }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         try await manualDraftOutbox.commit(draftID: updated.id) { [weak self] card in
-            guard let self, self.activeUserID == userID else {
+            guard let self, self.isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else {
                 throw CancellationError()
             }
-            try await self.applyCommittedManualDraftCard(card, userID: userID)
+            try await self.applyCommittedManualDraftCard(
+                card,
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
@@ -1972,30 +2010,52 @@ final class StudyStore {
         try await manualDraftOutbox.retryPendingCreates()
     }
 
-    private func retryPendingDraftMutations(userID: Int) async throws {
+    private func retryPendingDraftMutations(
+        userID: Int,
+        activationGeneration: Int
+    ) async throws {
         try await manualDraftOutbox.retryPendingMutations { [weak self] card in
-            guard let self, self.activeUserID == userID else {
+            guard let self, self.isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else {
                 throw CancellationError()
             }
-            try await self.applyCommittedManualDraftCard(card, userID: userID)
+            try await self.applyCommittedManualDraftCard(
+                card,
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
     func retryPendingDraftCommits() async throws {
         guard let userID = activeUserID else { return }
+        let activationGeneration = accountActivationGeneration
         try await manualDraftOutbox.retryPendingCommits { [weak self] card in
-            guard let self, self.activeUserID == userID else {
+            guard let self, self.isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else {
                 throw CancellationError()
             }
-            try await self.applyCommittedManualDraftCard(card, userID: userID)
+            try await self.applyCommittedManualDraftCard(
+                card,
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
     private func applyCommittedManualDraftCard(
         _ card: StudyCard,
-        userID: Int
+        userID: Int,
+        activationGeneration: Int
     ) async throws {
-        guard activeUserID == userID else { throw CancellationError() }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { throw CancellationError() }
         try upsertLocalCard(card, markedDirty: false)
         if !lessonSessionIsPresented {
             cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
