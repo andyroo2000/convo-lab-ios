@@ -48,3 +48,4 @@ jobs:
           name: test-results
           path: TestResults.xcresult
           retention-days: 7
+          if-no-files-found: ignore
