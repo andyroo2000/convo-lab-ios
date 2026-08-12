@@ -71,6 +71,7 @@ final class StudyStore {
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var accountActivationGeneration = 0
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
@@ -214,6 +215,7 @@ final class StudyStore {
     }
 
     func deactivate() {
+        accountActivationGeneration += 1
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
         activeUserID = nil
@@ -398,6 +400,7 @@ final class StudyStore {
 
     func synchronize() async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
+        let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
         var refreshed = false
@@ -408,19 +411,19 @@ final class StudyStore {
         } catch {
             firstError = error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await retryPendingDraftMutations(userID: userID)
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             var cardsReconciler = StudyPublishedCardReconciler()
             var libraryCardsReconciler = StudyPublishedCardReconciler()
@@ -444,7 +447,7 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         // Fetch small, user-visible metadata before session media preparation
         // consumes the shared production request bucket.
         do {
@@ -452,13 +455,13 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await refreshOfflineReserve(
                 userID: userID,
@@ -467,13 +470,17 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
 
         if refreshed {
             lastSyncAt = .now
         }
         if let firstError {
-            handleSyncError(firstError)
+            handleSyncError(
+                firstError,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         } else {
             syncStatus = .idle
         }
@@ -984,7 +991,8 @@ final class StudyStore {
         duration: Duration?,
         reviewedAt: Date = .now
     ) async -> String? {
-        guard activeUserID != nil else { return nil }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
         var stagedEventID: String?
         do {
             // Scheduling must succeed before the durable event is staged. If the
@@ -1055,7 +1063,11 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
             return stagedEventID
         }
     }
@@ -1295,6 +1307,7 @@ final class StudyStore {
     @discardableResult
     func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let id = ClientIdentifier.ulid()
         let now = Date.now
         let projection = StudyCardEditorProjection.creating(draft, id: id, at: now)
@@ -1317,7 +1330,11 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
         return optimistic
     }
@@ -1337,7 +1354,8 @@ final class StudyStore {
     }
 
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
-        guard activeUserID != nil else { throw CancellationError() }
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
         let projection = StudyCardEditorProjection.updating(
             currentCard,
@@ -1354,12 +1372,17 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
     func deleteCard(_ card: StudyCard) async throws {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
         try cardOutbox.stageDelete(cardID: currentCard.id)
         let cardID = currentCard.id
@@ -1376,7 +1399,11 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
@@ -1925,6 +1952,19 @@ final class StudyStore {
         } else {
             syncStatus = .failed(error.localizedDescription)
         }
+    }
+
+    private func handleSyncError(
+        _ error: any Error,
+        for userID: Int,
+        activationGeneration: Int
+    ) {
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+        handleSyncError(error)
+    }
+
+    private func isCurrentActivation(_ userID: Int, generation: Int) -> Bool {
+        activeUserID == userID && accountActivationGeneration == generation
     }
 }
 

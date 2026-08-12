@@ -4442,6 +4442,179 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
         XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
+    func testCancelledReviewFromPreviousAccountCannotFailCurrentAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let userOneCard = makeCard(
+            id: "01J00000000000000000000B3",
+            expression: "前の利用者の復習"
+        )
+        let userTwoCard = makeCard(
+            id: "01J00000000000000000000B4",
+            expression: "現在の利用者の復習"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: userOneCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userOneCard)
+        ))
+        container.mainContext.insert(LocalCardRecord(
+            card: userTwoCard,
+            userID: 2,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userTwoCard)
+        ))
+        try container.mainContext.save()
+
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/card-review-events/batch")
+            gate.markStarted()
+            gate.waitForRelease()
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let review = Task {
+            await store.recordReview(card: userOneCard, rating: .good, duration: nil)
+        }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.activate(userID: 2)
+        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.syncStatus, .idle)
+        gate.release()
+        _ = await review.value
+
+        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
+    func testCancelledReviewCannotFailReactivatedSameAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000B5",
+            expression: "再認証前の復習"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try container.mainContext.save()
+
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/card-review-events/batch")
+            gate.markStarted()
+            gate.waitForRelease()
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let review = Task {
+            await store.recordReview(card: card, rating: .good, duration: nil)
+        }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.deactivate()
+        store.activate(userID: 1)
+        XCTAssertEqual(store.syncStatus, .idle)
+        gate.release()
+        _ = await review.value
+
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
+    func testStaleSynchronizationCannotFailReactivatedSameAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(
+            withJSONObject: ["data": sessionObject]
+        )
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            case "/api/study/offline-reserve":
+                gate.markStarted()
+                gate.waitForRelease()
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let synchronization = Task { await store.synchronize() }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.deactivate()
+        store.activate(userID: 1)
+        XCTAssertEqual(store.syncStatus, .idle)
+        gate.release()
+        await synchronization.value
+
+        XCTAssertEqual(store.syncStatus, .idle)
     }
 
     @MainActor
