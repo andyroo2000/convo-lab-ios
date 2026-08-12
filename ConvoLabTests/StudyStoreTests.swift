@@ -4694,7 +4694,7 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testStaleStudySettingsResponseCannotPopulateNewAccount() async throws {
+    func testStaleStudySettingsResponseCannotPopulateReactivatedAccount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let gate = LockedRequestGate()
         let client = makeClient { request in
@@ -4729,11 +4729,56 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertTrue(gate.hasStarted)
 
         store.activate(userID: 2)
+        store.activate(userID: 1)
         gate.release()
         await refresh.value
 
         XCTAssertNil(store.studySettings)
         XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testStaleStudySettingsUpdateCannotPopulateReactivatedAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            gate.markStarted()
+            gate.waitForRelease()
+            return Self.response(data: Data(
+                #"{"newCardsPerDay":24,"lessonBatchSize":8,"reviewTimeBudgetMinutes":150}"#.utf8
+            ))
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let update = Task {
+            await store.updateStudySettings(
+                newCardsPerDay: 24,
+                lessonBatchSize: 8,
+                reviewTimeBudgetMinutes: 150
+            )
+        }
+        await waitUntil { gate.hasStarted }
+
+        store.activate(userID: 2)
+        store.activate(userID: 1)
+        gate.release()
+        let saved = await update.value
+
+        XCTAssertFalse(saved)
+        XCTAssertNil(store.studySettings)
+        XCTAssertNil(store.studySettingsErrorMessage)
+        XCTAssertFalse(store.isUpdatingStudySettings)
     }
 
     @MainActor
