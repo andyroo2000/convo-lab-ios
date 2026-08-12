@@ -86,7 +86,8 @@ final class StudyStore {
     // outbox receives one prompt retry before returning to that throttle; the
     // read-only refresh domains use the ordinary max-age cadence.
     @ObservationIgnored private var lastSessionRefreshAt: Date?
-    @ObservationIgnored private var syncRetryNeeded = false
+    @ObservationIgnored private var outboxRetryRevision = 0
+    @ObservationIgnored private var consumedOutboxRetryRevision = 0
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -283,7 +284,8 @@ final class StudyStore {
         syncStatus = .idle
         lastSyncAt = nil
         lastSessionRefreshAt = nil
-        syncRetryNeeded = false
+        outboxRetryRevision = 0
+        consumedOutboxRetryRevision = 0
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
@@ -428,6 +430,12 @@ final class StudyStore {
     }
 
     func synchronize() async {
+        await performSynchronization(requestingPromptRetryOnOutboxFailure: true)
+    }
+
+    private func performSynchronization(
+        requestingPromptRetryOnOutboxFailure: Bool
+    ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
@@ -527,7 +535,9 @@ final class StudyStore {
         if refreshed {
             lastSessionRefreshAt = completedAt
         }
-        syncRetryNeeded = retryNeeded
+        if retryNeeded, requestingPromptRetryOnOutboxFailure {
+            outboxRetryRevision += 1
+        }
         if let firstError {
             handleSyncError(
                 firstError,
@@ -552,13 +562,14 @@ final class StudyStore {
 
     func synchronizeIfNeeded(maxAge: Duration) async {
         guard syncStatus != .syncing else { return }
-        if syncRetryNeeded {
+        if consumedOutboxRetryRevision < outboxRetryRevision {
             // Give a failed mutation outbox one prompt retry. If that attempt
             // also fails, use session freshness to bound subsequent automatic
-            // attempts until the normal max-age window expires.
-            syncRetryNeeded = false
-            await synchronize()
-            syncRetryNeeded = false
+            // attempts until the normal max-age window expires. Consume only
+            // the revision observed here so an interleaved eager failure is not
+            // lost while this sync is suspended at a network await.
+            consumedOutboxRetryRevision = outboxRetryRevision
+            await performSynchronization(requestingPromptRetryOnOutboxFailure: false)
             return
         }
         let components = maxAge.components
@@ -2212,7 +2223,9 @@ final class StudyStore {
     }
 
     private func markOutboxRetryNeeded(for error: any Error) {
-        syncRetryNeeded = syncRetryNeeded || requiresAutomaticRetry(error)
+        if requiresAutomaticRetry(error) {
+            outboxRetryRevision += 1
+        }
     }
 
     private func requirePersistentWrites() throws {
