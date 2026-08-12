@@ -1713,6 +1713,7 @@ final class StudyStore {
 
         return StudyCard(
             id: record.id,
+            // Keep the persisted local key while carrying the server-resolved identity as its alias.
             syncId: record.id == serverCard.id
                 ? serverCard.syncId ?? localCard.syncId
                 : serverCard.reviewCardID,
@@ -1758,6 +1759,7 @@ final class StudyStore {
     ) throws {
         guard let userID = activeUserID else { throw CancellationError() }
         if let record = try localCardRepository.record(matching: card, userID: userID) {
+            // Keep the persisted local key while carrying the resolved request identity as its alias.
             let persistedCard = record.id == card.id
                 ? card
                 : card.replacingIdentity(id: record.id, syncId: card.reviewCardID)

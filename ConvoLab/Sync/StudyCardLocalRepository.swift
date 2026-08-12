@@ -169,8 +169,9 @@ struct StudyCardLocalRepository {
     ) -> Int {
         if record.normalizedID == normalizedID { return 0 }
         if record.normalizedID == normalizedSyncID { return 1 }
-        if record.syncID == normalizedSyncID { return 2 }
-        return 3
+        if record.syncID == normalizedID { return 2 }
+        if record.syncID == normalizedSyncID { return 3 }
+        return 4
     }
 
     private func isPreferredMatch(

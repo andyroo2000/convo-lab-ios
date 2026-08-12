@@ -212,6 +212,22 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
             in: container
         )
         dirtyAliasRecord.locallyUpdatedAt = Date(timeIntervalSince1970: 2)
+        let cardIDAliasRecord = insert(
+            makeCard(id: "card-id-alias", syncId: "searched-id", expression: "ID alias"),
+            userID: 4,
+            queueIndex: 0,
+            in: container
+        )
+        _ = insert(
+            makeCard(
+                id: "sync-id-alias",
+                syncId: "searched-sync-id",
+                expression: "sync ID alias"
+            ),
+            userID: 4,
+            queueIndex: 1,
+            in: container
+        )
         try container.mainContext.save()
         let repository = StudyCardLocalRepository(context: container.mainContext)
 
@@ -234,6 +250,14 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
         )
         XCTAssertTrue(
             try repository.record(matching: unresolvedCanonical, userID: 3) === dirtyAliasRecord
+        )
+        let divergentSnapshot = makeCard(
+            id: "searched-id",
+            syncId: "searched-sync-id",
+            expression: "divergent"
+        )
+        XCTAssertTrue(
+            try repository.record(matching: divergentSnapshot, userID: 4) === cardIDAliasRecord
         )
     }
 
