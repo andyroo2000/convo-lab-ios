@@ -400,6 +400,7 @@ final class StudyStore {
 
     func synchronize() async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
+        let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
         var refreshed = false
@@ -410,19 +411,19 @@ final class StudyStore {
         } catch {
             firstError = error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await retryPendingDraftMutations(userID: userID)
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             var cardsReconciler = StudyPublishedCardReconciler()
             var libraryCardsReconciler = StudyPublishedCardReconciler()
@@ -446,7 +447,7 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         // Fetch small, user-visible metadata before session media preparation
         // consumes the shared production request bucket.
         do {
@@ -454,13 +455,13 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             try await refreshOfflineReserve(
                 userID: userID,
@@ -469,13 +470,17 @@ final class StudyStore {
         } catch {
             firstError = firstError ?? error
         }
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
 
         if refreshed {
             lastSyncAt = .now
         }
         if let firstError {
-            handleSyncError(firstError)
+            handleSyncError(
+                firstError,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         } else {
             syncStatus = .idle
         }
@@ -1954,11 +1959,12 @@ final class StudyStore {
         for userID: Int,
         activationGeneration: Int
     ) {
-        guard
-            activeUserID == userID,
-            accountActivationGeneration == activationGeneration
-        else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         handleSyncError(error)
+    }
+
+    private func isCurrentActivation(_ userID: Int, generation: Int) -> Bool {
+        activeUserID == userID && accountActivationGeneration == generation
     }
 }
 

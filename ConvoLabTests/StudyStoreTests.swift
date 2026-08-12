@@ -4554,6 +4554,70 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleSynchronizationCannotFailReactivatedSameAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(
+            withJSONObject: ["data": sessionObject]
+        )
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            case "/api/study/offline-reserve":
+                gate.markStarted()
+                gate.waitForRelease()
+                throw URLError(.notConnectedToInternet)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let synchronization = Task { await store.synchronize() }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+
+        store.deactivate()
+        store.activate(userID: 1)
+        XCTAssertEqual(store.syncStatus, .idle)
+        gate.release()
+        await synchronization.value
+
+        XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
     func testAccountSwitchCannotAdvanceCheckpointPastSkippedCardChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let serverCard = makeCard(
