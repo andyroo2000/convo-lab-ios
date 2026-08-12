@@ -38,6 +38,26 @@ private enum StudyTimeStoreError: LocalizedError {
 final class StudyTimeStore {
     private static let automaticRecoveryLimit: TimeInterval = 5 * 60
 
+    private enum StorageWriteOperation: Equatable {
+        case start(
+            activity: StudyActivityKind,
+            source: StudyActivitySource,
+            name: String?,
+            replacingSessionID: String?
+        )
+        case finish(clientSessionID: String)
+        case addCreatedCards(clientSessionID: String, count: Int)
+        case recordCompleted(
+            activity: StudyActivityKind,
+            source: StudyActivitySource,
+            name: String?,
+            startedAt: Date,
+            duration: TimeInterval
+        )
+        case update(clientSessionID: String)
+        case delete(clientSessionID: String)
+    }
+
     struct ActiveSession: Equatable {
         let clientSessionID: String
         let category: StudyActivityCategory
@@ -59,6 +79,7 @@ final class StudyTimeStore {
     private(set) var analyticsCacheGeneration = 0
     private(set) var active: ActiveSession?
     private(set) var storageWriteErrorMessage: String?
+    private var storageWriteErrorOperation: StorageWriteOperation?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
     private var synchronizationTask: Task<Void, Never>?
@@ -92,7 +113,7 @@ final class StudyTimeStore {
         analytics = nil
         analyticsCache = [:]
         analyticsCacheGeneration += 1
-        storageWriteErrorMessage = nil
+        clearStorageWriteError()
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -112,7 +133,7 @@ final class StudyTimeStore {
         analyticsCache = [:]
         analyticsCacheGeneration += 1
         active = nil
-        storageWriteErrorMessage = nil
+        clearStorageWriteError()
         syncErrorMessage = nil
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
@@ -127,17 +148,23 @@ final class StudyTimeStore {
         at date: Date = .now
     ) -> Bool {
         guard let userID = activeUserID else { return false }
+        let operation = StorageWriteOperation.start(
+            activity: activity,
+            source: source,
+            name: name,
+            replacingSessionID: active?.clientSessionID
+        )
         guard storageMode == .persistent else {
-            storageWriteErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
-                .localizedDescription
+            setStorageWriteError(
+                StorageWriteUnavailableError(domain: .studyTime),
+                for: operation
+            )
             return false
         }
         if active?.activity == activity, active?.source == source, active?.name == name {
-            storageWriteErrorMessage = nil
             return true
         }
         if active?.source == .manual, source == .automatic {
-            storageWriteErrorMessage = nil
             return true
         }
         let previousActive = active
@@ -146,8 +173,7 @@ final class StudyTimeStore {
                 clientSessionID: previousActive.clientSessionID
             ) else {
                 loadLocalSessions()
-                storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable
-                    .localizedDescription
+                setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
                 return false
             }
             complete(previousRecord, from: previousActive, at: date)
@@ -166,7 +192,7 @@ final class StudyTimeStore {
             try contextSaver.save()
             localMutationGeneration += 1
             active = session
-            storageWriteErrorMessage = nil
+            clearStorageWriteError(for: operation)
             if previousActive != nil {
                 loadLocalSessions()
                 Task {
@@ -178,7 +204,7 @@ final class StudyTimeStore {
         } catch {
             context.rollback()
             active = previousActive
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             return false
         }
     }
@@ -215,9 +241,13 @@ final class StudyTimeStore {
     @discardableResult
     func addCreatedCards(_ count: Int = 1) -> Bool {
         guard var current = active, current.activity == .cardCreation else { return true }
+        let operation = StorageWriteOperation.addCreatedCards(
+            clientSessionID: current.clientSessionID,
+            count: count
+        )
         guard let record = record(clientSessionID: current.clientSessionID) else {
             loadLocalSessions()
-            storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
+            setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
             return false
         }
         let previousCount = current.cardsCreated
@@ -227,13 +257,13 @@ final class StudyTimeStore {
             try contextSaver.save()
             localMutationGeneration += 1
             active = current
-            storageWriteErrorMessage = nil
+            clearStorageWriteError(for: operation)
             return true
         } catch {
             context.rollback()
             current.cardsCreated = previousCount
             active = current
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             return false
         }
     }
@@ -250,6 +280,13 @@ final class StudyTimeStore {
         guard let userID = activeUserID else { return nil }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
+        let operation = StorageWriteOperation.recordCompleted(
+            activity: activity,
+            source: source,
+            name: name,
+            startedAt: startedAt,
+            duration: boundedDuration
+        )
         var effectiveSource = source
         var calendarEventIdentifier: String?
         var calendarWarning: String?
@@ -286,11 +323,11 @@ final class StudyTimeStore {
             if let calendarEventIdentifier {
                 try? await calendar.deleteEvent(identifier: calendarEventIdentifier)
             }
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             throw error
         }
         localMutationGeneration += 1
-        storageWriteErrorMessage = nil
+        clearStorageWriteError(for: operation)
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -314,6 +351,9 @@ final class StudyTimeStore {
         guard let previousSession = record.session else {
             throw StudyTimeStoreError.sessionUnavailable
         }
+        let operation = StorageWriteOperation.update(
+            clientSessionID: session.clientSessionId
+        )
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
@@ -354,6 +394,9 @@ final class StudyTimeStore {
             try contextSaver.save()
         } catch {
             let calendarEventIdentifier = record.calendarEventIdentifier
+            // Preserve the complete pre-edit local transaction, including a
+            // dangling calendar link. A retry will observe EventKit's missing
+            // event again and persist the self-heal with the requested edit.
             context.rollback()
             if let identifier = calendarEventIdentifier {
                 try? await calendar.updateEvent(
@@ -364,11 +407,11 @@ final class StudyTimeStore {
                 )
             }
             loadLocalSessions()
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             throw error
         }
         localMutationGeneration += 1
-        storageWriteErrorMessage = nil
+        clearStorageWriteError(for: operation)
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -383,6 +426,9 @@ final class StudyTimeStore {
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable
         }
+        let operation = StorageWriteOperation.delete(
+            clientSessionID: session.clientSessionId
+        )
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
@@ -393,11 +439,11 @@ final class StudyTimeStore {
         } catch {
             context.rollback()
             loadLocalSessions()
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             throw error
         }
         localMutationGeneration += 1
-        storageWriteErrorMessage = nil
+        clearStorageWriteError(for: operation)
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -517,9 +563,12 @@ final class StudyTimeStore {
         at date: Date,
         enqueueSync: Bool = true
     ) -> Bool {
+        let operation = StorageWriteOperation.finish(
+            clientSessionID: current.clientSessionID
+        )
         guard let record = record(clientSessionID: current.clientSessionID) else {
             loadLocalSessions()
-            storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
+            setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
             return false
         }
         complete(record, from: current, at: date)
@@ -528,12 +577,12 @@ final class StudyTimeStore {
         } catch {
             context.rollback()
             active = current
-            storageWriteErrorMessage = error.localizedDescription
+            setStorageWriteError(error, for: operation)
             return false
         }
         localMutationGeneration += 1
         active = nil
-        storageWriteErrorMessage = nil
+        clearStorageWriteError(for: operation)
         loadLocalSessions()
         if enqueueSync {
             Task {
@@ -542,6 +591,20 @@ final class StudyTimeStore {
             }
         }
         return true
+    }
+
+    private func setStorageWriteError(
+        _ error: any Error,
+        for operation: StorageWriteOperation
+    ) {
+        storageWriteErrorMessage = error.localizedDescription
+        storageWriteErrorOperation = operation
+    }
+
+    private func clearStorageWriteError(for operation: StorageWriteOperation? = nil) {
+        guard operation == nil || storageWriteErrorOperation == operation else { return }
+        storageWriteErrorMessage = nil
+        storageWriteErrorOperation = nil
     }
 
     private func requirePersistentWrites() throws {

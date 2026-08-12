@@ -142,13 +142,22 @@ final class StudyActivitySessionTests: XCTestCase {
         let endedAt = startedAt.addingTimeInterval(60)
         store.activate(userID: 42)
         XCTAssertTrue(
-            store.start(activity: .reading, source: .manual, at: startedAt)
+            store.start(activity: .reading, source: .automatic, at: startedAt)
         )
 
         XCTAssertFalse(store.stop(at: endedAt))
         XCTAssertEqual(store.active?.startedAt, startedAt)
         XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
         XCTAssertNil(try savedRecord(in: container).endedAt)
+
+        XCTAssertTrue(
+            store.start(activity: .reading, source: .automatic, at: startedAt)
+        )
+        XCTAssertEqual(
+            store.storageWriteErrorMessage,
+            "Forced save failure",
+            "Resuming the same open timer must not hide its failed finish."
+        )
 
         XCTAssertTrue(store.stop(at: endedAt))
         XCTAssertNil(store.active)
@@ -290,7 +299,7 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store, saves)
     }
 
-    func testSuccessfulNoOpStartClearsStaleStorageWriteError() throws {
+    func testNoOpStartPreservesUnresolvedErrorFromAnotherOperation() throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let saves = DeterministicStudyTimeSaves(
             context: container.mainContext,
@@ -308,8 +317,9 @@ final class StudyActivitySessionTests: XCTestCase {
 
         XCTAssertTrue(store.start(activity: .cardCreation, source: .manual))
 
-        XCTAssertNil(store.storageWriteErrorMessage)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
         XCTAssertTrue(store.addCreatedCards())
+        XCTAssertNil(store.storageWriteErrorMessage)
         retainSaveFixtures(container, store, saves)
     }
 
