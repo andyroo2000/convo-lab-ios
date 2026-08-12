@@ -17,6 +17,7 @@ final class AuthStore {
     private let keychain: any CredentialStore
     private let tokenAccount = "learning-os-mobile-token"
     private let userAccount = "learning-os-current-user"
+    private var authenticationGeneration = 0
 
     init(api: APIClient, keychain: any CredentialStore = KeychainStore()) {
         self.api = api
@@ -104,6 +105,7 @@ final class AuthStore {
     }
 
     func updateProfile(name: String, email: String) async -> Bool {
+        let generation = authenticationGeneration
         isWorking = true
         errorMessage = nil
         defer { isWorking = false }
@@ -113,10 +115,12 @@ final class AuthStore {
                 method: "PUT",
                 body: UpdateProfileRequest(name: name, email: email)
             )
+            guard authenticationGeneration == generation else { return false }
             try cacheUser(response.data)
             state = .signedIn(response.data)
             return true
         } catch {
+            guard authenticationGeneration == generation else { return false }
             errorMessage = error.localizedDescription
             return false
         }
@@ -185,6 +189,7 @@ final class AuthStore {
     }
 
     func logout() async {
+        authenticationGeneration += 1
         if api.accessToken != nil {
             try? await api.request(
                 "/api/auth/tokens/current",
