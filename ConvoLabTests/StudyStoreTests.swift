@@ -3916,6 +3916,84 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedImmediateRetryReturnsToSessionFreshnessThrottle() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewCard = makeCard(
+            id: "01J00000000000000000000AD",
+            expression: "抑制"
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let reviewAttempts = LockedCounter()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            switch path {
+            case "/api/card-review-events/batch":
+                _ = reviewAttempts.next()
+                throw URLError(.networkConnectionLost)
+            case "/api/sync/feed":
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+                    Data(#"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8)
+                )
+            case "/api/study/known-kanji":
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+                    Data(#"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8)
+                )
+            case "/api/study/session/start":
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+                    sessionData
+                )
+            case "/api/study/offline-reserve":
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+                    Data(#"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8)
+                )
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        defer { store.deactivate() }
+
+        await store.recordReview(card: reviewCard, rating: .good, duration: nil)
+        await store.synchronize()
+        await store.synchronizeIfNeeded(maxAge: .seconds(300))
+        XCTAssertEqual(reviewAttempts.current, 3)
+
+        await store.synchronizeIfNeeded(maxAge: .seconds(300))
+
+        XCTAssertEqual(
+            reviewAttempts.current,
+            3,
+            "A repeatedly failing outbox must return to the normal freshness throttle."
+        )
+    }
+
+    @MainActor
     func testOfflineReserveFromOldActivationCannotMergeAfterSameUserReactivation() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let staleReserveCard = makeCard(

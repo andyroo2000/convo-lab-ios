@@ -495,7 +495,6 @@ final class StudyStore {
             }
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         // Fetch small, user-visible metadata before session media preparation
@@ -504,14 +503,12 @@ final class StudyStore {
             try await refreshKnownKanji()
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
             refreshed = try await refreshSessionPreservingActiveLessons()
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -522,7 +519,6 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
 
@@ -555,6 +551,15 @@ final class StudyStore {
 
     func synchronizeIfNeeded(maxAge: Duration) async {
         guard syncStatus != .syncing else { return }
+        if syncRetryNeeded {
+            // Give a failed mutation outbox one prompt retry. If that attempt
+            // also fails, use session freshness to bound subsequent automatic
+            // attempts until the normal max-age window expires.
+            syncRetryNeeded = false
+            await synchronize()
+            syncRetryNeeded = false
+            return
+        }
         let components = maxAge.components
         let maxAgeSeconds = TimeInterval(components.seconds)
             + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
