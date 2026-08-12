@@ -564,6 +564,7 @@ final class StudyStore {
         )
         overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
         studySettings = resolvedSettings
+        studySurfaceRevision += 1
         cards = activeCards
         sessionKind = "reviews"
         sessionInitialCardCount = activeCards.count
@@ -607,6 +608,7 @@ final class StudyStore {
         )
         overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
         studySettings = resolvedSettings
+        studySurfaceRevision += 1
         cards = lessonCards
         sessionKind = "lessons"
         sessionInitialCardCount = lessonCards.count

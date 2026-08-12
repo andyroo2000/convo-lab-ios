@@ -2362,6 +2362,96 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testServerUndoFromOldLessonCannotEnterNewLessonBatch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let oldLesson = makeCard(
+            id: "old-lesson-with-delayed-undo",
+            expression: "前の項目",
+            queueState: "new"
+        )
+        let newLesson = makeCard(
+            id: "new-lesson-batch",
+            expression: "次の項目",
+            queueState: "new"
+        )
+        let oldLessonData = try sessionResponseData(cards: [oldLesson])
+        let newLessonData = try sessionResponseData(cards: [newLesson])
+        let oldLessonJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(oldLesson), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 0,
+            newCount: 1,
+            reviewCount: 0,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 1
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let lessonRequests = LockedCounter()
+        let deferredUndo = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch request.url?.path {
+            case "/api/study/lessons/start":
+                completion(.success(Self.response(
+                    data: lessonRequests.next() == 1 ? oldLessonData : newLessonData
+                )))
+            case "/api/card-review-events/batch":
+                completion(.success(Self.response(statusCode: 201, data: Data())))
+            case "/api/study/reviews/undo":
+                deferredUndo.hold(completion)
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let undoResponse = Self.response(data: Data(
+            """
+            {
+              "reviewLogId": "old-lesson-delayed-undo",
+              "card": \(oldLessonJSON),
+              "overview": \(overviewJSON)
+            }
+            """.utf8
+        ))
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+        let recordedEventID = await store.recordReview(
+            card: oldLesson,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        let undoTask = Task {
+            try await store.undoReview(eventID: eventID, cardBefore: oldLesson)
+        }
+        await waitUntil { deferredUndo.hasPendingResponse }
+
+        try await store.refreshLessons()
+        XCTAssertEqual(store.cards.map(\.id), [newLesson.id])
+        deferredUndo.succeed(with: undoResponse)
+        try await undoTask.value
+
+        XCTAssertEqual(store.cards.map(\.id), [newLesson.id])
+        let activeRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }
+            )
+        )
+        XCTAssertTrue(activeRecords.isEmpty)
+    }
+
+    @MainActor
     func testOfflineDueCardsCannotEnterPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dueAt = Date.now.addingTimeInterval(3_600)
@@ -6152,7 +6242,22 @@ final class StudyStoreTests: XCTestCase {
 
     @MainActor
     func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
+    func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
@@ -6809,6 +6914,31 @@ final class LockedRequestGate: @unchecked Sendable {
         released = true
         condition.broadcast()
         condition.unlock()
+    }
+}
+
+final class LockedDeferredResponse: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: MockURLProtocol.DeferredCompletion?
+
+    var hasPendingResponse: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return completion != nil
+    }
+
+    func hold(_ completion: @escaping MockURLProtocol.DeferredCompletion) {
+        lock.lock()
+        self.completion = completion
+        lock.unlock()
+    }
+
+    func succeed(with response: (HTTPURLResponse, Data)) {
+        lock.lock()
+        let completion = completion
+        self.completion = nil
+        lock.unlock()
+        completion?(.success(response))
     }
 }
 
