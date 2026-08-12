@@ -1811,6 +1811,9 @@ final class StudyStore {
                 restorePendingReviewState()
             }
         } catch {
+            if kind == .review {
+                restorePendingReviewState()
+            }
             markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
@@ -1826,6 +1829,7 @@ final class StudyStore {
     func discardFailedStudyChange(id: String) async throws {
         try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         guard failedStudyChangeOperationIDs.insert(id).inserted else { return }
         defer { failedStudyChangeOperationIDs.remove(id) }
         guard let mutation = try failedMutation(id: id, userID: userID),
@@ -1833,6 +1837,17 @@ final class StudyStore {
         else { return }
 
         let resourceID = mutation.resourceID.lowercased()
+        let canonicalCard: StudyCard? = if kind == .cardDelete || kind == .cardUpdate {
+            try await fetchCanonicalCard(id: mutation.resourceID)
+        } else {
+            nil
+        }
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        guard let currentMutation = try failedMutation(id: id, userID: userID),
+              currentMutation.studyMutationKind == kind
+        else { return }
         if kind == .cardCreate {
             // A review/update against a card the server rejected cannot succeed on
             // its own. Discard the dependent local activity with the failed create.
@@ -1846,7 +1861,7 @@ final class StudyStore {
                 context.delete(record)
             }
         } else {
-            context.delete(mutation)
+            context.delete(currentMutation)
             if kind == .cardUpdate {
                 let remaining = try context.fetch(
                     FetchDescriptor<PendingMutation>(
@@ -1862,6 +1877,13 @@ final class StudyStore {
                     }
                 }
             }
+            if let canonicalCard {
+                try upsertLocalCard(
+                    canonicalCard,
+                    markedDirty: false,
+                    serverUpdatedAt: canonicalCard.updatedAt
+                )
+            }
         }
         try context.save()
         restorePendingReviewState()
@@ -1872,6 +1894,19 @@ final class StudyStore {
         // Discarding removes the row that intentionally blocked inbound data.
         // Reconcile immediately when online; ordinary sync will retry later if not.
         await synchronize()
+    }
+
+    private func fetchCanonicalCard(id: String) async throws -> StudyCard? {
+        do {
+            let response: StudyCardBatchResponse = try await api.request(
+                "/api/study/cards/batch",
+                method: "POST",
+                body: StudyCardBatchRequest(ids: [id])
+            )
+            return response.cards.first
+        } catch APIClientError.rejected(status: 404, message: _) {
+            return nil
+        }
     }
 
     private func failedMutation(id: String, userID: Int) throws -> PendingMutation? {

@@ -5837,11 +5837,19 @@ final class StudyStoreTests: XCTestCase {
         )
         delete.lastError = "HTTP 409: Delete conflict"
         container.mainContext.insert(delete)
+        // Match deleteCard(_:)'s optimistic state: the local replica is gone
+        // before the server rejects the queued deletion.
         try container.mainContext.save()
 
         let sessionData = try sessionResponseData(cards: [card])
+        let cardData = try StorageCodec.encoder.encode(card)
         let client = makeClient { request in
             switch request.url?.path {
+            case "/api/study/cards/batch":
+                let cardObject = try JSONSerialization.jsonObject(with: cardData)
+                return Self.response(data: try JSONSerialization.data(
+                    withJSONObject: ["cards": [cardObject]]
+                ))
             case "/api/sync/feed":
                 return Self.response(data: Data(
                     #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
@@ -5868,6 +5876,7 @@ final class StudyStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.failedStudyChanges.map(\.kind), [.cardDelete])
+        XCTAssertTrue(store.libraryCards.isEmpty)
 
         try await store.discardFailedStudyChange(id: delete.id)
 
@@ -5876,6 +5885,81 @@ final class StudyStoreTests: XCTestCase {
             try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
         )
         XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+    }
+
+    @MainActor
+    func testDiscardingRejectedCardUpdateRestoresCanonicalServerContent() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(
+            id: "01J00000000000000000000F3",
+            expression: "サーバー"
+        )
+        let localCard = makeCard(
+            id: serverCard.id,
+            expression: "破棄する編集"
+        )
+        let record = LocalCardRecord(
+            card: localCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(localCard)
+        )
+        record.locallyUpdatedAt = .now
+        let update = PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: serverCard.id,
+            payload: try StorageCodec.encoder.encode(UpdateStudyCardRequest(
+                prompt: localCard.prompt,
+                answer: localCard.answer
+            ))
+        )
+        update.lastError = "HTTP 422: Invalid card"
+        container.mainContext.insert(record)
+        container.mainContext.insert(update)
+        try container.mainContext.save()
+
+        let cardData = try StorageCodec.encoder.encode(serverCard)
+        let sessionData = try sessionResponseData(cards: [serverCard])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/cards/batch":
+                let cardObject = try JSONSerialization.jsonObject(with: cardData)
+                return Self.response(data: try JSONSerialization.data(
+                    withJSONObject: ["cards": [cardObject]]
+                ))
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            default:
+                throw URLError(.notConnectedToInternet)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.libraryCards.first?.promptText, "破棄する編集")
+
+        try await store.discardFailedStudyChange(id: update.id)
+
+        XCTAssertEqual(store.libraryCards.first?.promptText, "サーバー")
+        XCTAssertNil(record.locallyUpdatedAt)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
     }
 
     @MainActor
