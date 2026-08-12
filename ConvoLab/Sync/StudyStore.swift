@@ -9,6 +9,12 @@ final class StudyStore {
         }
     }
 
+    private struct MissingAcknowledgedCardError: LocalizedError {
+        var errorDescription: String? {
+            "Card sync stopped because its local record is missing. Refresh and try again."
+        }
+    }
+
     private struct DeletedCardUndoError: LocalizedError {
         var errorDescription: String? {
             "This card was deleted and cannot be restored."
@@ -1347,7 +1353,7 @@ final class StudyStore {
             at: .now
         )
         let updated = projection.card
-        try updateLocalCard(updated, markedDirty: true)
+        try updateExistingLocalCard(updated, markedDirty: true)
         try cardOutbox.stageUpdate(cardID: currentCard.id, request: projection.request)
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -1506,7 +1512,7 @@ final class StudyStore {
         pendingWrite: Bool,
         serverUpdatedAt: Date
     ) throws {
-        try updateLocalCard(
+        try updateExistingLocalCard(
             card,
             markedDirty: pendingWrite,
             serverUpdatedAt: serverUpdatedAt
@@ -1575,10 +1581,11 @@ final class StudyStore {
                 preservingPendingReview: acknowledgement.preservingPendingReview,
                 preservingPendingEdit: acknowledgement.preservingPendingEdit
             )
-            try updateLocalCard(
+            try updateExistingLocalCard(
                 acknowledgedCard,
                 markedDirty: acknowledgement.preservingPendingEdit,
-                serverUpdatedAt: acknowledgement.card.updatedAt
+                serverUpdatedAt: acknowledgement.card.updatedAt,
+                missingRecordError: MissingAcknowledgedCardError()
             )
         }
     }
@@ -1752,32 +1759,65 @@ final class StudyStore {
         return try localCardRepository.record(matching: card, userID: userID)
     }
 
-    private func updateLocalCard(
+    private func updateExistingLocalCard(
+        _ card: StudyCard,
+        markedDirty: Bool,
+        serverUpdatedAt: Date? = nil,
+        missingRecordError: any Error = MissingLocalCardError()
+    ) throws {
+        guard let userID = activeUserID else { throw CancellationError() }
+        guard let record = try localCardRepository.record(matching: card, userID: userID) else {
+            throw missingRecordError
+        }
+        try updateLocalCardRecord(
+            record,
+            with: card,
+            markedDirty: markedDirty,
+            serverUpdatedAt: serverUpdatedAt
+        )
+    }
+
+    private func upsertLocalCard(
         _ card: StudyCard,
         markedDirty: Bool,
         serverUpdatedAt: Date? = nil
     ) throws {
         guard let userID = activeUserID else { throw CancellationError() }
         if let record = try localCardRepository.record(matching: card, userID: userID) {
-            // Keep the persisted local key while carrying the resolved request identity as its alias.
-            let persistedCard = record.id == card.id
-                ? card
-                : card.replacingIdentity(id: record.id, syncId: card.reviewCardID)
-            record.replacePayload(encoded: try StorageCodec.encoder.encode(persistedCard))
-            record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
-            record.locallyUpdatedAt = markedDirty ? .now : nil
-        } else {
-            let payload = try StorageCodec.encoder.encode(card)
-            let record = LocalCardRecord(
-                card: card,
-                userID: userID,
-                queueIndex: cards.count,
-                payload: payload
+            try updateLocalCardRecord(
+                record,
+                with: card,
+                markedDirty: markedDirty,
+                serverUpdatedAt: serverUpdatedAt
             )
-            record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
-            record.locallyUpdatedAt = markedDirty ? .now : nil
-            context.insert(record)
+            return
         }
+
+        let payload = try StorageCodec.encoder.encode(card)
+        let record = LocalCardRecord(
+            card: card,
+            userID: userID,
+            queueIndex: cards.count,
+            payload: payload
+        )
+        record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
+        record.locallyUpdatedAt = markedDirty ? .now : nil
+        context.insert(record)
+    }
+
+    private func updateLocalCardRecord(
+        _ record: LocalCardRecord,
+        with card: StudyCard,
+        markedDirty: Bool,
+        serverUpdatedAt: Date?
+    ) throws {
+        // Keep the persisted local key while carrying the resolved request identity as its alias.
+        let persistedCard = record.id == card.id
+            ? card
+            : card.replacingIdentity(id: record.id, syncId: card.reviewCardID)
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(persistedCard))
+        record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
+        record.locallyUpdatedAt = markedDirty ? .now : nil
     }
 
     private func fetchManualDraft(id: String) async throws -> StudyManualCardDraft {
@@ -1812,7 +1852,7 @@ final class StudyStore {
         userID: Int
     ) async throws {
         guard activeUserID == userID else { throw CancellationError() }
-        try updateLocalCard(card, markedDirty: false)
+        try upsertLocalCard(card, markedDirty: false)
         cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         cards.append(card)
         cards = StudySessionPolicy.orderedCards(cards)

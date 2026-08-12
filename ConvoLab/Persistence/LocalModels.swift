@@ -152,6 +152,9 @@ final class LocalCardRecord {
     }
 
     func replaceID(with id: String) {
+        // A create acknowledgement renames the primary key before its payload is
+        // reconciled. Preserve syncID as the old client-ID alias until the same
+        // outbox drain synchronously calls replacePayload with the server card.
         self.id = id
         normalizedID = id.lowercased()
     }

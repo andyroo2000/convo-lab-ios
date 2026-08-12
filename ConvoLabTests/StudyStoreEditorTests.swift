@@ -1530,6 +1530,69 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testSyncAcknowledgementDoesNotRecreateMissingLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let serverCard = makeCard(id: "missing-local-card", expression: "server response")
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardUpdate",
+                userID: 1,
+                resourceID: serverCard.id,
+                payload: try StorageCodec.encoder.encode(
+                    UpdateStudyCardRequest(
+                        prompt: serverCard.prompt,
+                        answer: serverCard.answer
+                    )
+                )
+            )
+        )
+        try container.mainContext.save()
+        let responseData = try StorageCodec.encoder.encode(serverCard)
+        let client = makeClient { request in
+            if request.httpMethod == "PATCH" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(
+            store.syncStatus,
+            .failed(
+                "Card sync stopped because its local record is missing. Refresh and try again."
+            )
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        XCTAssertEqual(mutation.kind, "cardUpdate")
+        XCTAssertEqual(mutation.attemptCount, 1)
+        XCTAssertNil(mutation.lastError)
+    }
+
+    @MainActor
     func testStaleEditorSnapshotDeletesCanonicalLocalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientID = "01J000000000000000000000SD"
