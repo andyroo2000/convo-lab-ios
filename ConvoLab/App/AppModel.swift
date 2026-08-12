@@ -206,6 +206,8 @@ final class AppModel {
     }
 
     func logout() async {
+        // If the finish save fails, the durable open row is intentionally
+        // recovered when this account next activates.
         await studyTime.deactivate()
         audioPlayer.stop()
         studyAudioPlayer.stop()
@@ -228,6 +230,8 @@ final class AppModel {
         let interruptedSession = studyTime.active
         let deletionStartedAt = Date.now
         var serverConfirmedDeletion = false
+        // A failed finish remains an open durable row. If deletion is rejected,
+        // reactivation below recovers that row instead of creating a duplicate.
         await studyTime.deactivate(at: deletionStartedAt)
         guard await auth.deleteAccount(
             currentPassword: currentPassword,

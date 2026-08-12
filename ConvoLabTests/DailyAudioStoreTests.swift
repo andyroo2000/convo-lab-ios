@@ -181,6 +181,7 @@ final class DailyAudioStoreTests: XCTestCase {
                 context: container.mainContext
             )
         )
+        defer { store.deactivate() }
 
         await store.refresh()
 
@@ -453,6 +454,7 @@ final class DailyAudioStoreTests: XCTestCase {
             context: container.mainContext,
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
+        defer { store.deactivate() }
 
         await store.refresh()
         XCTAssertEqual(store.practices.map(\.id), ["39ac4e14-b8b0-482c-8831-a3c1cb1987e9"])
@@ -503,6 +505,7 @@ final class DailyAudioStoreTests: XCTestCase {
                 context: container.mainContext
             )
         )
+        defer { store.deactivate() }
 
         await store.refresh()
 
@@ -636,6 +639,7 @@ final class DailyAudioStoreTests: XCTestCase {
                 context: container.mainContext
             )
         )
+        defer { store.deactivate() }
 
         await store.refresh()
         await store.create()
