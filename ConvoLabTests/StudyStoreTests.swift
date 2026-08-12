@@ -2271,6 +2271,282 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testServerUndoStartedInLessonCannotEnterReviewsAfterLessonExit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewCard = makeCard(id: "persisted-review-before-undo", expression: "復習")
+        let lessonCard = makeCard(
+            id: "lesson-with-delayed-undo",
+            expression: "新しい項目",
+            queueState: "new"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: reviewCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(reviewCard)
+        ))
+        try container.mainContext.save()
+        let lessonData = try sessionResponseData(cards: [lessonCard])
+        let lessonJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(lessonCard), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 0,
+            newCount: 1,
+            reviewCount: 0,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 1
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let undoGate = LockedRequestGate()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/study/lessons/start":
+                return Self.response(data: lessonData)
+            case "/api/card-review-events/batch":
+                return Self.response(statusCode: 201, data: Data())
+            case "/api/study/reviews/undo":
+                undoGate.markStarted()
+                undoGate.waitForRelease()
+                return Self.response(data: Data(
+                    """
+                    {
+                      "reviewLogId": "delayed-lesson-undo",
+                      "card": \(lessonJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                ))
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+        let recordedEventID = await store.recordReview(
+            card: lessonCard,
+            rating: .again,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        XCTAssertEqual(store.sessionFailureCount, 1)
+
+        let undoTask = Task {
+            try await store.undoReview(eventID: eventID, cardBefore: lessonCard)
+        }
+        await waitUntil { undoGate.hasStarted }
+        store.endLessonSessionPresentation()
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+
+        undoGate.release()
+        try await undoTask.value
+
+        XCTAssertEqual(store.cards.map(\.id), [reviewCard.id])
+        XCTAssertEqual(store.sessionFailureCount, 1)
+        let activeRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }
+            )
+        )
+        XCTAssertEqual(activeRecords.map(\.id), [reviewCard.id])
+    }
+
+    @MainActor
+    func testServerUndoFromOldLessonCannotEnterNewLessonBatch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let oldLesson = makeCard(
+            id: "old-lesson-with-delayed-undo",
+            expression: "前の項目",
+            queueState: "new"
+        )
+        let newLesson = makeCard(
+            id: "new-lesson-batch",
+            expression: "次の項目",
+            queueState: "new"
+        )
+        let oldLessonData = try sessionResponseData(cards: [oldLesson])
+        let newLessonData = try sessionResponseData(cards: [newLesson])
+        let oldLessonJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(oldLesson), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 0,
+            newCount: 1,
+            reviewCount: 0,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 1
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let lessonRequests = LockedCounter()
+        let deferredUndo = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch request.url?.path {
+            case "/api/study/lessons/start":
+                completion(.success(Self.response(
+                    data: lessonRequests.next() == 1 ? oldLessonData : newLessonData
+                )))
+            case "/api/card-review-events/batch":
+                completion(.success(Self.response(statusCode: 201, data: Data())))
+            case "/api/study/reviews/undo":
+                deferredUndo.hold(completion)
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let undoResponse = Self.response(data: Data(
+            """
+            {
+              "reviewLogId": "old-lesson-delayed-undo",
+              "card": \(oldLessonJSON),
+              "overview": \(overviewJSON)
+            }
+            """.utf8
+        ))
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+        let recordedEventID = await store.recordReview(
+            card: oldLesson,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        let undoTask = Task {
+            try await store.undoReview(eventID: eventID, cardBefore: oldLesson)
+        }
+        await waitUntil { deferredUndo.hasPendingResponse }
+
+        try await store.refreshLessons()
+        XCTAssertEqual(store.cards.map(\.id), [newLesson.id])
+        deferredUndo.succeed(with: undoResponse)
+        try await undoTask.value
+
+        XCTAssertEqual(store.cards.map(\.id), [newLesson.id])
+        let activeRecords = try container.mainContext.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate { $0.userID == 1 && $0.isInActiveSession }
+            )
+        )
+        XCTAssertTrue(activeRecords.isEmpty)
+    }
+
+    @MainActor
+    func testCheckpointResetWhileServerUndoIsInFlightCannotRestoreActiveQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let resetCard = makeCard(
+            id: "review-discarded-by-checkpoint-reset",
+            expression: "再構築前の復習"
+        )
+        let record = LocalCardRecord(
+            card: resetCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(resetCard)
+        )
+        record.isInActiveSession = true
+        container.mainContext.insert(record)
+        container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
+        try container.mainContext.save()
+
+        let cardJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(resetCard), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let deferredUndo = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch request.url?.path {
+            case "/api/study/reviews/undo":
+                deferredUndo.hold(completion)
+            case "/api/sync/feed":
+                completion(.success(Self.response(
+                    statusCode: 409,
+                    data: Data(#"{"message":"Checkpoint expired"}"#.utf8)
+                )))
+            case "/api/study/known-kanji":
+                completion(.success(Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))))
+            default:
+                completion(.failure(URLError(.notConnectedToInternet)))
+            }
+        }
+        let undoResponse = Self.response(data: Data(
+            """
+            {
+              "reviewLogId": "undo-crossing-checkpoint-reset",
+              "card": \(cardJSON),
+              "overview": \(overviewJSON)
+            }
+            """.utf8
+        ))
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertEqual(store.cards.map(\.id), [resetCard.id])
+
+        let undoTask = Task {
+            try await store.undoReview(
+                eventID: "undo-crossing-checkpoint-reset",
+                cardBefore: resetCard
+            )
+        }
+        await waitUntil { deferredUndo.hasPendingResponse }
+
+        await store.synchronize()
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+
+        deferredUndo.succeed(with: undoResponse)
+        try await undoTask.value
+
+        XCTAssertTrue(store.cards.isEmpty)
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.map(\.id), [resetCard.id])
+        XCTAssertFalse(try XCTUnwrap(records.first).isInActiveSession)
+    }
+
+    @MainActor
     func testOfflineDueCardsCannotEnterPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dueAt = Date.now.addingTimeInterval(3_600)
@@ -6061,7 +6337,22 @@ final class StudyStoreTests: XCTestCase {
 
     @MainActor
     func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
+    func makeDeferredClient(
+        handler: @escaping MockURLProtocol.DeferredHandler
+    ) -> APIClient {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
@@ -6718,6 +7009,31 @@ final class LockedRequestGate: @unchecked Sendable {
         released = true
         condition.broadcast()
         condition.unlock()
+    }
+}
+
+final class LockedDeferredResponse: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: MockURLProtocol.DeferredCompletion?
+
+    var hasPendingResponse: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return completion != nil
+    }
+
+    func hold(_ completion: @escaping MockURLProtocol.DeferredCompletion) {
+        lock.lock()
+        self.completion = completion
+        lock.unlock()
+    }
+
+    func succeed(with response: (HTTPURLResponse, Data)) {
+        lock.lock()
+        let completion = completion
+        self.completion = nil
+        lock.unlock()
+        completion?(.success(response))
     }
 }
 

@@ -77,6 +77,7 @@ final class StudyStore {
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
+    @ObservationIgnored private var studySurfaceRevision = 0
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -135,6 +136,7 @@ final class StudyStore {
 
     func beginLessonSessionPresentation() {
         guard !lessonSessionIsPresented else { return }
+        studySurfaceRevision += 1
         lessonSessionIsPresented = true
         sessionLoadingService.invalidate()
         offlineDueActivationTimer?.invalidate()
@@ -147,6 +149,7 @@ final class StudyStore {
 
     func endLessonSessionPresentation() {
         guard lessonSessionIsPresented else { return }
+        studySurfaceRevision += 1
         lessonSessionIsPresented = false
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
@@ -268,6 +271,7 @@ final class StudyStore {
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
         sessionKind = "reviews"
+        studySurfaceRevision += 1
         lessonSessionIsPresented = false
         masteryAnimation = nil
     }
@@ -560,6 +564,7 @@ final class StudyStore {
         )
         overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
         studySettings = resolvedSettings
+        studySurfaceRevision += 1
         cards = activeCards
         sessionKind = "reviews"
         sessionInitialCardCount = activeCards.count
@@ -603,6 +608,7 @@ final class StudyStore {
         )
         overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
         studySettings = resolvedSettings
+        studySurfaceRevision += 1
         cards = lessonCards
         sessionKind = "lessons"
         sessionInitialCardCount = lessonCards.count
@@ -1107,7 +1113,14 @@ final class StudyStore {
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
+        let presentationRevision = studySurfaceRevision
+        let undoingPresentedLesson = lessonSessionIsPresented
         await reviewOutbox.waitForCurrentFlush()
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
         guard try !cardOutbox.hasPendingDelete(for: cardBefore) else {
             throw DeletedCardUndoError()
         }
@@ -1117,10 +1130,16 @@ final class StudyStore {
             // restoring the scheduling state captured before the review.
             let restoredCard = try restoreReviewedCard(
                 cardBefore,
-                preservingLocalPresentation: true
+                preservingLocalPresentation: true,
+                presentationRevision: presentationRevision,
+                undoingPresentedLesson: undoingPresentedLesson
             )
             apply(try reviewOutbox.pendingState())
-            restoreSessionFailure(for: restoredCard.id, before: eventID)
+            restoreSessionFailure(
+                for: restoredCard.id,
+                before: eventID,
+                presentationRevision: presentationRevision
+            )
             return
         }
 
@@ -1133,11 +1152,22 @@ final class StudyStore {
                 currentOverview: overview
             )
         )
-        let restoredCard = try restoreReviewedCard(response.card)
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        let restoredCard = try restoreReviewedCard(
+            response.card,
+            presentationRevision: presentationRevision,
+            undoingPresentedLesson: undoingPresentedLesson
+        )
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
         overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         apply(try reviewOutbox.pendingState())
-        restoreSessionFailure(for: restoredCard.id, before: eventID)
+        restoreSessionFailure(
+            for: restoredCard.id,
+            before: eventID,
+            presentationRevision: presentationRevision
+        )
     }
 
     private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
@@ -1148,10 +1178,15 @@ final class StudyStore {
         )
     }
 
-    private func restoreSessionFailure(for cardID: String, before eventID: String) {
+    private func restoreSessionFailure(
+        for cardID: String,
+        before eventID: String,
+        presentationRevision: Int
+    ) {
         guard let wasPresent = sessionFailureWasPresentByEventID.removeValue(forKey: eventID) else {
             return
         }
+        guard presentationRevision == studySurfaceRevision else { return }
         if wasPresent {
             sessionFailedCardIDs.insert(cardID)
         } else {
@@ -1662,7 +1697,9 @@ final class StudyStore {
     @discardableResult
     private func restoreReviewedCard(
         _ card: StudyCard,
-        preservingLocalPresentation: Bool = false
+        preservingLocalPresentation: Bool = false,
+        presentationRevision: Int,
+        undoingPresentedLesson: Bool
     ) throws -> StudyCard {
         guard try !cardOutbox.hasPendingDelete(for: card) else {
             throw DeletedCardUndoError()
@@ -1674,13 +1711,16 @@ final class StudyStore {
             preservingLocalPresentation: preservingLocalPresentation
         )
         let normalizedID = restoredCard.id.lowercased()
-        masteryAnimation = nil
-        sessionCompletedCardIDs = Set(
-            sessionCompletedCardIDs.filter { $0.lowercased() != normalizedID }
-        )
+        let presentationIsCurrent = presentationRevision == studySurfaceRevision
 
-        cards.removeAll { $0.id.lowercased() == normalizedID }
-        cards.insert(restoredCard, at: 0)
+        if presentationIsCurrent {
+            masteryAnimation = nil
+            sessionCompletedCardIDs = Set(
+                sessionCompletedCardIDs.filter { $0.lowercased() != normalizedID }
+            )
+            cards.removeAll { $0.id.lowercased() == normalizedID }
+            cards.insert(restoredCard, at: 0)
+        }
         if let index = libraryCards.firstIndex(
             where: { $0.id.lowercased() == normalizedID }
         ) {
@@ -1691,11 +1731,15 @@ final class StudyStore {
         upsertAllCardsPresentation(restoredCard)
 
         let payload = try StorageCodec.encoder.encode(restoredCard)
+        let belongsToActiveReviewSession = !undoingPresentedLesson
         if let record {
             let wasLocallyUpdated = record.locallyUpdatedAt != nil
             record.replacePayload(encoded: payload)
-            if !lessonSessionIsPresented {
-                record.isInActiveSession = true
+            // A newer surface owns durable membership. The completed undo is still
+            // authoritative card data, but it must not overwrite membership chosen
+            // by a refresh, checkpoint rebuild, or lesson transition.
+            if presentationIsCurrent {
+                record.isInActiveSession = belongsToActiveReviewSession
             }
             if !wasLocallyUpdated {
                 record.serverUpdatedAt = restoredCard.updatedAt
@@ -1708,14 +1752,15 @@ final class StudyStore {
                 queueIndex: 0,
                 payload: payload
             )
-            newRecord.isInActiveSession = !lessonSessionIsPresented
+            newRecord.isInActiveSession = presentationIsCurrent
+                && belongsToActiveReviewSession
             context.insert(newRecord)
         }
         guard let userID = activeUserID else { throw CancellationError() }
-        if lessonSessionIsPresented {
-            try context.save()
-        } else {
+        if presentationIsCurrent && belongsToActiveReviewSession {
             try localCardRepository.replaceActiveSession(with: cards, userID: userID)
+        } else {
+            try context.save()
         }
         scheduleNextOfflineActivation()
         return restoredCard
@@ -1948,6 +1993,7 @@ final class StudyStore {
     }
 
     private func loadLocalCards(userID: Int) {
+        studySurfaceRevision += 1
         cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
         cards = StudySessionPolicy.orderedCards(cards)
     }
@@ -1956,6 +2002,7 @@ final class StudyStore {
         preservingNormalizedOrder order: [String],
         userID: Int
     ) {
+        studySurfaceRevision += 1
         var persistedByNormalizedID = Dictionary(
             ((try? localCardRepository.activeCards(userID: userID)) ?? [])
                 .map { ($0.id.lowercased(), $0) },
