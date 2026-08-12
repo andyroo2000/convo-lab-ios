@@ -2256,6 +2256,44 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineDueCardsCannotEnterPresentedLesson() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dueAt = Date.now.addingTimeInterval(3_600)
+        let offlineReview = makeCard(
+            id: "offline-review-due-during-lesson",
+            expression: "後で復習",
+            dueAt: dueAt
+        )
+        let record = LocalCardRecord(
+            card: offlineReview,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(offlineReview)
+        )
+        record.isInActiveSession = false
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+
+        store.beginLessonSessionPresentation()
+        store.activateOfflineDueCards(at: dueAt.addingTimeInterval(1))
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
     func testLessonRefreshUsesDedicatedEndpointAndStartsFrozenBatchProgress() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let lessonCards = [
