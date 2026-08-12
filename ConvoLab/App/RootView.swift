@@ -18,7 +18,7 @@ struct RootView: View {
                             .accessibilityIdentifier("degraded-storage-warning")
                             .accessibilityLabel(message)
                     }
-                    if model.accountDeletionCleanupStatus == .cleanupRequired {
+                    if model.shouldShowAccountDeletionCleanupWarning {
                         accountDeletionCleanupWarning
                     }
                 }
@@ -34,12 +34,17 @@ struct RootView: View {
             .font(.footnote.weight(.semibold))
             .foregroundStyle(ConvoLabTheme.navy)
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Retry") {
-                model.retryAccountDeletionCleanup()
+            if model.isRetryingAccountDeletionCleanup {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button("Retry") {
+                    model.retryAccountDeletionCleanup()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(ConvoLabTheme.navy)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(ConvoLabTheme.navy)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

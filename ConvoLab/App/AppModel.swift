@@ -15,8 +15,14 @@ final class AppModel {
     let studyTime: StudyTimeStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
+    private(set) var isRetryingAccountDeletionCleanup = false
     var accountDeletionCleanupStatus: AccountDeletionCleanupStatus {
         accountDeletionCleanupFailures.isEmpty ? .complete : .cleanupRequired
+    }
+    var shouldShowAccountDeletionCleanupWarning: Bool {
+        guard accountDeletionCleanupStatus == .cleanupRequired else { return false }
+        if case .signedIn = auth.state { return false }
+        return true
     }
     var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
@@ -271,6 +277,9 @@ final class AppModel {
     }
 
     func retryAccountDeletionCleanup() {
+        guard !isRetryingAccountDeletionCleanup else { return }
+        isRetryingAccountDeletionCleanup = true
+        defer { isRetryingAccountDeletionCleanup = false }
         accountDeletionCleanupFailures = accountDeletionCleanup.retryPendingCleanup()
     }
 

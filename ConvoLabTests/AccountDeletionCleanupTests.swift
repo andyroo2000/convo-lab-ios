@@ -131,6 +131,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertTrue(ledger.pendingItems.isEmpty)
         XCTAssertTrue(model.accountDeletionCleanupFailures.isEmpty)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .complete)
+        XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
     }
 
     func testConfirmedAccountDeletionSchedulesEveryCleanupBeforeFailedAttempts() async throws {
@@ -185,6 +186,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertEqual(pending.count, AccountDeletionCleanupDomain.allCases.count)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
+        XCTAssertTrue(model.shouldShowAccountDeletionCleanupWarning)
         XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy { domain in
             pending.contains { $0.userID == user.id && $0.domain == domain }
         })
@@ -199,6 +201,9 @@ final class AccountDeletionCleanupTests: XCTestCase {
             MockURLProtocol.deferredHandler = nil
         }
         let defaults = try makeDefaults()
+        // A prior deleted account can retain cleanup without surfacing its status
+        // to a different authenticated account on the same device.
+        AccountDeletionCleanupLedger(defaults: defaults).schedule(userID: 99)
         let user = CurrentUser(
             id: 42,
             name: "Current User",
@@ -242,11 +247,13 @@ final class AccountDeletionCleanupTests: XCTestCase {
         )
         await model.auth.restore()
 
+        XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
+        XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
+
         let deleted = await model.deleteAccount(currentPassword: "wrong-password")
         XCTAssertFalse(deleted)
-        XCTAssertTrue(
-            AccountDeletionCleanupLedger(defaults: defaults).pendingItems.isEmpty
-        )
+        let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
+        XCTAssertTrue(pending.allSatisfy { $0.userID == 99 })
         guard case let .signedIn(currentUser) = model.auth.state else {
             return XCTFail("Rejected deletion must preserve the authenticated account")
         }
