@@ -670,9 +670,13 @@ final class StudyStore {
 
     func refreshStudySettings() async {
         guard let userID = activeUserID else { return }
+        let activationGeneration = accountActivationGeneration
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else { return }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -683,7 +687,10 @@ final class StudyStore {
             }
             studySettingsErrorMessage = nil
         } catch {
-            guard activeUserID == userID else { return }
+            guard isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else { return }
             studySettingsErrorMessage = error.localizedDescription
         }
     }
@@ -710,10 +717,11 @@ final class StudyStore {
                 reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
             )
         else { return false }
+        let activationGeneration = accountActivationGeneration
         isUpdatingStudySettings = true
         studySettingsErrorMessage = nil
         defer {
-            if activeUserID == userID {
+            if isCurrentActivation(userID, generation: activationGeneration) {
                 isUpdatingStudySettings = false
             }
         }
@@ -728,7 +736,10 @@ final class StudyStore {
                     reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
                 )
             )
-            guard activeUserID == userID else { return false }
+            guard isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else { return false }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 requestedReviewTimeBudget: reviewTimeBudgetMinutes,
@@ -743,7 +754,10 @@ final class StudyStore {
             lastSyncAt = nil
             return true
         } catch {
-            guard activeUserID == userID else { return false }
+            guard isCurrentActivation(
+                userID,
+                generation: activationGeneration
+            ) else { return false }
             studySettingsErrorMessage = error.localizedDescription
             return false
         }
