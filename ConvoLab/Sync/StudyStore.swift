@@ -423,13 +423,19 @@ final class StudyStore {
         } catch {
             firstError = error
         }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { return }
         do {
             try await retryPendingDraftMutations(userID: userID)
         } catch {
             firstError = firstError ?? error
         }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+        guard isCurrentActivation(
+            userID,
+            generation: activationGeneration
+        ) else { return }
         do {
             try await reviewOutbox.flush()
         } catch {
@@ -485,6 +491,7 @@ final class StudyStore {
         do {
             try await refreshOfflineReserve(
                 userID: userID,
+                activationGeneration: activationGeneration,
                 clearingOtherRecords: checkpointWasReset || refreshed
             )
         } catch {
@@ -924,13 +931,14 @@ final class StudyStore {
 
     private func refreshOfflineReserve(
         userID: Int,
+        activationGeneration: Int,
         clearingOtherRecords: Bool
     ) async throws {
         let reserve: StudyOfflineReserve = try await api.request(
             "/api/study/offline-reserve",
             method: "POST"
         )
-        guard activeUserID == userID else { return }
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         let preservingActiveReviewQueue = lessonSessionIsPresented
         let persistedActiveCards = preservingActiveReviewQueue
             ? try localCardRepository.activeCards(userID: userID)
@@ -946,6 +954,7 @@ final class StudyStore {
             urls: reserve.cards.flatMap(\.mediaURLs),
             category: "offline-study"
         )
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         markPrepared(
             cards: cards + reserve.cards + persistedActiveCards,
             clearingOtherRecords: clearingOtherRecords
