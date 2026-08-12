@@ -2034,6 +2034,149 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testPitchAccentResolutionFollowsCreateAcknowledgementToCanonicalID() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let clientID = "01J000000000000000000000PX"
+        let serverID = clientID.lowercased()
+        let clientCard = makeCard(id: clientID, expression: "会社")
+        let serverCard = clientCard.replacingIdentity(id: serverID, syncId: serverID)
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: clientCard,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(clientCard)
+            )
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardCreate",
+                userID: 1,
+                resourceID: clientID,
+                payload: try StorageCodec.encoder.encode(
+                    CreateStudyCardRequest(
+                        id: clientID,
+                        cardType: clientCard.cardType,
+                        prompt: clientCard.prompt,
+                        answer: clientCard.answer
+                    )
+                )
+            )
+        )
+        try container.mainContext.save()
+        let createResponse = try StorageCodec.encoder.encode(serverCard)
+        let pitchResponse = try StorageCodec.encoder.encode(
+            cardWithResolvedPitchAccent(serverCard)
+        )
+        let paths = LockedRequestPaths()
+        let gate = LockedRequestGate()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            let responseData: Data
+            if path.hasSuffix("/pitch-accent") {
+                gate.markStarted()
+                gate.waitForRelease()
+                responseData = pitchResponse
+            } else {
+                responseData = createResponse
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let resolution = Task { await store.resolvePitchAccent(for: clientCard) }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        XCTAssertEqual(store.cards.first?.id, serverID)
+        XCTAssertTrue(store.resolvingPitchAccentCardIDs.contains(serverID))
+        gate.release()
+        await resolution.value
+
+        XCTAssertEqual(paths.values, [
+            "/api/study/cards",
+            "/api/study/cards/\(serverID)/pitch-accent",
+        ])
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertEqual(record.id, serverID)
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.presentation.back.pitchAccent?.reading, "かいしゃ")
+        XCTAssertEqual(store.cards.first?.id, serverID)
+        XCTAssertEqual(store.cards.first?.presentation.back.pitchAccent?.reading, "かいしゃ")
+    }
+
+    @MainActor
+    func testPitchAccentResponseIsDiscardedAfterAccountSwitch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let sharedID = "shared-pitch-card"
+        let firstUserCard = makeCard(id: sharedID, expression: "会社")
+        let secondUserCard = makeCard(id: sharedID, expression: "別のカード")
+        for (userID, card) in [(1, firstUserCard), (2, secondUserCard)] {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: userID,
+                    queueIndex: 0,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let responseData = try StorageCodec.encoder.encode(
+            cardWithResolvedPitchAccent(firstUserCard)
+        )
+        let gate = LockedRequestGate()
+        let client = makeDelayedPitchClient(responseData: responseData, gate: gate)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let resolution = Task { await store.resolvePitchAccent(for: firstUserCard) }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        store.activate(userID: 2)
+        gate.release()
+        await resolution.value
+
+        XCTAssertEqual(store.cards.first?.promptText, "別のカード")
+        XCTAssertNil(store.cards.first?.presentation.back.pitchAccent)
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        for record in records {
+            let persisted = try StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: record.payload
+            )
+            XCTAssertNil(persisted.presentation.back.pitchAccent)
+        }
+    }
+
+    @MainActor
     func testPitchAccentResolutionPreservesReviewThatFinishesDuringRequest() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
