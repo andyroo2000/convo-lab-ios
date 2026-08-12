@@ -486,10 +486,16 @@ final class StudyTimeStore {
         repeat {
             pendingPushNeedsAnotherPass = false
             guard let userID = activeUserID else { return }
+            let mutationGeneration = localMutationGeneration
             await performPushPending(
                 userID: userID,
-                mutationGeneration: localMutationGeneration
+                mutationGeneration: mutationGeneration
             )
+            if activeUserID != nil,
+               !isCurrentMutation(userID: userID, generation: mutationGeneration)
+            {
+                pendingPushNeedsAnotherPass = true
+            }
         } while pendingPushNeedsAnotherPass
     }
 
