@@ -1733,6 +1733,9 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch is QuarantinedCardMutationError {
             // A rejected write for another card does not block this card.
+        } catch {
+            markOutboxRetryNeeded(for: error)
+            throw error
         }
         let currentCard = try currentLocalCard(for: card)
         guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
