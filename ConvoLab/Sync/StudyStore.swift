@@ -1848,18 +1848,10 @@ final class StudyStore {
         guard let currentMutation = try failedMutation(id: id, userID: userID),
               currentMutation.studyMutationKind == kind
         else { return }
-        if kind == .cardCreate {
+        if kind == .cardCreate || (kind == .cardUpdate && canonicalCard == nil) {
             // A review/update against a card the server rejected cannot succeed on
-            // its own. Discard the dependent local activity with the failed create.
-            let related = try context.fetch(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.userID == userID }
-                )
-            ).filter { $0.resourceID.lowercased() == resourceID }
-            related.forEach(context.delete)
-            for record in try localRecords(userID: userID, matching: resourceID) {
-                context.delete(record)
-            }
+            // its own. The same is true when an edited server card no longer exists.
+            try discardLocalCardActivity(userID: userID, resourceID: resourceID)
         } else {
             context.delete(currentMutation)
             if kind == .cardUpdate {
@@ -1917,6 +1909,18 @@ final class StudyStore {
         )
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    private func discardLocalCardActivity(userID: Int, resourceID: String) throws {
+        let related = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        ).filter { $0.resourceID.lowercased() == resourceID }
+        related.forEach(context.delete)
+        for record in try localRecords(userID: userID, matching: resourceID) {
+            context.delete(record)
+        }
     }
 
     private func localRecords(

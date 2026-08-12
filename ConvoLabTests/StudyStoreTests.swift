@@ -5963,6 +5963,70 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardingRejectedCardUpdateRemovesCardMissingFromServer() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000F5",
+            expression: "既に削除"
+        )
+        let record = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.locallyUpdatedAt = .now
+        let update = PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: card.id,
+            payload: try StorageCodec.encoder.encode(UpdateStudyCardRequest(
+                prompt: card.prompt,
+                answer: card.answer
+            ))
+        )
+        update.lastError = "HTTP 404: Card not found"
+        let dependentReview = PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: card.id.uppercased(),
+            payload: Data()
+        )
+        container.mainContext.insert(record)
+        container.mainContext.insert(update)
+        container.mainContext.insert(dependentReview)
+        try container.mainContext.save()
+
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/cards/batch" {
+                return Self.response(data: Data(#"{"cards":[]}"#.utf8))
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.discardFailedStudyChange(id: update.id)
+
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+    }
+
+    @MainActor
     func testDiscardingRejectedCardCreateRemovesLocalCardAndDependentChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
