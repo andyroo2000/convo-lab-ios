@@ -59,6 +59,7 @@ final class StudyStore {
     private let cardOutbox: CardMutationOutbox
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
+    private let pitchAccentService: PitchAccentResolutionService
     private let cardSyncFeedRepository: CardSyncFeedRepository
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
@@ -67,6 +68,7 @@ final class StudyStore {
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
+    @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -172,6 +174,7 @@ final class StudyStore {
         )
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
+        pitchAccentService = PitchAccentResolutionService(api: api, context: context)
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
@@ -193,6 +196,7 @@ final class StudyStore {
         cardOutbox.activate(userID: userID)
         manualDraftOutbox.activate(userID: userID)
         cardMediaService.activate(userID: userID)
+        pitchAccentService.activate(userID: userID)
         cardSyncFeedRepository.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
@@ -208,6 +212,7 @@ final class StudyStore {
         cardOutbox.deactivate()
         manualDraftOutbox.deactivate()
         cardMediaService.deactivate()
+        pitchAccentService.deactivate()
         cardSyncFeedRepository.deactivate()
         reviewOutbox.deactivate()
         cards = []
@@ -215,6 +220,8 @@ final class StudyStore {
         allCards = []
         allCardsNextCursor = nil
         allCardsQuery = ""
+        pitchAccentResolutionTokens = [:]
+        resolvingPitchAccentCardIDs = []
         allCardsRefreshRevision += 1
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false
@@ -309,64 +316,46 @@ final class StudyStore {
 
     func resolvePitchAccent(for card: StudyCard) async {
         guard let userID = activeUserID else { return }
+        let resolutionToken = UUID()
         guard
             card.answer["pitchAccent"]?["status"]?.stringValue == nil,
-            resolvingPitchAccentCardIDs.insert(card.id).inserted
+            pitchAccentResolutionTokens[card.id] == nil
         else {
             return
         }
-        defer { resolvingPitchAccentCardIDs.remove(card.id) }
+        pitchAccentResolutionTokens[card.id] = resolutionToken
+        resolvingPitchAccentCardIDs.insert(card.id)
+        defer {
+            if pitchAccentResolutionTokens[card.id] == resolutionToken {
+                pitchAccentResolutionTokens.removeValue(forKey: card.id)
+                resolvingPitchAccentCardIDs.remove(card.id)
+            }
+        }
 
         do {
-            try await flushCardOutbox()
-            guard
-                let currentCard = cards.first(where: { $0.id == card.id }),
-                currentCard.answer["pitchAccent"]?["status"]?.stringValue == nil
-            else {
-                return
-            }
-            // The ConvoLab-compatible pitch endpoint returns StudyCard directly,
-            // matching the direct card create/update compatibility responses.
-            let serverCard: StudyCard = try await api.request(
-                "/api/study/cards/\(currentCard.reviewCardID)/pitch-accent",
-                method: "POST"
+            guard let updatedCard = try await pitchAccentService.resolve(
+                card,
+                prepare: { [weak self] in
+                    guard let self else { throw CancellationError() }
+                    try await self.flushCardOutbox()
+                },
+                hasPendingDelete: { [weak self] resolvedCard in
+                    guard let self else { throw CancellationError() }
+                    return try self.cardOutbox.hasPendingDelete(for: resolvedCard)
+                }
+            ), activeUserID == userID else { return }
+            let identifiers = StudyCardIdentity.identifiers(for: card).union(
+                StudyCardIdentity.identifiers(for: updatedCard)
             )
-            guard
-                try !cardOutbox.hasPendingDelete(for: card),
-                let pitchAccent = serverCard.answer["pitchAccent"]
-            else {
-                return
+            cards = cards.map {
+                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
             }
-            let cardID = card.id
-            var descriptor = FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-            )
-            descriptor.fetchLimit = 1
-            guard
-                let record = try context.fetch(descriptor).first,
-                let latestCard = try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
-                )
-            else {
-                return
+            libraryCards = libraryCards.map {
+                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
             }
-            let updatedCard = StudyCardEditorProjection.reconcilingMedia(
-                latest: latestCard,
-                serverCard: serverCard,
-                prompt: latestCard.prompt,
-                answer: latestCard.answer.replacingObjectValues([
-                    "pitchAccent": pitchAccent,
-                ]),
-                answerAudioSource: latestCard.answerAudioSource,
-                updatedAt: latestCard.updatedAt
-            )
-            record.replacePayload(encoded: try StorageCodec.encoder.encode(updatedCard))
-            record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
-            cards = cards.map { $0.id == card.id ? updatedCard : $0 }
-            libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
-            allCards = allCards.map { $0.id == card.id ? updatedCard : $0 }
-            try context.save()
+            allCards = allCards.map {
+                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
+            }
         } catch {
             // Pitch accent is optional enrichment. Offline and unresolved cards
             // remain fully studyable and can retry on a later reveal.
