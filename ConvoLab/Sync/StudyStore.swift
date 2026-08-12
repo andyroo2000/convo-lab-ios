@@ -1188,6 +1188,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1525,6 +1526,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1568,6 +1570,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1596,6 +1599,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -2205,6 +2209,10 @@ final class StudyStore {
 
     private func requiresAutomaticRetry(_ error: any Error) -> Bool {
         !(error is QuarantinedCardMutationError || error is QuarantinedReviewError)
+    }
+
+    private func markOutboxRetryNeeded(for error: any Error) {
+        syncRetryNeeded = syncRetryNeeded || requiresAutomaticRetry(error)
     }
 
     private func requirePersistentWrites() throws {
