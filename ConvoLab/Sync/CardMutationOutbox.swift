@@ -335,11 +335,11 @@ final class CardMutationOutbox {
                 } else {
                     context.delete(serverRecord)
                     try context.save()
-                    clientRecord.id = serverID
+                    clientRecord.replaceID(with: serverID)
                 }
                 try context.save()
             } else {
-                clientRecord.id = serverID
+                clientRecord.replaceID(with: serverID)
             }
         }
 

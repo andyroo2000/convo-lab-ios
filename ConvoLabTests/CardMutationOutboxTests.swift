@@ -111,6 +111,7 @@ final class CardMutationOutboxTests: XCTestCase {
         XCTAssertTrue(try cardMutations(in: container, userID: 7).isEmpty)
         let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
         XCTAssertEqual(records.map(\.id), [serverID])
+        XCTAssertEqual(records.map(\.normalizedID), [serverID.lowercased()])
         let pendingReview = try XCTUnwrap(
             try allMutations(in: container).first { $0.kind == "review" }
         )

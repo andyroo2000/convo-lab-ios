@@ -355,7 +355,7 @@ final class StudyStore {
                 answerAudioSource: latestCard.answerAudioSource,
                 updatedAt: latestCard.updatedAt
             )
-            record.payload = try StorageCodec.encoder.encode(updatedCard)
+            record.replacePayload(encoded: try StorageCodec.encoder.encode(updatedCard))
             record.serverUpdatedAt = max(record.serverUpdatedAt, serverCard.updatedAt)
             cards = cards.map { $0.id == card.id ? updatedCard : $0 }
             libraryCards = libraryCards.map { $0.id == card.id ? updatedCard : $0 }
@@ -1020,7 +1020,7 @@ final class StudyStore {
             )
             let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
             if let record = try context.fetch(descriptor).first {
-                record.payload = updatedPayload
+                record.replacePayload(encoded: updatedPayload)
                 record.isInActiveSession = false
             } else {
                 let record = LocalCardRecord(
@@ -1620,7 +1620,7 @@ final class StudyStore {
         let payload = try StorageCodec.encoder.encode(restoredCard)
         if let record {
             let wasLocallyUpdated = record.locallyUpdatedAt != nil
-            record.payload = payload
+            record.replacePayload(encoded: payload)
             record.isInActiveSession = true
             if !wasLocallyUpdated {
                 record.serverUpdatedAt = restoredCard.updatedAt
@@ -1796,7 +1796,7 @@ final class StudyStore {
         descriptor.fetchLimit = 1
         let payload = try StorageCodec.encoder.encode(card)
         if let record = try context.fetch(descriptor).first {
-            record.payload = payload
+            record.replacePayload(encoded: payload)
             record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
         } else {

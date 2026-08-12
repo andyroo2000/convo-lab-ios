@@ -65,6 +65,12 @@ final class CardSyncFeedRepository {
         let identifiers: Set<String>
     }
 
+    private struct RecordIndex {
+        var recordsByIdentifier: [String: [LocalCardRecord]] = [:]
+        var loadedIdentifiers: Set<String> = []
+        var indexedRecordIDs: Set<PersistentIdentifier> = []
+    }
+
     private struct StaleActivationError: Error {}
 
     nonisolated private final class SaveRevision: @unchecked Sendable {
@@ -87,14 +93,57 @@ final class CardSyncFeedRepository {
     nonisolated private final class SaveObserver: @unchecked Sendable {
         private let token: NSObjectProtocol
 
-        init(context: ModelContext, revision: SaveRevision) {
+        init(
+            context: ModelContext,
+            revision: SaveRevision,
+            relevantEntityNames: Set<String>
+        ) {
             token = NotificationCenter.default.addObserver(
                 forName: ModelContext.didSave,
                 object: context,
                 queue: nil
-            ) { _ in
+            ) { notification in
+                guard Self.affectsReconciliation(
+                    notification,
+                    relevantEntityNames: relevantEntityNames
+                ) else { return }
                 revision.increment()
             }
+        }
+
+        private static func affectsReconciliation(
+            _ notification: Notification,
+            relevantEntityNames: Set<String>
+        ) -> Bool {
+            guard let userInfo = notification.userInfo else { return true }
+            var foundIdentifierCollection = false
+            for key in [
+                ModelContext.NotificationKey.insertedIdentifiers,
+                .updatedIdentifiers,
+                .deletedIdentifiers,
+                .invalidatedAllIdentifiers,
+            ] {
+                let value = userInfo[key.rawValue]
+                if let identifiers = value as? [PersistentIdentifier] {
+                    foundIdentifierCollection = true
+                    if identifiers.contains(where: {
+                        relevantEntityNames.contains($0.entityName)
+                    }) {
+                        return true
+                    }
+                } else if let identifiers = value as? Set<PersistentIdentifier> {
+                    foundIdentifierCollection = true
+                    if identifiers.contains(where: {
+                        relevantEntityNames.contains($0.entityName)
+                    }) {
+                        return true
+                    }
+                } else if let invalidatedAll = value as? Bool, invalidatedAll {
+                    return true
+                }
+            }
+            // Unknown notification payloads must invalidate conservatively.
+            return !foundIdentifierCollection
         }
 
         deinit {
@@ -111,7 +160,7 @@ final class CardSyncFeedRepository {
     private var activeUserID: Int?
     private var generation = 0
     private var cachedRecordsUserID: Int?
-    private var cachedRecordsByIdentifier: [String: [LocalCardRecord]]?
+    private var cachedRecordIndex: RecordIndex?
     private var cachedAtSaveRevision: Int?
 
     init(
@@ -126,7 +175,14 @@ final class CardSyncFeedRepository {
         self.onIndexingRecord = onIndexingRecord
         let saveRevision = SaveRevision()
         self.saveRevision = saveRevision
-        saveObserver = SaveObserver(context: context, revision: saveRevision)
+        saveObserver = SaveObserver(
+            context: context,
+            revision: saveRevision,
+            relevantEntityNames: [
+                Schema.entityName(for: LocalCardRecord.self),
+                Schema.entityName(for: PendingMutation.self),
+            ]
+        )
     }
 
     func activate(userID: Int) {
@@ -151,15 +207,11 @@ final class CardSyncFeedRepository {
         var checkpoint = try syncState(userID: activeUserID).cardCheckpoint
         var deletedCardIdentifiers: Set<String> = []
         let startingSaveRevision = saveRevision.current
-        var recordsByIdentifier: [String: [LocalCardRecord]]?
+        var recordIndex: RecordIndex?
         var indexedAtSaveRevision: Int?
-        // Alias identity currently lives inside the encoded card payload, so a
-        // complete first scan is required to find clean historical replicas.
-        // Reuse that graph across routine pulls until any context save proves
-        // it may be stale.
         if cachedRecordsUserID == activeUserID,
            cachedAtSaveRevision == startingSaveRevision {
-            recordsByIdentifier = cachedRecordsByIdentifier
+            recordIndex = cachedRecordIndex
             indexedAtSaveRevision = cachedAtSaveRevision
         } else {
             clearCachedRecords()
@@ -183,7 +235,7 @@ final class CardSyncFeedRepository {
                 let currentSaveRevision = saveRevision.current
                 if indexedAtSaveRevision != nil,
                    indexedAtSaveRevision != currentSaveRevision {
-                    recordsByIdentifier = nil
+                    recordIndex = nil
                     indexedAtSaveRevision = nil
                     clearCachedRecords()
                 }
@@ -193,12 +245,12 @@ final class CardSyncFeedRepository {
                     checkpoint: page.meta.nextCheckpoint,
                     activation: activation,
                     deletedCardIdentifiers: deletedCardIdentifiers,
-                    recordsByIdentifier: &recordsByIdentifier
+                    recordIndex: &recordIndex
                 )
-                if recordsByIdentifier != nil {
+                if recordIndex != nil {
                     indexedAtSaveRevision = saveRevision.current
                     cachedRecordsUserID = activation.userID
-                    cachedRecordsByIdentifier = recordsByIdentifier
+                    cachedRecordIndex = recordIndex
                     cachedAtSaveRevision = indexedAtSaveRevision
                 }
                 deletedCardIdentifiers = commitResult.deletedCardIdentifiers
@@ -360,18 +412,11 @@ final class CardSyncFeedRepository {
         checkpoint: Int64,
         activation: Activation,
         deletedCardIdentifiers initialDeletedCardIdentifiers: Set<String>,
-        recordsByIdentifier: inout [String: [LocalCardRecord]]?
+        recordIndex: inout RecordIndex?
     ) throws -> CommitResult {
         var deletedCardIdentifiers = initialDeletedCardIdentifiers
         var appliedUpserts: [AppliedUpsert] = []
-        var updatedRecordsByIdentifier: [String: [LocalCardRecord]]
-        if entries.isEmpty {
-            updatedRecordsByIdentifier = [:]
-        } else if let recordsByIdentifier {
-            updatedRecordsByIdentifier = recordsByIdentifier
-        } else {
-            updatedRecordsByIdentifier = try indexedRecords(userID: activation.userID)
-        }
+        var updatedRecordIndex = recordIndex ?? RecordIndex()
         try performTransaction {
             try ensureActive(activation)
             for (index, entry) in entries.enumerated() {
@@ -382,7 +427,7 @@ final class CardSyncFeedRepository {
                     if let applied = try upsert(
                         card,
                         userID: activation.userID,
-                        recordsByIdentifier: &updatedRecordsByIdentifier
+                        recordIndex: &updatedRecordIndex
                     ) {
                         appliedUpserts.append(applied)
                         deletedCardIdentifiers.subtract(applied.identifiers)
@@ -390,7 +435,8 @@ final class CardSyncFeedRepository {
                 case let .delete(resourceID):
                     let (connectedRecords, _) = try connectedRecords(
                         startingWith: [resourceID.lowercased()],
-                        in: updatedRecordsByIdentifier
+                        userID: activation.userID,
+                        in: &updatedRecordIndex
                     )
                     let removed = try removeServerCards(
                         connectedRecords,
@@ -401,7 +447,7 @@ final class CardSyncFeedRepository {
                         remove(
                             removal.record,
                             identifiers: removal.identifiers,
-                            from: &updatedRecordsByIdentifier
+                            from: &updatedRecordIndex.recordsByIdentifier
                         )
                     }
                 }
@@ -411,7 +457,7 @@ final class CardSyncFeedRepository {
             state.updatedAt = .now
         }
         if !entries.isEmpty {
-            recordsByIdentifier = updatedRecordsByIdentifier
+            recordIndex = updatedRecordIndex
         }
         return CommitResult(
             deletedCardIdentifiers: deletedCardIdentifiers,
@@ -422,11 +468,12 @@ final class CardSyncFeedRepository {
     private func upsert(
         _ serverCard: StudyCard,
         userID: Int,
-        recordsByIdentifier: inout [String: [LocalCardRecord]]
+        recordIndex: inout RecordIndex
     ) throws -> AppliedUpsert? {
         let (matchingRecords, identifiers) = try connectedRecords(
             startingWith: Set(cardIdentifiers(for: serverCard)),
-            in: recordsByIdentifier
+            userID: userID,
+            in: &recordIndex
         )
         let pending = try pendingMutations(userID: userID, matching: identifiers)
         // Local content mutations, including rejected mutations held for user
@@ -499,7 +546,7 @@ final class CardSyncFeedRepository {
                     syncId: serverCard.reviewCardID
                 )
             }
-            record.payload = try StorageCodec.encoder.encode(merged)
+            record.replacePayload(encoded: try StorageCodec.encoder.encode(merged))
             record.serverUpdatedAt = serverCard.updatedAt
             if preservesLocalContent, record.locallyUpdatedAt == nil {
                 record.locallyUpdatedAt = .now
@@ -517,14 +564,14 @@ final class CardSyncFeedRepository {
                 remove(
                     duplicate,
                     identifiers: duplicateIdentifiers,
-                    from: &recordsByIdentifier
+                    from: &recordIndex.recordsByIdentifier
                 )
                 context.delete(duplicate)
             }
             remove(
                 record,
                 identifiers: recordIdentifiers,
-                from: &recordsByIdentifier
+                from: &recordIndex.recordsByIdentifier
             )
             appliedRecord = record
         } else {
@@ -544,10 +591,11 @@ final class CardSyncFeedRepository {
             context.insert(record)
             appliedRecord = record
         }
+        recordIndex.indexedRecordIDs.insert(appliedRecord.persistentModelID)
         addToIndex(
             appliedRecord,
             identifiers: identifiers,
-            in: &recordsByIdentifier
+            in: &recordIndex.recordsByIdentifier
         )
         return AppliedUpsert(
             record: appliedRecord,
@@ -559,7 +607,8 @@ final class CardSyncFeedRepository {
 
     private func connectedRecords(
         startingWith initialIdentifiers: Set<String>,
-        in recordsByIdentifier: [String: [LocalCardRecord]]
+        userID: Int,
+        in recordIndex: inout RecordIndex
     ) throws -> ([LocalCardRecord], Set<String>) {
         var identifiers = initialIdentifiers
         var pendingIdentifiers = Array(initialIdentifiers)
@@ -570,7 +619,12 @@ final class CardSyncFeedRepository {
         while nextIdentifierIndex < pendingIdentifiers.count {
             let identifier = pendingIdentifiers[nextIdentifierIndex]
             nextIdentifierIndex += 1
-            for record in recordsByIdentifier[identifier] ?? []
+            try loadRecords(
+                matching: identifier,
+                userID: userID,
+                into: &recordIndex
+            )
+            for record in recordIndex.recordsByIdentifier[identifier] ?? []
             where seen.insert(ObjectIdentifier(record)).inserted {
                 records.append(record)
                 for discoveredIdentifier in try self.identifiers(for: record)
@@ -580,6 +634,33 @@ final class CardSyncFeedRepository {
             }
         }
         return (records, identifiers)
+    }
+
+    private func loadRecords(
+        matching identifier: String,
+        userID: Int,
+        into recordIndex: inout RecordIndex
+    ) throws {
+        guard recordIndex.loadedIdentifiers.insert(identifier).inserted else { return }
+        let records = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && ($0.normalizedID == identifier || $0.syncID == identifier)
+                }
+            )
+        )
+        for record in records {
+            guard recordIndex.indexedRecordIDs.insert(record.persistentModelID).inserted else {
+                continue
+            }
+            onIndexingRecord()
+            addToIndex(
+                record,
+                identifiers: try identifiers(for: record),
+                in: &recordIndex.recordsByIdentifier
+            )
+        }
     }
 
     private func preferredRecord(
@@ -705,23 +786,6 @@ final class CardSyncFeedRepository {
         return removed
     }
 
-    private func indexedRecords(userID: Int) throws -> [String: [LocalCardRecord]] {
-        var recordsByIdentifier: [String: [LocalCardRecord]] = [:]
-        for record in try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        ) {
-            onIndexingRecord()
-            addToIndex(
-                record,
-                identifiers: try identifiers(for: record),
-                in: &recordsByIdentifier
-            )
-        }
-        return recordsByIdentifier
-    }
-
     private func addToIndex(
         _ record: LocalCardRecord,
         identifiers: Set<String>,
@@ -774,11 +838,7 @@ final class CardSyncFeedRepository {
     }
 
     private func identifiers(for record: LocalCardRecord) throws -> Set<String> {
-        var identifiers = Set([record.id.lowercased()])
-        if let card = try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload) {
-            identifiers.formUnion(cardIdentifiers(for: card))
-        }
-        return identifiers
+        Set([record.normalizedID, record.syncID])
     }
 
     private func cardIdentifiers(for card: StudyCard) -> [String] {
@@ -853,7 +913,7 @@ final class CardSyncFeedRepository {
 
     private func clearCachedRecords() {
         cachedRecordsUserID = nil
-        cachedRecordsByIdentifier = nil
+        cachedRecordIndex = nil
         cachedAtSaveRevision = nil
     }
 }

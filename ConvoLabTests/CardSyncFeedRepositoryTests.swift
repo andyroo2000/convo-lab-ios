@@ -208,7 +208,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         XCTAssertTrue(storedRecords.contains { $0 === storedAlias })
         XCTAssertFalse(storedRecords.contains { $0.id == targetID })
         XCTAssertEqual(storedCard.promptText, "local target")
-        XCTAssertEqual(indexedRecords.current, 2)
+        XCTAssertEqual(indexedRecords.current, 1)
     }
 
     @MainActor
@@ -1118,7 +1118,74 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
-    func testMultiPageFeedBuildsAliasIndexOnlyOnce() async throws {
+    func testAliasLookupNeverCrossesAccountBoundary() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let userOneCard = makeCard(
+            id: "user-one-local",
+            syncId: "shared-server-id",
+            expression: "user one"
+        )
+        let userTwoCard = makeCard(
+            id: "user-two-local",
+            syncId: "shared-server-id",
+            expression: "user two"
+        )
+        insert(userOneCard, userID: 1, in: container)
+        insert(userTwoCard, userID: 2, in: container)
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [(1, "shared-server-id", "delete")],
+                nextCheckpoint: 1,
+                hasMore: false
+            ))
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        XCTAssertTrue(try cards(for: 1, in: container).isEmpty)
+        XCTAssertEqual(try cards(for: 2, in: container).map(\.id), ["user-two-local"])
+    }
+
+    @MainActor
+    func testDeleteFindsMixedCaseLocalIDWithDistinctSyncAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "MixedCase-ID",
+            syncId: "different-server-alias",
+            expression: "mixed case"
+        )
+        insert(card, userID: 1, in: container)
+        try container.mainContext.save()
+        let cardID = card.id
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/sync/feed")
+            return Self.response(data: Self.feedData(
+                entries: [(1, cardID, "delete")],
+                nextCheckpoint: 1,
+                hasMore: false
+            ))
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        let result = try await repository.pullChanges()
+
+        XCTAssertTrue(try cards(for: 1, in: container).isEmpty)
+        XCTAssertEqual(
+            result,
+            .completed(deletedCardIdentifiers: [
+                "mixedcase-id",
+                "different-server-alias",
+            ])
+        )
+    }
+
+    @MainActor
+    func testMultiPageFeedQueriesOnlyMatchingAliasRecords() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let libraryCards = (0..<10).map {
             makeCard(
@@ -1157,7 +1224,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
 
         _ = try await repository.pullChanges()
 
-        XCTAssertEqual(indexedRecords.current, libraryCards.count)
+        XCTAssertEqual(indexedRecords.current, 2)
         XCTAssertEqual(try cards(for: 1, in: container).count, libraryCards.count - 2)
     }
 
@@ -1201,7 +1268,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         _ = try await repository.pullChanges()
         _ = try await repository.pullChanges()
 
-        XCTAssertEqual(indexedRecords.current, libraryCards.count)
+        XCTAssertEqual(indexedRecords.current, 1)
         XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
         XCTAssertEqual(try cards(for: 1, in: container).first?.promptText, "fresh server")
     }
@@ -1262,11 +1329,56 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         try container.mainContext.save()
         _ = try await repository.pullChanges()
 
-        XCTAssertEqual(indexedRecords.current, 21)
+        XCTAssertEqual(indexedRecords.current, 2)
         let inserted = try XCTUnwrap(
             cards(for: 1, in: container).first { $0.id == insertedServerCardID }
         )
         XCTAssertEqual(inserted.promptText, "fresh server")
+    }
+
+    @MainActor
+    func testUnrelatedSaveDoesNotInvalidateCachedAliasLookups() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let localCard = makeCard(id: "card-1", expression: "local")
+        insert(localCard, userID: 1, in: container)
+        try container.mainContext.save()
+        let serverCard = makeCard(id: localCard.id, expression: "server")
+        let serverCardID = serverCard.id
+        let batchData = try Self.batchData([serverCard])
+        let feedRequests = LockedCounter()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                let checkpoint = feedRequests.next()
+                return Self.response(data: Self.feedData(
+                    entries: [(Int64(checkpoint), serverCardID, "update")],
+                    nextCheckpoint: Int64(checkpoint),
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let indexedRecords = LockedCounter()
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext,
+            onIndexingRecord: { _ = indexedRecords.next() }
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+        container.mainContext.insert(LocalKnownKanjiSnapshot(
+            userID: 1,
+            payload: Data("unrelated".utf8)
+        ))
+        try container.mainContext.save()
+        _ = try await repository.pullChanges()
+
+        XCTAssertEqual(indexedRecords.current, 1)
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 2)
     }
 
     @MainActor

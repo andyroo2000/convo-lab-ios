@@ -28,7 +28,7 @@ struct StudyCardLocalRepository {
                         id: record.id,
                         syncId: card.reviewCardID
                     )
-                record.payload = try StorageCodec.encoder.encode(rebasedCard)
+                record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt
             } else {
                 let record = LocalCardRecord(
@@ -61,7 +61,7 @@ struct StudyCardLocalRepository {
                         id: record.id,
                         syncId: card.reviewCardID
                     )
-                record.payload = try StorageCodec.encoder.encode(rebasedCard)
+                record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt
             } else {
                 let record = LocalCardRecord(
