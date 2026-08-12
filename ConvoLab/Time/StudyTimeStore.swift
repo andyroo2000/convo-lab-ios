@@ -1,6 +1,22 @@
 import Foundation
 import SwiftData
 
+protocol StudyTimeContextSaving: AnyObject {
+    func save() throws
+}
+
+private final class ModelContextStudyTimeSaver: StudyTimeContextSaving {
+    private let context: ModelContext
+
+    init(context: ModelContext) {
+        self.context = context
+    }
+
+    func save() throws {
+        try context.save()
+    }
+}
+
 private enum StudyTimeStoreError: LocalizedError {
     case automaticSession
     case calendarEventUnavailable
@@ -35,6 +51,7 @@ final class StudyTimeStore {
     private let api: APIClient
     private let context: ModelContext
     private let storageMode: StorageMode
+    private let contextSaver: any StudyTimeContextSaving
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
@@ -55,11 +72,13 @@ final class StudyTimeStore {
     init(
         api: APIClient,
         context: ModelContext,
-        storageMode: StorageMode = .persistent
+        storageMode: StorageMode = .persistent,
+        contextSaver: (any StudyTimeContextSaving)? = nil
     ) {
         self.api = api
         self.context = context
         self.storageMode = storageMode
+        self.contextSaver = contextSaver ?? ModelContextStudyTimeSaver(context: context)
     }
 
     func activate(userID: Int) {
@@ -91,25 +110,36 @@ final class StudyTimeStore {
         syncErrorMessage = nil
     }
 
+    @discardableResult
     func start(
         activity: StudyActivityKind,
         source: StudyActivitySource,
         name: String? = nil,
         at date: Date = .now
-    ) {
-        guard let userID = activeUserID else { return }
+    ) -> Bool {
+        guard let userID = activeUserID else { return false }
         guard storageMode == .persistent else {
             storageWriteErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
                 .localizedDescription
-            return
+            return false
         }
         if active?.activity == activity, active?.source == source, active?.name == name {
-            return
+            return true
         }
         if active?.source == .manual, source == .automatic {
-            return
+            return true
         }
-        stop(at: date)
+        let previousActive = active
+        if let previousActive {
+            guard let previousRecord = record(
+                clientSessionID: previousActive.clientSessionID
+            ) else {
+                storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable
+                    .localizedDescription
+                return false
+            }
+            complete(previousRecord, from: previousActive, at: date)
+        }
         let session = ActiveSession(
             clientSessionID: UUID().uuidString.lowercased(),
             category: activity.category,
@@ -119,24 +149,40 @@ final class StudyTimeStore {
             startedAt: date,
             cardsCreated: 0
         )
-        active = session
-        localMutationGeneration += 1
         context.insert(LocalStudyActivitySession(active: session, userID: userID))
-        try? context.save()
+        do {
+            try contextSaver.save()
+            localMutationGeneration += 1
+            active = session
+            storageWriteErrorMessage = nil
+            if previousActive != nil {
+                Task {
+                    await pushPending()
+                    await refreshAnalytics()
+                }
+            }
+            return true
+        } catch {
+            context.rollback()
+            active = previousActive
+            storageWriteErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
+    @discardableResult
     func stop(
         activity expectedActivity: StudyActivityKind? = nil,
         source expectedSource: StudyActivitySource? = nil,
         at date: Date = .now
-    ) {
+    ) -> Bool {
         guard let current = active,
               expectedActivity == nil || current.activity == expectedActivity,
               expectedSource == nil || current.source == expectedSource
         else {
-            return
+            return true
         }
-        finish(current, at: date)
+        return finish(current, at: date)
     }
 
     /// Most automatic timers only represent foreground app activity. Views also
@@ -153,14 +199,29 @@ final class StudyTimeStore {
         finish(current, at: date)
     }
 
-    func addCreatedCards(_ count: Int = 1) {
-        guard var current = active, current.activity == .cardCreation else { return }
+    @discardableResult
+    func addCreatedCards(_ count: Int = 1) -> Bool {
+        guard var current = active, current.activity == .cardCreation else { return false }
+        guard let record = record(clientSessionID: current.clientSessionID) else {
+            storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
+            return false
+        }
+        let previousCount = current.cardsCreated
         current.cardsCreated += count
-        active = current
-        guard let record = record(clientSessionID: current.clientSessionID) else { return }
-        localMutationGeneration += 1
         record.cardsCreated = current.cardsCreated
-        try? context.save()
+        do {
+            try contextSaver.save()
+            localMutationGeneration += 1
+            active = current
+            storageWriteErrorMessage = nil
+            return true
+        } catch {
+            context.rollback()
+            current.cardsCreated = previousCount
+            active = current
+            storageWriteErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func recordCompleted(
@@ -202,17 +263,20 @@ final class StudyTimeStore {
         )
         let record = LocalStudyActivitySession(active: session, userID: userID)
         record.calendarEventIdentifier = calendarEventIdentifier
-        localMutationGeneration += 1
         context.insert(record)
         complete(record, from: session, at: endedAt)
         do {
-            try context.save()
+            try contextSaver.save()
         } catch {
+            context.rollback()
             if let calendarEventIdentifier {
                 try? await StudyCalendarService.deleteEvent(identifier: calendarEventIdentifier)
             }
+            storageWriteErrorMessage = error.localizedDescription
             throw error
         }
+        localMutationGeneration += 1
+        storageWriteErrorMessage = nil
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -239,9 +303,6 @@ final class StudyTimeStore {
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
-        let wasSyncPending = record.syncPending
-        let wasTombstone = record.isTombstone
-        let previousCalendarEventIdentifier = record.calendarEventIdentifier
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
         var calendarWarning: String?
@@ -267,7 +328,6 @@ final class StudyTimeStore {
                 throw error
             }
         }
-        localMutationGeneration += 1
         record.category = activity.category.rawValue
         record.activity = activity.rawValue
         record.name = name
@@ -277,7 +337,7 @@ final class StudyTimeStore {
         record.audioPlaybackMs = activity == .dailyAudio ? record.durationMs : nil
         record.syncPending = true
         do {
-            try context.save()
+            try contextSaver.save()
         } catch {
             if let identifier = record.calendarEventIdentifier {
                 try? await StudyCalendarService.updateEvent(
@@ -287,14 +347,13 @@ final class StudyTimeStore {
                     end: previousSession.endedAt
                 )
             }
-            record.apply(previousSession)
-            record.syncPending = wasSyncPending
-            record.isTombstone = wasTombstone
-            record.calendarEventIdentifier = previousCalendarEventIdentifier
-            try? context.save()
+            context.rollback()
             loadLocalSessions()
+            storageWriteErrorMessage = error.localizedDescription
             throw error
         }
+        localMutationGeneration += 1
+        storageWriteErrorMessage = nil
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -312,19 +371,18 @@ final class StudyTimeStore {
         if session.source == .calendar, record.calendarEventIdentifier == nil {
             throw StudyTimeStoreError.calendarEventUnavailable
         }
-        let wasSyncPending = record.syncPending
-        let wasTombstone = record.isTombstone
-        localMutationGeneration += 1
         record.isTombstone = true
         record.syncPending = true
         do {
-            try context.save()
+            try contextSaver.save()
         } catch {
-            record.isTombstone = wasTombstone
-            record.syncPending = wasSyncPending
+            context.rollback()
             loadLocalSessions()
+            storageWriteErrorMessage = error.localizedDescription
             throw error
         }
+        localMutationGeneration += 1
+        storageWriteErrorMessage = nil
         loadLocalSessions()
         await pushPending()
         await refreshAnalytics()
@@ -438,19 +496,28 @@ final class StudyTimeStore {
         try context.save()
     }
 
+    @discardableResult
     private func finish(
         _ current: ActiveSession,
         at date: Date,
         enqueueSync: Bool = true
-    ) {
+    ) -> Bool {
         guard let record = record(clientSessionID: current.clientSessionID) else {
-            active = nil
-            return
+            storageWriteErrorMessage = StudyTimeStoreError.sessionUnavailable.localizedDescription
+            return false
+        }
+        complete(record, from: current, at: date)
+        do {
+            try contextSaver.save()
+        } catch {
+            context.rollback()
+            active = current
+            storageWriteErrorMessage = error.localizedDescription
+            return false
         }
         localMutationGeneration += 1
-        complete(record, from: current, at: date)
         active = nil
-        try? context.save()
+        storageWriteErrorMessage = nil
         loadLocalSessions()
         if enqueueSync {
             Task {
@@ -458,6 +525,7 @@ final class StudyTimeStore {
                 await refreshAnalytics()
             }
         }
+        return true
     }
 
     private func requirePersistentWrites() throws {

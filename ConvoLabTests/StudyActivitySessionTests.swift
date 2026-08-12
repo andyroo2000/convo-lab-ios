@@ -5,6 +5,203 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
+    // The iOS 26 XCTest runtime can double-free closure-backed fixture teardown
+    // state. Retain injected save probes until the test process exits.
+    private nonisolated(unsafe) static var retainedSaveFixtures: [AnyObject] = []
+
+    func testStartSaveFailureRollsBackActiveStateAndCanRetry() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.activate(userID: 42)
+        XCTAssertTrue(
+            store.start(activity: .reading, source: .manual, at: startedAt)
+        )
+
+        XCTAssertFalse(
+            store.start(
+                activity: .podcast,
+                source: .manual,
+                at: startedAt.addingTimeInterval(60)
+            )
+        )
+        XCTAssertEqual(store.active?.activity, .reading)
+        XCTAssertEqual(store.active?.startedAt, startedAt)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            1
+        )
+        XCTAssertNil(try savedRecord(in: container).endedAt)
+
+        XCTAssertTrue(
+            store.start(
+                activity: .podcast,
+                source: .manual,
+                at: startedAt.addingTimeInterval(60)
+            )
+        )
+        XCTAssertEqual(store.active?.activity, .podcast)
+        XCTAssertNil(store.storageWriteErrorMessage)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            2
+        )
+        await store.synchronize()
+        try await Task.sleep(for: .milliseconds(50))
+        retainSaveFixtures(container, store, saves)
+    }
+
+    func testCardCountSaveFailureRollsBackActiveCountAndCanRetry() throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { request in
+                if request.url?.path == "/api/study/activity-sessions/batch" {
+                    let body = try XCTUnwrap(
+                        JSONSerialization.jsonObject(
+                            with: requestBody(request)
+                        ) as? [String: Any]
+                    )
+                    let sessions = try XCTUnwrap(body["sessions"] as? [[String: Any]])
+                    return (
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url),
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        try JSONSerialization.data(withJSONObject: sessions)
+                    )
+                }
+                if request.url?.path == "/api/study/activity-analytics" {
+                    return try analyticsResponse(for: request)
+                }
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("[]".utf8)
+                )
+            },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .cardCreation, source: .manual))
+
+        XCTAssertFalse(store.addCreatedCards())
+        XCTAssertEqual(store.active?.cardsCreated, 0)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        XCTAssertEqual(try savedRecord(in: container).cardsCreated, 0)
+
+        XCTAssertTrue(store.addCreatedCards())
+        XCTAssertEqual(store.active?.cardsCreated, 1)
+        XCTAssertNil(store.storageWriteErrorMessage)
+        XCTAssertEqual(try savedRecord(in: container).cardsCreated, 1)
+        retainSaveFixtures(container, store, saves)
+    }
+
+    func testFinishSaveFailureKeepsTimerActiveAndCanRetry() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let endedAt = startedAt.addingTimeInterval(60)
+        store.activate(userID: 42)
+        XCTAssertTrue(
+            store.start(activity: .reading, source: .manual, at: startedAt)
+        )
+
+        XCTAssertFalse(store.stop(at: endedAt))
+        XCTAssertEqual(store.active?.startedAt, startedAt)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        XCTAssertNil(try savedRecord(in: container).endedAt)
+
+        XCTAssertTrue(store.stop(at: endedAt))
+        XCTAssertNil(store.active)
+        XCTAssertNil(store.storageWriteErrorMessage)
+        XCTAssertEqual(try savedRecord(in: container).endedAt, endedAt)
+        await Task.yield()
+        await store.synchronize()
+        try await Task.sleep(for: .milliseconds(50))
+        retainSaveFixtures(container, saves)
+    }
+
+    func testManualEditSaveFailureRollsBackRecordAndCanRetry() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let original = makeSession(source: .manual)
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: original, userID: 42)
+        )
+        try container.mainContext.save()
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [1]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+        let editedStart = original.startedAt.addingTimeInterval(300)
+
+        do {
+            _ = try await store.update(
+                session: original,
+                activity: .podcast,
+                name: "Edited",
+                startedAt: editedStart,
+                duration: 900
+            )
+            XCTFail("Expected the injected save failure")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Forced save failure")
+        }
+        XCTAssertEqual(store.sessions, [original])
+        XCTAssertEqual(try savedRecord(in: container).name, original.name)
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+
+        _ = try await store.update(
+            session: original,
+            activity: .podcast,
+            name: "Edited",
+            startedAt: editedStart,
+            duration: 900
+        )
+
+        XCTAssertEqual(store.sessions.first?.activity, .podcast)
+        XCTAssertEqual(store.sessions.first?.name, "Edited")
+        XCTAssertNil(store.storageWriteErrorMessage)
+        retainSaveFixtures(container, saves)
+    }
+
     func testAnalyticsDurationsRespectSelectedCategories() {
         let bucket = StudyTimeAnalyticsBucket(
             startsAt: Date(timeIntervalSince1970: 1_700_000_000),
@@ -28,6 +225,20 @@ final class StudyActivitySessionTests: XCTestCase {
 
         XCTAssertEqual(bucket.duration(for: selection), 3_000_000)
         XCTAssertEqual(analytics.duration(for: selection), 3_000_000)
+    }
+
+    private func savedRecord(
+        in container: ModelContainer
+    ) throws -> LocalStudyActivitySession {
+        try XCTUnwrap(
+            container.mainContext.fetch(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ).first
+        )
+    }
+
+    private func retainSaveFixtures(_ fixtures: AnyObject...) {
+        Self.retainedSaveFixtures.append(contentsOf: fixtures)
     }
 
     func testAnalyticsRangesMapToExistingDrillDownViews() {
@@ -1438,6 +1649,32 @@ final class StudyActivitySessionTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
     }
+}
+
+@MainActor
+private final class DeterministicStudyTimeSaves: StudyTimeContextSaving {
+    private let context: ModelContext
+    private let failingAttempts: Set<Int>
+    private var attempt = 0
+
+    init(context: ModelContext, failingAttempts: Set<Int>) {
+        self.context = context
+        self.failingAttempts = failingAttempts
+    }
+
+    func save() throws {
+        attempt += 1
+        if failingAttempts.contains(attempt) {
+            throw DeterministicStudyTimeSaveError.forced
+        }
+        try context.save()
+    }
+}
+
+private enum DeterministicStudyTimeSaveError: LocalizedError {
+    case forced
+
+    var errorDescription: String? { "Forced save failure" }
 }
 
 private func makeSession(
