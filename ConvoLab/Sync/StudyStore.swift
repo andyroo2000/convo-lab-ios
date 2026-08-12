@@ -61,6 +61,7 @@ final class StudyStore {
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
     private let pitchAccentService: PitchAccentResolutionService
+    private let sessionLoadingService: StudySessionLoadingService
     private let cardSyncFeedRepository: CardSyncFeedRepository
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
@@ -133,10 +134,12 @@ final class StudyStore {
 
     func beginLessonSessionPresentation() {
         lessonSessionIsPresented = true
+        sessionLoadingService.invalidate()
     }
 
     func endLessonSessionPresentation() {
         lessonSessionIsPresented = false
+        sessionLoadingService.invalidate()
         if sessionKind == "lessons" {
             sessionKind = "reviews"
             if let userID = activeUserID {
@@ -180,6 +183,7 @@ final class StudyStore {
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         pitchAccentService = PitchAccentResolutionService(api: api, context: context)
+        sessionLoadingService = StudySessionLoadingService(api: api)
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
@@ -202,6 +206,7 @@ final class StudyStore {
         manualDraftOutbox.activate(userID: userID)
         cardMediaService.activate(userID: userID)
         pitchAccentService.activate(userID: userID)
+        sessionLoadingService.activate(userID: userID)
         cardSyncFeedRepository.activate(userID: userID)
         restorePendingReviewState()
         knownKanjiService.activate(userID: userID)
@@ -218,6 +223,7 @@ final class StudyStore {
         manualDraftOutbox.deactivate()
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
+        sessionLoadingService.deactivate()
         cardSyncFeedRepository.deactivate()
         reviewRecordingService.deactivate()
         reviewOutbox.deactivate()
@@ -513,16 +519,11 @@ final class StudyStore {
         masteryAnimation = nil
     }
 
-    func refreshSession() async throws {
-        guard let userID = activeUserID else { return }
-        let timeZone = TimeZone.current.identifier
-        let response: StudySessionResponse = try await api.request(
-            "/api/study/session/start",
-            method: "POST",
-            body: ["time_zone": timeZone]
-        )
-        let session = response.session
-        guard activeUserID == userID else { return }
+    @discardableResult
+    func refreshSession() async throws -> Bool {
+        guard let load = try await sessionLoadingService.load(.reviews) else { return false }
+        let userID = load.userID
+        let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
         let activeCards = StudySessionPolicy.orderedCards(
             try eligibleSessionCards(
@@ -548,27 +549,24 @@ final class StudyStore {
 
         let mediaURLs = activeCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
-        markPrepared(cards: activeCards)
+        if sessionLoadingService.isCurrent(load) {
+            markPrepared(cards: activeCards)
+        }
+        return true
     }
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
     func refreshSessionPreservingActiveLessons() async throws -> Bool {
         guard !lessonSessionIsPresented else { return false }
-        try await refreshSession()
-        return true
+        return try await refreshSession()
     }
 
-    func refreshLessons() async throws {
-        guard let userID = activeUserID else { return }
-        let timeZone = TimeZone.current.identifier
-        let response: StudySessionResponse = try await api.request(
-            "/api/study/lessons/start",
-            method: "POST",
-            body: ["time_zone": timeZone]
-        )
-        let session = response.session
-        guard activeUserID == userID else { return }
+    @discardableResult
+    func refreshLessons() async throws -> Bool {
+        guard let load = try await sessionLoadingService.load(.lessons) else { return false }
+        let userID = load.userID
+        let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
         let eligibleLessonCards = try eligibleSessionCards(
             from: session.cards,
@@ -591,7 +589,10 @@ final class StudyStore {
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
-        markPrepared(cards: lessonCards)
+        if sessionLoadingService.isCurrent(load) {
+            markPrepared(cards: lessonCards)
+        }
+        return true
     }
 
     private func eligibleSessionCards(

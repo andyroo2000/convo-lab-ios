@@ -2067,6 +2067,142 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderReviewSessionResponseCannotOverwriteNewerRefresh() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let olderCard = makeCard(id: "older-session-card", expression: "古いセッション")
+        let newerCard = makeCard(id: "newer-session-card", expression: "新しいセッション")
+        let olderData = try sessionResponseData(cards: [olderCard])
+        let newerData = try sessionResponseData(cards: [newerCard])
+        OverlappingStudySessionURLProtocol.configure(
+            firstReview: olderData,
+            secondReview: newerData,
+            lesson: newerData
+        )
+        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let olderRefresh = Task { try await store.refreshSession() }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingFirstReview }
+        XCTAssertTrue(OverlappingStudySessionURLProtocol.hasPendingFirstReview)
+        try await store.refreshSession()
+        XCTAssertEqual(store.cards.map(\.id), [newerCard.id])
+        OverlappingStudySessionURLProtocol.releaseFirstReview()
+        try await olderRefresh.value
+
+        XCTAssertEqual(store.cards.map(\.id), [newerCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [newerCard.id])
+    }
+
+    @MainActor
+    func testReviewResponseStartedBeforeLessonCannotReplacePresentedLesson() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewCard = makeCard(id: "stale-review-card", expression: "古い復習")
+        let lessonCard = makeCard(
+            id: "current-lesson-card",
+            expression: "現在のレッスン",
+            queueState: "new"
+        )
+        let reviewData = try sessionResponseData(cards: [reviewCard])
+        let lessonData = try sessionResponseData(cards: [lessonCard], lessonBatchSize: 3)
+        OverlappingStudySessionURLProtocol.configure(
+            firstReview: reviewData,
+            secondReview: reviewData,
+            lesson: lessonData
+        )
+        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let reviewRefresh = Task { try await store.refreshSession() }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingFirstReview }
+        XCTAssertTrue(OverlappingStudySessionURLProtocol.hasPendingFirstReview)
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+        XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
+        OverlappingStudySessionURLProtocol.releaseFirstReview()
+        try await reviewRefresh.value
+
+        XCTAssertEqual(store.sessionKind, "lessons")
+        XCTAssertEqual(store.cards.map(\.id), [lessonCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [lessonCard.id])
+    }
+
+    @MainActor
+    func testRapidLessonOpenAndCloseReportsDiscardedSessionLoads() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let existingCard = makeCard(id: "existing-card", expression: "既存")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: existingCard,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(existingCard)
+            )
+        )
+        try container.mainContext.save()
+        let reviewData = try sessionResponseData(
+            cards: [makeCard(id: "discarded-review", expression: "破棄する復習")]
+        )
+        let lessonData = try sessionResponseData(
+            cards: [makeCard(id: "discarded-lesson", expression: "破棄するレッスン")],
+            lessonBatchSize: 3
+        )
+        OverlappingStudySessionURLProtocol.configure(
+            firstReview: reviewData,
+            secondReview: reviewData,
+            lesson: lessonData,
+            holdLesson: true
+        )
+        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let reviewRefresh = Task {
+            try await store.refreshSessionPreservingActiveLessons()
+        }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingFirstReview }
+        store.beginLessonSessionPresentation()
+        let lessonRefresh = Task { try await store.refreshLessons() }
+        await waitUntil { OverlappingStudySessionURLProtocol.hasPendingLesson }
+        XCTAssertTrue(OverlappingStudySessionURLProtocol.hasPendingLesson)
+        store.endLessonSessionPresentation()
+        OverlappingStudySessionURLProtocol.releaseFirstReview()
+        OverlappingStudySessionURLProtocol.releaseLesson()
+
+        let reviewApplied = try await reviewRefresh.value
+        let lessonApplied = try await lessonRefresh.value
+        XCTAssertFalse(reviewApplied)
+        XCTAssertFalse(lessonApplied)
+        XCTAssertEqual(store.cards.map(\.id), [existingCard.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [existingCard.id])
+    }
+
+    @MainActor
     func testLessonRefreshUsesDedicatedEndpointAndStartsFrozenBatchProgress() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let lessonCards = [
@@ -5611,6 +5747,16 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func makeClient(protocolClass: AnyClass) -> APIClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [protocolClass]
+        return APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+    }
+
+    @MainActor
     func makeDelayedPitchClient(
         responseData: Data,
         gate: LockedRequestGate
@@ -5714,6 +5860,28 @@ final class StudyStoreTests: XCTestCase {
             createdAt: .now,
             updatedAt: .now
         )
+    }
+
+    @MainActor
+    func sessionResponseData(
+        cards: [StudyCard],
+        lessonBatchSize: Int = 5
+    ) throws -> Data {
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: cards.filter { $0.state.queueState != "new" }.count,
+                newCount: cards.filter { $0.state.queueState == "new" }.count,
+                reviewCount: cards.filter { $0.state.queueState != "new" }.count,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: cards.filter { $0.state.queueState == "new" }.count,
+                lessonBatchSize: lessonBatchSize
+            ),
+            cards: cards
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        return try JSONSerialization.data(withJSONObject: ["data": object])
     }
 
     @MainActor
@@ -5839,6 +6007,106 @@ final class LockedRequestPaths: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var firstReviewData = Data()
+    nonisolated(unsafe) private static var secondReviewData = Data()
+    nonisolated(unsafe) private static var lessonData = Data()
+    nonisolated(unsafe) private static var pendingFirstReview: OverlappingStudySessionURLProtocol?
+    nonisolated(unsafe) private static var pendingLesson: OverlappingStudySessionURLProtocol?
+    nonisolated(unsafe) private static var reviewRequestCount = 0
+    nonisolated(unsafe) private static var holdsLesson = false
+
+    static var hasPendingFirstReview: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingFirstReview != nil
+    }
+
+    static var hasPendingLesson: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingLesson != nil
+    }
+
+    static func configure(
+        firstReview: Data,
+        secondReview: Data,
+        lesson: Data,
+        holdLesson: Bool = false
+    ) {
+        lock.lock()
+        firstReviewData = firstReview
+        secondReviewData = secondReview
+        lessonData = lesson
+        pendingFirstReview = nil
+        pendingLesson = nil
+        reviewRequestCount = 0
+        holdsLesson = holdLesson
+        lock.unlock()
+    }
+
+    static func releaseFirstReview() {
+        lock.lock()
+        let request = pendingFirstReview
+        let data = firstReviewData
+        pendingFirstReview = nil
+        lock.unlock()
+        request?.respond(with: data)
+    }
+
+    static func releaseLesson() {
+        lock.lock()
+        let request = pendingLesson
+        let data = lessonData
+        pendingLesson = nil
+        lock.unlock()
+        request?.respond(with: data)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        if request.url?.path == "/api/study/lessons/start" {
+            if Self.holdsLesson {
+                Self.pendingLesson = self
+                Self.lock.unlock()
+                return
+            }
+            let data = Self.lessonData
+            Self.lock.unlock()
+            respond(with: data)
+            return
+        }
+        Self.reviewRequestCount += 1
+        if Self.reviewRequestCount == 1 {
+            Self.pendingFirstReview = self
+            Self.lock.unlock()
+            return
+        }
+        let data = Self.secondReviewData
+        Self.lock.unlock()
+        respond(with: data)
+    }
+
+    override func stopLoading() {}
+
+    private func respond(with data: Data) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 
