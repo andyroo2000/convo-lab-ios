@@ -1,13 +1,15 @@
 #!/bin/zsh
 
 set -euo pipefail
+umask 077
 
 readonly project_root="${0:A:h:h}"
 readonly asc_key_id="${ASC_KEY_ID:-K7S44PRTVS}"
 readonly asc_issuer_id="${ASC_ISSUER_ID:-ec6ccb2b-2805-4650-bd40-f3bdd1776062}"
-readonly asc_key_path="${ASC_KEY_PATH:-/Users/andrewlandry/.appstoreconnect/private_keys/AuthKey_K7S44PRTVS.p8}"
-readonly distribution_key_path="${DISTRIBUTION_KEY_PATH:-/Users/andrewlandry/.appstoreconnect/ConvoLabDistribution.key.pem}"
-readonly distribution_certificate_path="${DISTRIBUTION_CERTIFICATE_PATH:-/Users/andrewlandry/.appstoreconnect/ConvoLabDistribution.cer}"
+readonly credentials_root="${CONVOLAB_CREDENTIALS_ROOT:-${HOME}/.appstoreconnect}"
+readonly asc_key_path="${ASC_KEY_PATH:-${credentials_root}/private_keys/AuthKey_${asc_key_id}.p8}"
+readonly distribution_key_path="${DISTRIBUTION_KEY_PATH:-${credentials_root}/ConvoLabDistribution.key.pem}"
+readonly distribution_certificate_path="${DISTRIBUTION_CERTIFICATE_PATH:-${credentials_root}/ConvoLabDistribution.cer}"
 readonly build_number="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 readonly output_root="${OUTPUT_ROOT:-${project_root}/build/TestFlight/${build_number}}"
 readonly archive_path="${output_root}/ConvoLab.xcarchive"
@@ -15,7 +17,7 @@ readonly export_path="${output_root}/export"
 readonly signing_keychain="${output_root}/convolab-testflight-signing.keychain-db"
 readonly keychain_password_file="${output_root}/keychain-password.txt"
 readonly distribution_p12="${output_root}/distribution.p12"
-readonly distribution_identity="Apple Distribution: ANDREW BRODIE LANDRY (USU4D882GM)"
+readonly distribution_identity="${DISTRIBUTION_IDENTITY:-Apple Distribution: ANDREW BRODIE LANDRY (USU4D882GM)}"
 readonly -a original_keychains=(
     "${(@f)$(security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//')}"
 )
@@ -53,7 +55,6 @@ chmod 700 "${output_root}"
 trap cleanup_signing_material EXIT INT TERM
 
 openssl rand -base64 32 > "${keychain_password_file}"
-chmod 600 "${keychain_password_file}"
 IFS= read -r signing_keychain_password < "${keychain_password_file}"
 
 openssl pkcs12 -export -legacy \
@@ -70,9 +71,10 @@ security unlock-keychain -p "${signing_keychain_password}" "${signing_keychain}"
 security import "${distribution_p12}" \
     -k "${signing_keychain}" \
     -P "${signing_keychain_password}" \
-    -A
+    -T /usr/bin/codesign \
+    -T /usr/bin/security
 security find-identity -v -p codesigning "${signing_keychain}" \
-    | rg -F "${distribution_identity}" >/dev/null
+    | grep -F "${distribution_identity}" >/dev/null
 security list-keychains -d user -s \
     "${signing_keychain}" \
     "${original_keychains[@]}"
