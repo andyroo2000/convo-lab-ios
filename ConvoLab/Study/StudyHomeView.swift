@@ -253,24 +253,30 @@ struct StudyHomeView: View {
 
     @ViewBuilder
     private var syncStatus: some View {
-        switch store.syncStatus {
-        case .idle:
-            if let lastSyncAt = store.lastSyncAt {
-                Text("Last sync: \(lastSyncAt, format: .relative(presentation: .named))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        case .syncing:
-            Label("Preparing study media…", systemImage: "arrow.down.circle")
-                .font(.caption)
-        case .offline:
-            Label("Offline — saved work will sync later", systemImage: "wifi.slash")
-                .font(.caption)
-                .foregroundStyle(.orange)
-        case let .failed(message):
+        if let message = store.storageWriteErrorMessage {
             Label(message, systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.red)
+        } else {
+            switch store.syncStatus {
+            case .idle:
+                if let lastSyncAt = store.lastSyncAt {
+                    Text("Last sync: \(lastSyncAt, format: .relative(presentation: .named))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .syncing:
+                Label("Preparing study media…", systemImage: "arrow.down.circle")
+                    .font(.caption)
+            case .offline:
+                Label("Offline — saved work will sync later", systemImage: "wifi.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            case let .failed(message):
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
     }
 

@@ -40,6 +40,7 @@ final class StudyTimeStore {
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
     private(set) var analyticsCacheGeneration = 0
     private(set) var active: ActiveSession?
+    private(set) var storageWriteErrorMessage: String?
     private(set) var syncErrorMessage: String?
     private var activeUserID: Int?
     private var synchronizationTask: Task<Void, Never>?
@@ -98,7 +99,7 @@ final class StudyTimeStore {
     ) {
         guard let userID = activeUserID else { return }
         guard storageMode == .persistent else {
-            syncErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
+            storageWriteErrorMessage = StorageWriteUnavailableError(domain: .studyTime)
                 .localizedDescription
             return
         }

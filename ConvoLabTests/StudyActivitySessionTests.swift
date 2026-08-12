@@ -263,6 +263,41 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(record.syncPending)
     }
 
+    func testSuccessfulSynchronizationDoesNotClearBlockedStorageWriteWarning() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-analytics" {
+                return try analyticsResponse(for: request)
+            }
+            XCTAssertEqual(request.url?.path, "/api/study/activity-sessions")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("[]".utf8)
+            )
+        }
+        let store = StudyTimeStore(
+            api: client,
+            context: container.mainContext,
+            storageMode: .temporary
+        )
+        store.activate(userID: 42)
+
+        store.start(activity: .reading, source: .manual)
+        await store.synchronize()
+
+        XCTAssertNil(store.active)
+        XCTAssertNil(store.syncErrorMessage)
+        XCTAssertEqual(
+            store.storageWriteErrorMessage,
+            StorageWriteUnavailableError(domain: .studyTime).localizedDescription
+        )
+    }
+
     func testSynchronizationDeduplicatesRepeatedRemoteClientSessionIDs() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let remoteSession: [String: Any] = [

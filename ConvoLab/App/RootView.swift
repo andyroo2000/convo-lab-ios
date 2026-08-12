@@ -15,6 +15,7 @@ struct RootView: View {
                         .padding(.vertical, 10)
                         .background(Color.orange.opacity(0.22))
                         .accessibilityIdentifier("degraded-storage-warning")
+                        .accessibilityLabel(message)
                 }
             }
     }

@@ -95,6 +95,7 @@ final class StudyStore {
     private(set) var newCardQueueNextCursor: String?
     private(set) var isRefreshingNewCardQueue = false
     private(set) var isLoadingMoreNewCardQueue = false
+    private(set) var storageWriteErrorMessage: String?
     var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
     private(set) var overview: StudyOverview?
     private(set) var studySettings: StudySettings?
@@ -1082,7 +1083,8 @@ final class StudyStore {
     ) async -> String? {
         guard let userID = activeUserID else { return nil }
         guard storageMode == .persistent else {
-            handleSyncError(StorageWriteUnavailableError(domain: .study))
+            storageWriteErrorMessage = StorageWriteUnavailableError(domain: .study)
+                .localizedDescription
             return nil
         }
         let activationGeneration = accountActivationGeneration

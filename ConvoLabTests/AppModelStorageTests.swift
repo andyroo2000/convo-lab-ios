@@ -90,9 +90,10 @@ final class AppModelStorageTests: XCTestCase {
 
         XCTAssertNil(eventID)
         XCTAssertEqual(
-            model.study.syncStatus,
-            .failed(StorageWriteUnavailableError(domain: .study).localizedDescription)
+            model.study.storageWriteErrorMessage,
+            StorageWriteUnavailableError(domain: .study).localizedDescription
         )
+        XCTAssertEqual(model.study.syncStatus, .idle)
         XCTAssertEqual(
             try model.container.mainContext.fetchCount(FetchDescriptor<PendingMutation>()),
             0
@@ -126,9 +127,10 @@ final class AppModelStorageTests: XCTestCase {
 
         XCTAssertNil(model.studyTime.active)
         XCTAssertEqual(
-            model.studyTime.syncErrorMessage,
+            model.studyTime.storageWriteErrorMessage,
             StorageWriteUnavailableError(domain: .studyTime).localizedDescription
         )
+        XCTAssertNil(model.studyTime.syncErrorMessage)
         XCTAssertEqual(
             try model.studyTimeContainer.mainContext.fetchCount(
                 FetchDescriptor<LocalStudyActivitySession>()
