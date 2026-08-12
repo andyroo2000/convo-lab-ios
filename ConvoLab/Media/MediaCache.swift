@@ -4,6 +4,8 @@ import SwiftData
 
 @Observable
 final class MediaCache {
+    typealias AccountDeletionFileRemoval = @Sendable (URL) async -> Bool
+
     private static let deferredDeletionCategory = "deferred-deletion"
     private static let processStartedAt = Date.now
     private static let batchSize = 20
@@ -11,6 +13,7 @@ final class MediaCache {
     private let api: APIClient
     private let context: ModelContext
     private let rootURL: URL
+    private let accountDeletionFileRemoval: AccountDeletionFileRemoval
 
     private(set) var activeDownloads = 0
     @ObservationIgnored private var activeUserID: Int?
@@ -18,9 +21,15 @@ final class MediaCache {
     @ObservationIgnored private var inFlightDownloads: [String: Task<URL, Error>] = [:]
     @ObservationIgnored private var inFlightRefreshes: [String: Task<URL, Error>] = [:]
 
-    init(initialUserID: Int? = nil, api: APIClient, context: ModelContext) {
+    init(
+        initialUserID: Int? = nil,
+        api: APIClient,
+        context: ModelContext,
+        accountDeletionFileRemoval: @escaping AccountDeletionFileRemoval = MediaCache.removeFileOffMain
+    ) {
         self.api = api
         self.context = context
+        self.accountDeletionFileRemoval = accountDeletionFileRemoval
         let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -444,6 +453,47 @@ final class MediaCache {
     }
 
     func deleteLocalData(userID: Int) throws {
+        let records = try prepareLocalDataDeletion(userID: userID)
+        for record in records {
+            let url = rootURL.appending(path: record.relativePath)
+            try? FileManager.default.removeItem(at: url)
+            context.delete(record)
+        }
+        try context.save()
+    }
+
+    func deleteLocalDataForAccountDeletion(userID: Int) async throws {
+        let records = try prepareLocalDataDeletion(userID: userID)
+        var encounteredFailure = false
+        for record in records {
+            let url = rootURL.appending(path: record.relativePath)
+            guard await accountDeletionFileRemoval(url) else {
+                encounteredFailure = true
+                continue
+            }
+            // Persist acknowledgement only after this file-removal attempt returns.
+            // If the app exits first, the durable row makes the next launch retry it.
+            context.delete(record)
+            try context.save()
+        }
+        if encounteredFailure {
+            throw AccountDeletionMediaCleanupError.fileRemovalFailed
+        }
+    }
+
+    private nonisolated static func removeFileOffMain(_ url: URL) async -> Bool {
+        await Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.removeItem(at: url)
+                return true
+            } catch {
+                // Missing already means the privacy cleanup has reached its goal.
+                return !FileManager.default.fileExists(atPath: url.path)
+            }
+        }.value
+    }
+
+    private func prepareLocalDataDeletion(userID: Int) throws -> [CachedMediaRecord] {
         if activeUserID == userID {
             ownershipGeneration += 1
         }
@@ -463,13 +513,7 @@ final class MediaCache {
                 predicate: #Predicate { $0.userID == userID }
             )
         )
-        for record in records {
-            try? FileManager.default.removeItem(
-                at: rootURL.appending(path: record.relativePath)
-            )
-            context.delete(record)
-        }
-        try context.save()
+        return records
     }
 
     private func isCurrentOperation(userID: Int, generation: Int) -> Bool {
@@ -496,4 +540,8 @@ final class MediaCache {
         default: nil
         }
     }
+}
+
+private enum AccountDeletionMediaCleanupError: Error {
+    case fileRemovalFailed
 }

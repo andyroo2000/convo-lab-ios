@@ -15,6 +15,17 @@ final class AppModel {
     let studyTime: StudyTimeStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
+    private(set) var isRetryingAccountDeletionCleanup = false
+    var accountDeletionCleanupStatus: AccountDeletionCleanupStatus {
+        accountDeletionCleanupFailures.isEmpty ? .complete : .cleanupRequired
+    }
+    var shouldShowAccountDeletionCleanupWarning: Bool {
+        guard accountDeletionCleanupStatus == .cleanupRequired,
+              !storageStatus.isDegraded
+        else { return false }
+        if case .signedOut = auth.state { return true }
+        return false
+    }
     var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
     @ObservationIgnored private let accountDeletionCleanup: AccountDeletionCleanupCoordinator
@@ -105,7 +116,7 @@ final class AppModel {
                         return false
                     }
                     do {
-                        try mediaCache.deleteLocalData(userID: userID)
+                        try await mediaCache.deleteLocalDataForAccountDeletion(userID: userID)
                         return true
                     } catch {
                         return false
@@ -168,12 +179,13 @@ final class AppModel {
         }
         self.audioPlayer = audioPlayer
         self.studyAudioPlayer = studyAudioPlayer
+        accountDeletionCleanupFailures = accountDeletionCleanup.pendingFailures
     }
 
     func start() async {
         // The retry ledger is independent of credentials: account deletion already
         // removed them, and a signed-out relaunch must still finish local purging.
-        retryPendingAccountDeletionCleanup()
+        await retryAccountDeletionCleanup()
         await auth.restore()
         guard case .signedIn = auth.state else { return }
         // Only a credential restored at cold launch can establish ownership of
@@ -241,7 +253,7 @@ final class AppModel {
             }
         ) else {
             if serverConfirmedDeletion {
-                retryPendingAccountDeletionCleanup()
+                await retryAccountDeletionCleanup()
             }
             if case let .signedIn(currentUser) = auth.state,
                currentUser.id == user.id {
@@ -262,12 +274,18 @@ final class AppModel {
         study.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
-        retryPendingAccountDeletionCleanup()
+        await retryAccountDeletionCleanup()
         return true
     }
 
-    private func retryPendingAccountDeletionCleanup() {
-        accountDeletionCleanupFailures = accountDeletionCleanup.retryPendingCleanup()
+    func retryAccountDeletionCleanup() async {
+        guard !isRetryingAccountDeletionCleanup else { return }
+        isRetryingAccountDeletionCleanup = true
+        defer { isRetryingAccountDeletionCleanup = false }
+        // Offer SwiftUI a render opportunity before cleanup begins. Media file
+        // removal suspends off-main while this observable guard keeps retry disabled.
+        await Task.yield()
+        accountDeletionCleanupFailures = await accountDeletionCleanup.retryPendingCleanup()
     }
 
     private func refreshAuthenticatedData() async {
