@@ -159,7 +159,10 @@ final class AuthStore {
         }
     }
 
-    func deleteAccount(currentPassword: String) async -> Bool {
+    func deleteAccount(
+        currentPassword: String,
+        onConfirmed: () -> Void = {}
+    ) async -> Bool {
         let generation = authenticationGeneration
         let operationID = UUID()
         workingOperationID = operationID
@@ -172,6 +175,10 @@ final class AuthStore {
                 method: "DELETE",
                 body: DeleteAccountRequest(currentPassword: currentPassword)
             )
+            // A 2xx response confirms that the original account is gone, even if a
+            // newer auth operation now owns the session. Persist its cleanup before
+            // either returning for that stale response or clearing credentials.
+            onConfirmed()
             guard authenticationGeneration == generation else { return false }
             authenticationGeneration += 1
             errorMessage = nil
