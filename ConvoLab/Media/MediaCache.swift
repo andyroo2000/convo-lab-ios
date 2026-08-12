@@ -444,22 +444,30 @@ final class MediaCache {
     }
 
     func deleteLocalData(userID: Int) throws {
-        let urls = try stageLocalDataDeletion(userID: userID)
-        for url in urls {
+        let records = try prepareLocalDataDeletion(userID: userID)
+        for record in records {
+            let url = rootURL.appending(path: record.relativePath)
             try? FileManager.default.removeItem(at: url)
+            context.delete(record)
         }
+        try context.save()
     }
 
     func deleteLocalDataForAccountDeletion(userID: Int) async throws {
-        let urls = try stageLocalDataDeletion(userID: userID)
-        await Task.detached(priority: .utility) {
-            for url in urls {
+        let records = try prepareLocalDataDeletion(userID: userID)
+        for record in records {
+            let url = rootURL.appending(path: record.relativePath)
+            await Task.detached(priority: .utility) {
                 try? FileManager.default.removeItem(at: url)
-            }
-        }.value
+            }.value
+            // Persist acknowledgement only after this file-removal attempt returns.
+            // If the app exits first, the durable row makes the next launch retry it.
+            context.delete(record)
+            try context.save()
+        }
     }
 
-    private func stageLocalDataDeletion(userID: Int) throws -> [URL] {
+    private func prepareLocalDataDeletion(userID: Int) throws -> [CachedMediaRecord] {
         if activeUserID == userID {
             ownershipGeneration += 1
         }
@@ -479,12 +487,7 @@ final class MediaCache {
                 predicate: #Predicate { $0.userID == userID }
             )
         )
-        let urls = records.map { rootURL.appending(path: $0.relativePath) }
-        for record in records {
-            context.delete(record)
-        }
-        try context.save()
-        return urls
+        return records
     }
 
     private func isCurrentOperation(userID: Int, generation: Int) -> Bool {

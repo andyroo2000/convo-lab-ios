@@ -280,8 +280,8 @@ final class AppModel {
         guard !isRetryingAccountDeletionCleanup else { return }
         isRetryingAccountDeletionCleanup = true
         defer { isRetryingAccountDeletionCleanup = false }
-        // Give SwiftUI a render pass before cleanup begins. Media file removal
-        // suspends off-main while this observable guard keeps retry disabled.
+        // Offer SwiftUI a render opportunity before cleanup begins. Media file
+        // removal suspends off-main while this observable guard keeps retry disabled.
         await Task.yield()
         accountDeletionCleanupFailures = await accountDeletionCleanup.retryPendingCleanup()
     }
