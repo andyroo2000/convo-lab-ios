@@ -72,7 +72,8 @@ final class StudyStore {
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var accountActivationGeneration = 0
-    @ObservationIgnored private var studySettingsRequestRevision = 0
+    @ObservationIgnored private var studySettingsMutationRevision = 0
+    @ObservationIgnored private var studySettingsRefreshID: UUID?
     @ObservationIgnored private var studySettingsUpdateID: UUID?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
@@ -229,7 +230,8 @@ final class StudyStore {
 
     func deactivate() {
         accountActivationGeneration += 1
-        studySettingsRequestRevision += 1
+        studySettingsMutationRevision += 1
+        studySettingsRefreshID = nil
         studySettingsUpdateID = nil
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
@@ -678,14 +680,17 @@ final class StudyStore {
     func refreshStudySettings() async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
-        studySettingsRequestRevision += 1
-        let requestRevision = studySettingsRequestRevision
+        let mutationRevision = studySettingsMutationRevision
+        let refreshID = UUID()
+        studySettingsRefreshID = refreshID
         do {
             let response: StudySettings = try await api.request("/api/study/settings")
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ), studySettingsRequestRevision == requestRevision else { return }
+            ), studySettingsRefreshID == refreshID,
+               studySettingsMutationRevision == mutationRevision
+            else { return }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -699,7 +704,9 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ), studySettingsRequestRevision == requestRevision else { return }
+            ), studySettingsRefreshID == refreshID,
+               studySettingsMutationRevision == mutationRevision
+            else { return }
             studySettingsErrorMessage = error.localizedDescription
         }
     }
@@ -727,8 +734,7 @@ final class StudyStore {
             )
         else { return false }
         let activationGeneration = accountActivationGeneration
-        studySettingsRequestRevision += 1
-        let requestRevision = studySettingsRequestRevision
+        studySettingsMutationRevision += 1
         let updateID = UUID()
         studySettingsUpdateID = updateID
         isUpdatingStudySettings = true
@@ -755,7 +761,8 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ), studySettingsRequestRevision == requestRevision else { return false }
+            ), studySettingsUpdateID == updateID else { return false }
+            studySettingsMutationRevision += 1
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 requestedReviewTimeBudget: reviewTimeBudgetMinutes,
@@ -773,7 +780,7 @@ final class StudyStore {
             guard isCurrentActivation(
                 userID,
                 generation: activationGeneration
-            ), studySettingsRequestRevision == requestRevision else { return false }
+            ), studySettingsUpdateID == updateID else { return false }
             studySettingsErrorMessage = error.localizedDescription
             return false
         }

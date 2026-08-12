@@ -4562,6 +4562,53 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsRefreshCannotDiscardInFlightSave() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let deferredUpdate = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            if request.httpMethod == "PATCH" {
+                deferredUpdate.hold(completion)
+            } else {
+                completion(.success(Self.response(data: Data(
+                    #"{"newCardsPerDay":12,"lessonBatchSize":5,"reviewTimeBudgetMinutes":90}"#.utf8
+                ))))
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let update = Task {
+            await store.updateStudySettings(
+                newCardsPerDay: 24,
+                lessonBatchSize: 8,
+                reviewTimeBudgetMinutes: 150
+            )
+        }
+        await waitUntil { deferredUpdate.hasPendingResponse }
+        await store.refreshStudySettings()
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
+
+        deferredUpdate.succeed(with: Self.response(data: Data(
+            #"{"newCardsPerDay":24,"lessonBatchSize":8,"reviewTimeBudgetMinutes":150}"#.utf8
+        )))
+        let saved = await update.value
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 8)
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+    }
+
+    @MainActor
     func testSessionRefreshPreservesBudgetWhenReadinessBudgetIsAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let session = StudySession(
