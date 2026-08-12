@@ -56,6 +56,7 @@ final class StudyStore {
     private let mediaCache: MediaCache
     private let knownKanjiService: KnownKanjiService
     private let reviewOutbox: ReviewEventOutbox
+    private let reviewRecordingService: StudyReviewRecordingService
     private let cardOutbox: CardMutationOutbox
     private let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
@@ -63,7 +64,6 @@ final class StudyStore {
     private let cardSyncFeedRepository: CardSyncFeedRepository
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
-    private let reviewProjection: (StudyCard, ReviewRating, Date) throws -> StudyCard
     private let deviceID: String
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
@@ -167,6 +167,11 @@ final class StudyStore {
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
+        reviewRecordingService = StudyReviewRecordingService(
+            context: context,
+            reviewOutbox: reviewOutbox,
+            reviewProjection: reviewProjection
+        )
         cardOutbox = CardMutationOutbox(
             api: api,
             context: context,
@@ -178,7 +183,6 @@ final class StudyStore {
         cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
-        self.reviewProjection = reviewProjection
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -193,6 +197,7 @@ final class StudyStore {
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
         reviewOutbox.activate(userID: userID)
+        reviewRecordingService.activate(userID: userID)
         cardOutbox.activate(userID: userID)
         manualDraftOutbox.activate(userID: userID)
         cardMediaService.activate(userID: userID)
@@ -214,6 +219,7 @@ final class StudyStore {
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
         cardSyncFeedRepository.deactivate()
+        reviewRecordingService.deactivate()
         reviewOutbox.deactivate()
         cards = []
         libraryCards = []
@@ -977,75 +983,50 @@ final class StudyStore {
         duration: Duration?,
         reviewedAt: Date = .now
     ) async -> String? {
-        guard let userID = activeUserID else { return nil }
-        let now = reviewedAt
-        let event = ReviewBatchRequest.Event(
-            id: ClientIdentifier.ulid(date: now),
-            cardID: card.reviewCardID,
-            rating: rating,
-            reviewedAt: now,
-            durationMilliseconds: duration.map {
-                let components = $0.components
-                return Int(
-                    components.seconds * 1_000
-                        + components.attoseconds / 1_000_000_000_000_000
-                )
-            },
-            clientEventID: UUID().uuidString.lowercased(),
-            deviceID: deviceID,
-            clientCreatedAt: now
-        )
-        var queuedLocally = false
+        guard activeUserID != nil else { return nil }
+        var stagedEventID: String?
         do {
             // Scheduling must succeed before the durable event is staged. If the
             // FSRS engine violates its rating-state contract, surface that error
             // without leaving a review queued against an unchanged local card.
-            let updatedCard = try reviewProjection(card, rating, now)
-            try reviewOutbox.stageEnqueue(event: event, cardBefore: card)
-            let cardID = card.id
-            var descriptor = FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
+            let staged = try reviewRecordingService.stage(
+                card: card,
+                rating: rating,
+                duration: duration,
+                reviewedAt: reviewedAt,
+                deviceID: deviceID,
+                queueIndex: cards.count
             )
-            descriptor.fetchLimit = 1
-            sessionCompletedCardIDs.insert(card.id)
+            stagedEventID = staged.eventID
+            let currentCard = staged.cardBefore
+            let updatedCard = staged.cardAfter
+            let identifiers = StudyCardIdentity.identifiers(for: currentCard)
+                .union(StudyCardIdentity.identifiers(for: card))
+            sessionCompletedCardIDs.insert(currentCard.id)
             // The animation retains this reviewed card as its presentation snapshot until
             // dismissal, while the queue can optimistically advance underneath it.
             masteryAnimation = nil
             // Compare the same local FSRS projection on both sides. The server annotation
             // belongs to the pre-review state and cannot describe this optimistic review.
-            let oldLevel = card.fsrsMasteryLevel
+            let oldLevel = currentCard.fsrsMasteryLevel
             let newLevel = updatedCard.fsrsMasteryLevel
             masteryAnimation = (
                 id: UUID(),
-                card: card,
-                label: card.presentation.back.heading
-                    ?? card.presentation.front.heading
+                card: currentCard,
+                label: currentCard.presentation.back.heading
+                    ?? currentCard.presentation.front.heading
                     ?? "This item",
                 fromLevel: oldLevel.rawValue,
                 toLevel: newLevel.rawValue,
                 passed: rating != .again
             )
-            let updatedPayload = try StorageCodec.encoder.encode(updatedCard)
-            if let record = try context.fetch(descriptor).first {
-                record.replacePayload(encoded: updatedPayload)
-                record.isInActiveSession = false
-            } else {
-                let record = LocalCardRecord(
-                    card: updatedCard,
-                    userID: userID,
-                    queueIndex: cards.count,
-                    payload: updatedPayload
-                )
-                record.isInActiveSession = false
-                context.insert(record)
-            }
-            try context.save()
-            queuedLocally = true
-            sessionFailureWasPresentByEventID[event.id] = sessionFailedCardIDs.contains(card.id)
+            sessionFailureWasPresentByEventID[staged.eventID] = sessionFailedCardIDs.contains(
+                currentCard.id
+            )
             if rating == .again {
-                sessionFailedCardIDs.insert(card.id)
+                sessionFailedCardIDs.insert(currentCard.id)
             } else {
-                sessionFailedCardIDs.remove(card.id)
+                sessionFailedCardIDs.remove(currentCard.id)
             }
             var pendingState = PendingReviewState(
                 newlyFailedCardIDs: newlyFailedCardIDs,
@@ -1053,26 +1034,29 @@ final class StudyStore {
                 resolvedFailedCardIDs: resolvedFailedCardIDs
             )
             pendingState.record(
-                card: PendingReviewCardState(card: card),
+                card: PendingReviewCardState(card: currentCard),
                 rating: rating
             )
             apply(pendingState)
-            consumeOverviewCount(for: card)
-            cards.removeAll { $0.id == card.id }
-            if let index = libraryCards.firstIndex(where: { $0.id == card.id }) {
+            consumeOverviewCount(for: currentCard)
+            cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+            if let index = libraryCards.firstIndex(where: {
+                StudyCardIdentity.matches($0, any: identifiers)
+            }) {
                 libraryCards[index] = updatedCard
             } else {
                 libraryCards.append(updatedCard)
             }
             scheduleNextOfflineActivation()
-            if try cardOutbox.hasPendingCreate(for: card.id) {
+            if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
             try await reviewOutbox.flush()
+            return staged.eventID
         } catch {
             handleSyncError(error)
+            return stagedEventID
         }
-        return queuedLocally ? event.id : nil
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
@@ -1081,9 +1065,15 @@ final class StudyStore {
             throw DeletedCardUndoError()
         }
         if try reviewOutbox.stageRemoval(eventID: eventID) {
-            try restoreReviewedCard(cardBefore)
+            // The view may hold a pre-reconciliation snapshot. For a locally
+            // pending undo, preserve the latest local presentation while
+            // restoring the scheduling state captured before the review.
+            let restoredCard = try restoreReviewedCard(
+                cardBefore,
+                preservingLocalPresentation: true
+            )
             apply(try reviewOutbox.pendingState())
-            restoreSessionFailure(for: cardBefore.id, before: eventID)
+            restoreSessionFailure(for: restoredCard.id, before: eventID)
             return
         }
 
@@ -1096,11 +1086,11 @@ final class StudyStore {
                 currentOverview: overview
             )
         )
-        try restoreReviewedCard(response.card)
+        let restoredCard = try restoreReviewedCard(response.card)
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
         overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
         apply(try reviewOutbox.pendingState())
-        restoreSessionFailure(for: cardBefore.id, before: eventID)
+        restoreSessionFailure(for: restoredCard.id, before: eventID)
     }
 
     private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
@@ -1602,12 +1592,20 @@ final class StudyStore {
         resolvedFailedCardIDs = state.resolvedFailedCardIDs
     }
 
-    private func restoreReviewedCard(_ card: StudyCard) throws {
+    @discardableResult
+    private func restoreReviewedCard(
+        _ card: StudyCard,
+        preservingLocalPresentation: Bool = false
+    ) throws -> StudyCard {
         guard try !cardOutbox.hasPendingDelete(for: card) else {
             throw DeletedCardUndoError()
         }
         let record = try localCardRecord(for: card)
-        let restoredCard = restoredCard(card, matching: record)
+        let restoredCard = restoredCard(
+            card,
+            matching: record,
+            preservingLocalPresentation: preservingLocalPresentation
+        )
         let normalizedID = restoredCard.id.lowercased()
         masteryAnimation = nil
         sessionCompletedCardIDs = Set(
@@ -1647,18 +1645,22 @@ final class StudyStore {
         guard let userID = activeUserID else { throw CancellationError() }
         try localCardRepository.replaceActiveSession(with: cards, userID: userID)
         scheduleNextOfflineActivation()
+        return restoredCard
     }
 
     private func restoredCard(
         _ card: StudyCard,
-        matching record: LocalCardRecord?
+        matching record: LocalCardRecord?,
+        preservingLocalPresentation: Bool
     ) -> StudyCard {
         guard let record else { return card }
         let localCard = try? StorageCodec.decoder.decode(
             StudyCard.self,
             from: record.payload
         )
-        guard record.id != card.id || record.locallyUpdatedAt != nil else {
+        let preserveLocalPresentation = preservingLocalPresentation
+            || record.locallyUpdatedAt != nil
+        guard record.id != card.id || preserveLocalPresentation else {
             return card
         }
 
@@ -1666,27 +1668,27 @@ final class StudyStore {
             id: record.id,
             syncId: card.syncId ?? localCard?.syncId,
             noteId: card.noteId,
-            cardType: record.locallyUpdatedAt == nil
-                ? card.cardType
-                : localCard?.cardType ?? card.cardType,
-            prompt: record.locallyUpdatedAt == nil
-                ? card.prompt
-                : localCard?.prompt ?? card.prompt,
-            answer: record.locallyUpdatedAt == nil
-                ? card.answer
-                : localCard?.answer ?? card.answer,
+            cardType: preserveLocalPresentation
+                ? localCard?.cardType ?? card.cardType
+                : card.cardType,
+            prompt: preserveLocalPresentation
+                ? localCard?.prompt ?? card.prompt
+                : card.prompt,
+            answer: preserveLocalPresentation
+                ? localCard?.answer ?? card.answer
+                : card.answer,
             state: card.state,
-            answerAudioSource: record.locallyUpdatedAt == nil
-                ? card.answerAudioSource
-                : localCard?.answerAudioSource ?? card.answerAudioSource,
+            answerAudioSource: preserveLocalPresentation
+                ? localCard?.answerAudioSource ?? card.answerAudioSource
+                : card.answerAudioSource,
             // Scheduling state and mastery come from the undo result; neither is editor-owned.
             masteryLevel: card.masteryLevel,
-            createdAt: record.locallyUpdatedAt == nil
-                ? card.createdAt
-                : localCard?.createdAt ?? card.createdAt,
-            updatedAt: record.locallyUpdatedAt == nil
-                ? card.updatedAt
-                : localCard?.updatedAt ?? card.updatedAt
+            createdAt: preserveLocalPresentation
+                ? localCard?.createdAt ?? card.createdAt
+                : card.createdAt,
+            updatedAt: preserveLocalPresentation
+                ? localCard?.updatedAt ?? card.updatedAt
+                : card.updatedAt
         )
     }
 
