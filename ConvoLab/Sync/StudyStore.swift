@@ -71,6 +71,7 @@ final class StudyStore {
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored private var activeUserID: Int?
+    @ObservationIgnored private var accountActivationGeneration = 0
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
@@ -214,6 +215,7 @@ final class StudyStore {
     }
 
     func deactivate() {
+        accountActivationGeneration += 1
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
         activeUserID = nil
@@ -984,7 +986,8 @@ final class StudyStore {
         duration: Duration?,
         reviewedAt: Date = .now
     ) async -> String? {
-        guard activeUserID != nil else { return nil }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
         var stagedEventID: String?
         do {
             // Scheduling must succeed before the durable event is staged. If the
@@ -1055,7 +1058,11 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
             return stagedEventID
         }
     }
@@ -1295,6 +1302,7 @@ final class StudyStore {
     @discardableResult
     func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let id = ClientIdentifier.ulid()
         let now = Date.now
         let projection = StudyCardEditorProjection.creating(draft, id: id, at: now)
@@ -1317,7 +1325,11 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
         return optimistic
     }
@@ -1337,7 +1349,8 @@ final class StudyStore {
     }
 
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
-        guard activeUserID != nil else { throw CancellationError() }
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
         let projection = StudyCardEditorProjection.updating(
             currentCard,
@@ -1354,12 +1367,17 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
     func deleteCard(_ card: StudyCard) async throws {
         guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
         try cardOutbox.stageDelete(cardID: currentCard.id)
         let cardID = currentCard.id
@@ -1376,7 +1394,11 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
-            handleSyncError(error)
+            handleSyncError(
+                error,
+                for: userID,
+                activationGeneration: activationGeneration
+            )
         }
     }
 
@@ -1925,6 +1947,18 @@ final class StudyStore {
         } else {
             syncStatus = .failed(error.localizedDescription)
         }
+    }
+
+    private func handleSyncError(
+        _ error: any Error,
+        for userID: Int,
+        activationGeneration: Int
+    ) {
+        guard
+            activeUserID == userID,
+            accountActivationGeneration == activationGeneration
+        else { return }
+        handleSyncError(error)
     }
 }
 
