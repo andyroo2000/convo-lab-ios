@@ -464,15 +464,20 @@ final class MediaCache {
 
     func deleteLocalDataForAccountDeletion(userID: Int) async throws {
         let records = try prepareLocalDataDeletion(userID: userID)
+        var encounteredFailure = false
         for record in records {
             let url = rootURL.appending(path: record.relativePath)
             guard await accountDeletionFileRemoval(url) else {
-                throw AccountDeletionMediaCleanupError.fileRemovalFailed
+                encounteredFailure = true
+                continue
             }
             // Persist acknowledgement only after this file-removal attempt returns.
             // If the app exits first, the durable row makes the next launch retry it.
             context.delete(record)
             try context.save()
+        }
+        if encounteredFailure {
+            throw AccountDeletionMediaCleanupError.fileRemovalFailed
         }
     }
 

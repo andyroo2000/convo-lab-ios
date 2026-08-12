@@ -601,6 +601,43 @@ final class MediaCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountDeletionContinuesAfterOneMediaRemovalFails() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: .shared
+        )
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            accountDeletionFileRemoval: { url in url.lastPathComponent != "blocked.mp3" }
+        )
+        for relativePath in ["blocked.mp3", "removable.mp3"] {
+            container.mainContext.insert(
+                CachedMediaRecord(
+                    remoteURL: relativePath,
+                    userID: 1,
+                    relativePath: relativePath,
+                    byteCount: 21,
+                    category: "active-study"
+                )
+            )
+        }
+        try container.mainContext.save()
+
+        do {
+            try await cache.deleteLocalDataForAccountDeletion(userID: 1)
+            XCTFail("Expected one failed removal to keep the domain pending")
+        } catch {
+            let records = try container.mainContext.fetch(
+                FetchDescriptor<CachedMediaRecord>()
+            )
+            XCTAssertEqual(records.map(\.relativePath), ["blocked.mp3"])
+        }
+    }
+
+    @MainActor
     func testInitializationPurgesDeferredDeletionFromPreviousLaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let applicationSupport = FileManager.default.urls(
