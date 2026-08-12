@@ -46,14 +46,20 @@ struct StudyCardLocalRepository {
         try context.save()
     }
 
-    func mergeOfflineReserve(_ cards: [StudyCard], userID: Int) throws {
+    func mergeOfflineReserve(
+        _ cards: [StudyCard],
+        userID: Int,
+        preservingActiveSessionOrder: Bool = false
+    ) throws {
         let existing = try records(userID: userID)
         var byIdentifier = recordsByIdentifier(existing)
 
         for (index, card) in cards.enumerated() {
             let identifiers = StudyCardIdentity.identifiers(for: card)
             if let record = identifiers.lazy.compactMap({ byIdentifier[$0] }).first {
-                record.queueIndex = index
+                if !preservingActiveSessionOrder || !record.isInActiveSession {
+                    record.queueIndex = index
+                }
                 guard record.locallyUpdatedAt == nil else { continue }
                 let rebasedCard = record.id == card.id
                     ? card

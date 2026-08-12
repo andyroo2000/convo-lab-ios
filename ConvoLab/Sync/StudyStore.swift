@@ -437,18 +437,28 @@ final class StudyStore {
             var libraryCardsReconciler = StudyPublishedCardReconciler()
             var allCardsReconciler = StudyPublishedCardReconciler()
             let result = try await cardSyncFeedRepository.pullChanges { changes in
-                cardsReconciler.apply(changes, to: &self.cards)
+                if !lessonSessionIsPresented {
+                    cardsReconciler.apply(changes, to: &self.cards)
+                }
                 libraryCardsReconciler.apply(changes, to: &self.libraryCards)
                 allCardsReconciler.apply(changes, to: &self.allCards)
             }
             switch result {
             case let .completed(deletedCardIdentifiers):
-                prunePublishedCards(matching: deletedCardIdentifiers)
+                prunePublishedCards(
+                    matching: deletedCardIdentifiers,
+                    preservingPresentedLesson: lessonSessionIsPresented
+                )
             case let .checkpointReset(deletedCardIdentifiers):
                 checkpointWasReset = true
-                loadLocalCards(userID: userID)
+                if !lessonSessionIsPresented {
+                    loadLocalCards(userID: userID)
+                }
                 loadLibraryCards(userID: userID)
-                prunePublishedCards(matching: deletedCardIdentifiers)
+                prunePublishedCards(
+                    matching: deletedCardIdentifiers,
+                    preservingPresentedLesson: lessonSessionIsPresented
+                )
             case .discardedStaleResponse:
                 return
             }
@@ -494,8 +504,13 @@ final class StudyStore {
         }
     }
 
-    private func prunePublishedCards(matching identifiers: Set<String>) {
-        StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
+    private func prunePublishedCards(
+        matching identifiers: Set<String>,
+        preservingPresentedLesson: Bool = false
+    ) {
+        if !preservingPresentedLesson {
+            StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
+        }
         StudyPublishedCardReconciler.prune(&libraryCards, matching: identifiers)
         StudyPublishedCardReconciler.prune(&allCards, matching: identifiers)
     }
@@ -603,7 +618,11 @@ final class StudyStore {
         if lessonSessionIsPresented {
             // Keep the review queue durable while its presentation is suspended.
             // Lesson cards are cached locally without taking over active-review flags.
-            try localCardRepository.mergeOfflineReserve(lessonCards, userID: userID)
+            try localCardRepository.mergeOfflineReserve(
+                lessonCards,
+                userID: userID,
+                preservingActiveSessionOrder: true
+            )
         } else {
             try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
         }
@@ -1602,7 +1621,12 @@ final class StudyStore {
                 guard let self, self.activeUserID == userID else { return }
                 // Reconciliation can rename or remove records. Refresh once after
                 // the drain while preserving an in-progress session's order.
-                loadLocalCards(preservingNormalizedOrder: activeCardOrder, userID: userID)
+                if !lessonSessionIsPresented {
+                    loadLocalCards(
+                        preservingNormalizedOrder: activeCardOrder,
+                        userID: userID
+                    )
+                }
                 loadLibraryCards(userID: userID)
             }
         ) { [weak self] acknowledgement in
@@ -1898,9 +1922,11 @@ final class StudyStore {
     ) async throws {
         guard activeUserID == userID else { throw CancellationError() }
         try upsertLocalCard(card, markedDirty: false)
-        cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
-        cards.append(card)
-        cards = StudySessionPolicy.orderedCards(cards)
+        if !lessonSessionIsPresented {
+            cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+            cards.append(card)
+            cards = StudySessionPolicy.orderedCards(cards)
+        }
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
         upsertAllCardsPresentation(card)

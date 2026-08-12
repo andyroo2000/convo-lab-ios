@@ -3410,7 +3410,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.synchronize()
 
-        XCTAssertEqual(store.cards.map(\.id), [survivor.id])
+        XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.libraryCards.map(\.id), [survivor.id])
         XCTAssertEqual(store.allCards.map(\.id), [survivor.id])
         XCTAssertEqual(
@@ -3505,7 +3505,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.synchronize()
 
-        XCTAssertEqual(store.cards.map(\.id), [retained.id])
+        XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.libraryCards.map(\.id), [retained.id])
         XCTAssertEqual(store.allCards.map(\.id), [retained.id])
         XCTAssertEqual(
@@ -3604,7 +3604,7 @@ final class StudyStoreTests: XCTestCase {
 
         await store.synchronize()
 
-        XCTAssertEqual(store.cards.map(\.promptText), [restoredCard.promptText])
+        XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(store.libraryCards.map(\.promptText), [restoredCard.promptText])
         XCTAssertEqual(store.allCards.map(\.promptText), [restoredCard.promptText])
         let persistedRecord = try XCTUnwrap(
@@ -3659,6 +3659,12 @@ final class StudyStoreTests: XCTestCase {
         let allCardsData = try StorageCodec.encoder.encode(
             StudyCardListResponse(items: [clean, dirty], limit: 50, nextCursor: nil)
         )
+        let presentedLesson = makeCard(
+            id: "presented-during-checkpoint-reset",
+            expression: "表示中のレッスン",
+            queueState: "new"
+        )
+        let lessonData = try sessionResponseData(cards: [presentedLesson])
         let paths = LockedRequestPaths()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
@@ -3666,6 +3672,8 @@ final class StudyStoreTests: XCTestCase {
             switch path {
             case "/api/study/cards":
                 return Self.response(data: allCardsData)
+            case "/api/study/lessons/start":
+                return Self.response(data: lessonData)
             case "/api/sync/feed":
                 return Self.response(
                     statusCode: 409,
@@ -3696,6 +3704,7 @@ final class StudyStoreTests: XCTestCase {
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
+        try await store.refreshLessons()
 
         await store.synchronize()
 
@@ -3703,6 +3712,7 @@ final class StudyStoreTests: XCTestCase {
             paths.values,
             [
                 "/api/study/cards",
+                "/api/study/lessons/start",
                 "/api/sync/feed",
                 "/api/study/known-kanji",
                 "/api/study/offline-reserve",
@@ -3719,6 +3729,7 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertNotNil(preservedDirtyRecord.locallyUpdatedAt)
         XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
+        XCTAssertEqual(store.cards.map(\.id), [presentedLesson.id])
         XCTAssertEqual(store.allCards.map(\.id), [dirty.id])
         XCTAssertEqual(store.syncStatus, .idle)
     }
