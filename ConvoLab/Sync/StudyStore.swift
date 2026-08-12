@@ -66,6 +66,7 @@ final class StudyStore {
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let deviceID: String
+    private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
@@ -171,6 +172,7 @@ final class StudyStore {
         api: APIClient,
         context: ModelContext,
         mediaCache: MediaCache,
+        storageMode: StorageMode = .persistent,
         reviewProjection: @escaping (
             StudyCard,
             ReviewRating,
@@ -182,6 +184,7 @@ final class StudyStore {
         self.api = api
         self.context = context
         self.mediaCache = mediaCache
+        self.storageMode = storageMode
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
@@ -1078,6 +1081,10 @@ final class StudyStore {
         reviewedAt: Date = .now
     ) async -> String? {
         guard let userID = activeUserID else { return nil }
+        guard storageMode == .persistent else {
+            handleSyncError(StorageWriteUnavailableError(domain: .study))
+            return nil
+        }
         let activationGeneration = accountActivationGeneration
         var stagedEventID: String?
         do {
@@ -1159,6 +1166,7 @@ final class StudyStore {
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let presentationRevision = studySurfaceRevision
@@ -1263,6 +1271,7 @@ final class StudyStore {
         draft: StudyCardDraft,
         id: String = ClientIdentifier.ulid()
     ) async throws -> StudyManualCardDraft {
+        try requirePersistentWrites()
         guard activeUserID != nil else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
             id: id,
@@ -1284,6 +1293,7 @@ final class StudyStore {
         previewAudioRole: String? = nil,
         previewImage: JSONValue? = nil
     ) async throws -> StudyManualCardDraft {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         var prompt = draft.prompt(merging: serverDraft.prompt)
@@ -1408,6 +1418,7 @@ final class StudyStore {
         previewAudioRole: String?,
         previewImage: JSONValue?
     ) async throws {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let recoveryState = manualDraftOutbox.recoveryState(for: serverDraft.id)
@@ -1443,6 +1454,7 @@ final class StudyStore {
     }
 
     func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
+        try requirePersistentWrites()
         try await manualDraftOutbox.deleteDraft(id: serverDraft.id)
     }
 
@@ -1456,6 +1468,7 @@ final class StudyStore {
 
     @discardableResult
     func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let id = ClientIdentifier.ulid()
@@ -1504,6 +1517,7 @@ final class StudyStore {
     }
 
     func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
@@ -1531,6 +1545,7 @@ final class StudyStore {
     }
 
     func deleteCard(_ card: StudyCard) async throws {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let currentCard = try currentLocalCard(for: card)
@@ -1562,6 +1577,7 @@ final class StudyStore {
         voiceID: String,
         textOverride: String
     ) async throws -> AnswerAudioRegenerationResult {
+        try requirePersistentWrites()
         let currentCard = try await prepareCardMediaMutation(for: card, medium: "audio")
         return try await cardMediaService.regenerateAnswerAudio(
             currentCard: currentCard,
@@ -1591,6 +1607,7 @@ final class StudyStore {
         prompt: String,
         placement: StudyCardDraft.ImagePlacement
     ) async throws -> ImageRegenerationResult {
+        try requirePersistentWrites()
         // Validate before the preflight flush so bad editor input cannot send an
         // unrelated queued card mutation. The service repeats this for direct callers.
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1632,6 +1649,7 @@ final class StudyStore {
         jpegData: Data,
         placement: StudyCardDraft.ImagePlacement
     ) async throws -> ImageRegenerationResult {
+        try requirePersistentWrites()
         // As above, reject invalid editor state before the outbox preflight.
         guard placement != .none else {
             throw InvalidCardImagePlacementError()
@@ -2027,6 +2045,7 @@ final class StudyStore {
     }
 
     func retryPendingDraftCreates() async throws {
+        try requirePersistentWrites()
         try await manualDraftOutbox.retryPendingCreates()
     }
 
@@ -2050,6 +2069,7 @@ final class StudyStore {
     }
 
     func retryPendingDraftCommits() async throws {
+        try requirePersistentWrites()
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
         try await manualDraftOutbox.retryPendingCommits { [weak self] card in
@@ -2148,6 +2168,12 @@ final class StudyStore {
             syncStatus = .offline
         } else {
             syncStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    private func requirePersistentWrites() throws {
+        guard storageMode == .persistent else {
+            throw StorageWriteUnavailableError(domain: .study)
         }
     }
 
