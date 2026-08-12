@@ -515,6 +515,40 @@ final class MediaCacheTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountDeletionRetainsMediaRecordWhenFileRemovalFails() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: .shared
+        )
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            accountDeletionFileRemoval: { _ in false }
+        )
+        let record = CachedMediaRecord(
+            remoteURL: "undeletable-account-media",
+            userID: 1,
+            relativePath: "undeletable.mp3",
+            byteCount: 21,
+            category: "active-study"
+        )
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        do {
+            try await cache.deleteLocalDataForAccountDeletion(userID: 1)
+            XCTFail("Expected failed file removal to keep cleanup pending")
+        } catch {
+            XCTAssertEqual(
+                try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
+                1
+            )
+        }
+    }
+
+    @MainActor
     func testDeferredDeletionRecordIsNotServedAsCacheHit() async throws {
         let requestCounter = LockedCounter()
         MockURLProtocol.handler = { request in
