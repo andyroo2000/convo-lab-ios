@@ -20,7 +20,9 @@ final class AppModel {
         accountDeletionCleanupFailures.isEmpty ? .complete : .cleanupRequired
     }
     var shouldShowAccountDeletionCleanupWarning: Bool {
-        guard accountDeletionCleanupStatus == .cleanupRequired else { return false }
+        guard accountDeletionCleanupStatus == .cleanupRequired,
+              !storageStatus.isDegraded
+        else { return false }
         if case .signedOut = auth.state { return true }
         return false
     }
