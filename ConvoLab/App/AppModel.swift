@@ -227,13 +227,18 @@ final class AppModel {
         }
         let interruptedSession = studyTime.active
         let deletionStartedAt = Date.now
+        var serverConfirmedDeletion = false
         await studyTime.deactivate(at: deletionStartedAt)
         guard await auth.deleteAccount(
             currentPassword: currentPassword,
             onConfirmed: { [accountDeletionCleanup] in
                 accountDeletionCleanup.scheduleCleanup(userID: user.id)
+                serverConfirmedDeletion = true
             }
         ) else {
+            if serverConfirmedDeletion {
+                retryPendingAccountDeletionCleanup()
+            }
             if case let .signedIn(currentUser) = auth.state,
                currentUser.id == user.id {
                 studyTime.activate(userID: user.id)

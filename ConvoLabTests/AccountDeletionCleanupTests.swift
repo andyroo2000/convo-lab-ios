@@ -166,6 +166,66 @@ final class AccountDeletionCleanupTests: XCTestCase {
         })
     }
 
+    func testRejectedAccountDeletionDoesNotScheduleCleanup() async throws {
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let defaults = try makeDefaults()
+        let user = CurrentUser(
+            id: 42,
+            name: "Current User",
+            email: "current@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = CleanupCredentialStore(values: [
+            "learning-os-mobile-token": "valid-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let authClient = makeClient { request in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/me", "GET"):
+                return Self.response(data: Data(
+                    #"{"data":{"id":42,"name":"Current User","email":"current@example.com","email_verified_at":null}}"#.utf8
+                ))
+            case ("/api/me", "DELETE"):
+                return Self.response(
+                    statusCode: 422,
+                    data: Data(#"{"message":"The current password is incorrect."}"#.utf8)
+                )
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let model = AppModel(
+            configuration: AppConfiguration(
+                apiBaseURL: URL(string: "https://example.test")!
+            ),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAuthStore: { _ in
+                AuthStore(api: authClient, keychain: credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+        await model.auth.restore()
+
+        let deleted = await model.deleteAccount(currentPassword: "wrong-password")
+        XCTAssertFalse(deleted)
+        XCTAssertTrue(
+            AccountDeletionCleanupLedger(defaults: defaults).pendingItems.isEmpty
+        )
+        guard case let .signedIn(currentUser) = model.auth.state else {
+            return XCTFail("Rejected deletion must preserve the authenticated account")
+        }
+        XCTAssertEqual(currentUser.id, user.id)
+    }
+
     func testStaleDeletionDoesNotRestoreDeletedUsersInterruptedStudyTime() async throws {
         defer {
             MockURLProtocol.handler = nil
@@ -252,9 +312,9 @@ final class AccountDeletionCleanupTests: XCTestCase {
         }
         XCTAssertEqual(currentUser.id, 84)
         XCTAssertEqual(model.studyTime.active?.name, "New user's listening")
-        let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
-        XCTAssertEqual(pending.count, AccountDeletionCleanupDomain.allCases.count)
-        XCTAssertTrue(pending.allSatisfy { $0.userID == originalUser.id })
+        XCTAssertTrue(
+            AccountDeletionCleanupLedger(defaults: defaults).pendingItems.isEmpty
+        )
     }
 
     private func makeDefaults() throws -> UserDefaults {
