@@ -932,7 +932,15 @@ final class StudyStore {
             method: "POST"
         )
         guard activeUserID == userID else { return }
-        try localCardRepository.mergeOfflineReserve(reserve.cards, userID: userID)
+        let preservingActiveReviewQueue = lessonSessionIsPresented
+        let persistedActiveCards = preservingActiveReviewQueue
+            ? try localCardRepository.activeCards(userID: userID)
+            : []
+        try localCardRepository.mergeOfflineReserve(
+            reserve.cards,
+            userID: userID,
+            preservingActiveSessionOrder: preservingActiveReviewQueue
+        )
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
         await mediaCache.prepare(
@@ -940,7 +948,7 @@ final class StudyStore {
             category: "offline-study"
         )
         markPrepared(
-            cards: cards + reserve.cards,
+            cards: cards + reserve.cards + persistedActiveCards,
             clearingOtherRecords: clearingOtherRecords
         )
     }

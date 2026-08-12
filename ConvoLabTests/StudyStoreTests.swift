@@ -3652,13 +3652,40 @@ final class StudyStoreTests: XCTestCase {
             queueIndex: 1,
             payload: try StorageCodec.encoder.encode(clean)
         )
+        let activeReview = makeCard(
+            id: "active-review",
+            expression: "保持する復習",
+            dueAt: .distantFuture
+        )
+        let activeReviewRecord = LocalCardRecord(
+            card: activeReview,
+            userID: 1,
+            queueIndex: 17,
+            payload: try StorageCodec.encoder.encode(activeReview)
+        )
+        activeReviewRecord.locallyUpdatedAt = .now
+        activeReviewRecord.mediaPreparedAt = .now
         container.mainContext.insert(dirtyRecord)
         container.mainContext.insert(cleanRecord)
+        container.mainContext.insert(activeReviewRecord)
         container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
         try container.mainContext.save()
         let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(items: [clean, dirty], limit: 50, nextCursor: nil)
+            StudyCardListResponse(
+                items: [clean, dirty, activeReview],
+                limit: 50,
+                nextCursor: nil
+            )
         )
+        let activeReviewObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(activeReview)
+        )
+        let reserveData = try JSONSerialization.data(withJSONObject: [
+            "cards": [activeReviewObject],
+            "reserveDays": 5,
+            "generatedAt": "2026-07-25T12:00:00.000Z",
+            "horizonEndsAt": "2026-07-30T12:00:00.000Z",
+        ])
         let presentedLesson = makeCard(
             id: "presented-during-checkpoint-reset",
             expression: "表示中のレッスン",
@@ -3684,9 +3711,7 @@ final class StudyStoreTests: XCTestCase {
                     #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
                 ))
             case "/api/study/offline-reserve":
-                return Self.response(data: Data(
-                    #"{"cards":[],"reserveDays":5,"generatedAt":"2026-07-25T12:00:00.000Z","horizonEndsAt":"2026-07-30T12:00:00.000Z"}"#.utf8
-                ))
+                return Self.response(data: reserveData)
             default:
                 throw URLError(.badURL)
             }
@@ -3724,13 +3749,17 @@ final class StudyStoreTests: XCTestCase {
             ).cardCheckpoint,
             0
         )
-        let preservedDirtyRecord = try XCTUnwrap(
-            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        let preservedDirtyRecord = try XCTUnwrap(records.first { $0.id == dirty.id })
+        let preservedActiveReviewRecord = try XCTUnwrap(
+            records.first { $0.id == activeReview.id }
         )
         XCTAssertNotNil(preservedDirtyRecord.locallyUpdatedAt)
         XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
+        XCTAssertEqual(preservedActiveReviewRecord.queueIndex, 17)
+        XCTAssertNotNil(preservedActiveReviewRecord.mediaPreparedAt)
         XCTAssertEqual(store.cards.map(\.id), [presentedLesson.id])
-        XCTAssertEqual(store.allCards.map(\.id), [dirty.id])
+        XCTAssertEqual(Set(store.allCards.map(\.id)), Set([dirty.id, activeReview.id]))
         XCTAssertEqual(store.syncStatus, .idle)
     }
 
