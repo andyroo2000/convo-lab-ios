@@ -9,7 +9,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
     // state. Retain these short-lived probes until the test process exits.
     private nonisolated(unsafe) static var retainedFixtures: [AnyObject] = []
 
-    func testCleanupAttemptsEveryDomainAndRetainsEveryFailure() throws {
+    func testCleanupAttemptsEveryDomainAndRetainsEveryFailure() async throws {
         let defaults = try makeDefaults()
         let ledger = AccountDeletionCleanupLedger(defaults: defaults)
         let probe = CleanupProbe(failing: [.study, .studyTime])
@@ -19,7 +19,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         )
         coordinator.scheduleCleanup(userID: 42)
 
-        let failures = coordinator.retryPendingCleanup()
+        let failures = await coordinator.retryPendingCleanup()
 
         XCTAssertEqual(probe.attempted.count, 4)
         XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy {
@@ -39,7 +39,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         Self.retainedFixtures.append(coordinator)
     }
 
-    func testRelaunchRetriesOnlyDurablyPendingCleanupDomains() throws {
+    func testRelaunchRetriesOnlyDurablyPendingCleanupDomains() async throws {
         let defaults = try makeDefaults()
         let firstLedger = AccountDeletionCleanupLedger(defaults: defaults)
         let firstProbe = CleanupProbe(failing: [.study, .studyTime])
@@ -48,7 +48,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
             operations: firstProbe.operations
         )
         firstCoordinator.scheduleCleanup(userID: 42)
-        XCTAssertEqual(firstCoordinator.retryPendingCleanup().count, 2)
+        let firstFailures = await firstCoordinator.retryPendingCleanup()
+        XCTAssertEqual(firstFailures.count, 2)
 
         let relaunchedProbe = CleanupProbe()
         let relaunchedLedger = AccountDeletionCleanupLedger(defaults: defaults)
@@ -59,7 +60,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
 
         XCTAssertEqual(relaunchedCoordinator.pendingFailures.count, 2)
         XCTAssertTrue(relaunchedCoordinator.pendingFailures.allSatisfy { $0.userID == 42 })
-        XCTAssertTrue(relaunchedCoordinator.retryPendingCleanup().isEmpty)
+        let relaunchedFailures = await relaunchedCoordinator.retryPendingCleanup()
+        XCTAssertTrue(relaunchedFailures.isEmpty)
         XCTAssertEqual(relaunchedProbe.attempted.count, 2)
         XCTAssertTrue(relaunchedProbe.attempted.contains(.study))
         XCTAssertTrue(relaunchedProbe.attempted.contains(.studyTime))
@@ -70,7 +72,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         Self.retainedFixtures.append(relaunchedCoordinator)
     }
 
-    func testCleanupRetryRemainsScopedToDeletedUser() throws {
+    func testCleanupRetryRemainsScopedToDeletedUser() async throws {
         let defaults = try makeDefaults()
         let ledger = AccountDeletionCleanupLedger(defaults: defaults)
         ledger.schedule(userID: 42)
@@ -82,7 +84,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         Self.retainedFixtures.append(probe)
         Self.retainedFixtures.append(coordinator)
 
-        let failures = coordinator.retryPendingCleanup()
+        let failures = await coordinator.retryPendingCleanup()
 
         XCTAssertEqual(Set(probe.attemptedUserIDs), [42])
         XCTAssertFalse(probe.attemptedUserIDs.contains(84))

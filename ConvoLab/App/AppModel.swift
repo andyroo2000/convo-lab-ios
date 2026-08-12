@@ -114,7 +114,7 @@ final class AppModel {
                         return false
                     }
                     do {
-                        try mediaCache.deleteLocalData(userID: userID)
+                        try await mediaCache.deleteLocalDataForAccountDeletion(userID: userID)
                         return true
                     } catch {
                         return false
@@ -280,10 +280,10 @@ final class AppModel {
         guard !isRetryingAccountDeletionCleanup else { return }
         isRetryingAccountDeletionCleanup = true
         defer { isRetryingAccountDeletionCleanup = false }
-        // Give SwiftUI a render pass so the synchronous, main-actor cleanup has
-        // visible progress and cannot be queued again from the retry control.
+        // Give SwiftUI a render pass before cleanup begins. Media file removal
+        // suspends off-main while this observable guard keeps retry disabled.
         await Task.yield()
-        accountDeletionCleanupFailures = accountDeletionCleanup.retryPendingCleanup()
+        accountDeletionCleanupFailures = await accountDeletionCleanup.retryPendingCleanup()
     }
 
     private func refreshAuthenticatedData() async {

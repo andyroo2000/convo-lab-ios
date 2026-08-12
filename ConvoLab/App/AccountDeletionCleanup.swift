@@ -78,7 +78,7 @@ final class AccountDeletionCleanupLedger {
 }
 
 final class AccountDeletionCleanupCoordinator {
-    typealias CleanupOperation = (Int) -> Bool
+    typealias CleanupOperation = (Int) async -> Bool
 
     private let ledger: AccountDeletionCleanupLedger
     private let operations: [AccountDeletionCleanupDomain: CleanupOperation]
@@ -102,7 +102,7 @@ final class AccountDeletionCleanupCoordinator {
     }
 
     @discardableResult
-    func retryPendingCleanup() -> [AccountDeletionCleanupFailure] {
+    func retryPendingCleanup() async -> [AccountDeletionCleanupFailure] {
         var failures: [AccountDeletionCleanupFailure] = []
         for item in ledger.pendingItems {
             guard let operation = operations[item.domain] else {
@@ -113,7 +113,7 @@ final class AccountDeletionCleanupCoordinator {
                 )
                 continue
             }
-            if !operation(item.userID) {
+            if !(await operation(item.userID)) {
                 failures.append(AccountDeletionCleanupFailure(item: item))
             } else {
                 ledger.markCompleted(item)

@@ -444,6 +444,22 @@ final class MediaCache {
     }
 
     func deleteLocalData(userID: Int) throws {
+        let urls = try stageLocalDataDeletion(userID: userID)
+        for url in urls {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    func deleteLocalDataForAccountDeletion(userID: Int) async throws {
+        let urls = try stageLocalDataDeletion(userID: userID)
+        await Task.detached(priority: .utility) {
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }.value
+    }
+
+    private func stageLocalDataDeletion(userID: Int) throws -> [URL] {
         if activeUserID == userID {
             ownershipGeneration += 1
         }
@@ -463,13 +479,12 @@ final class MediaCache {
                 predicate: #Predicate { $0.userID == userID }
             )
         )
+        let urls = records.map { rootURL.appending(path: $0.relativePath) }
         for record in records {
-            try? FileManager.default.removeItem(
-                at: rootURL.appending(path: record.relativePath)
-            )
             context.delete(record)
         }
         try context.save()
+        return urls
     }
 
     private func isCurrentOperation(userID: Int, generation: Int) -> Bool {
