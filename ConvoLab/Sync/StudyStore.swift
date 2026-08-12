@@ -1722,7 +1722,12 @@ final class StudyStore {
         if let record {
             let wasLocallyUpdated = record.locallyUpdatedAt != nil
             record.replacePayload(encoded: payload)
-            record.isInActiveSession = belongsToActiveReviewSession
+            // A newer surface owns durable membership. The completed undo is still
+            // authoritative card data, but it must not overwrite membership chosen
+            // by a refresh, checkpoint rebuild, or lesson transition.
+            if presentationIsCurrent {
+                record.isInActiveSession = belongsToActiveReviewSession
+            }
             if !wasLocallyUpdated {
                 record.serverUpdatedAt = restoredCard.updatedAt
             }
@@ -1734,7 +1739,8 @@ final class StudyStore {
                 queueIndex: 0,
                 payload: payload
             )
-            newRecord.isInActiveSession = belongsToActiveReviewSession
+            newRecord.isInActiveSession = presentationIsCurrent
+                && belongsToActiveReviewSession
             context.insert(newRecord)
         }
         guard let userID = activeUserID else { throw CancellationError() }
@@ -1974,6 +1980,7 @@ final class StudyStore {
     }
 
     private func loadLocalCards(userID: Int) {
+        studySurfaceRevision += 1
         cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
         cards = StudySessionPolicy.orderedCards(cards)
     }
@@ -1982,6 +1989,7 @@ final class StudyStore {
         preservingNormalizedOrder order: [String],
         userID: Int
     ) {
+        studySurfaceRevision += 1
         var persistedByNormalizedID = Dictionary(
             ((try? localCardRepository.activeCards(userID: userID)) ?? [])
                 .map { ($0.id.lowercased(), $0) },

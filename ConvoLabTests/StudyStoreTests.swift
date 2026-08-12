@@ -2452,6 +2452,99 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCheckpointResetWhileServerUndoIsInFlightCannotRestoreActiveQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let resetCard = makeCard(
+            id: "review-discarded-by-checkpoint-reset",
+            expression: "再構築前の復習"
+        )
+        let record = LocalCardRecord(
+            card: resetCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(resetCard)
+        )
+        record.isInActiveSession = true
+        container.mainContext.insert(record)
+        container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
+        try container.mainContext.save()
+
+        let cardJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(resetCard), encoding: .utf8)
+        )
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(data: StorageCodec.encoder.encode(overview), encoding: .utf8)
+        )
+        let deferredUndo = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch request.url?.path {
+            case "/api/study/reviews/undo":
+                deferredUndo.hold(completion)
+            case "/api/sync/feed":
+                completion(.success(Self.response(
+                    statusCode: 409,
+                    data: Data(#"{"message":"Checkpoint expired"}"#.utf8)
+                )))
+            case "/api/study/known-kanji":
+                completion(.success(Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))))
+            default:
+                completion(.failure(URLError(.notConnectedToInternet)))
+            }
+        }
+        let undoResponse = Self.response(data: Data(
+            """
+            {
+              "reviewLogId": "undo-crossing-checkpoint-reset",
+              "card": \(cardJSON),
+              "overview": \(overviewJSON)
+            }
+            """.utf8
+        ))
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertEqual(store.cards.map(\.id), [resetCard.id])
+
+        let undoTask = Task {
+            try await store.undoReview(
+                eventID: "undo-crossing-checkpoint-reset",
+                cardBefore: resetCard
+            )
+        }
+        await waitUntil { deferredUndo.hasPendingResponse }
+
+        await store.synchronize()
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+
+        deferredUndo.succeed(with: undoResponse)
+        try await undoTask.value
+
+        XCTAssertTrue(store.cards.isEmpty)
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.map(\.id), [resetCard.id])
+        XCTAssertFalse(try XCTUnwrap(records.first).isInActiveSession)
+    }
+
+    @MainActor
     func testOfflineDueCardsCannotEnterPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let dueAt = Date.now.addingTimeInterval(3_600)
