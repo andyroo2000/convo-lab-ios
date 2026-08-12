@@ -5822,6 +5822,183 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardingRejectedCardDeleteReleasesServerReconciliation() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "local-card-id",
+            syncId: "server-card-id",
+            expression: "残す"
+        )
+        let delete = PendingMutation(
+            kind: "cardDelete",
+            userID: 1,
+            resourceID: "SERVER-CARD-ID",
+            payload: Data()
+        )
+        delete.lastError = "HTTP 409: Delete conflict"
+        container.mainContext.insert(delete)
+        try container.mainContext.save()
+
+        let sessionData = try sessionResponseData(cards: [card])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            default:
+                throw URLError(.notConnectedToInternet)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.failedStudyChanges.map(\.kind), [.cardDelete])
+
+        try await store.discardFailedStudyChange(id: delete.id)
+
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
+    }
+
+    @MainActor
+    func testRetryingRejectedReviewUsesOriginalPayloadAndClearsFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: offlineClient,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: offlineClient,
+                context: container.mainContext
+            )
+        )
+        let card = makeCard(
+            id: "01J00000000000000000000F1",
+            expression: "再試行"
+        )
+        let recordedEventID = await store.recordReview(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+        let eventID = try XCTUnwrap(recordedEventID)
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        let originalPayload = mutation.payload
+        mutation.lastError = "HTTP 422: Invalid review"
+        try container.mainContext.save()
+        store.reloadFailedStudyChanges()
+
+        XCTAssertEqual(store.failedStudyChanges.map(\.kind), [.review])
+        XCTAssertTrue(store.failedStudyChanges.first?.detail.contains("Good") == true)
+
+        let uploadedEventIDs = LockedRequestPaths()
+        MockURLProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(
+                with: try requestBody(request)
+            ) as? [String: Any]
+            let events = try XCTUnwrap(body?["events"] as? [[String: Any]])
+            uploadedEventIDs.append(try XCTUnwrap(events.first?["id"] as? String))
+            return Self.response(statusCode: 204, data: Data())
+        }
+
+        try await store.retryFailedStudyChange(id: mutation.id)
+
+        XCTAssertEqual(uploadedEventIDs.values, [eventID])
+        let uploadedPayload = try XCTUnwrap(uploadedEventIDs.values.first)
+        let original = try StorageCodec.decoder.decode(
+            PendingReviewPayload.self,
+            from: originalPayload
+        )
+        XCTAssertEqual(uploadedPayload, original.event.id)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
+    func testOfflineRetryKeepsRejectedReviewPayloadPending() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let card = makeCard(
+            id: "01J00000000000000000000F2",
+            expression: "保留"
+        )
+        let event = ReviewBatchRequest.Event(
+            id: "01J00000000000000000000E1",
+            cardID: card.id,
+            rating: .hard,
+            reviewedAt: .now,
+            durationMilliseconds: nil,
+            clientEventID: "client-event",
+            deviceID: "device",
+            clientCreatedAt: .now
+        )
+        let payload = try StorageCodec.encoder.encode(
+            PendingReviewPayload(
+                event: event,
+                cardBefore: PendingReviewCardState(card: card)
+            )
+        )
+        let mutation = PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: card.id,
+            payload: payload
+        )
+        mutation.lastError = "HTTP 422: Invalid review"
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        do {
+            try await store.retryFailedStudyChange(id: mutation.id)
+            XCTFail("Expected retry to remain pending while offline")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .notConnectedToInternet)
+        }
+
+        let retained = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>()).first
+        )
+        XCTAssertEqual(retained.id, mutation.id)
+        XCTAssertEqual(retained.payload, payload)
+        XCTAssertNil(retained.lastError)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+    }
+
+    @MainActor
     func testQuarantinedReviewDoesNotBlockCardSyncOrSessionRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var showingProfileEditor = false
     @State private var showingPasswordEditor = false
     @State private var showingAccountDeletion = false
+    @State private var showingFailedStudyChanges = false
     @State private var newCardsPerDay: Int
     @State private var lessonBatchSize: Int
     @State private var reviewTimeBudgetMinutes: Int
@@ -62,10 +63,21 @@ struct SettingsView: View {
                     Button("Remove Downloaded Media", role: .destructive) {
                         confirmingClearDownloads = true
                     }
-                    LabeledContent(
-                        "Changes needing attention",
-                        value: model.study.quarantinedMutationCount.formatted()
-                    )
+                    if model.study.failedStudyChanges.isEmpty {
+                        LabeledContent(
+                            "Changes needing attention",
+                            value: model.study.failedStudyChanges.count.formatted()
+                        )
+                    } else {
+                        Button {
+                            showingFailedStudyChanges = true
+                        } label: {
+                            LabeledContent(
+                                "Changes needing attention",
+                                value: model.study.failedStudyChanges.count.formatted()
+                            )
+                        }
+                    }
                     Text("Playback positions are stored only on this device.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -245,6 +257,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showingAccountDeletion) {
                 AccountDeletionView(model: model)
             }
+        }
+        .sheet(isPresented: $showingFailedStudyChanges) {
+            FailedStudyChangesView(store: model.study)
         }
     }
 }

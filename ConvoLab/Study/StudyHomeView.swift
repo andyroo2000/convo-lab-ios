@@ -4,6 +4,7 @@ struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
+    @State private var showingFailedChanges = false
 
     var body: some View {
         NavigationStack {
@@ -56,6 +57,9 @@ struct StudyHomeView: View {
                 Task {
                     await store.synchronizeIfNeeded(maxAge: .seconds(60))
                 }
+            }
+            .sheet(isPresented: $showingFailedChanges) {
+                FailedStudyChangesView(store: store)
             }
         }
     }
@@ -246,6 +250,20 @@ struct StudyHomeView: View {
                 )
 
             syncStatus
+
+            if !store.failedStudyChanges.isEmpty {
+                Button {
+                    showingFailedChanges = true
+                } label: {
+                    Label(
+                        "Review \(store.failedStudyChanges.count) failed \(store.failedStudyChanges.count == 1 ? "change" : "changes")",
+                        systemImage: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+            }
         }
         .padding()
         .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
