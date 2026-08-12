@@ -283,7 +283,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
             )!,
         ])
         let deferredDeletion = LockedDeferredResponse()
-        let authClient = makeDeferredClient { request, completion in
+        let client = makeDeferredClient { request, completion in
             switch (request.url?.path, request.httpMethod) {
             case ("/api/me", "GET"):
                 completion(.success(Self.response(data: Data(
@@ -297,6 +297,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
                 completion(.success(Self.response(statusCode: 201, data: Data(
                     #"{"data":{"user":{"id":84,"name":"New User","email":"new@example.com","email_verified_at":null},"token":"new-token"}}"#.utf8
                 ))))
+            case ("/api/study/activity-sessions/batch", "POST"):
+                completion(.success(Self.response(data: Data("[]".utf8))))
             default:
                 XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
                 completion(.failure(URLError(.badURL)))
@@ -310,8 +312,9 @@ final class AccountDeletionCleanupTests: XCTestCase {
             makeStudyTimeContainer: { _ in
                 try StudyTimePersistence.makeContainer(inMemory: true)
             },
+            makeAPIClient: { _ in client },
             makeAuthStore: { _ in
-                AuthStore(api: authClient, keychain: credentials)
+                AuthStore(api: client, keychain: credentials)
             },
             accountDeletionCleanupDefaults: defaults
         )
@@ -326,7 +329,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
         let deletion = Task {
             await model.deleteAccount(currentPassword: "password")
         }
-        await waitUntil { deferredDeletion.hasPendingResponse }
+        await deferredDeletion.waitUntilPending()
         await model.auth.logout()
         await model.auth.register(
             name: "New User",

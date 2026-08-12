@@ -38,6 +38,7 @@ final class AppModel {
         makeStudyTimeContainer: (Bool) throws -> ModelContainer = {
             try StudyTimePersistence.makeContainer(inMemory: $0)
         },
+        makeAPIClient: (URL) -> APIClient = { APIClient(baseURL: $0) },
         makeAuthStore: (APIClient) -> AuthStore = { AuthStore(api: $0) },
         accountDeletionCleanupDefaults: UserDefaults = .standard
     ) {
@@ -75,7 +76,7 @@ final class AppModel {
             study: studyStorageMode,
             studyTime: studyTimeStorageMode
         )
-        let api = APIClient(baseURL: configuration.apiBaseURL)
+        let api = makeAPIClient(configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
         let studyTime = StudyTimeStore(
             api: api,

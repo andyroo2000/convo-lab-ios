@@ -8249,6 +8249,7 @@ final class LockedRequestGate: @unchecked Sendable {
 final class LockedDeferredResponse: @unchecked Sendable {
     private let lock = NSLock()
     private var completion: MockURLProtocol.DeferredCompletion?
+    private var pendingWaiters: [CheckedContinuation<Void, Never>] = []
 
     var hasPendingResponse: Bool {
         lock.lock()
@@ -8259,7 +8260,23 @@ final class LockedDeferredResponse: @unchecked Sendable {
     func hold(_ completion: @escaping MockURLProtocol.DeferredCompletion) {
         lock.lock()
         self.completion = completion
+        let pendingWaiters = pendingWaiters
+        self.pendingWaiters = []
         lock.unlock()
+        pendingWaiters.forEach { $0.resume() }
+    }
+
+    func waitUntilPending() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if completion != nil {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                pendingWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
     }
 
     func succeed(with response: (HTTPURLResponse, Data)) {
