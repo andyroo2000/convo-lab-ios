@@ -268,6 +268,70 @@ final class AuthStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleAccountDeletionCannotClearNewRegistration() async throws {
+        let originalUser = CurrentUser(
+            id: 1,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = MemoryCredentialStore(values: [
+            "learning-os-mobile-token": "old-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(originalUser),
+                encoding: .utf8
+            )!,
+        ])
+        let deferredDeletion = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/me", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
+                ))))
+            case ("/api/me", "DELETE"):
+                deferredDeletion.hold(completion)
+            case ("/api/auth/tokens/current", "DELETE"):
+                completion(.success(Self.response(statusCode: 204)))
+            case ("/api/convolab/auth/register", "POST"):
+                completion(.success(Self.response(statusCode: 201, data: Data(
+                    #"{"data":{"user":{"id":2,"name":"New User","email":"new@example.com","email_verified_at":null},"token":"new-token"}}"#.utf8
+                ))))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = AuthStore(api: client, keychain: credentials)
+        await store.restore()
+
+        let deletion = Task {
+            await store.deleteAccount(currentPassword: "password")
+        }
+        await waitUntil { deferredDeletion.hasPendingResponse }
+        await store.logout()
+        await store.register(
+            name: "New User",
+            email: "new@example.com",
+            password: "password123",
+            inviteCode: "INVITE1"
+        )
+        deferredDeletion.succeed(with: Self.response(statusCode: 204))
+        let deleted = await deletion.value
+
+        XCTAssertFalse(deleted)
+        guard case let .signedIn(user) = store.state else {
+            return XCTFail("The new registration must remain signed in")
+        }
+        XCTAssertEqual(user.id, 2)
+        XCTAssertEqual(client.accessToken, "new-token")
+        XCTAssertEqual(
+            try credentials.read(account: "learning-os-mobile-token"),
+            "new-token"
+        )
+    }
+
+    @MainActor
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
