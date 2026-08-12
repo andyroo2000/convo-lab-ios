@@ -43,7 +43,15 @@ struct StudyCardCatalogRepository {
         _ incoming: [StudyCard],
         to existing: [StudyCard]
     ) -> [StudyCard] {
-        appendingUnique(incoming, to: existing, identifiedBy: \.id)
+        var seenIdentifiers = existing.reduce(into: Set<String>()) {
+            $0.formUnion(StudyCardIdentity.identifiers(for: $1))
+        }
+        return existing + incoming.filter { card in
+            let identifiers = StudyCardIdentity.identifiers(for: card)
+            guard seenIdentifiers.isDisjoint(with: identifiers) else { return false }
+            seenIdentifiers.formUnion(identifiers)
+            return true
+        }
     }
 
     static func appendingUniqueQueueItems(
@@ -62,8 +70,7 @@ struct StudyCardCatalogRepository {
         into cards: [StudyCard],
         matching query: String
     ) -> [StudyCard] {
-        let normalizedID = card.id.lowercased()
-        var result = cards.filter { $0.id.lowercased() != normalizedID }
+        var result = cards.filter { !StudyCardIdentity.matches($0, card) }
         guard matches(card, query: query) else { return result }
         result.append(card)
         result.sort {

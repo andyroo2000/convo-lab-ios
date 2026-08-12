@@ -1732,10 +1732,11 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testOfflineDueActivationDoesNotResurrectCaseCanonicalizedPendingDelete() async throws {
+    func testOfflineDueActivationDoesNotResurrectAliasedPendingDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
-            id: "01j00000000000000000000018",
+            id: "local-card-id",
+            syncId: "server-card-id",
             expression: "削除",
             dueAt: .now
         )
@@ -1751,7 +1752,7 @@ final class StudyStoreTests: XCTestCase {
             PendingMutation(
                 kind: "cardDelete",
                 userID: 1,
-                resourceID: card.id.uppercased(),
+                resourceID: "SERVER-CARD-ID",
                 payload: Data()
             )
         )
@@ -1768,6 +1769,55 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testOfflineDueActivationDoesNotDuplicateAnActiveCardAlias() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let activeCard = makeCard(
+            id: "local-card-id",
+            syncId: "server-card-id",
+            expression: "学習中",
+            dueAt: .now
+        )
+        let activeRecord = LocalCardRecord(
+            card: activeCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(activeCard)
+        )
+        activeRecord.isInActiveSession = true
+        let aliasedCard = makeCard(
+            id: "SERVER-CARD-ID",
+            expression: "重複",
+            dueAt: .now
+        )
+        let aliasedRecord = LocalCardRecord(
+            card: aliasedCard,
+            userID: 1,
+            queueIndex: 1,
+            payload: try StorageCodec.encoder.encode(aliasedCard)
+        )
+        aliasedRecord.isInActiveSession = false
+        container.mainContext.insert(activeRecord)
+        container.mainContext.insert(aliasedRecord)
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        store.activateOfflineDueCards(at: .now)
+
+        XCTAssertEqual(store.cards.map(\.id), ["local-card-id"])
+        XCTAssertFalse(aliasedRecord.isInActiveSession)
     }
 
     @MainActor
@@ -2533,10 +2583,19 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testRefreshDoesNotResurrectCardWithQuarantinedDelete() async throws {
+    func testRefreshDoesNotResurrectCardWithAliasedQuarantinedDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let card = makeCard(id: "01J00000000000000000000003", expression: "削除")
-        let delete = PendingMutation(kind: "cardDelete", userID: 1, resourceID: card.id, payload: Data())
+        let card = makeCard(
+            id: "local-card-id",
+            syncId: "server-card-id",
+            expression: "削除"
+        )
+        let delete = PendingMutation(
+            kind: "cardDelete",
+            userID: 1,
+            resourceID: "SERVER-CARD-ID",
+            payload: Data()
+        )
         delete.lastError = "HTTP 409: Delete conflict"
         container.mainContext.insert(delete)
         try container.mainContext.save()
@@ -5301,14 +5360,15 @@ final class StudyStoreTests: XCTestCase {
     func testUndoDoesNotResurrectCardWithPendingDelete() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
-            id: "01J0000000000000000000001Y",
+            id: "local-card-id",
+            syncId: "server-card-id",
             expression: "削除済み"
         )
         container.mainContext.insert(
             PendingMutation(
                 kind: "cardDelete",
                 userID: 1,
-                resourceID: card.id.lowercased(),
+                resourceID: "SERVER-CARD-ID",
                 payload: Data()
             )
         )

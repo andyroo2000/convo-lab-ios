@@ -60,23 +60,14 @@ struct StudyPublishedCardReconciler {
     }
 
     private static func matches(_ card: StudyCard, identifiers: Set<String>) -> Bool {
-        !cardIdentifiers(for: card).isDisjoint(with: normalized(identifiers))
+        StudyCardIdentity.matches(card, any: identifiers)
     }
 
     private static func representsSameCard(
         _ card: StudyCard,
         as restored: RestoredCard
     ) -> Bool {
-        let restoredIdentifiers = normalized(restored.identifiers)
-            .union(cardIdentifiers(for: restored.card))
-        return !cardIdentifiers(for: card).isDisjoint(with: restoredIdentifiers)
-    }
-
-    private static func cardIdentifiers(for card: StudyCard) -> Set<String> {
-        Set([card.id.lowercased(), card.reviewCardID.lowercased()])
-    }
-
-    private static func normalized(_ identifiers: Set<String>) -> Set<String> {
-        Set(identifiers.map { $0.lowercased() })
+        StudyCardIdentity.matches(card, restored.card)
+            || StudyCardIdentity.matches(card, any: restored.identifiers)
     }
 }

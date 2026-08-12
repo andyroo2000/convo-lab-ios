@@ -104,28 +104,19 @@ final class CardMutationOutbox {
         try await task.value
     }
 
-    func hasPendingDelete(for cardID: String) throws -> Bool {
-        guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "cardDelete"
-                    && $0.resourceID == cardID
-            }
-        )
-        descriptor.fetchLimit = 1
-        if try !context.fetch(descriptor).isEmpty {
-            return true
-        }
-
-        let normalizedID = cardID.lowercased()
-        return try context.fetch(
+    func pendingDeleteIdentifiers() throws -> Set<String> {
+        guard let userID = activeUserID else { return [] }
+        return Set(try context.fetch(
             FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
                     $0.userID == userID && $0.kind == "cardDelete"
                 }
             )
-        ).contains { $0.resourceID.lowercased() == normalizedID }
+        ).map { $0.resourceID.lowercased() })
+    }
+
+    func hasPendingDelete(for card: StudyCard) throws -> Bool {
+        StudyCardIdentity.matches(card, any: try pendingDeleteIdentifiers())
     }
 
     func hasPendingCreate(for cardID: String) throws -> Bool {
@@ -258,7 +249,7 @@ final class CardMutationOutbox {
                         userID: userID
                     )
                 }
-                if let serverCard, try !hasPendingDelete(for: serverCard.id) {
+                if let serverCard, try !hasPendingDelete(for: serverCard) {
                     let preservingPendingEdit = try hasPendingUpdate(
                         for: serverCard.id,
                         excluding: mutation.id,

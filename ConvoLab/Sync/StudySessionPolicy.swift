@@ -1,6 +1,23 @@
 import Foundation
 
 enum StudySessionPolicy {
+    static func eligibleCards(
+        from candidates: [StudyCard],
+        excluding identifiers: some Sequence<String>
+    ) -> [StudyCard] {
+        let excludedIdentifiers = StudyCardIdentity.normalized(identifiers)
+        var seenIdentifiers: Set<String> = []
+        return candidates.filter { card in
+            let cardIdentifiers = StudyCardIdentity.identifiers(for: card)
+            guard
+                cardIdentifiers.isDisjoint(with: excludedIdentifiers),
+                cardIdentifiers.isDisjoint(with: seenIdentifiers)
+            else { return false }
+            seenIdentifiers.formUnion(cardIdentifiers)
+            return true
+        }
+    }
+
     static func orderedCards(_ cards: [StudyCard]) -> [StudyCard] {
         cards.enumerated().sorted { leftEntry, rightEntry in
             let left = leftEntry.element
@@ -31,9 +48,13 @@ enum StudySessionPolicy {
         libraryCards: [StudyCard],
         at date: Date = .now
     ) -> Date? {
-        let activeCardIDs = Set(activeCards.map(\.id))
+        let activeCardIdentifiers = activeCards.reduce(into: Set<String>()) {
+            $0.formUnion(StudyCardIdentity.identifiers(for: $1))
+        }
         return libraryCards.compactMap { card in
-            guard !activeCardIDs.contains(card.id) else { return nil }
+            guard StudyCardIdentity.identifiers(for: card).isDisjoint(
+                with: activeCardIdentifiers
+            ) else { return nil }
             guard ["learning", "review", "relearning"].contains(card.state.queueState) else {
                 return nil
             }
