@@ -253,7 +253,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let didDeactivateCleanly = await store.deactivate()
         XCTAssertFalse(didDeactivateCleanly)
         XCTAssertNil(store.active)
-        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+        XCTAssertNil(store.storageWriteErrorMessage)
         XCTAssertNil(try savedRecord(in: container).endedAt)
 
         store.activate(userID: 42)
@@ -265,6 +265,28 @@ final class StudyActivitySessionTests: XCTestCase {
             ),
             1
         )
+        retainSaveFixtures(container, store, saves)
+    }
+
+    func testAccountTransitionClearsPreviousUsersStorageWriteError() throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let saves = DeterministicStudyTimeSaves(
+            context: container.mainContext,
+            failingAttempts: [2]
+        )
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext,
+            contextSaver: saves
+        )
+        store.activate(userID: 42)
+        XCTAssertTrue(store.start(activity: .cardCreation, source: .manual))
+        XCTAssertFalse(store.addCreatedCards())
+        XCTAssertEqual(store.storageWriteErrorMessage, "Forced save failure")
+
+        store.activate(userID: 84)
+
+        XCTAssertNil(store.storageWriteErrorMessage)
         retainSaveFixtures(container, store, saves)
     }
 

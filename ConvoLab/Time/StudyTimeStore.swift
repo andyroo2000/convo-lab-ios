@@ -92,6 +92,7 @@ final class StudyTimeStore {
         analytics = nil
         analyticsCache = [:]
         analyticsCacheGeneration += 1
+        storageWriteErrorMessage = nil
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -111,6 +112,7 @@ final class StudyTimeStore {
         analyticsCache = [:]
         analyticsCacheGeneration += 1
         active = nil
+        storageWriteErrorMessage = nil
         syncErrorMessage = nil
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
