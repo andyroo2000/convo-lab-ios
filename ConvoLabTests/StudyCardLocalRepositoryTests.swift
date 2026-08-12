@@ -228,6 +228,18 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
             queueIndex: 1,
             in: container
         )
+        _ = insert(
+            makeCard(id: "case-id", expression: "lowercase duplicate"),
+            userID: 5,
+            queueIndex: 0,
+            in: container
+        )
+        let exactCaseRecord = insert(
+            makeCard(id: "CASE-ID", expression: "exact-case duplicate"),
+            userID: 5,
+            queueIndex: 1,
+            in: container
+        )
         try container.mainContext.save()
         let repository = StudyCardLocalRepository(context: container.mainContext)
 
@@ -258,6 +270,12 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
         )
         XCTAssertTrue(
             try repository.record(matching: divergentSnapshot, userID: 4) === cardIDAliasRecord
+        )
+        XCTAssertTrue(
+            try repository.record(
+                matching: makeCard(id: "CASE-ID", expression: "incoming"),
+                userID: 5
+            ) === exactCaseRecord
         )
     }
 
