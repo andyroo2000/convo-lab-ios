@@ -2257,6 +2257,84 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testPitchAccentResolutionRejectsResultAfterCardTextChanges() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let baseCard = makeCard(
+            id: "01J000000000000000000000PT",
+            expression: "会社"
+        )
+        let card = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.syncId,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt,
+            answer: baseCard.answer.replacingObjectValues([
+                "expression": .string("会社"),
+                "expressionReading": .string("かいしゃ"),
+            ]),
+            state: baseCard.state,
+            answerAudioSource: baseCard.answerAudioSource,
+            masteryLevel: baseCard.masteryLevel,
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let responseData = try StorageCodec.encoder.encode(cardWithResolvedPitchAccent(card))
+        let gate = LockedRequestGate()
+        let client = makeDelayedPitchClient(responseData: responseData, gate: gate)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let resolution = Task { await store.resolvePitchAccent(for: card) }
+        await waitUntil { gate.hasStarted }
+        XCTAssertTrue(gate.hasStarted)
+        let editedCard = StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer.replacingObjectValues([
+                "expression": .string("学校"),
+                "expressionReading": .string("がっこう"),
+            ]),
+            state: card.state,
+            answerAudioSource: card.answerAudioSource,
+            masteryLevel: card.masteryLevel,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt.addingTimeInterval(1)
+        )
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(editedCard))
+        try container.mainContext.save()
+        gate.release()
+        await resolution.value
+
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.answer["expression"]?.stringValue, "学校")
+        XCTAssertNil(persisted.presentation.back.pitchAccent)
+    }
+
+    @MainActor
     func testPitchAccentResolutionDoesNotResurrectCardDeletedDuringRequest() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
