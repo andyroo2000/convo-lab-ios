@@ -3762,7 +3762,8 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
         XCTAssertEqual(preservedActiveReviewRecord.queueIndex, 17)
         XCTAssertNotNil(preservedActiveReviewRecord.mediaPreparedAt)
-        XCTAssertEqual(store.cards.map(\.id), [presentedLesson.id])
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertNil(records.first { $0.id == presentedLesson.id })
         XCTAssertEqual(Set(store.allCards.map(\.id)), Set([dirty.id, activeReview.id]))
         XCTAssertEqual(store.syncStatus, .idle)
     }

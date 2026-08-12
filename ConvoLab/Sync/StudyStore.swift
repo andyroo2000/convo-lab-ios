@@ -453,10 +453,10 @@ final class StudyStore {
                     loadLocalCards(userID: userID)
                 }
                 loadLibraryCards(userID: userID)
-                prunePublishedCards(
-                    matching: deletedCardIdentifiers,
-                    preservingPresentedLesson: lessonSessionIsPresented
-                )
+                // A checkpoint reset purges the backing records. Even a frozen
+                // lesson must drop those snapshots so review staging cannot
+                // recreate records from data the reset deliberately discarded.
+                prunePublishedCards(matching: deletedCardIdentifiers)
             case .discardedStaleResponse:
                 return
             }
@@ -502,13 +502,8 @@ final class StudyStore {
         }
     }
 
-    private func prunePublishedCards(
-        matching identifiers: Set<String>,
-        preservingPresentedLesson: Bool = false
-    ) {
-        if !preservingPresentedLesson {
-            StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
-        }
+    private func prunePublishedCards(matching identifiers: Set<String>) {
+        StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
         StudyPublishedCardReconciler.prune(&libraryCards, matching: identifiers)
         StudyPublishedCardReconciler.prune(&allCards, matching: identifiers)
     }
