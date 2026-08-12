@@ -16,10 +16,12 @@ readonly signing_keychain="${output_root}/convolab-testflight-signing.keychain-d
 readonly keychain_password_file="${output_root}/keychain-password.txt"
 readonly distribution_p12="${output_root}/distribution.p12"
 readonly distribution_identity="Apple Distribution: ANDREW BRODIE LANDRY (USU4D882GM)"
+readonly -a original_keychains=(
+    "${(@f)$(security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//')}"
+)
 
 cleanup_signing_material() {
-    security list-keychains -d user -s \
-        /Users/andrewlandry/Library/Keychains/login.keychain-db >/dev/null 2>&1 || true
+    security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || true
     if [[ -e "${signing_keychain}" ]]; then
         security delete-keychain "${signing_keychain}" >/dev/null 2>&1 || true
     fi
@@ -73,7 +75,7 @@ security find-identity -v -p codesigning "${signing_keychain}" \
     | rg -F "${distribution_identity}" >/dev/null
 security list-keychains -d user -s \
     "${signing_keychain}" \
-    /Users/andrewlandry/Library/Keychains/login.keychain-db
+    "${original_keychains[@]}"
 
 cd "${project_root}"
 
