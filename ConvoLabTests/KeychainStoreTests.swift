@@ -12,4 +12,16 @@ final class KeychainStoreTests: XCTestCase {
 
         XCTAssertEqual(try store.read(account: account), "token")
     }
+
+    @MainActor
+    func testGenericPasswordCanBeReplaced() throws {
+        let store = KeychainStore()
+        let account = "test-\(UUID().uuidString)"
+        defer { try? store.remove(account: account) }
+
+        try store.save("original", account: account)
+        try store.save("replacement", account: account)
+
+        XCTAssertEqual(try store.read(account: account), "replacement")
+    }
 }

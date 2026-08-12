@@ -38,6 +38,7 @@ final class APIClient {
         query: [URLQueryItem] = [],
         body: (any Encodable)? = nil,
         timeout: TimeInterval = 45,
+        authorizationToken: String? = nil,
         response: Response.Type = Response.self
     ) async throws -> Response {
         let data = try await sendRequest(
@@ -45,7 +46,8 @@ final class APIClient {
             method: method,
             query: query,
             body: body,
-            timeout: timeout
+            timeout: timeout,
+            authorizationToken: authorizationToken
         )
         do {
             return try Self.decoder.decode(Response.self, from: data)
@@ -77,7 +79,8 @@ final class APIClient {
         method: String,
         query: [URLQueryItem],
         body: (any Encodable)?,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        authorizationToken: String? = nil
     ) async throws -> Data {
         var components = URLComponents(
             url: baseURL.appending(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
@@ -94,8 +97,8 @@ final class APIClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let accessToken {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let token = authorizationToken ?? accessToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body {
             request.httpBody = try Self.encoder.encode(AnyEncodable(body))
