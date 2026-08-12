@@ -134,22 +134,30 @@ final class StudyStore {
     }
 
     func beginLessonSessionPresentation() {
+        guard !lessonSessionIsPresented else { return }
         lessonSessionIsPresented = true
         sessionLoadingService.invalidate()
+        offlineDueActivationTimer?.invalidate()
+        offlineDueActivationTimer = nil
+        cards = []
+        sessionInitialCardCount = 0
+        sessionCompletedCardIDs = []
+        masteryAnimation = nil
     }
 
     func endLessonSessionPresentation() {
+        guard lessonSessionIsPresented else { return }
         lessonSessionIsPresented = false
         sessionLoadingService.invalidate()
-        if sessionKind == "lessons" {
-            sessionKind = "reviews"
-            if let userID = activeUserID {
-                try? localCardRepository.replaceActiveSession(with: [], userID: userID)
-            }
-            cards = []
-            sessionInitialCardCount = 0
-            sessionCompletedCardIDs = []
+        sessionKind = "reviews"
+        if let userID = activeUserID {
+            loadLocalCards(userID: userID)
+            loadLibraryCards(userID: userID)
         }
+        sessionInitialCardCount = cards.count
+        sessionCompletedCardIDs = []
+        masteryAnimation = nil
+        scheduleNextOfflineActivation()
     }
 
     init(
@@ -429,6 +437,9 @@ final class StudyStore {
             var libraryCardsReconciler = StudyPublishedCardReconciler()
             var allCardsReconciler = StudyPublishedCardReconciler()
             let result = try await cardSyncFeedRepository.pullChanges { changes in
+                // A presented lesson ignores ordinary session refreshes, but a
+                // committed tombstone must still remove the deleted card. Keeping
+                // it visible would let review staging recreate the deleted record.
                 cardsReconciler.apply(changes, to: &self.cards)
                 libraryCardsReconciler.apply(changes, to: &self.libraryCards)
                 allCardsReconciler.apply(changes, to: &self.allCards)
@@ -438,8 +449,13 @@ final class StudyStore {
                 prunePublishedCards(matching: deletedCardIdentifiers)
             case let .checkpointReset(deletedCardIdentifiers):
                 checkpointWasReset = true
-                loadLocalCards(userID: userID)
+                if !lessonSessionIsPresented {
+                    loadLocalCards(userID: userID)
+                }
                 loadLibraryCards(userID: userID)
+                // A checkpoint reset purges the backing records. Even a frozen
+                // lesson must drop those snapshots so review staging cannot
+                // recreate records from data the reset deliberately discarded.
                 prunePublishedCards(matching: deletedCardIdentifiers)
             case .discardedStaleResponse:
                 return
@@ -592,7 +608,17 @@ final class StudyStore {
         sessionInitialCardCount = lessonCards.count
         sessionCompletedCardIDs = []
         masteryAnimation = nil
-        try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
+        if lessonSessionIsPresented {
+            // Keep the review queue durable while its presentation is suspended.
+            // Lesson cards are cached locally without taking over active-review flags.
+            try localCardRepository.mergeOfflineReserve(
+                lessonCards,
+                userID: userID,
+                preservingActiveSessionOrder: true
+            )
+        } else {
+            try localCardRepository.replaceActiveSession(with: lessonCards, userID: userID)
+        }
         loadLibraryCards(userID: userID)
         let mediaURLs = lessonCards.flatMap(\.mediaURLs)
         await mediaCache.prepare(urls: mediaURLs, category: "active-lesson")
@@ -899,7 +925,15 @@ final class StudyStore {
             method: "POST"
         )
         guard activeUserID == userID else { return }
-        try localCardRepository.mergeOfflineReserve(reserve.cards, userID: userID)
+        let preservingActiveReviewQueue = lessonSessionIsPresented
+        let persistedActiveCards = preservingActiveReviewQueue
+            ? try localCardRepository.activeCards(userID: userID)
+            : []
+        try localCardRepository.mergeOfflineReserve(
+            reserve.cards,
+            userID: userID,
+            preservingActiveSessionOrder: preservingActiveReviewQueue
+        )
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
         await mediaCache.prepare(
@@ -907,7 +941,7 @@ final class StudyStore {
             category: "offline-study"
         )
         markPrepared(
-            cards: cards + reserve.cards,
+            cards: cards + reserve.cards + persistedActiveCards,
             clearingOtherRecords: clearingOtherRecords
         )
     }
@@ -920,7 +954,7 @@ final class StudyStore {
         at date: Date = .now,
         preservingCurrentOrder: Bool = true
     ) {
-        guard let userID = activeUserID else { return }
+        guard let userID = activeUserID, !lessonSessionIsPresented else { return }
         let records = (try? context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate {
@@ -1588,7 +1622,12 @@ final class StudyStore {
                 guard let self, self.activeUserID == userID else { return }
                 // Reconciliation can rename or remove records. Refresh once after
                 // the drain while preserving an in-progress session's order.
-                loadLocalCards(preservingNormalizedOrder: activeCardOrder, userID: userID)
+                if !lessonSessionIsPresented {
+                    loadLocalCards(
+                        preservingNormalizedOrder: activeCardOrder,
+                        userID: userID
+                    )
+                }
                 loadLibraryCards(userID: userID)
             }
         ) { [weak self] acknowledgement in
@@ -1655,23 +1694,29 @@ final class StudyStore {
         if let record {
             let wasLocallyUpdated = record.locallyUpdatedAt != nil
             record.replacePayload(encoded: payload)
-            record.isInActiveSession = true
+            if !lessonSessionIsPresented {
+                record.isInActiveSession = true
+            }
             if !wasLocallyUpdated {
                 record.serverUpdatedAt = restoredCard.updatedAt
             }
         } else {
             guard let userID = activeUserID else { throw CancellationError() }
-            context.insert(
-                LocalCardRecord(
-                    card: restoredCard,
-                    userID: userID,
-                    queueIndex: 0,
-                    payload: payload
-                )
+            let newRecord = LocalCardRecord(
+                card: restoredCard,
+                userID: userID,
+                queueIndex: 0,
+                payload: payload
             )
+            newRecord.isInActiveSession = !lessonSessionIsPresented
+            context.insert(newRecord)
         }
         guard let userID = activeUserID else { throw CancellationError() }
-        try localCardRepository.replaceActiveSession(with: cards, userID: userID)
+        if lessonSessionIsPresented {
+            try context.save()
+        } else {
+            try localCardRepository.replaceActiveSession(with: cards, userID: userID)
+        }
         scheduleNextOfflineActivation()
         return restoredCard
     }
@@ -1884,9 +1929,11 @@ final class StudyStore {
     ) async throws {
         guard activeUserID == userID else { throw CancellationError() }
         try upsertLocalCard(card, markedDirty: false)
-        cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
-        cards.append(card)
-        cards = StudySessionPolicy.orderedCards(cards)
+        if !lessonSessionIsPresented {
+            cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
+            cards.append(card)
+            cards = StudySessionPolicy.orderedCards(cards)
+        }
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
         upsertAllCardsPresentation(card)
@@ -1926,7 +1973,7 @@ final class StudyStore {
 
     private func scheduleNextOfflineActivation() {
         offlineDueActivationTimer?.invalidate()
-        guard let dueAt = nextOfflineDueAt else {
+        guard !lessonSessionIsPresented, let dueAt = nextOfflineDueAt else {
             offlineDueActivationTimer = nil
             return
         }

@@ -79,6 +79,29 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testReserveMergeCanPreserveActiveSessionOrder() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let active = makeCard(id: "active", expression: "active")
+        let inactive = makeCard(id: "inactive", expression: "inactive")
+        let activeRecord = insert(active, userID: 1, queueIndex: 42, in: container)
+        let inactiveRecord = insert(inactive, userID: 1, queueIndex: 43, in: container)
+        inactiveRecord.isInActiveSession = false
+        try container.mainContext.save()
+        let repository = StudyCardLocalRepository(context: container.mainContext)
+
+        try repository.mergeOfflineReserve(
+            [inactive, active],
+            userID: 1,
+            preservingActiveSessionOrder: true
+        )
+
+        XCTAssertTrue(activeRecord.isInActiveSession)
+        XCTAssertEqual(activeRecord.queueIndex, 42)
+        XCTAssertFalse(inactiveRecord.isInActiveSession)
+        XCTAssertEqual(inactiveRecord.queueIndex, 0)
+    }
+
+    @MainActor
     func testReserveMergeUpdatesExistingLocalServerAliasWithoutPersistingDuplicate() throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let local = makeCard(
