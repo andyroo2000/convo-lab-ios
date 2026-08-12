@@ -82,6 +82,12 @@ final class StudyStore {
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
     @ObservationIgnored private var studySurfaceRevision = 0
+    // Session freshness suppresses redundant UI refreshes. A failed mutation
+    // outbox receives one prompt retry before returning to that throttle; the
+    // read-only refresh domains use the ordinary max-age cadence.
+    @ObservationIgnored private var lastSessionRefreshAt: Date?
+    @ObservationIgnored private var outboxRetryRevision = 0
+    @ObservationIgnored private var consumedOutboxRetryRevision = 0
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -277,6 +283,9 @@ final class StudyStore {
         sessionFailureWasPresentByEventID = [:]
         syncStatus = .idle
         lastSyncAt = nil
+        lastSessionRefreshAt = nil
+        outboxRetryRevision = 0
+        consumedOutboxRetryRevision = 0
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
@@ -421,10 +430,17 @@ final class StudyStore {
     }
 
     func synchronize() async {
+        await performSynchronization(requestingPromptRetryOnOutboxFailure: true)
+    }
+
+    private func performSynchronization(
+        requestingPromptRetryOnOutboxFailure: Bool
+    ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
+        var retryNeeded = false
         var refreshed = false
         var checkpointWasReset = false
 
@@ -432,6 +448,7 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch {
             firstError = error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -444,6 +461,7 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -453,6 +471,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
+            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -512,8 +531,12 @@ final class StudyStore {
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
 
+        let completedAt = Date.now
         if refreshed {
-            lastSyncAt = .now
+            lastSessionRefreshAt = completedAt
+        }
+        if retryNeeded, requestingPromptRetryOnOutboxFailure {
+            outboxRetryRevision += 1
         }
         if let firstError {
             handleSyncError(
@@ -522,6 +545,11 @@ final class StudyStore {
                 activationGeneration: activationGeneration
             )
         } else {
+            // This timestamp represents a successful end-to-end sync, not merely
+            // a successful session refresh after another domain failed.
+            if refreshed {
+                lastSyncAt = completedAt
+            }
             syncStatus = .idle
         }
     }
@@ -534,10 +562,22 @@ final class StudyStore {
 
     func synchronizeIfNeeded(maxAge: Duration) async {
         guard syncStatus != .syncing else { return }
+        if consumedOutboxRetryRevision < outboxRetryRevision {
+            // Give a failed mutation outbox one prompt retry. If that attempt
+            // also fails, use session freshness to bound subsequent automatic
+            // attempts until the normal max-age window expires. Consume only
+            // the revision observed here so an interleaved eager failure is not
+            // lost while this sync is suspended at a network await.
+            consumedOutboxRetryRevision = outboxRetryRevision
+            await performSynchronization(requestingPromptRetryOnOutboxFailure: false)
+            return
+        }
         let components = maxAge.components
         let maxAgeSeconds = TimeInterval(components.seconds)
             + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-        if let lastSyncAt, Date.now.timeIntervalSince(lastSyncAt) < maxAgeSeconds {
+        if let lastSessionRefreshAt,
+           Date.now.timeIntervalSince(lastSessionRefreshAt) < maxAgeSeconds
+        {
             activateOfflineDueCards()
             return
         }
@@ -779,6 +819,7 @@ final class StudyStore {
             // The server may now admit a different set of new cards and build a
             // different offline reserve. Force the next Study-page entry to refresh.
             lastSyncAt = nil
+            lastSessionRefreshAt = nil
             return true
         } catch {
             guard isCurrentActivation(
@@ -1158,6 +1199,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1495,6 +1537,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1538,6 +1581,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1566,6 +1610,7 @@ final class StudyStore {
         do {
             try await flushCardOutbox()
         } catch {
+            markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
                 for: userID,
@@ -1688,6 +1733,9 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch is QuarantinedCardMutationError {
             // A rejected write for another card does not block this card.
+        } catch {
+            markOutboxRetryNeeded(for: error)
+            throw error
         }
         let currentCard = try currentLocalCard(for: card)
         guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
@@ -2170,6 +2218,16 @@ final class StudyStore {
             syncStatus = .offline
         } else {
             syncStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    private func requiresAutomaticRetry(_ error: any Error) -> Bool {
+        !(error is QuarantinedCardMutationError || error is QuarantinedReviewError)
+    }
+
+    private func markOutboxRetryNeeded(for error: any Error) {
+        if requiresAutomaticRetry(error) {
+            outboxRetryRevision += 1
         }
     }
 
