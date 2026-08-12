@@ -1472,6 +1472,64 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testStaleEditorSyncAliasUpdatesCanonicalRecordWithoutDuplicate() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let staleCard = makeCard(
+            id: "local-draft-id",
+            syncId: "server-card-id",
+            expression: "before sync"
+        )
+        let canonicalCard = StudyCard(
+            id: "server-card-id",
+            syncId: "server-card-id",
+            noteId: staleCard.noteId,
+            cardType: staleCard.cardType,
+            prompt: staleCard.prompt,
+            answer: staleCard.answer,
+            state: staleCard.state,
+            answerAudioSource: staleCard.answerAudioSource,
+            createdAt: staleCard.createdAt,
+            updatedAt: staleCard.updatedAt
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: canonicalCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(canonicalCard)
+        ))
+        try container.mainContext.save()
+        let patchedPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            patchedPaths.append(request.url?.path ?? "")
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        var draft = StudyCardDraft(card: staleCard)
+        draft.cueText = "edited after sync"
+
+        try await store.updateCard(staleCard, draft: draft)
+
+        XCTAssertEqual(patchedPaths.values, ["/api/study/cards/server-card-id"])
+        let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.id, "server-card-id")
+        let persisted = try XCTUnwrap(records.first).payload
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(StudyCard.self, from: persisted).promptText,
+            "edited after sync"
+        )
+    }
+
+    @MainActor
     func testStaleEditorSnapshotDeletesCanonicalLocalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientID = "01J000000000000000000000SD"

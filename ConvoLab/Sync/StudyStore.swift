@@ -1701,13 +1701,8 @@ final class StudyStore {
         guard preservingPendingReview || preservingPendingEdit else { return serverCard }
         guard let userID = activeUserID else { return serverCard }
 
-        let cardID = serverCard.id
-        var descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-        )
-        descriptor.fetchLimit = 1
         guard
-            let record = try context.fetch(descriptor).first,
+            let record = try localCardRepository.record(matching: serverCard, userID: userID),
             let localCard = try? StorageCodec.decoder.decode(
                 StudyCard.self,
                 from: record.payload
@@ -1717,8 +1712,10 @@ final class StudyStore {
         }
 
         return StudyCard(
-            id: serverCard.id,
-            syncId: serverCard.syncId ?? localCard.syncId,
+            id: record.id,
+            syncId: record.id == serverCard.id
+                ? serverCard.syncId ?? localCard.syncId
+                : serverCard.reviewCardID,
             noteId: serverCard.noteId,
             cardType: serverCard.cardType,
             prompt: preservingPendingEdit ? localCard.prompt : serverCard.prompt,
@@ -1751,36 +1748,7 @@ final class StudyStore {
 
     private func localCardRecord(for card: StudyCard) throws -> LocalCardRecord? {
         guard let userID = activeUserID else { return nil }
-        for cardID in Set([card.id, card.reviewCardID]) {
-            var exactDescriptor = FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-            )
-            exactDescriptor.fetchLimit = 1
-            if let record = try context.fetch(exactDescriptor).first {
-                return record
-            }
-        }
-
-        // learning-os canonicalizes client-generated ULIDs to lowercase. An editor
-        // can still hold the original snapshot while background sync renames the
-        // persisted record, so resolve that alias before saving.
-        let identifiers = StudyCardIdentity.identifiers(for: card)
-        return try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        ).first(
-            where: { record in
-                if identifiers.contains(record.id.lowercased()) {
-                    return true
-                }
-                guard let storedCard = try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
-                ) else { return false }
-                return StudyCardIdentity.matches(storedCard, card)
-            }
-        )
+        return try localCardRepository.record(matching: card, userID: userID)
     }
 
     private func updateLocalCard(
@@ -1789,17 +1757,15 @@ final class StudyStore {
         serverUpdatedAt: Date? = nil
     ) throws {
         guard let userID = activeUserID else { throw CancellationError() }
-        let cardID = card.id
-        var descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-        )
-        descriptor.fetchLimit = 1
-        let payload = try StorageCodec.encoder.encode(card)
-        if let record = try context.fetch(descriptor).first {
-            record.replacePayload(encoded: payload)
+        if let record = try localCardRepository.record(matching: card, userID: userID) {
+            let persistedCard = record.id == card.id
+                ? card
+                : card.replacingIdentity(id: record.id, syncId: card.reviewCardID)
+            record.replacePayload(encoded: try StorageCodec.encoder.encode(persistedCard))
             record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
             record.locallyUpdatedAt = markedDirty ? .now : nil
         } else {
+            let payload = try StorageCodec.encoder.encode(card)
             let record = LocalCardRecord(
                 card: card,
                 userID: userID,

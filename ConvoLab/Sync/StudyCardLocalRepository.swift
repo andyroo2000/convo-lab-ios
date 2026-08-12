@@ -126,6 +126,30 @@ struct StudyCardLocalRepository {
         return try context.fetch(descriptor).compactMap(decodeCard)
     }
 
+    func record(matching card: StudyCard, userID: Int) throws -> LocalCardRecord? {
+        let normalizedID = card.id.lowercased()
+        let normalizedSyncID = card.reviewCardID.lowercased()
+        let matches = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && ($0.normalizedID == normalizedID
+                            || $0.normalizedID == normalizedSyncID
+                            || $0.syncID == normalizedID
+                            || $0.syncID == normalizedSyncID)
+                }
+            )
+        )
+        return matches.min { lhs, rhs in
+            isPreferredMatch(
+                lhs,
+                over: rhs,
+                normalizedID: normalizedID,
+                normalizedSyncID: normalizedSyncID
+            )
+        }
+    }
+
     private func records(userID: Int) throws -> [LocalCardRecord] {
         try context.fetch(
             FetchDescriptor<LocalCardRecord>(
@@ -136,6 +160,48 @@ struct StudyCardLocalRepository {
 
     private func decodeCard(record: LocalCardRecord) -> StudyCard? {
         try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+    }
+
+    private func matchPriority(
+        _ record: LocalCardRecord,
+        normalizedID: String,
+        normalizedSyncID: String
+    ) -> Int {
+        if record.normalizedID == normalizedID { return 0 }
+        if record.normalizedID == normalizedSyncID { return 1 }
+        if record.syncID == normalizedSyncID { return 2 }
+        return 3
+    }
+
+    private func isPreferredMatch(
+        _ lhs: LocalCardRecord,
+        over rhs: LocalCardRecord,
+        normalizedID: String,
+        normalizedSyncID: String
+    ) -> Bool {
+        let lhsPriority = matchPriority(
+            lhs,
+            normalizedID: normalizedID,
+            normalizedSyncID: normalizedSyncID
+        )
+        let rhsPriority = matchPriority(
+            rhs,
+            normalizedID: normalizedID,
+            normalizedSyncID: normalizedSyncID
+        )
+        if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+
+        let lhsIsDirty = lhs.locallyUpdatedAt != nil
+        let rhsIsDirty = rhs.locallyUpdatedAt != nil
+        if lhsIsDirty != rhsIsDirty { return lhsIsDirty }
+        if lhs.locallyUpdatedAt != rhs.locallyUpdatedAt {
+            return (lhs.locallyUpdatedAt ?? .distantPast) > (rhs.locallyUpdatedAt ?? .distantPast)
+        }
+        if lhs.serverUpdatedAt != rhs.serverUpdatedAt {
+            return (lhs.serverUpdatedAt ?? .distantPast) > (rhs.serverUpdatedAt ?? .distantPast)
+        }
+        if lhs.normalizedID != rhs.normalizedID { return lhs.normalizedID < rhs.normalizedID }
+        return lhs.id < rhs.id
     }
 
     private func recordIdentifiers(_ record: LocalCardRecord) -> Set<String> {
