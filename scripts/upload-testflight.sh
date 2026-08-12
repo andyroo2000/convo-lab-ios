@@ -6,6 +6,7 @@ umask 077
 readonly project_root="${0:A:h:h}"
 readonly asc_key_id="${ASC_KEY_ID:-K7S44PRTVS}"
 readonly asc_issuer_id="${ASC_ISSUER_ID:-ec6ccb2b-2805-4650-bd40-f3bdd1776062}"
+readonly development_team="${DEVELOPMENT_TEAM:-USU4D882GM}"
 readonly credentials_root="${CONVOLAB_CREDENTIALS_ROOT:-${HOME}/.appstoreconnect}"
 readonly asc_key_path="${ASC_KEY_PATH:-${credentials_root}/private_keys/AuthKey_${asc_key_id}.p8}"
 readonly distribution_key_path="${DISTRIBUTION_KEY_PATH:-${credentials_root}/ConvoLabDistribution.key.pem}"
@@ -96,6 +97,7 @@ xcodebuild archive \
     -authenticationKeyPath "${asc_key_path}" \
     -authenticationKeyID "${asc_key_id}" \
     -authenticationKeyIssuerID "${asc_issuer_id}" \
+    DEVELOPMENT_TEAM="${development_team}" \
     CURRENT_PROJECT_VERSION="${build_number}"
 
 readonly archived_info="${archive_path}/Products/Applications/ConvoLab.app/Info.plist"
