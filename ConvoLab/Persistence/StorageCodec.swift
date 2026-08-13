@@ -3,14 +3,13 @@ import Foundation
 enum StorageCodec {
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom(ISO8601Milliseconds.encode)
         return encoder
     }()
 
     static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
         return decoder
     }()
 }
-

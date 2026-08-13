@@ -43,6 +43,7 @@ final class StudyReviewRecordingService {
         queueIndex: Int
     ) throws -> StagedStudyReview {
         guard let userID = activeUserID else { throw CancellationError() }
+        let reviewedAt = ISO8601Milliseconds.canonicalDate(reviewedAt)
         let record = try localCardRepository.record(matching: snapshot, userID: userID)
         let cardBefore = try currentCard(snapshot: snapshot, record: record)
         let cardAfter = try reviewProjection(cardBefore, rating, reviewedAt)
