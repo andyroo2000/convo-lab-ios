@@ -70,6 +70,22 @@ final class StudyReviewTimestampTests: XCTestCase {
         )
     }
 
+    func testDirectSchedulerCanonicalizesItsTimestampOutput() throws {
+        let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000.789_123)
+
+        let schedule = try FSRSReviewScheduler.schedule(
+            schedulerState: nil,
+            queueState: "new",
+            rating: .good,
+            reviewedAt: reviewedAt
+        )
+
+        XCTAssertEqual(
+            schedule.schedulerState["last_review"],
+            .string("2027-01-15T08:00:00.789Z")
+        )
+    }
+
     func testReviewUsesSameCanonicalMillisecondsLocallyInOutboxAndOnWire() async throws {
         let capturedBody = LockedReviewRequestBody()
         let client = makeClient { request in
