@@ -73,6 +73,52 @@ final class StudyReviewTimestampTests: XCTestCase {
         )
     }
 
+    func testAPIClientRejectsTimestampOutsideCanonicalOffsetBounds() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"reviewed_at":"2027-01-15T08:00:00+14:01"}"#.utf8)
+            )
+        }
+
+        do {
+            let _: LegacyTimestamp = try await client.request("/timestamp")
+            XCTFail("Expected the noncanonical offset to fail response decoding")
+        } catch APIClientError.decoding(path: "/timestamp", details: let details) {
+            XCTAssertTrue(details.contains("reviewed_at"), details)
+            XCTAssertTrue(details.contains("Invalid ISO-8601 date"), details)
+        }
+    }
+
+    func testAPIClientDecodesCanonicalTimestampOnNonSchedulerModel() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(
+                    #"{"id":7,"name":"Learner","email":"learner@example.com","email_verified_at":"2027-01-15T08:00:00.789000Z"}"#.utf8
+                )
+            )
+        }
+
+        let user: CurrentUser = try await client.request("/user")
+
+        XCTAssertEqual(
+            try XCTUnwrap(user.emailVerifiedAt).timeIntervalSince1970,
+            1_800_000_000.789,
+            accuracy: 0.000_001
+        )
+    }
+
     func testDirectSchedulerCanonicalizesItsTimestampOutput() throws {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000.789_123)
 
@@ -87,6 +133,47 @@ final class StudyReviewTimestampTests: XCTestCase {
             schedule.schedulerState["last_review"],
             .string("2027-01-15T08:00:00.789Z")
         )
+    }
+
+    func testSchedulerRejectsMalformedPersistedTimestampInsteadOfResettingIt() throws {
+        let state: JSONValue = .object([
+            "due": .string("2027-01-15T08:00:00+14:01"),
+            "last_review": .string("2027-01-14T08:00:00.000Z"),
+            "state": .number(2),
+        ])
+
+        XCTAssertThrowsError(
+            try FSRSReviewScheduler.schedule(
+                schedulerState: state,
+                queueState: "review",
+                rating: .good,
+                reviewedAt: Date(timeIntervalSince1970: 1_800_000_000)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? FSRSReviewScheduler.InvalidSchedulerTimestampError,
+                .init(field: "due")
+            )
+        }
+    }
+
+    func testSchedulerTreatsExplicitNullDueLikeAnOmittedDue() throws {
+        let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let state: JSONValue = .object([
+            "due": .null,
+            "last_review": .null,
+            "state": .number(0),
+        ])
+
+        let schedule = try FSRSReviewScheduler.schedule(
+            schedulerState: state,
+            queueState: "new",
+            rating: .good,
+            reviewedAt: reviewedAt
+        )
+
+        XCTAssertEqual(schedule.queueState, "learning")
+        XCTAssertEqual(schedule.schedulerState["last_review"], .string("2027-01-15T08:00:00.000Z"))
     }
 
     func testReviewUsesSameCanonicalMillisecondsLocallyInOutboxAndOnWire() async throws {

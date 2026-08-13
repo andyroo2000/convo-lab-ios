@@ -456,7 +456,7 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch {
             firstError = error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -469,7 +469,7 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -479,7 +479,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -1207,12 +1207,22 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
+            var schedulerStateRecovered = false
+            if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
+                schedulerStateRecovered = await recoverCorruptedSchedulerState(
+                    for: card,
+                    userID: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
             markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
+            if !schedulerStateRecovered {
+                handleSyncError(
+                    error,
+                    for: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
             return stagedEventID
         }
     }
@@ -1908,6 +1918,72 @@ final class StudyStore {
         }
     }
 
+    private func recoverCorruptedSchedulerState(
+        for card: StudyCard,
+        userID: Int,
+        activationGeneration: Int
+    ) async -> Bool {
+        let identifiers = StudyCardIdentity.identifiers(for: card)
+        do {
+            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
+                  try !reviewOutbox.hasPendingReview(for: card.id)
+            else {
+                try removeFromActiveSession(card, userID: userID)
+                return false
+            }
+            let canonicalCard = try await fetchCanonicalCard(id: card.reviewCardID)
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
+            // The fetch suspends this actor, so local work may have been staged
+            // after the first guard. Re-check before replacing or deleting data.
+            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
+                  try !reviewOutbox.hasPendingReview(for: card.id)
+            else {
+                try removeFromActiveSession(card, userID: userID)
+                return false
+            }
+            guard let canonicalCard else {
+                if let record = try localCardRepository.record(matching: card, userID: userID) {
+                    context.delete(record)
+                }
+                cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                libraryCards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                allCards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                try context.save()
+                return true
+            }
+            try updateExistingLocalCard(
+                canonicalCard,
+                markedDirty: false,
+                serverUpdatedAt: canonicalCard.updatedAt
+            )
+            try context.save()
+            // A repaired canonical record remains active so the user can retry
+            // the grade that exposed the corruption.
+            loadLocalCards(userID: userID)
+            loadLibraryCards(userID: userID)
+            return true
+        } catch {
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
+            // Keep the replica for later reconciliation, but let the current
+            // session advance past a card that cannot be graded safely.
+            try? removeFromActiveSession(card, userID: userID)
+            return false
+        }
+    }
+
+    private func removeFromActiveSession(_ card: StudyCard, userID: Int) throws {
+        if let record = try localCardRepository.record(matching: card, userID: userID) {
+            record.isInActiveSession = false
+        }
+        let identifiers = StudyCardIdentity.identifiers(for: card)
+        cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+        try context.save()
+    }
+
     private func failedMutation(id: String, userID: Int) throws -> PendingMutation? {
         var descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
@@ -2406,12 +2482,14 @@ final class StudyStore {
         }
     }
 
-    private func requiresAutomaticRetry(_ error: any Error) -> Bool {
-        !(error is QuarantinedCardMutationError || error is QuarantinedReviewError)
+    static func requiresAutomaticRetry(_ error: any Error) -> Bool {
+        !(error is QuarantinedCardMutationError
+            || error is QuarantinedReviewError
+            || error is FSRSReviewScheduler.InvalidSchedulerTimestampError)
     }
 
     private func markOutboxRetryNeeded(for error: any Error) {
-        if requiresAutomaticRetry(error) {
+        if Self.requiresAutomaticRetry(error) {
             outboxRetryRevision += 1
         }
     }

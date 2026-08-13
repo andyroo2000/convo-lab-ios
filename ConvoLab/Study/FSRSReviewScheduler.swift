@@ -8,6 +8,20 @@ struct FSRSReviewSchedule: Equatable, Sendable {
 }
 
 enum FSRSReviewScheduler {
+    struct Profile: Equatable, Sendable {
+        let algorithm: String
+        let library: String
+        let libraryVersion: String
+        let weights: [Double]
+        let requestRetention: Double
+        let maximumIntervalDays: Int
+        let minimumStability: Double
+        let learningStepsMinutes: [Int]
+        let relearningStepsMinutes: [Int]
+        let enableFuzz: Bool
+        let enableShortTerm: Bool
+    }
+
     struct InvalidRatingStatesError: LocalizedError, Equatable {
         let missingGrades: [Int]
         let unexpectedGrades: [Int]
@@ -25,19 +39,35 @@ enum FSRSReviewScheduler {
         }
     }
 
-    // Defaults from ts-fsrs 5.3.3 (FSRS-6), with fuzzing disabled for
-    // deterministic parity between learning-os and offline clients.
-    private static let weights = [
-        0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194,
-        0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,
-        1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
-    ]
-    private static let requestRetention = 0.9
-    private static let maximumIntervalDays = 36_500
-    private static let minimumStability = 0.001
-    private static let learningSteps = [1, 10]
-    private static let relearningSteps = [10]
+    struct InvalidSchedulerTimestampError: LocalizedError, Equatable {
+        let field: String
 
+        var errorDescription: String? {
+            "The persisted FSRS \(field) timestamp is invalid."
+        }
+    }
+
+    // Defaults from ts-fsrs 5.3.3 (FSRS-6), with fuzzing disabled for
+    // deterministic parity between learning-os and offline clients. The
+    // metadata fields describe this implementation; they are not runtime
+    // feature switches.
+    static let profile = Profile(
+        algorithm: "FSRS-6",
+        library: "ts-fsrs",
+        libraryVersion: "5.3.3",
+        weights: [
+            0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194,
+            0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,
+            1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
+        ],
+        requestRetention: 0.9,
+        maximumIntervalDays: 36_500,
+        minimumStability: 0.001,
+        learningStepsMinutes: [1, 10],
+        relearningStepsMinutes: [10],
+        enableFuzz: false,
+        enableShortTerm: true
+    )
     private enum CardState: Int {
         case new = 0
         case learning = 1
@@ -87,7 +117,7 @@ enum FSRSReviewScheduler {
         rating: ReviewRating,
         reviewedAt: Date
     ) throws -> FSRSReviewSchedule {
-        let current = normalizedState(
+        let current = try normalizedState(
             schedulerState,
             queueState: queueState,
             reviewedAt: reviewedAt
@@ -309,8 +339,8 @@ enum FSRSReviewScheduler {
         grade: Int
     ) -> (minutes: Int, nextStep: Int)? {
         let steps = [.review, .relearning].contains(state)
-            ? relearningSteps
-            : learningSteps
+            ? profile.relearningStepsMinutes
+            : profile.learningStepsMinutes
         guard !steps.isEmpty, currentStep < steps.count else { return nil }
 
         if state == .review {
@@ -345,7 +375,7 @@ enum FSRSReviewScheduler {
         if difficulty == 0, stability == 0 {
             return Memory(
                 difficulty: clamp(initialDifficulty(grade: grade), minimum: 1, maximum: 10),
-                stability: max(weights[grade - 1], 0.1)
+                stability: max(profile.weights[grade - 1], 0.1)
             )
         }
 
@@ -363,11 +393,11 @@ enum FSRSReviewScheduler {
                 retrievability: retrievability
             )
             let minimumAfterFailure = roundToEight(
-                stability / exp(weights[17] * weights[18])
+                stability / exp(profile.weights[17] * profile.weights[18])
             )
             nextStability = clamp(
                 minimumAfterFailure,
-                minimum: minimumStability,
+                minimum: profile.minimumStability,
                 maximum: afterFailure
             )
         } else {
@@ -386,29 +416,32 @@ enum FSRSReviewScheduler {
     }
 
     private static func initialDifficulty(grade: Int) -> Double {
-        roundToEight(weights[4] - exp(Double(grade - 1) * weights[5]) + 1)
+        roundToEight(
+            profile.weights[4] - exp(Double(grade - 1) * profile.weights[5]) + 1
+        )
     }
 
     private static func nextDifficulty(difficulty: Double, grade: Int) -> Double {
-        let delta = -weights[6] * Double(grade - 3)
+        let delta = -profile.weights[6] * Double(grade - 3)
         let dampedDelta = roundToEight(delta * (10 - difficulty) / 9)
         let next = difficulty + dampedDelta
         let reverted = roundToEight(
-            weights[7] * initialDifficulty(grade: 4) + (1 - weights[7]) * next
+            profile.weights[7] * initialDifficulty(grade: 4)
+                + (1 - profile.weights[7]) * next
         )
         return clamp(reverted, minimum: 1, maximum: 10)
     }
 
     private static func nextShortTermStability(stability: Double, grade: Int) -> Double {
-        var increase = pow(stability, -weights[19])
-            * exp(weights[17] * (Double(grade - 3) + weights[18]))
+        var increase = pow(stability, -profile.weights[19])
+            * exp(profile.weights[17] * (Double(grade - 3) + profile.weights[18]))
         if grade >= 2 {
             increase = max(increase, 1)
         }
         return roundToEight(clamp(
             stability * increase,
-            minimum: minimumStability,
-            maximum: Double(maximumIntervalDays)
+            minimum: profile.minimumStability,
+            maximum: Double(profile.maximumIntervalDays)
         ))
     }
 
@@ -418,21 +451,21 @@ enum FSRSReviewScheduler {
         retrievability: Double,
         grade: Int
     ) -> Double {
-        let hardPenalty = grade == 2 ? weights[15] : 1
-        let easyBonus = grade == 4 ? weights[16] : 1
+        let hardPenalty = grade == 2 ? profile.weights[15] : 1
+        let easyBonus = grade == 4 ? profile.weights[16] : 1
         let next = stability * (
             1
-                + exp(weights[8])
+                + exp(profile.weights[8])
                 * (11 - difficulty)
-                * pow(stability, -weights[9])
-                * (exp((1 - retrievability) * weights[10]) - 1)
+                * pow(stability, -profile.weights[9])
+                * (exp((1 - retrievability) * profile.weights[10]) - 1)
                 * hardPenalty
                 * easyBonus
         )
         return roundToEight(clamp(
             next,
-            minimum: minimumStability,
-            maximum: Double(maximumIntervalDays)
+            minimum: profile.minimumStability,
+            maximum: Double(profile.maximumIntervalDays)
         ))
     }
 
@@ -441,19 +474,19 @@ enum FSRSReviewScheduler {
         stability: Double,
         retrievability: Double
     ) -> Double {
-        let next = weights[11]
-            * pow(difficulty, -weights[12])
-            * (pow(stability + 1, weights[13]) - 1)
-            * exp((1 - retrievability) * weights[14])
+        let next = profile.weights[11]
+            * pow(difficulty, -profile.weights[12])
+            * (pow(stability + 1, profile.weights[13]) - 1)
+            * exp((1 - retrievability) * profile.weights[14])
         return roundToEight(clamp(
             next,
-            minimum: minimumStability,
-            maximum: Double(maximumIntervalDays)
+            minimum: profile.minimumStability,
+            maximum: Double(profile.maximumIntervalDays)
         ))
     }
 
     private static func forgettingCurve(elapsedDays: Int, stability: Double) -> Double {
-        let decay = -weights[20]
+        let decay = -profile.weights[20]
         let factor = roundToEight(exp(log(0.9) / decay) - 1)
         return roundToEight(pow(
             1 + factor * Double(elapsedDays) / stability,
@@ -462,14 +495,14 @@ enum FSRSReviewScheduler {
     }
 
     private static func nextInterval(stability: Double) -> Int {
-        let decay = -weights[20]
+        let decay = -profile.weights[20]
         let factor = roundToEight(exp(log(0.9) / decay) - 1)
         let modifier = roundToEight(
-            (pow(requestRetention, 1 / decay) - 1) / factor
+            (pow(profile.requestRetention, 1 / decay) - 1) / factor
         )
         return min(
             max(1, Int((stability * modifier).rounded())),
-            maximumIntervalDays
+            profile.maximumIntervalDays
         )
     }
 
@@ -477,7 +510,7 @@ enum FSRSReviewScheduler {
         _ schedulerState: JSONValue?,
         queueState: String,
         reviewedAt: Date
-    ) -> State {
+    ) throws -> State {
         let object: [String: JSONValue]
         if case let .object(value)? = schedulerState {
             object = value
@@ -489,11 +522,20 @@ enum FSRSReviewScheduler {
             ?? fallbackState
         let isNew = state == .new
 
+        let due = try persistedTimestamp(
+            object["due"],
+            field: "due"
+        ) ?? reviewedAt
+        let lastReview = try persistedTimestamp(
+            object["last_review"],
+            field: "last_review"
+        )
+
         return State(
-            due: object["due"]?.stringValue.flatMap(parseDate) ?? reviewedAt,
+            due: due,
             stability: isNew
                 ? 0
-                : max(number(object["stability"]) ?? 0.1, minimumStability),
+                : max(number(object["stability"]) ?? 0.1, profile.minimumStability),
             difficulty: isNew
                 ? 0
                 : clamp(number(object["difficulty"]) ?? 5, minimum: 1, maximum: 10),
@@ -503,8 +545,20 @@ enum FSRSReviewScheduler {
             reps: max(0, integer(object["reps"]) ?? 0),
             lapses: max(0, integer(object["lapses"]) ?? 0),
             state: state,
-            lastReview: object["last_review"]?.stringValue.flatMap(parseDate)
+            lastReview: lastReview
         )
+    }
+
+    private static func persistedTimestamp(
+        _ value: JSONValue?,
+        field: String
+    ) throws -> Date? {
+        guard let value else { return nil }
+        if case .null = value { return nil }
+        guard let timestamp = value.stringValue, let date = parseDate(timestamp) else {
+            throw InvalidSchedulerTimestampError(field: field)
+        }
+        return date
     }
 
     private static func serialized(_ state: State) -> JSONValue {
