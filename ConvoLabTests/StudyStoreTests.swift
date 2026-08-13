@@ -2984,6 +2984,13 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidPersistedSchedulerTimestampDoesNotRequestAutomaticRetry() {
+        let error = FSRSReviewScheduler.InvalidSchedulerTimestampError(field: "due")
+
+        XCTAssertFalse(StudyStore.requiresAutomaticRetry(error))
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(

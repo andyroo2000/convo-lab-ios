@@ -157,6 +157,25 @@ final class StudyReviewTimestampTests: XCTestCase {
         }
     }
 
+    func testSchedulerTreatsExplicitNullDueLikeAnOmittedDue() throws {
+        let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let state: JSONValue = .object([
+            "due": .null,
+            "last_review": .null,
+            "state": .number(0),
+        ])
+
+        let schedule = try FSRSReviewScheduler.schedule(
+            schedulerState: state,
+            queueState: "new",
+            rating: .good,
+            reviewedAt: reviewedAt
+        )
+
+        XCTAssertEqual(schedule.queueState, "learning")
+        XCTAssertEqual(schedule.schedulerState["last_review"], .string("2027-01-15T08:00:00.000Z"))
+    }
+
     func testReviewUsesSameCanonicalMillisecondsLocallyInOutboxAndOnWire() async throws {
         let capturedBody = LockedReviewRequestBody()
         let client = makeClient { request in

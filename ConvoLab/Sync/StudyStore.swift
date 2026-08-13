@@ -456,7 +456,7 @@ final class StudyStore {
             try await flushCardOutbox()
         } catch {
             firstError = error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -469,7 +469,7 @@ final class StudyStore {
             )
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(
             userID,
@@ -479,7 +479,7 @@ final class StudyStore {
             try await reviewOutbox.flush()
         } catch {
             firstError = firstError ?? error
-            retryNeeded = retryNeeded || requiresAutomaticRetry(error)
+            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
@@ -2406,12 +2406,14 @@ final class StudyStore {
         }
     }
 
-    private func requiresAutomaticRetry(_ error: any Error) -> Bool {
-        !(error is QuarantinedCardMutationError || error is QuarantinedReviewError)
+    static func requiresAutomaticRetry(_ error: any Error) -> Bool {
+        !(error is QuarantinedCardMutationError
+            || error is QuarantinedReviewError
+            || error is FSRSReviewScheduler.InvalidSchedulerTimestampError)
     }
 
     private func markOutboxRetryNeeded(for error: any Error) {
-        if requiresAutomaticRetry(error) {
+        if Self.requiresAutomaticRetry(error) {
             outboxRetryRevision += 1
         }
     }

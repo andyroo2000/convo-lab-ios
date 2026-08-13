@@ -522,7 +522,11 @@ enum FSRSReviewScheduler {
             ?? fallbackState
         let isNew = state == .new
 
-        let due = try persistedTimestamp(object["due"], field: "due") ?? reviewedAt
+        let due = try persistedTimestamp(
+            object["due"],
+            field: "due",
+            allowsNull: true
+        ) ?? reviewedAt
         let lastReview = try persistedTimestamp(
             object["last_review"],
             field: "last_review",
