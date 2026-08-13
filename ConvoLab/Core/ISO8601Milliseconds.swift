@@ -1,6 +1,8 @@
 import Foundation
 
 enum ISO8601Milliseconds {
+    nonisolated private static let formatters = Formatters()
+
     nonisolated static func canonicalDate(_ date: Date) -> Date {
         // Flooring the Unix millisecond value is equivalent to truncating the
         // fractional digits of a UTC timestamp, including before the epoch.
@@ -8,7 +10,10 @@ enum ISO8601Milliseconds {
         // below its Double boundary, so snap only that representation noise.
         let milliseconds = date.timeIntervalSince1970 * 1_000
         let nearestMillisecond = milliseconds.rounded()
-        let canonicalMilliseconds = if abs(milliseconds - nearestMillisecond) < 0.000_1 {
+        let representationTolerance = max(0.000_1, milliseconds.ulp * 2)
+        let canonicalMilliseconds = if
+            abs(milliseconds - nearestMillisecond) <= representationTolerance
+        {
             nearestMillisecond
         } else {
             milliseconds.rounded(.down)
@@ -19,17 +24,11 @@ enum ISO8601Milliseconds {
     }
 
     nonisolated static func string(from date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: canonicalDate(date))
+        formatters.string(from: canonicalDate(date))
     }
 
     nonisolated static func date(from value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        return fractional.date(from: value) ?? standard.date(from: value)
+        formatters.date(from: value)
     }
 
     nonisolated static func encode(_ date: Date, to encoder: Encoder) throws {
@@ -47,5 +46,30 @@ enum ISO8601Milliseconds {
             )
         }
         return date
+    }
+}
+
+private final class Formatters: @unchecked Sendable {
+    nonisolated private let lock = NSLock()
+    nonisolated(unsafe) private let fractional: ISO8601DateFormatter
+    nonisolated(unsafe) private let standard: ISO8601DateFormatter
+
+    nonisolated init() {
+        fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+    }
+
+    nonisolated func string(from date: Date) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return fractional.string(from: date)
+    }
+
+    nonisolated func date(from value: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return fractional.date(from: value) ?? standard.date(from: value)
     }
 }

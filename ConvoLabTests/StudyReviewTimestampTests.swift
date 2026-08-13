@@ -33,8 +33,11 @@ final class StudyReviewTimestampTests: XCTestCase {
                     millisecond
                 )
                 let decoded = try XCTUnwrap(ISO8601Milliseconds.date(from: timestamp))
+                let canonical = ISO8601Milliseconds.canonicalDate(decoded)
+                let recanonical = ISO8601Milliseconds.canonicalDate(canonical)
 
-                XCTAssertEqual(ISO8601Milliseconds.string(from: decoded), timestamp)
+                XCTAssertEqual(ISO8601Milliseconds.string(from: canonical), timestamp)
+                XCTAssertEqual(recanonical, canonical)
             }
         }
     }
