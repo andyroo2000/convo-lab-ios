@@ -1,6 +1,10 @@
 import Foundation
 
 enum ISO8601Milliseconds {
+    nonisolated private static let formatStyle = Date.ISO8601FormatStyle(
+        includingFractionalSeconds: true
+    )
+
     nonisolated static func canonicalDate(_ date: Date) -> Date {
         // Flooring the Unix millisecond value is equivalent to truncating the
         // fractional digits of a UTC timestamp, including before the epoch.
@@ -12,17 +16,11 @@ enum ISO8601Milliseconds {
     }
 
     nonisolated static func string(from date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: canonicalDate(date))
+        formatStyle.format(canonicalDate(date))
     }
 
     nonisolated static func date(from value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        return fractional.date(from: value) ?? standard.date(from: value)
+        try? formatStyle.parse(value)
     }
 
     nonisolated static func encode(_ date: Date, to encoder: Encoder) throws {
