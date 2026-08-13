@@ -3051,6 +3051,7 @@ final class StudyStoreTests: XCTestCase {
 
         XCTAssertNil(eventID)
         XCTAssertEqual(requests.current, 1)
+        XCTAssertEqual(store.syncStatus, .idle)
         XCTAssertEqual(store.cards.first?.state.scheduler, canonical.state.scheduler)
         let record = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
@@ -3062,6 +3063,106 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertTrue(
             try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
         )
+    }
+
+    @MainActor
+    func testInvalidSchedulerRecoveryPreservesPendingLocalEdit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let corrupted = makeCard(
+            id: "pending-corrupted-card",
+            expression: "未送信",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "state": .number(2),
+            ])
+        )
+        let payload = try StorageCodec.encoder.encode(corrupted)
+        let record = LocalCardRecord(
+            card: corrupted,
+            userID: 1,
+            queueIndex: 0,
+            payload: payload
+        )
+        let locallyUpdatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        record.locallyUpdatedAt = locallyUpdatedAt
+        container.mainContext.insert(record)
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardUpdate",
+                userID: 1,
+                resourceID: corrupted.id,
+                payload: Data("pending-edit".utf8)
+            )
+        )
+        try container.mainContext.save()
+        let requests = LockedCounter()
+        let client = makeClient { _ in
+            _ = requests.next()
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        _ = await store.recordReview(card: corrupted, rating: .good, duration: nil)
+
+        XCTAssertEqual(requests.current, 0)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(record.payload, payload)
+        XCTAssertEqual(record.locallyUpdatedAt, locallyUpdatedAt)
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testInvalidSchedulerRecoveryDeletesServerConfirmedMissingCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let corrupted = makeCard(
+            id: "deleted-corrupted-card",
+            expression: "削除済み",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "state": .number(2),
+            ])
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: corrupted,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(corrupted)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 404,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"message":"Not found"}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        _ = await store.recordReview(card: corrupted, rating: .good, duration: nil)
+
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(store.allCards.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertEqual(store.syncStatus, .idle)
     }
 
     @MainActor

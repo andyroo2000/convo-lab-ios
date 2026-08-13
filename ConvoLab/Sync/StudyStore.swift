@@ -1207,19 +1207,22 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
+            var schedulerStateRecovered = false
             if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
-                await recoverCorruptedSchedulerState(
+                schedulerStateRecovered = await recoverCorruptedSchedulerState(
                     for: card,
                     userID: userID,
                     activationGeneration: activationGeneration
                 )
             }
             markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
+            if !schedulerStateRecovered {
+                handleSyncError(
+                    error,
+                    for: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
             return stagedEventID
         }
     }
@@ -1919,14 +1922,26 @@ final class StudyStore {
         for card: StudyCard,
         userID: Int,
         activationGeneration: Int
-    ) async {
+    ) async -> Bool {
         let identifiers = StudyCardIdentity.identifiers(for: card)
         do {
+            guard try !cardOutbox.hasPendingCardWrite(for: card.id) else {
+                try removeFromActiveSession(card, userID: userID)
+                return false
+            }
             let canonicalCard = try await fetchCanonicalCard(id: card.reviewCardID)
-            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
             guard let canonicalCard else {
+                if let record = try localCardRepository.record(matching: card, userID: userID) {
+                    context.delete(record)
+                }
                 cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
-                return
+                libraryCards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                allCards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                try context.save()
+                return true
             }
             try updateExistingLocalCard(
                 canonicalCard,
@@ -1936,12 +1951,25 @@ final class StudyStore {
             try context.save()
             loadLocalCards(userID: userID)
             loadLibraryCards(userID: userID)
+            return true
         } catch {
-            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
             // Keep the replica for later reconciliation, but let the current
             // session advance past a card that cannot be graded safely.
-            cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+            try? removeFromActiveSession(card, userID: userID)
+            return false
         }
+    }
+
+    private func removeFromActiveSession(_ card: StudyCard, userID: Int) throws {
+        if let record = try localCardRepository.record(matching: card, userID: userID) {
+            record.isInActiveSession = false
+        }
+        let identifiers = StudyCardIdentity.identifiers(for: card)
+        cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+        try context.save()
     }
 
     private func failedMutation(id: String, userID: Int) throws -> PendingMutation? {
