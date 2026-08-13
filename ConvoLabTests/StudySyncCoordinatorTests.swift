@@ -121,6 +121,38 @@ final class StudySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(reloadCount, 0)
     }
 
+    func testDiscardedStaleResponseDoesNotPublishReloadOrPrune() async throws {
+        let stale = makeCard(id: "stale")
+        var published = StudySyncCoordinator.PublishedCards(
+            session: [stale],
+            library: [stale],
+            catalog: [stale]
+        )
+        var publishCount = 0
+        var reloadCount = 0
+        let coordinator = StudySyncCoordinator(
+            activate: { _ in },
+            deactivate: {},
+            pullChanges: { _ in .discardedStaleResponse }
+        )
+
+        let result = try await coordinator.pullChanges(
+            currentPublishedCards: { published },
+            publish: {
+                published = $0
+                publishCount += 1
+            },
+            reloadAfterCheckpointReset: { reloadCount += 1 }
+        )
+
+        XCTAssertEqual(result, .discardedStaleResponse)
+        XCTAssertEqual(published.session.map(\.id), ["stale"])
+        XCTAssertEqual(published.library.map(\.id), ["stale"])
+        XCTAssertEqual(published.catalog.map(\.id), ["stale"])
+        XCTAssertEqual(publishCount, 0)
+        XCTAssertEqual(reloadCount, 0)
+    }
+
     private func makeCard(id: String) -> StudyCard {
         StudyCard(
             id: id,
