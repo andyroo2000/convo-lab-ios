@@ -3117,6 +3117,77 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidSchedulerRecoveryPreservesEditStagedDuringRefetch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let corrupted = makeCard(
+            id: "in-flight-edit-corrupted-card",
+            expression: "編集中",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "state": .number(2),
+            ])
+        )
+        let canonical = makeCard(
+            id: corrupted.id,
+            expression: "サーバー版",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00.000Z"),
+                "state": .number(2),
+            ])
+        )
+        let payload = try StorageCodec.encoder.encode(corrupted)
+        let record = LocalCardRecord(
+            card: corrupted,
+            userID: 1,
+            queueIndex: 0,
+            payload: payload
+        )
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let canonicalObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(canonical)
+        )
+        let responseData = try JSONSerialization.data(
+            withJSONObject: ["cards": [canonicalObject]]
+        )
+        let deferredRefetch = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
+            deferredRefetch.hold(completion)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let reviewTask = Task { @MainActor in
+            await store.recordReview(card: corrupted, rating: .good, duration: nil)
+        }
+        await deferredRefetch.waitUntilPending()
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "cardUpdate",
+                userID: 1,
+                resourceID: corrupted.id,
+                payload: Data("in-flight-edit".utf8)
+            )
+        )
+        try container.mainContext.save()
+        deferredRefetch.succeed(with: Self.response(data: responseData))
+        _ = await reviewTask.value
+
+        XCTAssertEqual(record.payload, payload)
+        XCTAssertFalse(record.isInActiveSession)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).count,
+            1
+        )
+    }
+
+    @MainActor
     func testInvalidSchedulerRecoveryPreservesPendingReviewState() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let corrupted = makeCard(

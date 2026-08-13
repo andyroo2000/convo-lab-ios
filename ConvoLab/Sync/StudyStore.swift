@@ -1935,6 +1935,14 @@ final class StudyStore {
             guard isCurrentActivation(userID, generation: activationGeneration) else {
                 return false
             }
+            // The fetch suspends this actor, so local work may have been staged
+            // after the first guard. Re-check before replacing or deleting data.
+            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
+                  try !reviewOutbox.hasPendingReview(for: card.id)
+            else {
+                try removeFromActiveSession(card, userID: userID)
+                return false
+            }
             guard let canonicalCard else {
                 if let record = try localCardRepository.record(matching: card, userID: userID) {
                     context.delete(record)
