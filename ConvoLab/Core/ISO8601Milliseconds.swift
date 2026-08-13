@@ -2,6 +2,9 @@ import Foundation
 
 enum ISO8601Milliseconds {
     nonisolated private static let formatters = Formatters()
+    nonisolated(unsafe) private static let strictTimestampExpression = try! NSRegularExpression(
+        pattern: #"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$"#
+    )
 
     nonisolated static func canonicalDate(_ date: Date) -> Date {
         // Flooring the Unix millisecond value is equivalent to truncating the
@@ -28,7 +31,44 @@ enum ISO8601Milliseconds {
     }
 
     nonisolated static func date(from value: String) -> Date? {
-        formatters.date(from: value)
+        guard isStrictTimestamp(value) else { return nil }
+        return formatters.date(from: value)
+    }
+
+    nonisolated private static func isStrictTimestamp(_ value: String) -> Bool {
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = strictTimestampExpression.firstMatch(in: value, range: range) else {
+            return false
+        }
+        func integer(_ index: Int) -> Int? {
+            guard let range = Range(match.range(at: index), in: value) else { return nil }
+            return Int(value[range])
+        }
+        guard
+            let year = integer(1),
+            let month = integer(2),
+            let day = integer(3),
+            let hour = integer(4),
+            let minute = integer(5),
+            let second = integer(6),
+            (1...12).contains(month),
+            (1...31).contains(day),
+            hour <= 23,
+            minute <= 59,
+            second <= 59,
+            DateComponents(year: year, month: month, day: day).isValidDate(
+                in: Calendar(identifier: .gregorian)
+            )
+        else {
+            return false
+        }
+        guard let offsetHour = integer(8), let offsetMinute = integer(9) else {
+            return true
+        }
+        guard let signRange = Range(match.range(at: 7), in: value) else { return false }
+        let sign = value[signRange] == "-" ? -1 : 1
+        let offset = sign * ((offsetHour * 60) + offsetMinute)
+        return offsetMinute <= 59 && (-720...840).contains(offset)
     }
 
     nonisolated static func encode(_ date: Date, to encoder: Encoder) throws {

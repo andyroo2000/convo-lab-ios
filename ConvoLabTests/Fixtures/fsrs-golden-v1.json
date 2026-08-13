@@ -1,0 +1,596 @@
+{
+  "schema_version": 1,
+  "contract": {
+    "name": "convolab-fsrs-golden",
+    "canonical_fixture": "tests/Fixtures/fsrs-golden-v1.json",
+    "canonical_timestamp_format": "RFC3339 UTC with exactly three fractional digits",
+    "scheduler_state_fields": [
+      "due",
+      "stability",
+      "difficulty",
+      "elapsed_days",
+      "scheduled_days",
+      "learning_steps",
+      "reps",
+      "lapses",
+      "state",
+      "last_review"
+    ]
+  },
+  "profile": {
+    "algorithm": "FSRS-6",
+    "library": "ts-fsrs",
+    "library_version": "5.3.3",
+    "weights": [
+      0.212,
+      1.2931,
+      2.3065,
+      8.2956,
+      6.4133,
+      0.8334,
+      3.0194,
+      0.001,
+      1.8722,
+      0.1666,
+      0.796,
+      1.4835,
+      0.0614,
+      0.2629,
+      1.6483,
+      0.6014,
+      1.8729,
+      0.5425,
+      0.0912,
+      0.0658,
+      0.1542
+    ],
+    "request_retention": 0.9,
+    "maximum_interval_days": 36500,
+    "minimum_stability": 0.001,
+    "learning_steps_minutes": [1, 10],
+    "relearning_steps_minutes": [10],
+    "enable_fuzz": false,
+    "enable_short_term": true
+  },
+  "comparison": {
+    "timestamps": "parse as instants; expected values use canonical_timestamp_format",
+    "float_absolute_tolerance": 0.00000001,
+    "integers": "exact",
+    "strings": "exact"
+  },
+  "provenance": {
+    "canonical_repository": "andyroo2000/learning-os",
+    "canonical_path": "tests/Fixtures/fsrs-golden-v1.json",
+    "reference_library": "ts-fsrs",
+    "reference_library_version": "5.3.3",
+    "reference_library_npm_integrity": "sha512-DgWFirmZe9MTqJiwtlLZoa/xyzibfKtQvuXZoH5X0kei64Cp4o1SlT6EbajjDT8dr/a4x82fLkKrCbePq4bxag==",
+    "generator_profile": "generatorParameters({ enable_fuzz: false })",
+    "notes": [
+      "Expected standard scheduling vectors were independently generated with the pinned reference library.",
+      "Cross-runtime normalization vectors document the shared ConvoLab fallback policy layered around FSRS.",
+      "The fixture is pure test data and is not imported by production runtime code."
+    ]
+  },
+  "scheduling_cases": [
+    {
+      "id": "new-again",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "new",
+        "rating": "again",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:00:00.000Z",
+          "stability": 0,
+          "difficulty": 0,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 0,
+          "lapses": 0,
+          "state": 0,
+          "last_review": null
+        }
+      },
+      "expected": {
+        "study_status": "learning",
+        "due_at": "2026-07-25T12:01:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:01:00.000Z",
+          "stability": 0.212,
+          "difficulty": 6.4133,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 1,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "new-hard",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "new",
+        "rating": "hard",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:00:00.000Z",
+          "stability": 0,
+          "difficulty": 0,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 0,
+          "lapses": 0,
+          "state": 0,
+          "last_review": null
+        }
+      },
+      "expected": {
+        "study_status": "learning",
+        "due_at": "2026-07-25T12:06:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:06:00.000Z",
+          "stability": 1.2931,
+          "difficulty": 5.11217071,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 1,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "new-good",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "new",
+        "rating": "good",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:00:00.000Z",
+          "stability": 0,
+          "difficulty": 0,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 0,
+          "lapses": 0,
+          "state": 0,
+          "last_review": null
+        }
+      },
+      "expected": {
+        "study_status": "learning",
+        "due_at": "2026-07-25T12:10:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:10:00.000Z",
+          "stability": 2.3065,
+          "difficulty": 2.11810397,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 1,
+          "reps": 1,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "new-easy",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "new",
+        "rating": "easy",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:00:00.000Z",
+          "stability": 0,
+          "difficulty": 0,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 0,
+          "lapses": 0,
+          "state": 0,
+          "last_review": null
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-08-02T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-08-02T12:00:00.000Z",
+          "stability": 8.2956,
+          "difficulty": 1,
+          "elapsed_days": 0,
+          "scheduled_days": 8,
+          "learning_steps": 0,
+          "reps": 1,
+          "lapses": 0,
+          "state": 2,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "mature-again",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "review",
+        "rating": "again",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-04-12T00:00:00.000Z",
+          "stability": 54.1885,
+          "difficulty": 9.317,
+          "elapsed_days": 59,
+          "scheduled_days": 59,
+          "learning_steps": 0,
+          "reps": 12,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-02-12T13:01:42.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "relearning",
+        "due_at": "2026-07-25T12:10:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:10:00.000Z",
+          "stability": 3.31374859,
+          "difficulty": 9.76073091,
+          "elapsed_days": 163,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 13,
+          "lapses": 2,
+          "state": 3,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "mature-hard",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "review",
+        "rating": "hard",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-04-12T00:00:00.000Z",
+          "stability": 54.1885,
+          "difficulty": 9.317,
+          "elapsed_days": 59,
+          "scheduled_days": 59,
+          "learning_steps": 0,
+          "reps": 12,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-02-12T13:01:42.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-10-17T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-10-17T12:00:00.000Z",
+          "stability": 84.27757184,
+          "difficulty": 9.53182114,
+          "elapsed_days": 163,
+          "scheduled_days": 84,
+          "learning_steps": 0,
+          "reps": 13,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "mature-good",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "review",
+        "rating": "good",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-04-12T00:00:00.000Z",
+          "stability": 54.1885,
+          "difficulty": 9.317,
+          "elapsed_days": 59,
+          "scheduled_days": 59,
+          "learning_steps": 0,
+          "reps": 12,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-02-12T13:01:42.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-11-06T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-11-06T12:00:00.000Z",
+          "stability": 104.22021241,
+          "difficulty": 9.30291137,
+          "elapsed_days": 163,
+          "scheduled_days": 104,
+          "learning_steps": 0,
+          "reps": 13,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "mature-easy",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "review",
+        "rating": "easy",
+        "reviewed_at": "2026-07-25T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-04-12T00:00:00.000Z",
+          "stability": 54.1885,
+          "difficulty": 9.317,
+          "elapsed_days": 59,
+          "scheduled_days": 59,
+          "learning_steps": 0,
+          "reps": 12,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-02-12T13:01:42.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-12-20T12:00:00.000Z",
+        "scheduler_state": {
+          "due": "2026-12-20T12:00:00.000Z",
+          "stability": 147.89289417,
+          "difficulty": 9.0740016,
+          "elapsed_days": 163,
+          "scheduled_days": 148,
+          "learning_steps": 0,
+          "reps": 13,
+          "lapses": 1,
+          "state": 2,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "learning-hard",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "learning",
+        "rating": "hard",
+        "reviewed_at": "2027-01-15T08:00:00.000Z",
+        "scheduler_state": {
+          "due": "2027-01-15T08:00:00.000Z",
+          "stability": 2.3065,
+          "difficulty": 4,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 1,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2027-01-15T07:50:00.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "learning",
+        "due_at": "2027-01-15T08:06:00.000Z",
+        "scheduler_state": {
+          "due": "2027-01-15T08:06:00.000Z",
+          "stability": 2.3065,
+          "difficulty": 6.00214877,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 2,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2027-01-15T08:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "relearning-hard",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "relearning",
+        "rating": "hard",
+        "reviewed_at": "2027-01-15T08:00:00.000Z",
+        "scheduler_state": {
+          "due": "2027-01-15T08:00:00.000Z",
+          "stability": 5,
+          "difficulty": 6,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 5,
+          "lapses": 1,
+          "state": 3,
+          "last_review": "2027-01-15T07:50:00.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "relearning",
+        "due_at": "2027-01-15T08:15:00.000Z",
+        "scheduler_state": {
+          "due": "2027-01-15T08:15:00.000Z",
+          "stability": 5,
+          "difficulty": 7.32984197,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 6,
+          "lapses": 1,
+          "state": 3,
+          "last_review": "2027-01-15T08:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "learning-good-graduates",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "learning",
+        "rating": "good",
+        "reviewed_at": "2026-07-25T12:10:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T12:10:00.000Z",
+          "stability": 2.3065,
+          "difficulty": 2.11810397,
+          "elapsed_days": 0,
+          "scheduled_days": 0,
+          "learning_steps": 1,
+          "reps": 1,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2026-07-25T12:00:00.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-07-27T12:10:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-27T12:10:00.000Z",
+          "stability": 2.3065,
+          "difficulty": 2.11121424,
+          "elapsed_days": 0,
+          "scheduled_days": 2,
+          "learning_steps": 0,
+          "reps": 2,
+          "lapses": 0,
+          "state": 2,
+          "last_review": "2026-07-25T12:10:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "review-utc-day-boundary",
+      "source": "ts-fsrs-5.3.3",
+      "input": {
+        "study_status": "review",
+        "rating": "good",
+        "reviewed_at": "2026-07-25T00:01:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T00:01:00.000Z",
+          "stability": 10,
+          "difficulty": 5,
+          "elapsed_days": 0,
+          "scheduled_days": 1,
+          "learning_steps": 0,
+          "reps": 2,
+          "lapses": 0,
+          "state": 2,
+          "last_review": "2026-07-24T23:59:00.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "review",
+        "due_at": "2026-08-07T00:01:00.000Z",
+        "scheduler_state": {
+          "due": "2026-08-07T00:01:00.000Z",
+          "stability": 13.04717575,
+          "difficulty": 4.99022837,
+          "elapsed_days": 1,
+          "scheduled_days": 13,
+          "learning_steps": 0,
+          "reps": 3,
+          "lapses": 0,
+          "state": 2,
+          "last_review": "2026-07-25T00:01:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "invalid-state-falls-back-to-study-status",
+      "source": "cross-runtime-normalization",
+      "input": {
+        "study_status": "learning",
+        "rating": "hard",
+        "reviewed_at": "2026-07-25T12:00:00.000-04:00",
+        "scheduler_state": {
+          "stability": 10,
+          "difficulty": 5,
+          "learning_steps": 0,
+          "reps": 3,
+          "lapses": 0,
+          "state": 99,
+          "last_review": "2026-07-24T12:00:00.000Z"
+        }
+      },
+      "expected": {
+        "study_status": "learning",
+        "due_at": "2026-07-25T16:06:00.000Z",
+        "scheduler_state": {
+          "due": "2026-07-25T16:06:00.000Z",
+          "stability": 11.8325715,
+          "difficulty": 6.66599536,
+          "elapsed_days": 1,
+          "scheduled_days": 0,
+          "learning_steps": 0,
+          "reps": 4,
+          "lapses": 0,
+          "state": 1,
+          "last_review": "2026-07-25T16:00:00.000Z"
+        }
+      }
+    }
+  ],
+  "transport_normalization_cases": [
+    {
+      "id": "utc-whole-seconds",
+      "input": {"timestamp": "2026-05-27T09:15:00Z"},
+      "expected": {"accepted": true, "canonical_utc": "2026-05-27T09:15:00.000Z"}
+    },
+    {
+      "id": "positive-offset",
+      "input": {"timestamp": "2026-05-27T14:45:00.987+05:30"},
+      "expected": {"accepted": true, "canonical_utc": "2026-05-27T09:15:00.987Z"}
+    },
+    {
+      "id": "truncate-sub-millisecond",
+      "input": {"timestamp": "2026-05-27T09:15:00.123999Z"},
+      "expected": {"accepted": true, "canonical_utc": "2026-05-27T09:15:00.123Z"}
+    },
+    {
+      "id": "minimum-negative-offset",
+      "input": {"timestamp": "2026-05-27T00:00:00.001-12:00"},
+      "expected": {"accepted": true, "canonical_utc": "2026-05-27T12:00:00.001Z"}
+    },
+    {
+      "id": "maximum-positive-offset",
+      "input": {"timestamp": "2026-05-27T23:59:59.999+14:00"},
+      "expected": {"accepted": true, "canonical_utc": "2026-05-27T09:59:59.999Z"}
+    },
+    {
+      "id": "reject-missing-zone",
+      "input": {"timestamp": "2026-05-27T09:15:00.000"},
+      "expected": {"accepted": false, "canonical_utc": null}
+    },
+    {
+      "id": "reject-relative-text",
+      "input": {"timestamp": "tomorrow"},
+      "expected": {"accepted": false, "canonical_utc": null}
+    },
+    {
+      "id": "reject-invalid-offset",
+      "input": {"timestamp": "2026-05-27T09:15:00.000+14:01"},
+      "expected": {"accepted": false, "canonical_utc": null}
+    }
+  ]
+}
