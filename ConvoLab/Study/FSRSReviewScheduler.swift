@@ -39,6 +39,14 @@ enum FSRSReviewScheduler {
         }
     }
 
+    struct InvalidSchedulerTimestampError: LocalizedError, Equatable {
+        let field: String
+
+        var errorDescription: String? {
+            "The persisted FSRS \(field) timestamp is invalid."
+        }
+    }
+
     // Defaults from ts-fsrs 5.3.3 (FSRS-6), with fuzzing disabled for
     // deterministic parity between learning-os and offline clients. The
     // metadata fields describe this implementation; they are not runtime
@@ -109,7 +117,7 @@ enum FSRSReviewScheduler {
         rating: ReviewRating,
         reviewedAt: Date
     ) throws -> FSRSReviewSchedule {
-        let current = normalizedState(
+        let current = try normalizedState(
             schedulerState,
             queueState: queueState,
             reviewedAt: reviewedAt
@@ -502,7 +510,7 @@ enum FSRSReviewScheduler {
         _ schedulerState: JSONValue?,
         queueState: String,
         reviewedAt: Date
-    ) -> State {
+    ) throws -> State {
         let object: [String: JSONValue]
         if case let .object(value)? = schedulerState {
             object = value
@@ -514,8 +522,15 @@ enum FSRSReviewScheduler {
             ?? fallbackState
         let isNew = state == .new
 
+        let due = try persistedTimestamp(object["due"], field: "due") ?? reviewedAt
+        let lastReview = try persistedTimestamp(
+            object["last_review"],
+            field: "last_review",
+            allowsNull: true
+        )
+
         return State(
-            due: object["due"]?.stringValue.flatMap(parseDate) ?? reviewedAt,
+            due: due,
             stability: isNew
                 ? 0
                 : max(number(object["stability"]) ?? 0.1, profile.minimumStability),
@@ -528,8 +543,21 @@ enum FSRSReviewScheduler {
             reps: max(0, integer(object["reps"]) ?? 0),
             lapses: max(0, integer(object["lapses"]) ?? 0),
             state: state,
-            lastReview: object["last_review"]?.stringValue.flatMap(parseDate)
+            lastReview: lastReview
         )
+    }
+
+    private static func persistedTimestamp(
+        _ value: JSONValue?,
+        field: String,
+        allowsNull: Bool = false
+    ) throws -> Date? {
+        guard let value else { return nil }
+        if case .null = value, allowsNull { return nil }
+        guard let timestamp = value.stringValue, let date = parseDate(timestamp) else {
+            throw InvalidSchedulerTimestampError(field: field)
+        }
+        return date
     }
 
     private static func serialized(_ state: State) -> JSONValue {

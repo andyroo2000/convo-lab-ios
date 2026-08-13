@@ -95,6 +95,30 @@ final class StudyReviewTimestampTests: XCTestCase {
         }
     }
 
+    func testAPIClientDecodesCanonicalTimestampOnNonSchedulerModel() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(
+                    #"{"id":7,"name":"Learner","email":"learner@example.com","email_verified_at":"2027-01-15T08:00:00.789000Z"}"#.utf8
+                )
+            )
+        }
+
+        let user: CurrentUser = try await client.request("/user")
+
+        XCTAssertEqual(
+            try XCTUnwrap(user.emailVerifiedAt).timeIntervalSince1970,
+            1_800_000_000.789,
+            accuracy: 0.000_001
+        )
+    }
+
     func testDirectSchedulerCanonicalizesItsTimestampOutput() throws {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000.789_123)
 
@@ -109,6 +133,28 @@ final class StudyReviewTimestampTests: XCTestCase {
             schedule.schedulerState["last_review"],
             .string("2027-01-15T08:00:00.789Z")
         )
+    }
+
+    func testSchedulerRejectsMalformedPersistedTimestampInsteadOfResettingIt() throws {
+        let state: JSONValue = .object([
+            "due": .string("2027-01-15T08:00:00+14:01"),
+            "last_review": .string("2027-01-14T08:00:00.000Z"),
+            "state": .number(2),
+        ])
+
+        XCTAssertThrowsError(
+            try FSRSReviewScheduler.schedule(
+                schedulerState: state,
+                queueState: "review",
+                rating: .good,
+                reviewedAt: Date(timeIntervalSince1970: 1_800_000_000)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? FSRSReviewScheduler.InvalidSchedulerTimestampError,
+                .init(field: "due")
+            )
+        }
     }
 
     func testReviewUsesSameCanonicalMillisecondsLocallyInOutboxAndOnWire() async throws {
