@@ -2,7 +2,7 @@ import Foundation
 
 enum ISO8601Milliseconds {
     nonisolated private static let formatters = Formatters()
-    nonisolated(unsafe) private static let strictTimestampExpression = try! NSRegularExpression(
+    nonisolated private static let strictTimestampExpression = try! NSRegularExpression(
         pattern: #"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$"#
     )
 
@@ -51,6 +51,7 @@ enum ISO8601Milliseconds {
             let hour = integer(4),
             let minute = integer(5),
             let second = integer(6),
+            year >= 1,
             (1...12).contains(month),
             (1...31).contains(day),
             hour <= 23,

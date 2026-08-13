@@ -23,6 +23,11 @@ final class FSRSGoldenFixtureTests: XCTestCase {
         XCTAssertEqual(Self.canonicalAPICommit.count, 40)
         XCTAssertEqual(digest, Self.canonicalSHA256)
         XCTAssertEqual(checksum, Self.canonicalSHA256)
+        XCTAssertNil(
+            Bundle.main.url(forResource: "fsrs-golden-v1", withExtension: "json"),
+            "The canonical fixture belongs in the test bundle, not the app runtime bundle."
+        )
+        try assertIntegerTokensAreNotCoerced(in: fixtureData)
     }
 
     func testProfileMatchesRuntimeConstants() throws {
@@ -46,7 +51,7 @@ final class FSRSGoldenFixtureTests: XCTestCase {
             )
             let rating = try XCTUnwrap(ReviewRating(rawValue: vector.input.rating), vector.id)
             let schedule = try FSRSReviewScheduler.schedule(
-                schedulerState: vector.input.schedulerState,
+                schedulerState: vector.input.schedulerState?.jsonValue,
                 queueState: vector.input.studyStatus,
                 rating: rating,
                 reviewedAt: reviewedAt
@@ -106,13 +111,13 @@ final class FSRSGoldenFixtureTests: XCTestCase {
 
     private func assertSchedulerState(
         _ actual: JSONValue,
-        equals expected: JSONValue,
+        equals expected: GoldenFixture.SchedulerState,
         fields: [String],
         tolerance: Double,
         caseID: String
     ) {
         guard case let .object(actualObject) = actual,
-              case let .object(expectedObject) = expected
+              case let .object(expectedObject) = expected.jsonValue
         else {
             return XCTFail("\(caseID): scheduler state must be an object")
         }
@@ -172,6 +177,56 @@ final class FSRSGoldenFixtureTests: XCTestCase {
             )
         )
     }
+
+    private func assertIntegerTokensAreNotCoerced(in data: Data) throws {
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        assertIntegerToken(root["schema_version"], path: "schema_version")
+
+        let profile = try XCTUnwrap(root["profile"] as? [String: Any])
+        assertIntegerToken(
+            profile["maximum_interval_days"],
+            path: "profile.maximum_interval_days"
+        )
+        for key in ["learning_steps_minutes", "relearning_steps_minutes"] {
+            for (index, value) in try XCTUnwrap(profile[key] as? [Any]).enumerated() {
+                assertIntegerToken(value, path: "profile.\(key)[\(index)]")
+            }
+        }
+
+        let cases = try XCTUnwrap(root["scheduling_cases"] as? [[String: Any]])
+        let integerFields = [
+            "elapsed_days", "scheduled_days", "learning_steps", "reps", "lapses", "state",
+        ]
+        for vector in cases {
+            let id = try XCTUnwrap(vector["id"] as? String)
+            let input = try XCTUnwrap(vector["input"] as? [String: Any])
+            let expected = try XCTUnwrap(vector["expected"] as? [String: Any])
+            let states = [
+                ("input", input["scheduler_state"] as? [String: Any]),
+                ("expected", expected["scheduler_state"] as? [String: Any]),
+            ]
+            for (kind, state) in states {
+                guard let state else { continue }
+                for field in integerFields where state[field] != nil {
+                    assertIntegerToken(
+                        state[field],
+                        path: "scheduling_cases.\(id).\(kind).scheduler_state.\(field)"
+                    )
+                }
+            }
+        }
+    }
+
+    private func assertIntegerToken(_ value: Any?, path: String) {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              !["d", "f"].contains(String(cString: number.objCType))
+        else {
+            return XCTFail("\(path) must use an integer JSON token")
+        }
+    }
 }
 
 private struct GoldenFixture: Decodable {
@@ -211,8 +266,8 @@ private struct GoldenFixture: Decodable {
         let enableFuzz: Bool
         let enableShortTerm: Bool
 
-        var runtimeProfile: FSRSProfile {
-            FSRSProfile(
+        var runtimeProfile: FSRSReviewScheduler.Profile {
+            FSRSReviewScheduler.Profile(
                 algorithm: algorithm,
                 library: library,
                 libraryVersion: libraryVersion,
@@ -268,7 +323,7 @@ private struct GoldenFixture: Decodable {
         let studyStatus: String
         let rating: String
         let reviewedAt: String
-        let schedulerState: JSONValue?
+        let schedulerState: SchedulerState?
 
         enum CodingKeys: String, CodingKey {
             case studyStatus = "study_status"
@@ -281,12 +336,50 @@ private struct GoldenFixture: Decodable {
     struct SchedulingExpected: Decodable {
         let studyStatus: String
         let dueAt: String
-        let schedulerState: JSONValue
+        let schedulerState: SchedulerState
 
         enum CodingKeys: String, CodingKey {
             case studyStatus = "study_status"
             case dueAt = "due_at"
             case schedulerState = "scheduler_state"
+        }
+    }
+
+    struct SchedulerState: Decodable {
+        let due: String?
+        let stability: Double
+        let difficulty: Double
+        let elapsedDays: Int?
+        let scheduledDays: Int?
+        let learningSteps: Int
+        let reps: Int
+        let lapses: Int
+        let state: Int
+        let lastReview: String?
+
+        var jsonValue: JSONValue {
+            var object: [String: JSONValue] = [
+                "stability": .number(stability),
+                "difficulty": .number(difficulty),
+                "learning_steps": .number(Double(learningSteps)),
+                "reps": .number(Double(reps)),
+                "lapses": .number(Double(lapses)),
+                "state": .number(Double(state)),
+                "last_review": lastReview.map(JSONValue.string) ?? .null,
+            ]
+            if let due { object["due"] = .string(due) }
+            if let elapsedDays { object["elapsed_days"] = .number(Double(elapsedDays)) }
+            if let scheduledDays { object["scheduled_days"] = .number(Double(scheduledDays)) }
+            return .object(object)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case due, stability, difficulty
+            case elapsedDays = "elapsed_days"
+            case scheduledDays = "scheduled_days"
+            case learningSteps = "learning_steps"
+            case reps, lapses, state
+            case lastReview = "last_review"
         }
     }
 

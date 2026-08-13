@@ -7,21 +7,21 @@ struct FSRSReviewSchedule: Equatable, Sendable {
     let intervalLabel: String
 }
 
-struct FSRSProfile: Equatable, Sendable {
-    let algorithm: String
-    let library: String
-    let libraryVersion: String
-    let weights: [Double]
-    let requestRetention: Double
-    let maximumIntervalDays: Int
-    let minimumStability: Double
-    let learningStepsMinutes: [Int]
-    let relearningStepsMinutes: [Int]
-    let enableFuzz: Bool
-    let enableShortTerm: Bool
-}
-
 enum FSRSReviewScheduler {
+    struct Profile: Equatable, Sendable {
+        let algorithm: String
+        let library: String
+        let libraryVersion: String
+        let weights: [Double]
+        let requestRetention: Double
+        let maximumIntervalDays: Int
+        let minimumStability: Double
+        let learningStepsMinutes: [Int]
+        let relearningStepsMinutes: [Int]
+        let enableFuzz: Bool
+        let enableShortTerm: Bool
+    }
+
     struct InvalidRatingStatesError: LocalizedError, Equatable {
         let missingGrades: [Int]
         let unexpectedGrades: [Int]
@@ -41,7 +41,7 @@ enum FSRSReviewScheduler {
 
     // Defaults from ts-fsrs 5.3.3 (FSRS-6), with fuzzing disabled for
     // deterministic parity between learning-os and offline clients.
-    static let profile = FSRSProfile(
+    static let profile = Profile(
         algorithm: "FSRS-6",
         library: "ts-fsrs",
         libraryVersion: "5.3.3",
