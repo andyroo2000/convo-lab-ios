@@ -73,6 +73,28 @@ final class StudyReviewTimestampTests: XCTestCase {
         )
     }
 
+    func testAPIClientRejectsTimestampOutsideCanonicalOffsetBounds() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"reviewed_at":"2027-01-15T08:00:00+14:01"}"#.utf8)
+            )
+        }
+
+        do {
+            let _: LegacyTimestamp = try await client.request("/timestamp")
+            XCTFail("Expected the noncanonical offset to fail response decoding")
+        } catch APIClientError.decoding(path: "/timestamp", details: let details) {
+            XCTAssertTrue(details.contains("reviewed_at"), details)
+            XCTAssertTrue(details.contains("Invalid ISO-8601 date"), details)
+        }
+    }
+
     func testDirectSchedulerCanonicalizesItsTimestampOutput() throws {
         let reviewedAt = Date(timeIntervalSince1970: 1_800_000_000.789_123)
 

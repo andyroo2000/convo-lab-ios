@@ -63,7 +63,7 @@ final class FSRSGoldenFixtureTests: XCTestCase {
                 try XCTUnwrap(ISO8601Milliseconds.date(from: vector.expected.dueAt)),
                 vector.id
             )
-            assertSchedulerState(
+            try assertSchedulerState(
                 schedule.schedulerState,
                 equals: vector.expected.schedulerState,
                 fields: fixture.contract.schedulerStateFields,
@@ -115,7 +115,7 @@ final class FSRSGoldenFixtureTests: XCTestCase {
         fields: [String],
         tolerance: Double,
         caseID: String
-    ) {
+    ) throws {
         guard case let .object(actualObject) = actual,
               case let .object(expectedObject) = expected.jsonValue
         else {
@@ -140,11 +140,15 @@ final class FSRSGoldenFixtureTests: XCTestCase {
                     XCTFail("\(caseID).\(field): expected timestamps")
                     continue
                 }
-                XCTAssertEqual(
+                let actualDate = try XCTUnwrap(
                     ISO8601Milliseconds.date(from: actualTimestamp),
-                    ISO8601Milliseconds.date(from: expectedTimestamp),
-                    "\(caseID).\(field)"
+                    "\(caseID).\(field): invalid actual timestamp"
                 )
+                let expectedDate = try XCTUnwrap(
+                    ISO8601Milliseconds.date(from: expectedTimestamp),
+                    "\(caseID).\(field): invalid expected timestamp"
+                )
+                XCTAssertEqual(actualDate, expectedDate, "\(caseID).\(field)")
             case "elapsed_days", "scheduled_days", "learning_steps", "reps", "lapses", "state":
                 guard case let .number(actualNumber)? = actualObject[field],
                       case let .number(expectedNumber)? = expectedObject[field]
