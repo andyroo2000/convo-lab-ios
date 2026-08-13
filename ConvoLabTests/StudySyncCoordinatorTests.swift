@@ -77,6 +77,50 @@ final class StudySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(published.catalog.map(\.id), ["retained"])
     }
 
+    func testLaterFailureKeepsAlreadyCommittedPagePublishedWithoutFinalPrune() async {
+        struct LaterPageError: Error {}
+
+        let deleted = makeCard(id: "deleted")
+        let retained = makeCard(id: "retained")
+        var published = StudySyncCoordinator.PublishedCards(
+            session: [deleted, retained],
+            library: [deleted, retained],
+            catalog: [deleted, retained]
+        )
+        var reloadCount = 0
+        let coordinator = StudySyncCoordinator(
+            activate: { _ in },
+            deactivate: {},
+            pullChanges: { onPageCommitted in
+                onPageCommitted(
+                    .init(
+                        deletedCardIdentifiers: ["deleted"],
+                        restoredCards: []
+                    )
+                )
+                throw LaterPageError()
+            }
+        )
+
+        do {
+            _ = try await coordinator.pullChanges(
+                currentPublishedCards: { published },
+                publish: { published = $0 },
+                reloadAfterCheckpointReset: { reloadCount += 1 }
+            )
+            XCTFail("The later-page failure should propagate")
+        } catch is LaterPageError {
+            // Expected: the first committed page must remain published.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(published.session.map(\.id), ["retained"])
+        XCTAssertEqual(published.library.map(\.id), ["retained"])
+        XCTAssertEqual(published.catalog.map(\.id), ["retained"])
+        XCTAssertEqual(reloadCount, 0)
+    }
+
     private func makeCard(id: String) -> StudyCard {
         StudyCard(
             id: id,
