@@ -57,6 +57,8 @@ final class StudySyncCoordinator {
         var catalogReconciler = StudyPublishedCardReconciler()
         let result = try await pullChangesOperation { changes in
             var published = currentPublishedCards()
+            // A frozen lesson ignores ordinary session refreshes, but committed
+            // tombstones must still disappear so review staging cannot recreate them.
             sessionReconciler.apply(changes, to: &published.session)
             libraryReconciler.apply(changes, to: &published.library)
             catalogReconciler.apply(changes, to: &published.catalog)
