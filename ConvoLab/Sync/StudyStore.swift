@@ -62,7 +62,7 @@ final class StudyStore {
     private let cardMediaService: CardMediaMutationService
     private let pitchAccentService: PitchAccentResolutionService
     private let sessionLoadingService: StudySessionLoadingService
-    private let cardSyncFeedRepository: CardSyncFeedRepository
+    private let syncCoordinator: StudySyncCoordinator
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let deviceID: String
@@ -211,7 +211,9 @@ final class StudyStore {
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
         pitchAccentService = PitchAccentResolutionService(api: api, context: context)
         sessionLoadingService = StudySessionLoadingService(api: api)
-        cardSyncFeedRepository = CardSyncFeedRepository(api: api, context: context)
+        syncCoordinator = StudySyncCoordinator(
+            repository: CardSyncFeedRepository(api: api, context: context)
+        )
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
         deviceID = ClientIdentifier.deviceID()
@@ -234,7 +236,7 @@ final class StudyStore {
         cardMediaService.activate(userID: userID)
         pitchAccentService.activate(userID: userID)
         sessionLoadingService.activate(userID: userID)
-        cardSyncFeedRepository.activate(userID: userID)
+        syncCoordinator.activate(userID: userID)
         restorePendingReviewState()
         reloadFailedStudyChanges()
         knownKanjiService.activate(userID: userID)
@@ -256,7 +258,7 @@ final class StudyStore {
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
         sessionLoadingService.deactivate()
-        cardSyncFeedRepository.deactivate()
+        syncCoordinator.deactivate()
         reviewRecordingService.deactivate()
         reviewOutbox.deactivate()
         cards = []
@@ -481,30 +483,21 @@ final class StudyStore {
         }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         do {
-            var cardsReconciler = StudyPublishedCardReconciler()
-            var libraryCardsReconciler = StudyPublishedCardReconciler()
-            var allCardsReconciler = StudyPublishedCardReconciler()
-            let result = try await cardSyncFeedRepository.pullChanges { changes in
-                // A presented lesson ignores ordinary session refreshes, but a
-                // committed tombstone must still remove the deleted card. Keeping
-                // it visible would let review staging recreate the deleted record.
-                cardsReconciler.apply(changes, to: &self.cards)
-                libraryCardsReconciler.apply(changes, to: &self.libraryCards)
-                allCardsReconciler.apply(changes, to: &self.allCards)
-            }
-            switch result {
-            case let .completed(deletedCardIdentifiers):
-                prunePublishedCards(matching: deletedCardIdentifiers)
-            case let .checkpointReset(deletedCardIdentifiers):
-                checkpointWasReset = true
-                if !lessonSessionIsPresented {
-                    loadLocalCards(userID: userID)
+            let result = try await syncCoordinator.pullChanges(
+                currentPublishedCards: publishedCards,
+                publish: publish,
+                reloadAfterCheckpointReset: {
+                    if !self.lessonSessionIsPresented {
+                        self.loadLocalCards(userID: userID)
+                    }
+                    self.loadLibraryCards(userID: userID)
                 }
-                loadLibraryCards(userID: userID)
-                // A checkpoint reset purges the backing records. Even a frozen
-                // lesson must drop those snapshots so review staging cannot
-                // recreate records from data the reset deliberately discarded.
-                prunePublishedCards(matching: deletedCardIdentifiers)
+            )
+            switch result {
+            case .completed:
+                break
+            case .checkpointReset:
+                checkpointWasReset = true
             case .discardedStaleResponse:
                 return
             }
@@ -560,10 +553,18 @@ final class StudyStore {
         }
     }
 
-    private func prunePublishedCards(matching identifiers: Set<String>) {
-        StudyPublishedCardReconciler.prune(&cards, matching: identifiers)
-        StudyPublishedCardReconciler.prune(&libraryCards, matching: identifiers)
-        StudyPublishedCardReconciler.prune(&allCards, matching: identifiers)
+    private func publishedCards() -> StudySyncCoordinator.PublishedCards {
+        StudySyncCoordinator.PublishedCards(
+            session: cards,
+            library: libraryCards,
+            catalog: allCards
+        )
+    }
+
+    private func publish(_ published: StudySyncCoordinator.PublishedCards) {
+        cards = published.session
+        libraryCards = published.library
+        allCards = published.catalog
     }
 
     func synchronizeIfNeeded(maxAge: Duration) async {
