@@ -2991,6 +2991,80 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidPersistedSchedulerTimestampRefetchesCanonicalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let corrupted = makeCard(
+            id: "corrupted-scheduler-card",
+            expression: "修復",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "last_review": .string("2027-01-14T08:00:00.000Z"),
+                "state": .number(2),
+            ])
+        )
+        let canonical = makeCard(
+            id: corrupted.id,
+            expression: "修復",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00.000Z"),
+                "last_review": .string("2027-01-14T08:00:00.000Z"),
+                "state": .number(2),
+            ])
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: corrupted,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(corrupted)
+            )
+        )
+        try container.mainContext.save()
+        let canonicalObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(canonical)
+        )
+        let responseData = try JSONSerialization.data(
+            withJSONObject: ["cards": [canonicalObject]]
+        )
+        let requests = LockedCounter()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
+            _ = requests.next()
+            return Self.response(data: responseData)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let eventID = await store.recordReview(
+            card: corrupted,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNil(eventID)
+        XCTAssertEqual(requests.current, 1)
+        XCTAssertEqual(store.cards.first?.state.scheduler, canonical.state.scheduler)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(StudyCard.self, from: record.payload).state.scheduler,
+            canonical.state.scheduler
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+    }
+
+    @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let failedCard = StudyCard(

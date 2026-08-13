@@ -1207,6 +1207,13 @@ final class StudyStore {
             try await reviewOutbox.flush()
             return staged.eventID
         } catch {
+            if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
+                await recoverCorruptedSchedulerState(
+                    for: card,
+                    userID: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
             markOutboxRetryNeeded(for: error)
             handleSyncError(
                 error,
@@ -1905,6 +1912,35 @@ final class StudyStore {
             return response.cards.first
         } catch APIClientError.rejected(status: 404, message: _) {
             return nil
+        }
+    }
+
+    private func recoverCorruptedSchedulerState(
+        for card: StudyCard,
+        userID: Int,
+        activationGeneration: Int
+    ) async {
+        let identifiers = StudyCardIdentity.identifiers(for: card)
+        do {
+            let canonicalCard = try await fetchCanonicalCard(id: card.reviewCardID)
+            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard let canonicalCard else {
+                cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+                return
+            }
+            try updateExistingLocalCard(
+                canonicalCard,
+                markedDirty: false,
+                serverUpdatedAt: canonicalCard.updatedAt
+            )
+            try context.save()
+            loadLocalCards(userID: userID)
+            loadLibraryCards(userID: userID)
+        } catch {
+            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            // Keep the replica for later reconciliation, but let the current
+            // session advance past a card that cannot be graded safely.
+            cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
         }
     }
 

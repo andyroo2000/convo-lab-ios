@@ -2,6 +2,7 @@ import Foundation
 
 enum ISO8601Milliseconds {
     nonisolated private static let formatters = Formatters()
+    nonisolated private static let gregorianCalendar = Calendar(identifier: .gregorian)
     nonisolated private static let strictTimestampExpression = try! NSRegularExpression(
         pattern: #"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))\z"#
     )
@@ -58,7 +59,7 @@ enum ISO8601Milliseconds {
             minute <= 59,
             second <= 59,
             DateComponents(year: year, month: month, day: day).isValidDate(
-                in: Calendar(identifier: .gregorian)
+                in: gregorianCalendar
             )
         else {
             return false
