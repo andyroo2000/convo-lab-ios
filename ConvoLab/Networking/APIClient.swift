@@ -277,7 +277,7 @@ final class APIClient {
 
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .custom(ISO8601Milliseconds.encode)
+        encoder.dateEncodingStrategy = .iso8601
         return encoder
     }()
 

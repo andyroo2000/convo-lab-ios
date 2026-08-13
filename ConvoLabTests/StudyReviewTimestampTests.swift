@@ -29,6 +29,28 @@ final class StudyReviewTimestampTests: XCTestCase {
         XCTAssertEqual(decoded.reviewedAt, Date(timeIntervalSince1970: 1_800_000_000))
     }
 
+    func testAPIClientDecodesSixDigitServerMilliseconds() async throws {
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"reviewed_at":"2027-01-15T08:00:00.789000Z"}"#.utf8)
+            )
+        }
+
+        let response: LegacyTimestamp = try await client.request("/timestamp")
+
+        XCTAssertEqual(
+            response.reviewedAt.timeIntervalSince1970,
+            1_800_000_000.789,
+            accuracy: 0.000_001
+        )
+    }
+
     func testReviewUsesSameCanonicalMillisecondsLocallyInOutboxAndOnWire() async throws {
         let capturedBody = LockedReviewRequestBody()
         let client = makeClient { request in
