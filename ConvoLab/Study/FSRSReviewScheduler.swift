@@ -524,13 +524,11 @@ enum FSRSReviewScheduler {
 
         let due = try persistedTimestamp(
             object["due"],
-            field: "due",
-            allowsNull: true
+            field: "due"
         ) ?? reviewedAt
         let lastReview = try persistedTimestamp(
             object["last_review"],
-            field: "last_review",
-            allowsNull: true
+            field: "last_review"
         )
 
         return State(
@@ -553,11 +551,10 @@ enum FSRSReviewScheduler {
 
     private static func persistedTimestamp(
         _ value: JSONValue?,
-        field: String,
-        allowsNull: Bool = false
+        field: String
     ) throws -> Date? {
         guard let value else { return nil }
-        if case .null = value, allowsNull { return nil }
+        if case .null = value { return nil }
         guard let timestamp = value.stringValue, let date = parseDate(timestamp) else {
             throw InvalidSchedulerTimestampError(field: field)
         }
