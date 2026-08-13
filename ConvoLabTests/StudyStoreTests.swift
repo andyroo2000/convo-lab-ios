@@ -3117,6 +3117,73 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidSchedulerRecoveryPreservesPendingReviewState() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let corrupted = makeCard(
+            id: "pending-review-corrupted-card",
+            expression: "復習待ち",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "state": .number(2),
+            ])
+        )
+        let payload = try StorageCodec.encoder.encode(corrupted)
+        let record = LocalCardRecord(
+            card: corrupted,
+            userID: 1,
+            queueIndex: 0,
+            payload: payload
+        )
+        container.mainContext.insert(record)
+        let event = ReviewBatchRequest.Event(
+            id: "pending-review-event",
+            cardID: corrupted.id,
+            rating: .good,
+            reviewedAt: .now,
+            durationMilliseconds: nil,
+            clientEventID: "pending-review-client-event",
+            deviceID: "device",
+            clientCreatedAt: .now
+        )
+        container.mainContext.insert(
+            PendingMutation(
+                kind: "review",
+                userID: 1,
+                resourceID: corrupted.id,
+                payload: try StorageCodec.encoder.encode(
+                    PendingReviewPayload(
+                        event: event,
+                        cardBefore: PendingReviewCardState(card: corrupted)
+                    )
+                )
+            )
+        )
+        try container.mainContext.save()
+        let requests = LockedCounter()
+        let client = makeClient { _ in
+            _ = requests.next()
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        _ = await store.recordReview(card: corrupted, rating: .good, duration: nil)
+
+        XCTAssertEqual(requests.current, 0)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(record.payload, payload)
+        XCTAssertFalse(record.isInActiveSession)
+        XCTAssertEqual(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).count,
+            1
+        )
+    }
+
+    @MainActor
     func testInvalidSchedulerRecoveryDeletesServerConfirmedMissingCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let corrupted = makeCard(

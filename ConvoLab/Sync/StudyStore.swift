@@ -1925,7 +1925,9 @@ final class StudyStore {
     ) async -> Bool {
         let identifiers = StudyCardIdentity.identifiers(for: card)
         do {
-            guard try !cardOutbox.hasPendingCardWrite(for: card.id) else {
+            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
+                  try !reviewOutbox.hasPendingReview(for: card.id)
+            else {
                 try removeFromActiveSession(card, userID: userID)
                 return false
             }
@@ -1949,6 +1951,8 @@ final class StudyStore {
                 serverUpdatedAt: canonicalCard.updatedAt
             )
             try context.save()
+            // A repaired canonical record remains active so the user can retry
+            // the grade that exposed the corruption.
             loadLocalCards(userID: userID)
             loadLibraryCards(userID: userID)
             return true
