@@ -283,20 +283,7 @@ final class APIClient {
 
     private static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let value = try decoder.singleValueContainer().decode(String.self)
-            let fractional = ISO8601DateFormatter()
-            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let standard = ISO8601DateFormatter()
-            standard.formatOptions = [.withInternetDateTime]
-            if let date = fractional.date(from: value) ?? standard.date(from: value) {
-                return date
-            }
-            throw DecodingError.dataCorruptedError(
-                in: try decoder.singleValueContainer(),
-                debugDescription: "Invalid ISO-8601 date: \(value)"
-            )
-        }
+        decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
         return decoder
     }()
 

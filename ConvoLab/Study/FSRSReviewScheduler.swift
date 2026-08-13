@@ -555,15 +555,11 @@ enum FSRSReviewScheduler {
     }
 
     private static func parseDate(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        ISO8601Milliseconds.date(from: value)
     }
 
     private static func formatDate(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        ISO8601Milliseconds.string(from: date)
     }
 
     private static func clamp(

@@ -732,6 +732,26 @@ struct ReviewBatchRequest: Codable {
             case deviceID = "device_id"
             case clientCreatedAt = "client_created_at"
         }
+
+        func encode(to encoder: Encoder) throws {
+            // Review dates bypass APIClient's whole-second strategy so the wire
+            // event retains the same canonical instant as the local projection.
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(cardID, forKey: .cardID)
+            try container.encode(rating, forKey: .rating)
+            try container.encode(
+                ISO8601Milliseconds.string(from: reviewedAt),
+                forKey: .reviewedAt
+            )
+            try container.encodeIfPresent(durationMilliseconds, forKey: .durationMilliseconds)
+            try container.encode(clientEventID, forKey: .clientEventID)
+            try container.encode(deviceID, forKey: .deviceID)
+            try container.encode(
+                ISO8601Milliseconds.string(from: clientCreatedAt),
+                forKey: .clientCreatedAt
+            )
+        }
     }
 
     let events: [Event]
