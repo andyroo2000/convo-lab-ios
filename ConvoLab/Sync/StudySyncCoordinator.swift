@@ -73,6 +73,8 @@ final class StudySyncCoordinator {
                 publish: publish
             )
         case let .checkpointReset(deletedCardIdentifiers):
+            // Reload the reset replica first, then drop even frozen lesson
+            // snapshots that could otherwise recreate deliberately purged rows.
             reloadAfterCheckpointReset()
             prune(
                 deletedCardIdentifiers,
