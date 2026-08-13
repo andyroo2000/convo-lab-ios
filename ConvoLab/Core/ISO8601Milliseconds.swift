@@ -70,7 +70,7 @@ enum ISO8601Milliseconds {
         guard let signRange = Range(match.range(at: 7), in: value) else { return false }
         let sign = value[signRange] == "-" ? -1 : 1
         let offset = sign * ((offsetHour * 60) + offsetMinute)
-        return offsetMinute <= 59 && (-720...840).contains(offset)
+        return offsetHour <= 14 && offsetMinute <= 59 && (-720...840).contains(offset)
     }
 
     nonisolated static func encode(_ date: Date, to encoder: Encoder) throws {
