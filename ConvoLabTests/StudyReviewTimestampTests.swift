@@ -20,6 +20,25 @@ final class StudyReviewTimestampTests: XCTestCase {
         )
     }
 
+    func testCanonicalTimestampIsIdempotentAcrossEveryMillisecond() throws {
+        for second in [1_800_000_000, -2] {
+            for millisecond in 0..<1_000 {
+                let timestamp = String(
+                    format: "%@.%03dZ",
+                    String(
+                        ISO8601Milliseconds.string(
+                            from: Date(timeIntervalSince1970: TimeInterval(second))
+                        ).dropLast(5)
+                    ),
+                    millisecond
+                )
+                let decoded = try XCTUnwrap(ISO8601Milliseconds.date(from: timestamp))
+
+                XCTAssertEqual(ISO8601Milliseconds.string(from: decoded), timestamp)
+            }
+        }
+    }
+
     func testDecoderAcceptsLegacyWholeSecondTimestamp() throws {
         let decoded = try StorageCodec.decoder.decode(
             LegacyTimestamp.self,
