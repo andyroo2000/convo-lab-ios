@@ -419,26 +419,26 @@ struct StudySessionView: View {
                 }
 
                 ForEach(face.textBlocks) { block in
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        if block.role == .note {
-                            Text("•")
-                        }
-                        if block.role.supportsRuby {
-                            StudyRubyText(
-                                block.text,
-                                knownKanji: store.knownKanji,
-                                pointSize: pointSize(for: block.role),
-                                color: uiColor(for: block.role)
-                            )
-                        } else {
-                            Text(block.text)
-                                .multilineTextAlignment(.center)
-                                .textSelection(.enabled)
-                        }
+                    let text = block.role == .note ? "• \(block.text)" : block.text
+
+                    if block.role.supportsRuby {
+                        StudyRubyText(
+                            text,
+                            knownKanji: store.knownKanji,
+                            pointSize: pointSize(for: block.role),
+                            color: uiColor(for: block.role)
+                        )
+                        .font(font(for: block.role))
+                        .foregroundStyle(color(for: block.role))
+                        .accessibilityElement(children: .combine)
+                    } else {
+                        Text(text)
+                            .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
+                            .font(font(for: block.role))
+                            .foregroundStyle(color(for: block.role))
+                            .accessibilityElement(children: .combine)
                     }
-                    .font(font(for: block.role))
-                    .foregroundStyle(color(for: block.role))
-                    .accessibilityElement(children: .combine)
                 }
             }
             .frame(maxWidth: .infinity)
