@@ -26,6 +26,11 @@ final class StudyTimeAnalyticsGoldenFixtureTests: XCTestCase {
             fixture.provenance.alignedPath,
             "client/src/test/fixtures/studyTimeAnalytics.ts"
         )
+        XCTAssertEqual(
+            Bundle.main.bundleURL.lastPathComponent,
+            "ConvoLab.app",
+            "This hosted test must inspect the app bundle for the target-membership assertion."
+        )
         XCTAssertNil(
             Bundle.main.url(forResource: "study-time-analytics-v1", withExtension: "json"),
             "The correctness matrix belongs in the test bundle, not the app."
@@ -261,6 +266,8 @@ private struct Fixture: Decodable {
         let bucketCount: Int
     }
 
+    // Cross-midnight filter vectors and projection vectors intentionally share
+    // their range/bucket shape; fields used by only one shape default below.
     struct AnalyticsCase: Decodable {
         let id: String?
         let key: StudyTimeRange
