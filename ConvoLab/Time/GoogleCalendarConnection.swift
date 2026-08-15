@@ -149,10 +149,10 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
     }
 
     private static func activeAnchor() -> ASPresentationAnchor? {
-        let scenes = UIApplication.shared.connectedScenes
+        UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-        return scenes.flatMap(\.windows).first(where: \.isKeyWindow)
-            ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
     }
 }
 

@@ -14,30 +14,14 @@ final class GoogleCalendarConnectionTests: XCTestCase {
     }
 
     func testCallbackAcceptsOnlyTheFixedStudyTimeContract() throws {
-        XCTAssertEqual(
-            try GoogleCalendarCallback.parse(
-                URL(string: "convolab://study-time?calendarConnection=connected")!
-            ),
-            GoogleCalendarCallback(connected: true, reason: nil)
-        )
-        XCTAssertEqual(
-            try GoogleCalendarCallback.parse(
-                URL(
-                    string: "convolab://study-time?calendarConnection=error&reason=access_denied"
-                )!
-            ),
-            GoogleCalendarCallback(connected: false, reason: "access_denied")
-        )
-        XCTAssertThrowsError(
-            try GoogleCalendarCallback.parse(
-                URL(string: "convolab://settings?calendarConnection=connected")!
-            )
-        )
-        XCTAssertThrowsError(
-            try GoogleCalendarCallback.parse(
-                URL(string: "https://study-time?calendarConnection=connected")!
-            )
-        )
+        let connected = URL(string: "convolab://study-time?calendarConnection=connected")!
+        XCTAssertEqual(try GoogleCalendarCallback.parse(connected), .init(connected: true, reason: nil))
+        let denied = URL(string: "convolab://study-time?calendarConnection=error&reason=access_denied")!
+        XCTAssertEqual(try GoogleCalendarCallback.parse(denied), .init(connected: false, reason: "access_denied"))
+        let wrongHost = URL(string: "convolab://settings?calendarConnection=connected")!
+        XCTAssertThrowsError(try GoogleCalendarCallback.parse(wrongHost))
+        let wrongScheme = URL(string: "https://study-time?calendarConnection=connected")!
+        XCTAssertThrowsError(try GoogleCalendarCallback.parse(wrongScheme))
     }
 
     func testLiveServiceUsesTheDocumentedRoutesAndIOSCompletionTarget() async throws {
@@ -74,7 +58,6 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             }
         }
         let service = LiveGoogleCalendarConnectionService(api: api)
-
         let status = try await service.status()
         XCTAssertTrue(status.connected)
         XCTAssertEqual(status.accountEmail, "andrew@example.com")
@@ -82,6 +65,19 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         let authorizationURL = try await service.authorizationURL()
         XCTAssertEqual(authorizationURL.absoluteString, "https://accounts.google.com/oauth")
         try await service.disconnect()
+    }
+
+    func testAuthorizationURLRequiresHTTPS() async {
+        let api = makeClient { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"authorizationUrl":"http://example.test/oauth"}"#.utf8))
+        }
+        do {
+            _ = try await LiveGoogleCalendarConnectionService(api: api).authorizationURL()
+            XCTFail("Expected insecure authorization URL to be rejected")
+        } catch {
+            XCTAssertEqual(error as? GoogleCalendarConnectionError, .invalidAuthorizationURL)
+        }
     }
 
     func testConnectRefreshesStatusAndDisconnectClearsIt() async throws {
@@ -92,45 +88,36 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             connectedAt: Date(timeIntervalSince1970: 100),
             lastSyncedAt: Date(timeIntervalSince1970: 200)
         )
-        let authorizer = TestGoogleCalendarAuthorizer(
-            result: .success(
-                URL(string: "convolab://study-time?calendarConnection=connected")!
-            )
-        )
+        let callback = URL(string: "convolab://study-time?calendarConnection=connected")!
+        let authorizer = TestGoogleCalendarAuthorizer(result: .success(callback))
         let store = try makeStore(service: service, authorizer: authorizer)
         store.activate(userID: 42)
-
+        service.pauseStatus = true
+        let load = Task { await store.loadGoogleCalendarConnection() }
+        while service.statusContinuation == nil { await Task.yield() }
         await store.connectGoogleCalendar()
-
+        XCTAssertTrue(authorizer.openedURLs.isEmpty)
+        service.resumeStatus()
+        await load.value
+        service.pauseStatus = false
+        await store.connectGoogleCalendar()
         XCTAssertEqual(authorizer.openedURLs, [service.authorizationURLValue])
         XCTAssertEqual(store.googleCalendarStatus, service.statusResponse)
         XCTAssertNil(store.googleCalendarErrorMessage)
         XCTAssertFalse(store.googleCalendarIsWorking)
-
         await store.disconnectGoogleCalendar()
-
         XCTAssertEqual(service.disconnectCount, 1)
         XCTAssertEqual(store.googleCalendarStatus?.connected, false)
     }
 
     func testConnectionFailureShowsControlledMessageAndCanRetryStatus() async throws {
         let service = TestGoogleCalendarConnectionService()
-        let authorizer = TestGoogleCalendarAuthorizer(
-            result: .success(
-                URL(
-                    string: "convolab://study-time?calendarConnection=error&reason=access_denied"
-                )!
-            )
-        )
+        let denied = URL(string: "convolab://study-time?calendarConnection=error&reason=access_denied")!
+        let authorizer = TestGoogleCalendarAuthorizer(result: .success(denied))
         let store = try makeStore(service: service, authorizer: authorizer)
         store.activate(userID: 42)
-
         await store.connectGoogleCalendar()
-
-        XCTAssertEqual(
-            store.googleCalendarErrorMessage,
-            "Google Calendar access wasn’t granted."
-        )
+        XCTAssertEqual(store.googleCalendarErrorMessage, "Google Calendar access wasn’t granted.")
         service.statusResponse = GoogleCalendarConnectionStatus(
             connected: false,
             accountEmail: nil,
@@ -143,10 +130,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
     }
 
     func testOAuthCancellationDoesNotShowAnError() async throws {
-        let cancellation = NSError(
-            domain: ASWebAuthenticationSessionError.errorDomain,
-            code: ASWebAuthenticationSessionError.Code.canceledLogin.rawValue
-        )
+        let cancellation = NSError(domain: ASWebAuthenticationSessionError.errorDomain, code: ASWebAuthenticationSessionError.Code.canceledLogin.rawValue)
         XCTAssertNil(googleCalendarFriendlyMessage(for: cancellation))
     }
 
@@ -169,27 +153,29 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         MockURLProtocol.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://example.test")!,
-            session: URLSession(configuration: configuration)
-        )
+        return APIClient(baseURL: URL(string: "https://example.test")!, session: URLSession(configuration: configuration))
     }
 }
 
 @MainActor
 private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectionServing {
     let authorizationURLValue = URL(string: "https://accounts.google.com/oauth")!
-    var statusResponse = GoogleCalendarConnectionStatus(
-        connected: false,
-        accountEmail: nil,
-        connectedAt: nil,
-        lastSyncedAt: nil
-    )
+    var statusResponse = GoogleCalendarConnectionStatus(connected: false, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
     var disconnectCount = 0
+    var pauseStatus = false
+    var statusContinuation: CheckedContinuation<GoogleCalendarConnectionStatus, Never>?
 
-    func status() async throws -> GoogleCalendarConnectionStatus { statusResponse }
+    func status() async throws -> GoogleCalendarConnectionStatus {
+        guard pauseStatus else { return statusResponse }
+        return await withCheckedContinuation { statusContinuation = $0 }
+    }
     func authorizationURL() async throws -> URL { authorizationURLValue }
     func disconnect() async throws { disconnectCount += 1 }
+
+    func resumeStatus() {
+        statusContinuation?.resume(returning: statusResponse)
+        statusContinuation = nil
+    }
 }
 
 @MainActor
@@ -197,9 +183,7 @@ private final class TestGoogleCalendarAuthorizer: GoogleCalendarAuthorizing {
     let result: Result<URL, Error>
     private(set) var openedURLs: [URL] = []
 
-    init(result: Result<URL, Error>) {
-        self.result = result
-    }
+    init(result: Result<URL, Error>) { self.result = result }
 
     func authorize(at url: URL) async throws -> URL {
         openedURLs.append(url)

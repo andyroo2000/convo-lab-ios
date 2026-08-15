@@ -243,6 +243,7 @@ struct StudyTimeView: View {
                     Button("Disconnect", role: .destructive) {
                         confirmingCalendarDisconnect = true
                     }
+                    .disabled(store.googleCalendarIsLoading)
                 }
             } else {
                 Text("Connect your account to include calendar lessons in study analytics.")
@@ -259,16 +260,18 @@ struct StudyTimeView: View {
                         Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
                     }
                 }
-                .disabled(store.googleCalendarIsWorking)
+                .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
             }
 
             if let message = store.googleCalendarErrorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                Button("Retry") {
-                    Task { await store.loadGoogleCalendarConnection() }
+                if store.googleCalendarStatus == nil {
+                    Button("Retry") {
+                        Task { await store.loadGoogleCalendarConnection() }
+                    }
+                    .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
                 }
-                .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
             }
         }
     }

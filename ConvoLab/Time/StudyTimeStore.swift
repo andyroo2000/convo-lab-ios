@@ -190,7 +190,9 @@ final class StudyTimeStore {
     }
 
     func connectGoogleCalendar() async {
-        guard let requestedUserID = activeUserID, !googleCalendarIsWorking else { return }
+        guard let requestedUserID = activeUserID,
+              !googleCalendarIsLoading, !googleCalendarIsWorking
+        else { return }
         googleCalendarRequestGeneration += 1
         let requestGeneration = googleCalendarRequestGeneration
         googleCalendarIsWorking = true
@@ -223,7 +225,9 @@ final class StudyTimeStore {
     }
 
     func disconnectGoogleCalendar() async {
-        guard let requestedUserID = activeUserID, !googleCalendarIsWorking else { return }
+        guard let requestedUserID = activeUserID,
+              !googleCalendarIsLoading, !googleCalendarIsWorking
+        else { return }
         googleCalendarRequestGeneration += 1
         let requestGeneration = googleCalendarRequestGeneration
         googleCalendarIsWorking = true
