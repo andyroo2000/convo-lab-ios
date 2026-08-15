@@ -230,11 +230,13 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         await store.connectGoogleCalendar()
         XCTAssertEqual(authorizer.openedURLs, [service.authorizationURLValue])
         XCTAssertEqual(store.googleCalendarStatus, service.statusResponse)
+        XCTAssertNotNil(store.makeGoogleCalendarSettingsModel())
         XCTAssertNil(store.googleCalendarErrorMessage)
         XCTAssertFalse(store.googleCalendarIsWorking)
         await store.disconnectGoogleCalendar()
         XCTAssertEqual(service.disconnectCount, 1)
         XCTAssertEqual(store.googleCalendarStatus?.connected, false)
+        XCTAssertNil(store.makeGoogleCalendarSettingsModel())
     }
 
     func testConnectionFailureShowsControlledMessageAndCanRetryStatus() async throws {
