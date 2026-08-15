@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "time_zone": "America/New_York",
+  "provenance": {
+    "aligned_repository": "andyroo2000/convo-lab",
+    "aligned_commit": "ee0164e4d51ffdde92844244b71169f079ba154e",
+    "aligned_path": "client/src/test/fixtures/studyTimeAnalytics.ts"
+  },
+  "fixed_axes": [
+    {"id":"today-24-hours","key":"today","starts_at":"2026-08-15T04:00:00.000Z","ends_at":"2026-08-16T04:00:00.000Z","component":"hour","bucket_count":24},
+    {"id":"week-7-days","key":"week","starts_at":"2026-08-10T04:00:00.000Z","ends_at":"2026-08-17T04:00:00.000Z","component":"day","bucket_count":7},
+    {"id":"month-31-days","key":"month","starts_at":"2026-08-01T04:00:00.000Z","ends_at":"2026-09-01T04:00:00.000Z","component":"day","bucket_count":31},
+    {"id":"year-12-months","key":"year","starts_at":"2026-01-01T05:00:00.000Z","ends_at":"2027-01-01T05:00:00.000Z","component":"month","bucket_count":12}
+  ],
+  "cross_midnight": {
+    "key": "week",
+    "starts_at": "2026-08-10T04:00:00.000Z",
+    "ends_at": "2026-08-17T04:00:00.000Z",
+    "generated_at": "2026-08-15T16:00:00.000Z",
+    "buckets": [
+      {"starts_at":"2026-08-10T04:00:00.000Z","ends_at":"2026-08-11T04:00:00.000Z","categories":{}},
+      {"starts_at":"2026-08-11T04:00:00.000Z","ends_at":"2026-08-12T04:00:00.000Z","categories":{"review":1200000,"listen":600000}},
+      {"starts_at":"2026-08-12T04:00:00.000Z","ends_at":"2026-08-13T04:00:00.000Z","categories":{"review":2400000,"listen":1200000}},
+      {"starts_at":"2026-08-13T04:00:00.000Z","ends_at":"2026-08-14T04:00:00.000Z","categories":{}},
+      {"starts_at":"2026-08-14T04:00:00.000Z","ends_at":"2026-08-15T04:00:00.000Z","categories":{}},
+      {"starts_at":"2026-08-15T04:00:00.000Z","ends_at":"2026-08-16T04:00:00.000Z","categories":{}},
+      {"starts_at":"2026-08-16T04:00:00.000Z","ends_at":"2026-08-17T04:00:00.000Z","categories":{}}
+    ],
+    "filters": [
+      {"id":"all","included":["review","listen","create","immerse","conversation","wanikani"],"expected_total_ms":5400000,"expected_bucket_ms":[0,1800000,3600000,0,0,0,0]},
+      {"id":"review-only","included":["review"],"expected_total_ms":3600000,"expected_bucket_ms":[0,1200000,2400000,0,0,0,0]},
+      {"id":"listen-only","included":["listen"],"expected_total_ms":1800000,"expected_bucket_ms":[0,600000,1200000,0,0,0,0]},
+      {"id":"empty-conversation","included":["conversation"],"expected_total_ms":0,"expected_bucket_ms":[0,0,0,0,0,0,0]}
+    ],
+    "expected_best_bucket_start": "2026-08-12T04:00:00.000Z"
+  },
+  "projection_cases": [
+    {
+      "id": "empty-current-week",
+      "key": "week",
+      "starts_at": "2026-08-10T04:00:00.000Z",
+      "ends_at": "2026-08-17T04:00:00.000Z",
+      "generated_at": "2026-08-15T16:00:00.000Z",
+      "buckets": [
+        {"starts_at":"2026-08-10T04:00:00.000Z","ends_at":"2026-08-11T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-11T04:00:00.000Z","ends_at":"2026-08-12T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-12T04:00:00.000Z","ends_at":"2026-08-13T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-13T04:00:00.000Z","ends_at":"2026-08-14T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-14T04:00:00.000Z","ends_at":"2026-08-15T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-15T04:00:00.000Z","ends_at":"2026-08-16T04:00:00.000Z","categories":{}},
+        {"starts_at":"2026-08-16T04:00:00.000Z","ends_at":"2026-08-17T04:00:00.000Z","categories":{}}
+      ],
+      "included": ["review","listen","create","immerse","conversation","wanikani"],
+      "expected_total_ms": 0,
+      "expected_daily_average_ms": 0,
+      "expected_elapsed_days": 6,
+      "expected_best_bucket_start": null
+    },
+    {
+      "id": "completed-exclusive-week",
+      "key": "week",
+      "starts_at": "2026-08-10T04:00:00.000Z",
+      "ends_at": "2026-08-17T04:00:00.000Z",
+      "generated_at": "2026-08-20T16:00:00.000Z",
+      "buckets": [{"starts_at":"2026-08-10T04:00:00.000Z","ends_at":"2026-08-11T04:00:00.000Z","categories":{"review":420000}}],
+      "included": ["review"],
+      "expected_total_ms": 420000,
+      "expected_daily_average_ms": 60000,
+      "expected_elapsed_days": 7,
+      "expected_best_bucket_start": "2026-08-10T04:00:00.000Z"
+    },
+    {
+      "id": "spring-dst-current-week",
+      "key": "week",
+      "starts_at": "2026-03-08T05:00:00.000Z",
+      "ends_at": "2026-03-15T04:00:00.000Z",
+      "generated_at": "2026-03-09T16:00:00.000Z",
+      "buckets": [
+        {"starts_at":"2026-03-08T05:00:00.000Z","ends_at":"2026-03-09T04:00:00.000Z","categories":{"review":3600000}},
+        {"starts_at":"2026-03-09T04:00:00.000Z","ends_at":"2026-03-10T04:00:00.000Z","categories":{"review":3600000}}
+      ],
+      "included": ["review"],
+      "expected_total_ms": 7200000,
+      "expected_daily_average_ms": 3600000,
+      "expected_elapsed_days": 2,
+      "expected_best_bucket_start": "2026-03-08T05:00:00.000Z"
+    }
+  ]
+}
