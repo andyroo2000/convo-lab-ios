@@ -56,6 +56,29 @@ final class WeeklyStudyRecapTests: XCTestCase {
         XCTAssertNil(store.weeklyRecapErrorMessage)
     }
 
+    func testStoreIgnoresRecapFromPreviouslyActiveUser() async throws {
+        let started = expectation(description: "recap request started")
+        let service = DeferredWeeklyStudyRecapService(started: started)
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        Self.retainedContainers.append(container)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.unsupportedURL) },
+            context: container.mainContext,
+            weeklyRecapService: service
+        )
+        store.activate(userID: 41)
+        let load = Task { await store.loadWeeklyRecap(timeZone: "America/New_York") }
+        await fulfillment(of: [started], timeout: 1)
+
+        store.activate(userID: 42)
+        service.succeed(with: try Self.fixture())
+        await load.value
+
+        XCTAssertNil(store.weeklyRecap)
+        XCTAssertFalse(store.weeklyRecapIsLoading)
+        XCTAssertNil(store.weeklyRecapErrorMessage)
+    }
+
     func testPresentationHandlesLocalDatesUntimedProgressAndZeroBaseline() throws {
         let recap = try Self.fixture()
         let timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
@@ -113,5 +136,23 @@ private final class TestWeeklyStudyRecapService: WeeklyStudyRecapServing {
     func recap(timeZone: String, weekStartsOn: Int) async throws -> WeeklyStudyRecap {
         requests.append(.init(timeZone: timeZone, weekStartsOn: weekStartsOn))
         return value
+    }
+}
+
+@MainActor
+private final class DeferredWeeklyStudyRecapService: WeeklyStudyRecapServing {
+    private let started: XCTestExpectation
+    private var continuation: CheckedContinuation<WeeklyStudyRecap, any Error>?
+
+    init(started: XCTestExpectation) { self.started = started }
+
+    func recap(timeZone: String, weekStartsOn: Int) async throws -> WeeklyStudyRecap {
+        started.fulfill()
+        return try await withCheckedThrowingContinuation { continuation = $0 }
+    }
+
+    func succeed(with recap: WeeklyStudyRecap) {
+        continuation?.resume(returning: recap)
+        continuation = nil
     }
 }

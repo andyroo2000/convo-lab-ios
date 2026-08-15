@@ -82,7 +82,7 @@ struct WeeklyStudyRecapView: View {
         Group {
             if let recap {
                 content(recap)
-            } else if isLoading {
+            } else if isLoading || errorMessage == nil {
                 HStack(spacing: 12) {
                     ProgressView()
                     Text("Gathering last week’s highlights…")
@@ -180,6 +180,7 @@ struct WeeklyStudyRecapView: View {
                 .clipShape(Capsule())
             }
             .frame(height: 14)
+            .accessibilityHidden(true)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(StudyActivityCategory.allCases) { category in
                     HStack(spacing: 7) {
