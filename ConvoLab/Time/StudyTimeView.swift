@@ -83,6 +83,16 @@ struct StudyTimeView: View {
                     )
                 }
 
+                Section {
+                    WeeklyStudyRecapView(
+                        recap: store.weeklyRecap,
+                        isLoading: store.weeklyRecapIsLoading,
+                        errorMessage: store.weeklyRecapErrorMessage
+                    ) {
+                        Task { await store.loadWeeklyRecap() }
+                    }
+                }
+
                 googleCalendarSection
 
                 Section("Timer") {
@@ -202,12 +212,14 @@ struct StudyTimeView: View {
             .refreshable {
                 async let studyTime: Void = store.synchronize()
                 async let calendar: Void = store.loadGoogleCalendarConnection()
-                _ = await (studyTime, calendar)
+                async let recap: Void = store.loadWeeklyRecap()
+                _ = await (studyTime, calendar, recap)
             }
             .task {
                 async let studyTime: Void = store.synchronize()
                 async let calendar: Void = store.loadGoogleCalendarConnection()
-                _ = await (studyTime, calendar)
+                async let recap: Void = store.loadWeeklyRecap()
+                _ = await (studyTime, calendar, recap)
             }
         }
     }

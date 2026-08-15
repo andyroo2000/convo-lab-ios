@@ -75,6 +75,7 @@ final class StudyTimeStore {
     private let calendar: any StudyCalendarProviding
     private let googleCalendar: any GoogleCalendarConnectionServing
     private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
+    private let weeklyRecapService: any WeeklyStudyRecapServing
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
@@ -87,6 +88,9 @@ final class StudyTimeStore {
     private(set) var googleCalendarIsLoading = false
     private(set) var googleCalendarIsWorking = false
     private(set) var googleCalendarErrorMessage: String?
+    private(set) var weeklyRecap: WeeklyStudyRecap?
+    private(set) var weeklyRecapIsLoading = false
+    private(set) var weeklyRecapErrorMessage: String?
     private var activeUserID: Int?
     private var synchronizationTask: Task<Void, Never>?
     private var synchronizingUserID: Int?
@@ -96,6 +100,7 @@ final class StudyTimeStore {
     private var localMutationGeneration = 0
     private var analyticsRequestGeneration = 0
     private var googleCalendarRequestGeneration = 0
+    private var weeklyRecapRequestGeneration = 0
     private var requestedAnalyticsAnchor: Date?
 
     init(
@@ -105,7 +110,8 @@ final class StudyTimeStore {
         contextSaver: (any StudyTimeContextSaving)? = nil,
         calendar: (any StudyCalendarProviding)? = nil,
         googleCalendar: (any GoogleCalendarConnectionServing)? = nil,
-        googleCalendarAuthorizer: (any GoogleCalendarAuthorizing)? = nil
+        googleCalendarAuthorizer: (any GoogleCalendarAuthorizing)? = nil,
+        weeklyRecapService: (any WeeklyStudyRecapServing)? = nil
     ) {
         self.api = api
         self.context = context
@@ -115,6 +121,7 @@ final class StudyTimeStore {
         self.googleCalendar = googleCalendar ?? LiveGoogleCalendarConnectionService(api: api)
         self.googleCalendarAuthorizer = googleCalendarAuthorizer
             ?? LiveGoogleCalendarAuthorizer()
+        self.weeklyRecapService = weeklyRecapService ?? LiveWeeklyStudyRecapService(api: api)
     }
 
     func activate(userID: Int) {
@@ -122,6 +129,7 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
         googleCalendarRequestGeneration += 1
+        weeklyRecapRequestGeneration += 1
         requestedAnalyticsAnchor = nil
         analytics = nil
         analyticsCache = [:]
@@ -131,6 +139,9 @@ final class StudyTimeStore {
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
+        weeklyRecap = nil
+        weeklyRecapErrorMessage = nil
+        weeklyRecapIsLoading = false
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -140,6 +151,7 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
         googleCalendarRequestGeneration += 1
+        weeklyRecapRequestGeneration += 1
         requestedAnalyticsAnchor = nil
         let didFinish = active.map {
             finish($0, at: date, enqueueSync: false)
@@ -157,6 +169,9 @@ final class StudyTimeStore {
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
+        weeklyRecap = nil
+        weeklyRecapErrorMessage = nil
+        weeklyRecapIsLoading = false
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
         return didFinish
@@ -186,6 +201,27 @@ final class StudyTimeStore {
                   googleCalendarRequestGeneration == requestGeneration
             else { return }
             googleCalendarErrorMessage = googleCalendarFriendlyMessage(for: error)
+        }
+    }
+
+    func loadWeeklyRecap(timeZone: String = TimeZone.autoupdatingCurrent.identifier) async {
+        guard let requestedUserID = activeUserID, !weeklyRecapIsLoading else { return }
+        weeklyRecapRequestGeneration += 1
+        let generation = weeklyRecapRequestGeneration
+        weeklyRecapIsLoading = true
+        weeklyRecapErrorMessage = nil
+        defer {
+            if activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation {
+                weeklyRecapIsLoading = false
+            }
+        }
+        do {
+            let value = try await weeklyRecapService.recap(timeZone: timeZone, weekStartsOn: 2)
+            guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
+            weeklyRecap = value
+        } catch {
+            guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
+            weeklyRecapErrorMessage = "Couldn’t load your weekly recap. Pull to refresh and try again."
         }
     }
 
