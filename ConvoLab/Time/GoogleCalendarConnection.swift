@@ -62,12 +62,15 @@ protocol GoogleCalendarAuthorizing: AnyObject {
 enum GoogleCalendarConnectionError: LocalizedError, Equatable {
     case invalidAuthorizationURL
     case invalidCallback
+    case authorizationInProgress
     case connectionFailed(reason: String?)
 
     var errorDescription: String? {
         switch self {
         case .invalidAuthorizationURL, .invalidCallback:
             "Google Calendar returned an invalid connection response. Please try again."
+        case .authorizationInProgress:
+            "A Google Calendar connection is already in progress."
         case let .connectionFailed(reason):
             switch reason {
             case "access_denied":
@@ -113,19 +116,27 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
 {
     private var session: ASWebAuthenticationSession?
     private var anchor: ASPresentationAnchor?
+    private var attemptID: UUID?
 
     func authorize(at url: URL) async throws -> URL {
+        guard session == nil else {
+            throw GoogleCalendarConnectionError.authorizationInProgress
+        }
         guard let anchor = Self.activeAnchor() else {
             throw GoogleCalendarConnectionError.invalidCallback
         }
+        let attemptID = UUID()
+        self.attemptID = attemptID
         self.anchor = anchor
         return try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: "convolab"
             ) { [weak self] callbackURL, error in
-                self?.session = nil
-                self?.anchor = nil
+                if self?.attemptID == attemptID {
+                    self?.session = nil
+                    self?.attemptID = nil
+                }
                 if let callbackURL {
                     continuation.resume(returning: callbackURL)
                 } else {
@@ -136,8 +147,10 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
             session.prefersEphemeralWebBrowserSession = false
             self.session = session
             guard session.start() else {
-                self.session = nil
-                self.anchor = nil
+                if self.attemptID == attemptID {
+                    self.session = nil
+                    self.attemptID = nil
+                }
                 continuation.resume(throwing: GoogleCalendarConnectionError.invalidCallback)
                 return
             }
@@ -145,7 +158,7 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        anchor!
+        anchor ?? Self.activeAnchor() ?? ASPresentationAnchor()
     }
 
     private static func activeAnchor() -> ASPresentationAnchor? {
