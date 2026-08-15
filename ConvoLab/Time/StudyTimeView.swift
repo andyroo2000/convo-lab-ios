@@ -22,7 +22,7 @@ struct StudyTimeView: View {
     }
 
     private var manualSessions: [StudyActivitySession] {
-        store.sessions.filter { $0.source != .automatic }
+        store.sessions.filter(\.isEditable)
     }
 
     var body: some View {

@@ -79,13 +79,6 @@ enum StudyActivityOrigin: String, Codable {
     case waniKani = "wanikani"
     case system
 
-    init(from decoder: Decoder) throws {
-        // New server origins must not make an older client drop the whole ledger response.
-        let container = try decoder.singleValueContainer()
-        let value = try? container.decode(String.self)
-        self = value.flatMap(Self.init(rawValue:)) ?? .legacy
-    }
-
     var provider: StudyActivityProvider? {
         switch self {
         case .googleCalendar: .googleCalendar
@@ -109,6 +102,7 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
     let activity: StudyActivityKind
     let source: StudyActivitySource
     let origin: StudyActivityOrigin
+    let unknownOriginRawValue: String?
     let name: String?
     let startedAt: Date
     let endedAt: Date
@@ -118,7 +112,13 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
 
     var stableID: String { clientSessionId }
     var provider: StudyActivityProvider? { origin.provider }
-    var isEditable: Bool { source != .automatic && origin.allowsUserEditing }
+    var hasUnknownOrigin: Bool { unknownOriginRawValue != nil }
+    nonisolated var persistedOriginRawValue: String {
+        unknownOriginRawValue ?? origin.rawValue
+    }
+    var isEditable: Bool {
+        !hasUnknownOrigin && source != .automatic && origin.allowsUserEditing
+    }
 
     /// Direct construction represents a new local event. Decoded legacy payloads
     /// take the compatibility path below and default a missing origin to legacy.
@@ -129,6 +129,7 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         activity: StudyActivityKind,
         source: StudyActivitySource,
         origin: StudyActivityOrigin = .ios,
+        unknownOriginRawValue: String? = nil,
         name: String?,
         startedAt: Date,
         endedAt: Date,
@@ -142,6 +143,7 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         self.activity = activity
         self.source = source
         self.origin = origin
+        self.unknownOriginRawValue = unknownOriginRawValue
         self.name = name
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -162,8 +164,21 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         category = try values.decode(StudyActivityCategory.self, forKey: .category)
         activity = try values.decode(StudyActivityKind.self, forKey: .activity)
         source = try values.decode(StudyActivitySource.self, forKey: .source)
-        origin = try values.decodeIfPresent(StudyActivityOrigin.self, forKey: .origin)
-            ?? .legacy
+        if !values.contains(.origin) {
+            origin = .legacy
+            unknownOriginRawValue = nil
+        } else if try values.decodeNil(forKey: .origin) {
+            origin = .legacy
+            unknownOriginRawValue = nil
+        } else if let rawOrigin = try? values.decode(String.self, forKey: .origin) {
+            origin = StudyActivityOrigin(rawValue: rawOrigin) ?? .legacy
+            unknownOriginRawValue = StudyActivityOrigin(rawValue: rawOrigin) == nil
+                ? rawOrigin
+                : nil
+        } else {
+            origin = .legacy
+            unknownOriginRawValue = "<invalid>"
+        }
         name = try values.decodeIfPresent(String.self, forKey: .name)
         startedAt = try values.decode(Date.self, forKey: .startedAt)
         endedAt = try values.decode(Date.self, forKey: .endedAt)
@@ -175,6 +190,43 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
 
 struct StudyActivityBatchRequest: Encodable {
     let sessions: [StudyActivitySession]
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(sessions.map(SessionPayload.init), forKey: .sessions)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessions
+    }
+
+    private struct SessionPayload: Encodable {
+        let session: StudyActivitySession
+
+        private enum CodingKeys: String, CodingKey {
+            case clientSessionId, category, activity, source, origin, name
+            case startedAt, endedAt, durationMs, audioPlaybackMs, cardsCreated
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(session.clientSessionId, forKey: .clientSessionId)
+            try values.encode(session.category, forKey: .category)
+            try values.encode(session.activity, forKey: .activity)
+            try values.encode(session.source, forKey: .source)
+            // The public API accepts only client-owned provenance. Legacy rows
+            // omit origin so they remain editable without claiming a new owner.
+            if session.origin == .ios || session.origin == .web {
+                try values.encode(session.origin, forKey: .origin)
+            }
+            try values.encodeIfPresent(session.name, forKey: .name)
+            try values.encode(session.startedAt, forKey: .startedAt)
+            try values.encode(session.endedAt, forKey: .endedAt)
+            try values.encode(session.durationMs, forKey: .durationMs)
+            try values.encodeIfPresent(session.audioPlaybackMs, forKey: .audioPlaybackMs)
+            try values.encodeIfPresent(session.cardsCreated, forKey: .cardsCreated)
+        }
+    }
 }
 
 enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
