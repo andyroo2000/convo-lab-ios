@@ -164,6 +164,9 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         category = try values.decode(StudyActivityCategory.self, forKey: .category)
         activity = try values.decode(StudyActivityKind.self, forKey: .activity)
         source = try values.decode(StudyActivitySource.self, forKey: .source)
+        // Missing/null identifies rows from before the origin contract. Provider
+        // imports did not exist in that payload shape, and canonical responses
+        // now always include origin, so only these legacy rows remain editable.
         if !values.contains(.origin) {
             origin = .legacy
             unknownOriginRawValue = nil
@@ -204,12 +207,13 @@ struct StudyActivityBatchRequest: Encodable {
         let session: StudyActivitySession
 
         private enum CodingKeys: String, CodingKey {
-            case clientSessionId, category, activity, source, origin, name
+            case id, clientSessionId, category, activity, source, origin, name
             case startedAt, endedAt, durationMs, audioPlaybackMs, cardsCreated
         }
 
         func encode(to encoder: Encoder) throws {
             var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encodeIfPresent(session.id, forKey: .id)
             try values.encode(session.clientSessionId, forKey: .clientSessionId)
             try values.encode(session.category, forKey: .category)
             try values.encode(session.activity, forKey: .activity)
