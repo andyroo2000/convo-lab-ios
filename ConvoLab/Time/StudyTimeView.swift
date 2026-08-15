@@ -530,37 +530,12 @@ private struct StudyRhythmChart: View {
     let onToggleCategory: (StudyActivityCategory) -> Void
     let onDrillDown: ((StudyTimeAnalyticsBucket) -> Void)?
 
-    private var elapsedDayCount: Int {
-        let calendar = Calendar.current
-        let end = min(generatedAt, analytics.endsAt)
-        return max(
-            1,
-            (calendar.dateComponents(
-                [.day],
-                from: calendar.startOfDay(for: analytics.startsAt),
-                to: calendar.startOfDay(for: end)
-            ).day ?? 0) + 1
+    private var projection: StudyTimeAnalyticsProjection {
+        StudyTimeAnalyticsProjection(
+            analytics: analytics,
+            generatedAt: generatedAt,
+            includedCategories: includedCategories
         )
-    }
-
-    private var bestBucket: StudyTimeAnalyticsBucket? {
-        analytics.buckets
-            .filter { $0.duration(for: includedCategories) > 0 }
-            .max {
-                $0.duration(for: includedCategories) < $1.duration(for: includedCategories)
-            }
-    }
-
-    private var filteredTotal: Int {
-        analytics.duration(for: includedCategories)
-    }
-
-    private var includedCategoryList: [StudyActivityCategory] {
-        StudyActivityCategory.allCases.filter(includedCategories.contains)
-    }
-
-    private var chartDomain: ClosedRange<Date> {
-        min(analytics.startsAt, analytics.endsAt)...max(analytics.startsAt, analytics.endsAt)
     }
 
     private var axisDates: [Date] {
@@ -579,18 +554,18 @@ private struct StudyRhythmChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                metric("Total", milliseconds: filteredTotal)
-                metric("Daily avg", milliseconds: filteredTotal / elapsedDayCount)
+                metric("Total", milliseconds: projection.totalDurationMs)
+                metric("Daily avg", milliseconds: projection.dailyAverageDurationMs)
                 VStack(spacing: 4) {
                     Text("Best")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(bestBucket.map(bestBucketLabel) ?? "—")
+                    Text(projection.bestBucket.map(bestBucketLabel) ?? "—")
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     Text(
-                        "\(bestBucket.map { compactDuration($0.duration(for: includedCategories)) } ?? "0m") total"
+                        "\(compactDuration(projection.bestBucketDurationMs)) total"
                     )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -620,7 +595,7 @@ private struct StudyRhythmChart: View {
     private var analyticsChart: some View {
         Chart {
             ForEach(analytics.buckets) { bucket in
-                ForEach(includedCategoryList) { category in
+                ForEach(projection.includedCategoryList) { category in
                     let milliseconds = bucket.duration(for: category)
                     if milliseconds > 0 {
                         BarMark(
@@ -633,8 +608,8 @@ private struct StudyRhythmChart: View {
             }
         }
             .chartForegroundStyleScale(
-                domain: includedCategoryList.map(\.title),
-                range: includedCategoryList.map(\.chartColor)
+                domain: projection.includedCategoryList.map(\.title),
+                range: projection.includedCategoryList.map(\.chartColor)
             )
             .chartLegend(.hidden)
             .chartYAxis {
@@ -658,7 +633,7 @@ private struct StudyRhythmChart: View {
                 }
             }
             .chartXScale(
-                domain: chartDomain,
+                domain: projection.chartDomain,
                 range: .plotDimension(padding: 12)
             )
             .chartOverlay { proxy in
@@ -696,19 +671,19 @@ private struct StudyRhythmChart: View {
                 onDrillDown(bucket)
             }
             .accessibilityLabel(bucketAccessibilityLabel(bucket))
-            .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
+            .accessibilityValue(compactDuration(projection.duration(for: bucket)))
             .accessibilityHint("Double-tap to open this period")
         } else {
             Text(bestBucketLabel(bucket))
                 .accessibilityLabel(bucketAccessibilityLabel(bucket))
-                .accessibilityValue(compactDuration(bucket.duration(for: includedCategories)))
+                .accessibilityValue(compactDuration(projection.duration(for: bucket)))
         }
     }
 
     private func bucketAccessibilityLabel(
         _ bucket: StudyTimeAnalyticsBucket
     ) -> String {
-        let categorySummary = includedCategoryList.compactMap { category in
+        let categorySummary = projection.includedCategoryList.compactMap { category in
             let duration = bucket.duration(for: category)
             return duration > 0 ? "\(category.title) \(compactDuration(duration))" : nil
         }
@@ -749,7 +724,7 @@ private struct StudyRhythmChart: View {
                 .frame(width: 10, height: 10)
             Text(category.title)
             Spacer(minLength: 2)
-            Text(compactDuration(analytics.duration(for: category)))
+            Text(compactDuration(projection.duration(for: category)))
                 .monospacedDigit()
         }
         .font(.caption)
@@ -779,7 +754,7 @@ private struct StudyRhythmChart: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(category.title)
         .accessibilityValue(
-            "\(compactDuration(analytics.duration(for: category))), "
+            "\(compactDuration(projection.duration(for: category))), "
                 + (included ? "included" : "filtered out")
         )
         .accessibilityHint("Double-tap to toggle this category")
