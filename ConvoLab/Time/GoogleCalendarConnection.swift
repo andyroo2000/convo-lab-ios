@@ -134,7 +134,7 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
                 callbackURLScheme: "convolab"
             ) { [weak self] callbackURL, error in
                 if self?.attemptID == attemptID {
-                    self?.session = nil
+                    self?.session = nil; self?.anchor = nil
                     self?.attemptID = nil
                 }
                 if let callbackURL {
@@ -148,7 +148,7 @@ final class LiveGoogleCalendarAuthorizer: NSObject, GoogleCalendarAuthorizing,
             self.session = session
             guard session.start() else {
                 if self.attemptID == attemptID {
-                    self.session = nil
+                    self.session = nil; self.anchor = nil
                     self.attemptID = nil
                 }
                 continuation.resume(throwing: GoogleCalendarConnectionError.invalidCallback)
