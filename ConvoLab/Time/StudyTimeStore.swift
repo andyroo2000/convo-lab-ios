@@ -73,6 +73,8 @@ final class StudyTimeStore {
     private let storageMode: StorageMode
     private let contextSaver: any StudyTimeContextSaving
     private let calendar: any StudyCalendarProviding
+    private let googleCalendar: any GoogleCalendarConnectionServing
+    private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
@@ -81,6 +83,10 @@ final class StudyTimeStore {
     private(set) var storageWriteErrorMessage: String?
     private var storageWriteErrorOperation: StorageWriteOperation?
     private(set) var syncErrorMessage: String?
+    private(set) var googleCalendarStatus: GoogleCalendarConnectionStatus?
+    private(set) var googleCalendarIsLoading = false
+    private(set) var googleCalendarIsWorking = false
+    private(set) var googleCalendarErrorMessage: String?
     private var activeUserID: Int?
     private var synchronizationTask: Task<Void, Never>?
     private var synchronizingUserID: Int?
@@ -89,6 +95,7 @@ final class StudyTimeStore {
     private var pendingPushNeedsAnotherPass = false
     private var localMutationGeneration = 0
     private var analyticsRequestGeneration = 0
+    private var googleCalendarRequestGeneration = 0
     private var requestedAnalyticsAnchor: Date?
 
     init(
@@ -96,24 +103,34 @@ final class StudyTimeStore {
         context: ModelContext,
         storageMode: StorageMode = .persistent,
         contextSaver: (any StudyTimeContextSaving)? = nil,
-        calendar: (any StudyCalendarProviding)? = nil
+        calendar: (any StudyCalendarProviding)? = nil,
+        googleCalendar: (any GoogleCalendarConnectionServing)? = nil,
+        googleCalendarAuthorizer: (any GoogleCalendarAuthorizing)? = nil
     ) {
         self.api = api
         self.context = context
         self.storageMode = storageMode
         self.contextSaver = contextSaver ?? ModelContextStudyTimeSaver(context: context)
         self.calendar = calendar ?? LiveStudyCalendar()
+        self.googleCalendar = googleCalendar ?? LiveGoogleCalendarConnectionService(api: api)
+        self.googleCalendarAuthorizer = googleCalendarAuthorizer
+            ?? LiveGoogleCalendarAuthorizer()
     }
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
+        googleCalendarRequestGeneration += 1
         requestedAnalyticsAnchor = nil
         analytics = nil
         analyticsCache = [:]
         analyticsCacheGeneration += 1
         clearStorageWriteError()
+        googleCalendarStatus = nil
+        googleCalendarErrorMessage = nil
+        googleCalendarIsLoading = false
+        googleCalendarIsWorking = false
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
     }
@@ -122,6 +139,7 @@ final class StudyTimeStore {
     func deactivate(at date: Date = .now) async -> Bool {
         localMutationGeneration += 1
         analyticsRequestGeneration += 1
+        googleCalendarRequestGeneration += 1
         requestedAnalyticsAnchor = nil
         let didFinish = active.map {
             finish($0, at: date, enqueueSync: false)
@@ -135,9 +153,109 @@ final class StudyTimeStore {
         active = nil
         clearStorageWriteError()
         syncErrorMessage = nil
+        googleCalendarStatus = nil
+        googleCalendarErrorMessage = nil
+        googleCalendarIsLoading = false
+        googleCalendarIsWorking = false
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
         return didFinish
+    }
+
+    func loadGoogleCalendarConnection() async {
+        guard let requestedUserID = activeUserID, !googleCalendarIsWorking else { return }
+        googleCalendarRequestGeneration += 1
+        let requestGeneration = googleCalendarRequestGeneration
+        googleCalendarIsLoading = true
+        googleCalendarErrorMessage = nil
+        defer {
+            if activeUserID == requestedUserID,
+               googleCalendarRequestGeneration == requestGeneration
+            {
+                googleCalendarIsLoading = false
+            }
+        }
+        do {
+            let status = try await googleCalendar.status()
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarStatus = status
+        } catch {
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarErrorMessage = googleCalendarFriendlyMessage(for: error)
+        }
+    }
+
+    func connectGoogleCalendar() async {
+        guard let requestedUserID = activeUserID,
+              !googleCalendarIsLoading, !googleCalendarIsWorking
+        else { return }
+        googleCalendarRequestGeneration += 1
+        let requestGeneration = googleCalendarRequestGeneration
+        googleCalendarIsWorking = true
+        googleCalendarErrorMessage = nil
+        defer {
+            if activeUserID == requestedUserID,
+               googleCalendarRequestGeneration == requestGeneration
+            {
+                googleCalendarIsWorking = false
+            }
+        }
+        do {
+            let authorizationURL = try await googleCalendar.authorizationURL()
+            let callbackURL = try await googleCalendarAuthorizer.authorize(at: authorizationURL)
+            let callback = try GoogleCalendarCallback.parse(callbackURL)
+            guard callback.connected else { throw GoogleCalendarConnectionError.connectionFailed(reason: callback.reason) }
+            guard activeUserID == requestedUserID, googleCalendarRequestGeneration == requestGeneration else { return }
+            googleCalendarStatus = .init(connected: true, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
+            let status = try await googleCalendar.status()
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarStatus = status
+        } catch {
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarErrorMessage = googleCalendarFriendlyMessage(for: error)
+        }
+    }
+
+    func disconnectGoogleCalendar() async {
+        guard let requestedUserID = activeUserID,
+              !googleCalendarIsLoading, !googleCalendarIsWorking
+        else { return }
+        googleCalendarRequestGeneration += 1
+        let requestGeneration = googleCalendarRequestGeneration
+        googleCalendarIsWorking = true
+        googleCalendarErrorMessage = nil
+        defer {
+            if activeUserID == requestedUserID,
+               googleCalendarRequestGeneration == requestGeneration
+            {
+                googleCalendarIsWorking = false
+            }
+        }
+        do {
+            try await googleCalendar.disconnect()
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarStatus = GoogleCalendarConnectionStatus(
+                connected: false,
+                accountEmail: nil,
+                connectedAt: nil,
+                lastSyncedAt: nil
+            )
+        } catch {
+            guard activeUserID == requestedUserID,
+                  googleCalendarRequestGeneration == requestGeneration
+            else { return }
+            googleCalendarErrorMessage = googleCalendarFriendlyMessage(for: error)
+        }
     }
 
     @discardableResult

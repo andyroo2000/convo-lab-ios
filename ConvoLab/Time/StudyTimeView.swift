@@ -26,6 +26,7 @@ struct StudyTimeView: View {
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
+    @State private var confirmingCalendarDisconnect = false
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
         store.analytics?.range(selectedRange)
@@ -81,6 +82,8 @@ struct StudyTimeView: View {
                             + "iTalki and other lessons count as Conversation."
                     )
                 }
+
+                googleCalendarSection
 
                 Section("Timer") {
                     Picker("Activity", selection: $selectedActivity) {
@@ -185,11 +188,90 @@ struct StudyTimeView: View {
             .sheet(item: $editingSession) { session in
                 StudyTimeEntryView(store: store, session: session)
             }
+            .confirmationDialog(
+                "Disconnect Google Calendar?",
+                isPresented: $confirmingCalendarDisconnect
+            ) {
+                Button("Disconnect", role: .destructive) {
+                    Task { await store.disconnectGoogleCalendar() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Calendar study time already imported into your analytics will remain.")
+            }
             .refreshable {
-                await store.synchronize()
+                async let studyTime: Void = store.synchronize()
+                async let calendar: Void = store.loadGoogleCalendarConnection()
+                _ = await (studyTime, calendar)
             }
             .task {
-                await store.synchronize()
+                async let studyTime: Void = store.synchronize()
+                async let calendar: Void = store.loadGoogleCalendarConnection()
+                _ = await (studyTime, calendar)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var googleCalendarSection: some View {
+        Section("Google Calendar") {
+            if store.googleCalendarIsLoading, store.googleCalendarStatus == nil {
+                HStack {
+                    ProgressView()
+                    Text("Checking connection…")
+                }
+            } else if store.googleCalendarStatus?.connected == true {
+                Label("Connected", systemImage: "checkmark.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                if let email = store.googleCalendarStatus?.accountEmail {
+                    LabeledContent("Account", value: email)
+                }
+                if let lastSync = store.googleCalendarStatus?.lastSyncedAt {
+                    LabeledContent("Last sync") {
+                        Text(lastSync, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    }
+                } else {
+                    LabeledContent("Last sync", value: "Waiting for first sync")
+                }
+                if store.googleCalendarIsWorking {
+                    HStack {
+                        ProgressView()
+                        Text("Disconnecting…")
+                    }
+                } else {
+                    Button("Disconnect", role: .destructive) {
+                        confirmingCalendarDisconnect = true
+                    }
+                    .disabled(store.googleCalendarIsLoading)
+                }
+            } else {
+                Text("Connect your account to include calendar lessons in study analytics.")
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await store.connectGoogleCalendar() }
+                } label: {
+                    if store.googleCalendarIsWorking {
+                        HStack {
+                            ProgressView()
+                            Text("Connecting…")
+                        }
+                    } else {
+                        Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
+                    }
+                }
+                .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
+            }
+
+            if let message = store.googleCalendarErrorMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                if store.googleCalendarStatus == nil {
+                    Button("Retry") {
+                        Task { await store.loadGoogleCalendarConnection() }
+                    }
+                    .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
+                }
             }
         }
     }
