@@ -1571,6 +1571,7 @@ final class StudyActivitySessionTests: XCTestCase {
                     "category": deletedSession.category.rawValue,
                     "activity": deletedSession.activity.rawValue,
                     "source": deletedSession.source.rawValue,
+                    "origin": deletedSession.origin.rawValue,
                     "name": deletedSession.name as Any,
                     "startedAt": deletedSession.startedAt.ISO8601Format(),
                     "endedAt": deletedSession.endedAt.ISO8601Format(),
@@ -1582,6 +1583,7 @@ final class StudyActivitySessionTests: XCTestCase {
                     "category": pendingSession.category.rawValue,
                     "activity": pendingSession.activity.rawValue,
                     "source": pendingSession.source.rawValue,
+                    "origin": pendingSession.origin.rawValue,
                     "name": pendingSession.name as Any,
                     "startedAt": pendingSession.startedAt.ISO8601Format(),
                     "endedAt": pendingSession.endedAt.ISO8601Format(),
@@ -1654,7 +1656,7 @@ final class StudyActivitySessionTests: XCTestCase {
         )
         XCTAssertEqual(store.sessions.first?.clientSessionId, pendingSession.clientSessionId)
         XCTAssertEqual(store.sessions.first?.name, pendingSession.name)
-        XCTAssertEqual(store.sessions.first?.origin, .legacy)
+        XCTAssertEqual(store.sessions.first?.origin, .ios)
         XCTAssertNil(store.syncErrorMessage)
     }
 
