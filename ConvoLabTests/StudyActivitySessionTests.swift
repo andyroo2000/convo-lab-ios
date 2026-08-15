@@ -712,6 +712,23 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertFalse(makeSession(source: .manual, origin: .system).isEditable)
     }
 
+    func testEditableEntriesCopyAndFilterMatchTheUIContract() {
+        XCTAssertEqual(StudyTimeEditableEntries.sectionTitle, "Editable entries")
+        XCTAssertEqual(
+            StudyTimeEditableEntries.emptyDescription,
+            "Timers and manually added study time you can edit appear here."
+        )
+
+        let editable = makeSession(source: .manual, origin: .ios)
+        let automatic = makeSession(source: .automatic, origin: .ios)
+        let provider = makeSession(source: .manual, origin: .googleCalendar)
+
+        XCTAssertEqual(
+            StudyTimeEditableEntries.filter([provider, automatic, editable]),
+            [editable]
+        )
+    }
+
     func testOriginsSurviveLocalPersistenceWithSafeLegacyFallback() throws {
         for origin in [
             StudyActivityOrigin.legacy,
