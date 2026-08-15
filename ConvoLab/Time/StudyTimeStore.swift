@@ -18,14 +18,14 @@ private final class ModelContextStudyTimeSaver: StudyTimeContextSaving {
 }
 
 private enum StudyTimeStoreError: LocalizedError {
-    case readOnlySession
+    case automaticSession
     case calendarEventUnavailable
     case sessionUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .readOnlySession:
-            "Automatically or externally recorded study time cannot be changed."
+        case .automaticSession:
+            "Automatically recorded study time cannot be changed."
         case .calendarEventUnavailable:
             "The linked calendar event is not available on this device."
         case .sessionUnavailable:
@@ -342,8 +342,8 @@ final class StudyTimeStore {
         duration: TimeInterval
     ) async throws -> String? {
         try requirePersistentWrites()
-        guard session.isEditable else {
-            throw StudyTimeStoreError.readOnlySession
+        guard session.source != .automatic else {
+            throw StudyTimeStoreError.automaticSession
         }
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable
@@ -420,8 +420,8 @@ final class StudyTimeStore {
 
     func delete(session: StudyActivitySession) async throws {
         try requirePersistentWrites()
-        guard session.isEditable else {
-            throw StudyTimeStoreError.readOnlySession
+        guard session.source != .automatic else {
+            throw StudyTimeStoreError.automaticSession
         }
         guard let record = record(clientSessionID: session.clientSessionId) else {
             throw StudyTimeStoreError.sessionUnavailable

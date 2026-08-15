@@ -1659,40 +1659,31 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(store.syncErrorMessage)
     }
 
-    func testAutomaticAndProviderSessionsCannotBeDeletedLocally() async throws {
+    func testAutomaticSessionCannotBeDeletedLocally() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let automatic = makeSession(source: .automatic)
-        let provider = makeSession(
-            source: .manual,
-            origin: .googleCalendar,
-            clientSessionId: "018f22d2-6d38-7000-8000-000000000098"
+        container.mainContext.insert(
+            LocalStudyActivitySession(session: automatic, userID: 42)
         )
-        [automatic, provider].forEach {
-            container.mainContext.insert(
-                LocalStudyActivitySession(session: $0, userID: 42)
-            )
-        }
         try container.mainContext.save()
         let client = makeClient { request in
-            XCTFail("Read-only deletion should not make a request: \(request)")
+            XCTFail("Automatic deletion should not make a request: \(request)")
             throw URLError(.badURL)
         }
         let store = StudyTimeStore(api: client, context: container.mainContext)
         store.activate(userID: 42)
 
-        for session in [automatic, provider] {
-            do {
-                try await store.delete(session: session)
-                XCTFail("Read-only deletion should be rejected")
-            } catch {
-                XCTAssertEqual(
-                    error.localizedDescription,
-                    "Automatically or externally recorded study time cannot be changed."
-                )
-            }
+        do {
+            try await store.delete(session: automatic)
+            XCTFail("Automatic deletion should be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Automatically recorded study time cannot be changed."
+            )
         }
 
-        XCTAssertEqual(store.sessions.count, 2)
+        XCTAssertEqual(store.sessions, [automatic])
     }
 
     func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
@@ -2108,12 +2099,11 @@ private enum DeterministicStudyTimeSaveError: LocalizedError {
 
 private func makeSession(
     source: StudyActivitySource,
-    origin: StudyActivityOrigin = .ios,
-    clientSessionId: String = "018f22d2-6d38-7000-8000-000000000099"
+    origin: StudyActivityOrigin = .ios
 ) -> StudyActivitySession {
     StudyActivitySession(
         id: "server-session-1",
-        clientSessionId: clientSessionId,
+        clientSessionId: "018f22d2-6d38-7000-8000-000000000099",
         category: .immerse,
         activity: .tv,
         source: source,
