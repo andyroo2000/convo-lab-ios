@@ -208,9 +208,9 @@ final class StudyTimeStore {
             let authorizationURL = try await googleCalendar.authorizationURL()
             let callbackURL = try await googleCalendarAuthorizer.authorize(at: authorizationURL)
             let callback = try GoogleCalendarCallback.parse(callbackURL)
-            guard callback.connected else {
-                throw GoogleCalendarConnectionError.connectionFailed(reason: callback.reason)
-            }
+            guard callback.connected else { throw GoogleCalendarConnectionError.connectionFailed(reason: callback.reason) }
+            guard activeUserID == requestedUserID, googleCalendarRequestGeneration == requestGeneration else { return }
+            googleCalendarStatus = .init(connected: true, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
             let status = try await googleCalendar.status()
             guard activeUserID == requestedUserID,
                   googleCalendarRequestGeneration == requestGeneration

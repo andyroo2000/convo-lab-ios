@@ -118,15 +118,13 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         store.activate(userID: 42)
         await store.connectGoogleCalendar()
         XCTAssertEqual(store.googleCalendarErrorMessage, "Google Calendar access wasn’t granted.")
-        service.statusResponse = GoogleCalendarConnectionStatus(
-            connected: false,
-            accountEmail: nil,
-            connectedAt: nil,
-            lastSyncedAt: nil
-        )
+        service.statusResponse = .init(connected: false, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
         await store.loadGoogleCalendarConnection()
         XCTAssertEqual(store.googleCalendarStatus?.connected, false)
         XCTAssertNil(store.googleCalendarErrorMessage)
+        authorizer.result = .success(URL(string: "convolab://study-time?calendarConnection=connected")!)
+        service.statusError = URLError(.timedOut); await store.connectGoogleCalendar()
+        XCTAssertEqual(store.googleCalendarStatus?.connected, true)
     }
 
     func testOAuthCancellationDoesNotShowAnError() async throws {
@@ -163,9 +161,11 @@ private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectio
     var statusResponse = GoogleCalendarConnectionStatus(connected: false, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
     var disconnectCount = 0
     var pauseStatus = false
+    var statusError: Error?
     var statusContinuation: CheckedContinuation<GoogleCalendarConnectionStatus, Never>?
 
     func status() async throws -> GoogleCalendarConnectionStatus {
+        if let statusError { throw statusError }
         guard pauseStatus else { return statusResponse }
         return await withCheckedContinuation { statusContinuation = $0 }
     }
@@ -180,7 +180,7 @@ private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectio
 
 @MainActor
 private final class TestGoogleCalendarAuthorizer: GoogleCalendarAuthorizing {
-    let result: Result<URL, Error>
+    var result: Result<URL, Error>
     private(set) var openedURLs: [URL] = []
 
     init(result: Result<URL, Error>) { self.result = result }
