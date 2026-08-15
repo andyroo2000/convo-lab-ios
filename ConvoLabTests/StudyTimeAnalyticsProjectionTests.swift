@@ -97,6 +97,26 @@ final class StudyTimeAnalyticsProjectionTests: XCTestCase {
         XCTAssertEqual(projection.chartDomain, start...end)
     }
 
+    func testAllTimeIncludesTheEffectiveEndDay() {
+        let end = date("2026-08-12T16:00:00Z")
+        let range = makeRange(
+            key: .all,
+            startsAt: date("2026-08-10T04:00:00Z"),
+            endsAt: end,
+            categories: [.review: 3_000],
+            buckets: []
+        )
+        let projection = StudyTimeAnalyticsProjection(
+            analytics: range,
+            generatedAt: end,
+            includedCategories: [.review],
+            calendar: newYorkCalendar
+        )
+
+        XCTAssertEqual(projection.elapsedDayCount, 3)
+        XCTAssertEqual(projection.dailyAverageDurationMs, 1_000)
+    }
+
     func testEmptySelectionHasSafeZeroSummary() {
         let range = makeRange(
             key: .today,
