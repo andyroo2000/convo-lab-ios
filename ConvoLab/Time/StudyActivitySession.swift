@@ -66,12 +66,49 @@ enum StudyActivitySource: String, Codable {
     case calendar
 }
 
+enum StudyActivityProvider: String, Equatable {
+    case googleCalendar = "google_calendar"
+    case waniKani = "wanikani"
+}
+
+enum StudyActivityOrigin: String, Codable {
+    case legacy
+    case ios
+    case web
+    case googleCalendar = "google_calendar"
+    case waniKani = "wanikani"
+    case system
+
+    init(from decoder: Decoder) throws {
+        // New server origins must not make an older client drop the whole ledger response.
+        let container = try decoder.singleValueContainer()
+        let value = try? container.decode(String.self)
+        self = value.flatMap(Self.init(rawValue:)) ?? .legacy
+    }
+
+    var provider: StudyActivityProvider? {
+        switch self {
+        case .googleCalendar: .googleCalendar
+        case .waniKani: .waniKani
+        case .legacy, .ios, .web, .system: nil
+        }
+    }
+
+    fileprivate var allowsUserEditing: Bool {
+        switch self {
+        case .legacy, .ios, .web: true
+        case .googleCalendar, .waniKani, .system: false
+        }
+    }
+}
+
 struct StudyActivitySession: Codable, Identifiable, Equatable {
     let id: String?
     let clientSessionId: String
     let category: StudyActivityCategory
     let activity: StudyActivityKind
     let source: StudyActivitySource
+    let origin: StudyActivityOrigin
     let name: String?
     let startedAt: Date
     let endedAt: Date
@@ -80,6 +117,60 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
     let cardsCreated: Int?
 
     var stableID: String { clientSessionId }
+    var provider: StudyActivityProvider? { origin.provider }
+    var isEditable: Bool { source != .automatic && origin.allowsUserEditing }
+
+    /// Direct construction represents a new local event. Decoded legacy payloads
+    /// take the compatibility path below and default a missing origin to legacy.
+    nonisolated init(
+        id: String?,
+        clientSessionId: String,
+        category: StudyActivityCategory,
+        activity: StudyActivityKind,
+        source: StudyActivitySource,
+        origin: StudyActivityOrigin = .ios,
+        name: String?,
+        startedAt: Date,
+        endedAt: Date,
+        durationMs: Int,
+        audioPlaybackMs: Int?,
+        cardsCreated: Int?
+    ) {
+        self.id = id
+        self.clientSessionId = clientSessionId
+        self.category = category
+        self.activity = activity
+        self.source = source
+        self.origin = origin
+        self.name = name
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.durationMs = durationMs
+        self.audioPlaybackMs = audioPlaybackMs
+        self.cardsCreated = cardsCreated
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, clientSessionId, category, activity, source, origin, name
+        case startedAt, endedAt, durationMs, audioPlaybackMs, cardsCreated
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(String.self, forKey: .id)
+        clientSessionId = try values.decode(String.self, forKey: .clientSessionId)
+        category = try values.decode(StudyActivityCategory.self, forKey: .category)
+        activity = try values.decode(StudyActivityKind.self, forKey: .activity)
+        source = try values.decode(StudyActivitySource.self, forKey: .source)
+        origin = try values.decodeIfPresent(StudyActivityOrigin.self, forKey: .origin)
+            ?? .legacy
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        startedAt = try values.decode(Date.self, forKey: .startedAt)
+        endedAt = try values.decode(Date.self, forKey: .endedAt)
+        durationMs = try values.decode(Int.self, forKey: .durationMs)
+        audioPlaybackMs = try values.decodeIfPresent(Int.self, forKey: .audioPlaybackMs)
+        cardsCreated = try values.decodeIfPresent(Int.self, forKey: .cardsCreated)
+    }
 }
 
 struct StudyActivityBatchRequest: Encodable {

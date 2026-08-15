@@ -637,7 +637,48 @@ final class StudyActivitySessionTests: XCTestCase {
         )
         XCTAssertEqual(encoded["category"] as? String, "create")
         XCTAssertEqual(encoded["activity"] as? String, "card_creation")
+        XCTAssertEqual(encoded["origin"] as? String, "ios")
         XCTAssertEqual(encoded["cardsCreated"] as? Int, 12)
+    }
+
+    func testSessionOriginDecodingIsBackwardAndForwardCompatible() throws {
+        for (originValue, expected) in [
+            (nil, StudyActivityOrigin.legacy),
+            (NSNull(), .legacy),
+            ("future_provider", .legacy),
+            ("google_calendar", .googleCalendar),
+        ] as [(Any?, StudyActivityOrigin)] {
+            var object = studyActivitySessionJSONObject()
+            if let originValue {
+                object["origin"] = originValue
+            }
+            let data = try JSONSerialization.data(withJSONObject: object)
+
+            let session = try studyActivityDecoder().decode(
+                StudyActivitySession.self,
+                from: data
+            )
+
+            XCTAssertEqual(session.origin, expected)
+        }
+    }
+
+    func testProviderProvenanceIsSeparateFromCaptureSourceAndConservativelyEditable() {
+        XCTAssertEqual(
+            makeSession(source: .manual, origin: .googleCalendar).provider,
+            .googleCalendar
+        )
+        XCTAssertEqual(makeSession(source: .calendar, origin: .ios).source, .calendar)
+        XCTAssertNil(makeSession(source: .manual, origin: .web).provider)
+
+        for origin in [StudyActivityOrigin.legacy, .ios, .web] {
+            XCTAssertTrue(makeSession(source: .manual, origin: origin).isEditable)
+        }
+        XCTAssertTrue(makeSession(source: .calendar, origin: .ios).isEditable)
+        XCTAssertFalse(makeSession(source: .automatic, origin: .ios).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .googleCalendar).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .waniKani).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .system).isEditable)
     }
 
     func testDeactivateFinishesAndFlushesActiveSessionBeforeClearingAccount() async throws {
@@ -1618,31 +1659,40 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(store.syncErrorMessage)
     }
 
-    func testAutomaticSessionCannotBeDeletedLocally() async throws {
+    func testAutomaticAndProviderSessionsCannotBeDeletedLocally() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let automatic = makeSession(source: .automatic)
-        container.mainContext.insert(
-            LocalStudyActivitySession(session: automatic, userID: 42)
+        let provider = makeSession(
+            source: .manual,
+            origin: .googleCalendar,
+            clientSessionId: "018f22d2-6d38-7000-8000-000000000098"
         )
+        [automatic, provider].forEach {
+            container.mainContext.insert(
+                LocalStudyActivitySession(session: $0, userID: 42)
+            )
+        }
         try container.mainContext.save()
         let client = makeClient { request in
-            XCTFail("Automatic deletion should not make a request: \(request)")
+            XCTFail("Read-only deletion should not make a request: \(request)")
             throw URLError(.badURL)
         }
         let store = StudyTimeStore(api: client, context: container.mainContext)
         store.activate(userID: 42)
 
-        do {
-            try await store.delete(session: automatic)
-            XCTFail("Automatic deletion should be rejected")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Automatically recorded study time cannot be changed."
-            )
+        for session in [automatic, provider] {
+            do {
+                try await store.delete(session: session)
+                XCTFail("Read-only deletion should be rejected")
+            } catch {
+                XCTAssertEqual(
+                    error.localizedDescription,
+                    "Automatically or externally recorded study time cannot be changed."
+                )
+            }
         }
 
-        XCTAssertEqual(store.sessions, [automatic])
+        XCTAssertEqual(store.sessions.count, 2)
     }
 
     func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
@@ -2057,14 +2107,17 @@ private enum DeterministicStudyTimeSaveError: LocalizedError {
 }
 
 private func makeSession(
-    source: StudyActivitySource
+    source: StudyActivitySource,
+    origin: StudyActivityOrigin = .ios,
+    clientSessionId: String = "018f22d2-6d38-7000-8000-000000000099"
 ) -> StudyActivitySession {
     StudyActivitySession(
         id: "server-session-1",
-        clientSessionId: "018f22d2-6d38-7000-8000-000000000099",
+        clientSessionId: clientSessionId,
         category: .immerse,
         activity: .tv,
         source: source,
+        origin: origin,
         name: "Drama",
         startedAt: Date(timeIntervalSince1970: 1_753_732_800),
         endedAt: Date(timeIntervalSince1970: 1_753_734_600),
@@ -2072,6 +2125,26 @@ private func makeSession(
         audioPlaybackMs: nil,
         cardsCreated: nil
     )
+}
+
+private func studyActivitySessionJSONObject() -> [String: Any] {
+    [
+        "id": "server-session-1",
+        "clientSessionId": "018f22d2-6d38-7000-8000-000000000099",
+        "category": "immerse",
+        "activity": "tv",
+        "source": "manual",
+        "name": "Drama",
+        "startedAt": "2026-07-28T20:00:00Z",
+        "endedAt": "2026-07-28T20:30:00Z",
+        "durationMs": 1_800_000,
+    ]
+}
+
+private func studyActivityDecoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return decoder
 }
 
 private func analyticsResponse(
