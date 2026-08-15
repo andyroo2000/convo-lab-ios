@@ -205,7 +205,7 @@ final class StudyTimeStore {
     }
 
     func loadWeeklyRecap(timeZone: String = TimeZone.autoupdatingCurrent.identifier) async {
-        guard let requestedUserID = activeUserID, !weeklyRecapIsLoading else { return }
+        guard let requestedUserID = activeUserID else { return }
         weeklyRecapRequestGeneration += 1
         let generation = weeklyRecapRequestGeneration
         weeklyRecapIsLoading = true

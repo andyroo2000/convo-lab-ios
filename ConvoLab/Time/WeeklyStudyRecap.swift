@@ -190,6 +190,7 @@ struct WeeklyStudyRecapView: View {
                         Text(compactDuration(categories.duration(for: category)))
                             .font(.caption.weight(.bold))
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
