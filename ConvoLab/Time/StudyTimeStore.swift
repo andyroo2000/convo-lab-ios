@@ -246,7 +246,14 @@ final class StudyTimeStore {
             let callback = try GoogleCalendarCallback.parse(callbackURL)
             guard callback.connected else { throw GoogleCalendarConnectionError.connectionFailed(reason: callback.reason) }
             guard activeUserID == requestedUserID, googleCalendarRequestGeneration == requestGeneration else { return }
-            googleCalendarStatus = .init(connected: true, accountEmail: nil, connectedAt: nil, lastSyncedAt: nil)
+            googleCalendarStatus = .init(
+                connected: true,
+                accountEmail: nil,
+                scopes: [],
+                settings: nil,
+                connectedAt: nil,
+                lastSyncedAt: nil
+            )
             let status = try await googleCalendar.status()
             guard activeUserID == requestedUserID,
                   googleCalendarRequestGeneration == requestGeneration
@@ -283,6 +290,8 @@ final class StudyTimeStore {
             googleCalendarStatus = GoogleCalendarConnectionStatus(
                 connected: false,
                 accountEmail: nil,
+                scopes: [],
+                settings: nil,
                 connectedAt: nil,
                 lastSyncedAt: nil
             )
