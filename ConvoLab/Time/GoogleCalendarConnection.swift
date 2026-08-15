@@ -204,7 +204,7 @@ enum GoogleCalendarConnectionError: LocalizedError, Equatable {
         case .sessionExpired:
             "Your session expired. Sign in again, then retry."
         case .requestFailed:
-            "Couldn’t update Google Calendar. Please try again."
+            "Something went wrong with Google Calendar. Please try again."
         }
     }
 }

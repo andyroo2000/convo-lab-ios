@@ -134,6 +134,12 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             } catch {
                 XCTAssertEqual(error as? GoogleCalendarConnectionError, expected)
                 XCTAssertFalse(error.localizedDescription.contains("secret"))
+                if expected == .requestFailed {
+                    XCTAssertEqual(
+                        error.localizedDescription,
+                        "Something went wrong with Google Calendar. Please try again."
+                    )
+                }
             }
         }
     }
