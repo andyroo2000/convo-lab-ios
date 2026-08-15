@@ -614,7 +614,7 @@ final class StudyActivitySessionTests: XCTestCase {
 
     func testBatchEncodesRetrySafeClientIdentityAndOutputMetrics() throws {
         let session = StudyActivitySession(
-            id: nil,
+            id: "server-session-1",
             clientSessionId: "018f22d2-6d38-7000-8000-000000000001",
             category: .create,
             activity: .cardCreation,
@@ -635,9 +635,139 @@ final class StudyActivitySessionTests: XCTestCase {
             encoded["clientSessionId"] as? String,
             "018f22d2-6d38-7000-8000-000000000001"
         )
+        XCTAssertEqual(encoded["id"] as? String, "server-session-1")
         XCTAssertEqual(encoded["category"] as? String, "create")
         XCTAssertEqual(encoded["activity"] as? String, "card_creation")
+        XCTAssertEqual(encoded["origin"] as? String, "ios")
         XCTAssertEqual(encoded["cardsCreated"] as? Int, 12)
+
+        let legacyData = try JSONEncoder().encode(
+            StudyActivityBatchRequest(
+                sessions: [makeSession(source: .manual, origin: .legacy)]
+            )
+        )
+        let legacyBody = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: legacyData) as? [String: Any]
+        )
+        let legacySession = try XCTUnwrap(
+            (legacyBody["sessions"] as? [[String: Any]])?.first
+        )
+        XCTAssertNil(legacySession["origin"])
+    }
+
+    func testSessionOriginDecodingIsBackwardAndForwardCompatible() throws {
+        for (originValue, expected) in [
+            (nil, StudyActivityOrigin.legacy),
+            (NSNull(), .legacy),
+            ("future_provider", .legacy),
+            ("google_calendar", .googleCalendar),
+        ] as [(Any?, StudyActivityOrigin)] {
+            var object = studyActivitySessionJSONObject()
+            if let originValue {
+                object["origin"] = originValue
+            }
+            let data = try JSONSerialization.data(withJSONObject: object)
+
+            let session = try studyActivityDecoder().decode(
+                StudyActivitySession.self,
+                from: data
+            )
+
+            XCTAssertEqual(session.origin, expected)
+        }
+
+        var futureObject = studyActivitySessionJSONObject()
+        futureObject["origin"] = "future_provider"
+        let future = try studyActivityDecoder().decode(
+            StudyActivitySession.self,
+            from: JSONSerialization.data(withJSONObject: futureObject)
+        )
+        XCTAssertEqual(future.origin, .legacy)
+        XCTAssertTrue(future.hasUnknownOrigin)
+        XCTAssertFalse(future.isEditable)
+
+        let persisted = LocalStudyActivitySession(session: future, userID: 42)
+        XCTAssertEqual(persisted.origin, "future_provider")
+        let roundTripped = try XCTUnwrap(persisted.session)
+        XCTAssertEqual(roundTripped.origin, .legacy)
+        XCTAssertTrue(roundTripped.hasUnknownOrigin)
+        XCTAssertFalse(roundTripped.isEditable)
+    }
+
+    func testProviderProvenanceIsSeparateFromCaptureSourceAndConservativelyEditable() {
+        XCTAssertEqual(
+            makeSession(source: .manual, origin: .googleCalendar).provider,
+            .googleCalendar
+        )
+        XCTAssertEqual(makeSession(source: .calendar, origin: .ios).source, .calendar)
+        XCTAssertNil(makeSession(source: .manual, origin: .web).provider)
+
+        for origin in [StudyActivityOrigin.legacy, .ios, .web] {
+            XCTAssertTrue(makeSession(source: .manual, origin: origin).isEditable)
+        }
+        XCTAssertTrue(makeSession(source: .calendar, origin: .ios).isEditable)
+        XCTAssertFalse(makeSession(source: .automatic, origin: .ios).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .googleCalendar).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .waniKani).isEditable)
+        XCTAssertFalse(makeSession(source: .manual, origin: .system).isEditable)
+    }
+
+    func testEditableEntriesCopyAndFilterMatchTheUIContract() {
+        XCTAssertEqual(StudyTimeEditableEntries.sectionTitle, "Editable entries")
+        XCTAssertEqual(
+            StudyTimeEditableEntries.emptyDescription,
+            "Timers and manually added study time you can edit appear here."
+        )
+
+        let editable = makeSession(source: .manual, origin: .ios)
+        let automatic = makeSession(source: .automatic, origin: .ios)
+        let provider = makeSession(source: .manual, origin: .googleCalendar)
+
+        XCTAssertEqual(
+            StudyTimeEditableEntries.filter([provider, automatic, editable]),
+            [editable]
+        )
+    }
+
+    func testOriginsSurviveLocalPersistenceWithSafeLegacyFallback() throws {
+        for origin in [
+            StudyActivityOrigin.legacy,
+            .ios,
+            .web,
+            .googleCalendar,
+            .waniKani,
+            .system,
+        ] {
+            let record = LocalStudyActivitySession(
+                session: makeSession(source: .manual, origin: origin),
+                userID: 42
+            )
+            XCTAssertEqual(try XCTUnwrap(record.session).origin, origin)
+        }
+
+        let unknown = LocalStudyActivitySession(
+            session: makeSession(source: .manual, origin: .web),
+            userID: 42
+        )
+        unknown.origin = "future_provider"
+        let unknownSession = try XCTUnwrap(unknown.session)
+        XCTAssertEqual(unknownSession.origin, .legacy)
+        XCTAssertTrue(unknownSession.hasUnknownOrigin)
+        XCTAssertFalse(unknownSession.isEditable)
+
+        let active = StudyTimeStore.ActiveSession(
+            clientSessionID: "018f22d2-6d38-7000-8000-000000000097",
+            category: .immerse,
+            activity: .reading,
+            source: .manual,
+            name: nil,
+            startedAt: Date(timeIntervalSince1970: 1_753_732_800),
+            cardsCreated: 0
+        )
+        let local = LocalStudyActivitySession(active: active, userID: 42)
+        local.endedAt = active.startedAt.addingTimeInterval(600)
+        local.durationMs = 600_000
+        XCTAssertEqual(try XCTUnwrap(local.session).origin, .ios)
     }
 
     func testDeactivateFinishesAndFlushesActiveSessionBeforeClearingAccount() async throws {
@@ -1290,7 +1420,7 @@ final class StudyActivitySessionTests: XCTestCase {
 
     func testManualSessionCanBeEditedAndDeleted() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
-        let original = makeSession(source: .manual)
+        let original = makeSession(source: .manual, origin: .web)
         container.mainContext.insert(
             LocalStudyActivitySession(session: original, userID: 42)
         )
@@ -1304,6 +1434,7 @@ final class StudyActivitySessionTests: XCTestCase {
                 let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
                 XCTAssertEqual(sessions.first?["activity"] as? String, "conversation")
                 XCTAssertEqual(sessions.first?["durationMs"] as? Int, 2_700_000)
+                XCTAssertEqual(sessions.first?["origin"] as? String, "web")
                 return (
                     HTTPURLResponse(
                         url: try XCTUnwrap(request.url),
@@ -1343,6 +1474,7 @@ final class StudyActivitySessionTests: XCTestCase {
 
         XCTAssertEqual(store.sessions.first?.category, .conversation)
         XCTAssertEqual(store.sessions.first?.name, "iTalki lesson")
+        XCTAssertEqual(store.sessions.first?.origin, .web)
         try await store.delete(session: try XCTUnwrap(store.sessions.first))
         XCTAssertTrue(store.sessions.isEmpty)
         let records = try container.mainContext.fetch(
@@ -1439,6 +1571,7 @@ final class StudyActivitySessionTests: XCTestCase {
                     "category": deletedSession.category.rawValue,
                     "activity": deletedSession.activity.rawValue,
                     "source": deletedSession.source.rawValue,
+                    "origin": deletedSession.origin.rawValue,
                     "name": deletedSession.name as Any,
                     "startedAt": deletedSession.startedAt.ISO8601Format(),
                     "endedAt": deletedSession.endedAt.ISO8601Format(),
@@ -1450,6 +1583,7 @@ final class StudyActivitySessionTests: XCTestCase {
                     "category": pendingSession.category.rawValue,
                     "activity": pendingSession.activity.rawValue,
                     "source": pendingSession.source.rawValue,
+                    "origin": pendingSession.origin.rawValue,
                     "name": pendingSession.name as Any,
                     "startedAt": pendingSession.startedAt.ISO8601Format(),
                     "endedAt": pendingSession.endedAt.ISO8601Format(),
@@ -1520,7 +1654,9 @@ final class StudyActivitySessionTests: XCTestCase {
             try XCTUnwrap(records.first { $0.clientSessionID == pendingSession.clientSessionId })
                 .syncPending
         )
-        XCTAssertEqual(store.sessions, [pendingSession])
+        XCTAssertEqual(store.sessions.first?.clientSessionId, pendingSession.clientSessionId)
+        XCTAssertEqual(store.sessions.first?.name, pendingSession.name)
+        XCTAssertEqual(store.sessions.first?.origin, .ios)
         XCTAssertNil(store.syncErrorMessage)
     }
 
@@ -1618,31 +1754,49 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNotNil(store.syncErrorMessage)
     }
 
-    func testAutomaticSessionCannotBeDeletedLocally() async throws {
+    func testAutomaticProviderAndSystemSessionsStayReadOnlyAfterPersistence() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let automatic = makeSession(source: .automatic)
-        container.mainContext.insert(
-            LocalStudyActivitySession(session: automatic, userID: 42)
+        let provider = makeSession(
+            source: .manual,
+            origin: .googleCalendar,
+            clientSessionId: "018f22d2-6d38-7000-8000-000000000098"
         )
+        let system = makeSession(
+            source: .manual,
+            origin: .system,
+            clientSessionId: "018f22d2-6d38-7000-8000-000000000097"
+        )
+        [automatic, provider, system].forEach {
+            container.mainContext.insert(
+                LocalStudyActivitySession(session: $0, userID: 42)
+            )
+        }
         try container.mainContext.save()
         let client = makeClient { request in
-            XCTFail("Automatic deletion should not make a request: \(request)")
+            XCTFail("Read-only deletion should not make a request: \(request)")
             throw URLError(.badURL)
         }
         let store = StudyTimeStore(api: client, context: container.mainContext)
         store.activate(userID: 42)
 
-        do {
-            try await store.delete(session: automatic)
-            XCTFail("Automatic deletion should be rejected")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Automatically recorded study time cannot be changed."
+        for expected in [automatic, provider, system] {
+            let persisted = try XCTUnwrap(
+                store.sessions.first { $0.clientSessionId == expected.clientSessionId }
             )
+            XCTAssertEqual(persisted.origin, expected.origin)
+            do {
+                try await store.delete(session: persisted)
+                XCTFail("Read-only deletion should be rejected")
+            } catch {
+                XCTAssertEqual(
+                    error.localizedDescription,
+                    "Automatically or externally recorded study time cannot be changed."
+                )
+            }
         }
 
-        XCTAssertEqual(store.sessions, [automatic])
+        XCTAssertEqual(store.sessions.count, 3)
     }
 
     func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
@@ -2057,14 +2211,17 @@ private enum DeterministicStudyTimeSaveError: LocalizedError {
 }
 
 private func makeSession(
-    source: StudyActivitySource
+    source: StudyActivitySource,
+    origin: StudyActivityOrigin = .ios,
+    clientSessionId: String = "018f22d2-6d38-7000-8000-000000000099"
 ) -> StudyActivitySession {
     StudyActivitySession(
         id: "server-session-1",
-        clientSessionId: "018f22d2-6d38-7000-8000-000000000099",
+        clientSessionId: clientSessionId,
         category: .immerse,
         activity: .tv,
         source: source,
+        origin: origin,
         name: "Drama",
         startedAt: Date(timeIntervalSince1970: 1_753_732_800),
         endedAt: Date(timeIntervalSince1970: 1_753_734_600),
@@ -2072,6 +2229,26 @@ private func makeSession(
         audioPlaybackMs: nil,
         cardsCreated: nil
     )
+}
+
+private func studyActivitySessionJSONObject() -> [String: Any] {
+    [
+        "id": "server-session-1",
+        "clientSessionId": "018f22d2-6d38-7000-8000-000000000099",
+        "category": "immerse",
+        "activity": "tv",
+        "source": "manual",
+        "name": "Drama",
+        "startedAt": "2026-07-28T20:00:00Z",
+        "endedAt": "2026-07-28T20:30:00Z",
+        "durationMs": 1_800_000,
+    ]
+}
+
+private func studyActivityDecoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return decoder
 }
 
 private func analyticsResponse(

@@ -1,6 +1,16 @@
 import Charts
 import SwiftUI
 
+enum StudyTimeEditableEntries {
+    static let sectionTitle = "Editable entries"
+    static let emptyTitle = "No editable entries"
+    static let emptyDescription = "Timers and manually added study time you can edit appear here."
+
+    static func filter(_ sessions: [StudyActivitySession]) -> [StudyActivitySession] {
+        sessions.filter(\.isEditable)
+    }
+}
+
 struct StudyTimeView: View {
     let store: StudyTimeStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -21,8 +31,8 @@ struct StudyTimeView: View {
         store.analytics?.range(selectedRange)
     }
 
-    private var manualSessions: [StudyActivitySession] {
-        store.sessions.filter { $0.source != .automatic }
+    private var editableSessions: [StudyActivitySession] {
+        StudyTimeEditableEntries.filter(store.sessions)
     }
 
     var body: some View {
@@ -135,15 +145,15 @@ struct StudyTimeView: View {
                     }
                 }
 
-                Section("Manual entries") {
-                    if manualSessions.isEmpty {
+                Section(StudyTimeEditableEntries.sectionTitle) {
+                    if editableSessions.isEmpty {
                         ContentUnavailableView(
-                            "No manual entries",
+                            StudyTimeEditableEntries.emptyTitle,
                             systemImage: "clock.badge",
-                            description: Text("Timers and added study time appear here.")
+                            description: Text(StudyTimeEditableEntries.emptyDescription)
                         )
                     }
-                    ForEach(manualSessions, id: \.stableID) { session in
+                    ForEach(editableSessions, id: \.stableID) { session in
                         StudyTimeSessionRow(session: session)
                             .contentShape(Rectangle())
                             .onTapGesture { editingSession = session }

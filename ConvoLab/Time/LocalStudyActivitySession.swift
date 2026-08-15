@@ -11,6 +11,9 @@ final class LocalStudyActivitySession {
     var category: String
     var activity: String
     var source: String
+    // The declaration default is the lightweight-migration value for rows
+    // written before origin provenance existed.
+    var origin: String = "legacy"
     var name: String?
     var startedAt: Date
     var endedAt: Date?
@@ -27,6 +30,7 @@ final class LocalStudyActivitySession {
         category = active.category.rawValue
         activity = active.activity.rawValue
         source = active.source.rawValue
+        origin = StudyActivityOrigin.ios.rawValue
         name = active.name
         startedAt = active.startedAt
         durationMs = 0
@@ -42,6 +46,7 @@ final class LocalStudyActivitySession {
         category = session.category.rawValue
         activity = session.activity.rawValue
         source = session.source.rawValue
+        origin = session.persistedOriginRawValue
         name = session.name
         startedAt = session.startedAt
         endedAt = session.endedAt
@@ -60,12 +65,15 @@ final class LocalStudyActivitySession {
         else {
             return nil
         }
+        let recognizedOrigin = StudyActivityOrigin(rawValue: origin)
         return StudyActivitySession(
             id: serverID,
             clientSessionId: clientSessionID,
             category: activity.category,
             activity: activity,
             source: source,
+            origin: recognizedOrigin ?? .legacy,
+            unknownOriginRawValue: recognizedOrigin == nil ? origin : nil,
             name: name,
             startedAt: startedAt,
             endedAt: endedAt,
@@ -99,6 +107,7 @@ final class LocalStudyActivitySession {
         category = session.category.rawValue
         activity = session.activity.rawValue
         source = session.source.rawValue
+        origin = session.persistedOriginRawValue
         name = session.name
         startedAt = session.startedAt
         endedAt = session.endedAt
