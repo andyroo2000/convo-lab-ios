@@ -102,6 +102,32 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         ])
     }
 
+    func testPreviewUsesCurrentCanonicalSelectionsWithoutSaving() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary", "stale"], titleMatchTerms: [" iTalki "], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [
+                .init(id: "primary", name: "Personal", primary: true),
+                .init(id: "lessons", name: "Lessons", primary: false),
+            ]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+        model.removeUnavailableCalendar(id: "stale")
+        model.toggleCalendar(id: "lessons")
+        XCTAssertTrue(model.addTitleMatchTerm("学校"))
+
+        let preview = model.makePreviewModel()
+
+        XCTAssertEqual(
+            preview?.request,
+            .init(calendarIds: ["primary", "lessons"], titleMatchTerms: ["iTalki", "学校"])
+        )
+        XCTAssertTrue(service.updateRequests.isEmpty)
+    }
+
     func testTermEditingTrimsDeduplicatesValidatesAndPreservesOrder() async {
         let service = CalendarSettingsServiceFake(
             settings: .init(calendarIds: ["primary"], titleMatchTerms: ["existing"], syncEnabled: true),
@@ -308,6 +334,12 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
         if let updateError { throw updateError }
         updateRequests.append(settings)
         return settings
+    }
+    func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
+        .init(
+            generatedAt: .now, startsAt: .now, endsAt: .now,
+            scannedEventCount: 0, matchedEventCount: 0, truncated: false, matches: []
+        )
     }
     func disconnect() async throws {}
 

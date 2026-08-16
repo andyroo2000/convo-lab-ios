@@ -36,6 +36,10 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     var canSave: Bool {
+        canPreview
+    }
+
+    var canPreview: Bool {
         state == .loaded
             && !selectedCalendarIDs.isEmpty
             && titleTermsValidationMessage == nil
@@ -131,6 +135,22 @@ final class GoogleCalendarSettingsModel: Identifiable {
         saveErrorMessage = nil
     }
 
+    func makePreviewModel() -> GoogleCalendarPreviewModel? {
+        guard canPreview else { return nil }
+        let existing = (settings?.calendarIds ?? []).filter(selectedCalendarIDs.contains)
+        let seen = Set(existing)
+        let added = calendars.map(\.id).filter {
+            selectedCalendarIDs.contains($0) && !seen.contains($0)
+        }
+        guard let calendarIds = try? GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added),
+              let terms = try? GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+        else { return nil }
+        return GoogleCalendarPreviewModel(
+            service: service,
+            request: .init(calendarIds: calendarIds, titleMatchTerms: terms)
+        )
+    }
+
     @discardableResult
     func save() async -> Bool {
         guard !selectedCalendarIDs.isEmpty else {
@@ -209,6 +229,7 @@ struct GoogleCalendarSettingsView: View {
     let model: GoogleCalendarSettingsModel
     @Environment(\.dismiss) private var dismiss
     @State private var titleTermDraft = ""
+    @State private var previewModel: GoogleCalendarPreviewModel?
 
     var body: some View {
         NavigationStack {
@@ -233,6 +254,7 @@ struct GoogleCalendarSettingsView: View {
             }
             .interactiveDismissDisabled(model.isSaving)
             .task { await model.load() }
+            .sheet(item: $previewModel) { GoogleCalendarPreviewView(model: $0) }
         }
     }
 
@@ -328,6 +350,18 @@ struct GoogleCalendarSettingsView: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+            Section {
+                Button {
+                    previewModel = model.makePreviewModel()
+                } label: {
+                    Label("Preview matching events", systemImage: "calendar.badge.clock")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .disabled(!model.canPreview)
+                .accessibilityHint("Shows matching completed events from the last 31 days without importing them")
+            } footer: {
+                Text("Preview uses the selections above. It does not import or sync anything.")
             }
             if let message = model.saveErrorMessage {
                 errorLabel(message)
