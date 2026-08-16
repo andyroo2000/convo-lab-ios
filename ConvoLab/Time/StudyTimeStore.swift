@@ -205,12 +205,19 @@ final class StudyTimeStore {
     }
 
     func makeGoogleCalendarSettingsModel() -> GoogleCalendarSettingsModel? {
-        guard googleCalendarStatus?.connected == true else { return nil }
+        guard googleCalendarStatus?.connected == true,
+              let requestedUserID = activeUserID
+        else { return nil }
         return GoogleCalendarSettingsModel(
             service: googleCalendar,
             initialSettings: googleCalendarStatus?.settings
         ) { [weak self] in
             await self?.loadGoogleCalendarConnection()
+        } didSync: { [weak self] in
+            guard let self, self.activeUserID == requestedUserID else { return }
+            async let status: Void = self.loadGoogleCalendarConnection()
+            async let studyTime: Void = self.synchronize()
+            _ = await (status, studyTime)
         }
     }
 
