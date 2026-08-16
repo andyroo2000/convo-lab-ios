@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class GoogleCalendarSettingsModelTests: XCTestCase {
-    func testLoadPreservesSelectionsAndSaveUsesExactExistingRules() async {
+    func testLoadPreservesSelectionsAndSaveUsesFreshExistingRules() async {
         let existing = GoogleCalendarSettings(
             calendarIds: ["primary", "unavailable"],
             titleMatchTerms: [" iTalki ", "学校"],
@@ -26,19 +26,54 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(model.state, .loaded)
         XCTAssertEqual(model.selectedCalendarIDs, ["primary", "unavailable"])
         XCTAssertEqual(model.unavailableSelectedCount, 1)
+        XCTAssertEqual(model.unavailableSelectedCalendarIDs, ["unavailable"])
         model.toggleCalendar(id: "primary")
         model.toggleCalendar(id: "lessons")
+        service.statusResponse = CalendarSettingsServiceFake.status(
+            settings: .init(
+                calendarIds: ["primary", "unavailable"],
+                titleMatchTerms: ["remote edit"],
+                syncEnabled: true
+            )
+        )
         let didSave = await model.save()
         XCTAssertTrue(didSave)
         XCTAssertEqual(
             service.updateRequests,
             [.init(
                 calendarIds: ["unavailable", "lessons"],
-                titleMatchTerms: [" iTalki ", "学校"],
-                syncEnabled: false
+                titleMatchTerms: ["remote edit"],
+                syncEnabled: true
             )]
         )
         XCTAssertEqual(refreshCount, 1)
+    }
+
+    func testUnavailableSelectionCanBeRemovedAndSelectionStopsAt25() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["stale"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let calendars = (1...26).map {
+            GoogleCalendar(id: "calendar-\($0)", name: "Calendar \($0)", primary: false)
+        }
+        let service = CalendarSettingsServiceFake(settings: settings, calendars: calendars)
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+
+        model.removeUnavailableCalendar(id: "stale")
+        XCTAssertFalse(model.selectedCalendarIDs.contains("stale"))
+        for calendar in calendars.prefix(25) { model.toggleCalendar(id: calendar.id) }
+        XCTAssertEqual(model.selectedCalendarIDs.count, 25)
+        model.toggleCalendar(id: calendars[25].id)
+        XCTAssertEqual(model.selectedCalendarIDs.count, 25)
+        XCTAssertFalse(model.selectedCalendarIDs.contains("calendar-26"))
+        XCTAssertEqual(
+            model.saveErrorMessage,
+            GoogleCalendarSettingsValidationError.calendarCount.localizedDescription
+        )
+        let didSave = await model.save()
+        XCTAssertTrue(didSave)
+        XCTAssertFalse(service.updateRequests[0].calendarIds.contains("stale"))
     }
 
     func testAtLeastOneCalendarIsRequiredAndCancelDoesNotMutate() async {
@@ -133,7 +168,12 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     private(set) var updateRequests: [GoogleCalendarSettings] = []
 
     init(settings: GoogleCalendarSettings?, calendars: [GoogleCalendar]) {
-        statusResponse = .init(
+        statusResponse = Self.status(settings: settings)
+        calendarResponse = .init(calendars: calendars, truncated: false)
+    }
+
+    static func status(settings: GoogleCalendarSettings?) -> GoogleCalendarConnectionStatus {
+        .init(
             connected: true,
             accountEmail: "andrew@example.com",
             scopes: ["calendar.readonly"],
@@ -141,7 +181,6 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
             connectedAt: nil,
             lastSyncedAt: nil
         )
-        calendarResponse = .init(calendars: calendars, truncated: false)
     }
 
     func status() async throws -> GoogleCalendarConnectionStatus { statusResponse }

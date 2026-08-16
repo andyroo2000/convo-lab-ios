@@ -267,6 +267,7 @@ struct StudyTimeView: View {
                     Button("Disconnect", role: .destructive) {
                         confirmingCalendarDisconnect = true
                     }
+                    .frame(minHeight: 44)
                     .disabled(store.googleCalendarIsLoading)
                 }
             } else {

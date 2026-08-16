@@ -39,8 +39,14 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     var unavailableSelectedCount: Int {
+        unavailableSelectedCalendarIDs.count
+    }
+
+    var unavailableSelectedCalendarIDs: [String] {
         let availableIDs = Set(calendars.map(\.id))
-        return selectedCalendarIDs.subtracting(availableIDs).count
+        return (settings?.calendarIds ?? []).filter {
+            selectedCalendarIDs.contains($0) && !availableIDs.contains($0)
+        }
     }
 
     func load() async {
@@ -73,8 +79,18 @@ final class GoogleCalendarSettingsModel: Identifiable {
         if selectedCalendarIDs.contains(id) {
             selectedCalendarIDs.remove(id)
         } else {
+            guard selectedCalendarIDs.count < 25 else {
+                saveErrorMessage = GoogleCalendarSettingsValidationError.calendarCount.localizedDescription
+                return
+            }
             selectedCalendarIDs.insert(id)
         }
+    }
+
+    func removeUnavailableCalendar(id: String) {
+        guard unavailableSelectedCalendarIDs.contains(id) else { return }
+        selectedCalendarIDs.remove(id)
+        saveErrorMessage = nil
     }
 
     @discardableResult
@@ -93,12 +109,18 @@ final class GoogleCalendarSettingsModel: Identifiable {
         let added = calendars.map(\.id).filter {
             selectedCalendarIDs.contains($0) && !existingIDs.contains($0)
         }
-        let request = GoogleCalendarSettings(
-            calendarIds: existing + added,
-            titleMatchTerms: settings.titleMatchTerms,
-            syncEnabled: settings.syncEnabled
-        )
         do {
+            let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added)
+            let freshStatus = try await service.status()
+            guard freshStatus.connected else { throw GoogleCalendarConnectionError.notConnected }
+            guard let freshSettings = freshStatus.settings else {
+                throw GoogleCalendarConnectionError.invalidSettings
+            }
+            let request = GoogleCalendarSettings(
+                calendarIds: calendarIds,
+                titleMatchTerms: freshSettings.titleMatchTerms,
+                syncEnabled: freshSettings.syncEnabled
+            )
             self.settings = try await service.updateSettings(request)
             await didSave()
             return true
@@ -109,7 +131,10 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     private static func safeMessage(for error: Error) -> String {
-        googleCalendarFriendlyMessage(for: error)
+        if let validation = error as? GoogleCalendarSettingsValidationError {
+            return validation.localizedDescription
+        }
+        return googleCalendarFriendlyMessage(for: error)
             ?? "Something went wrong with Google Calendar. Please try again."
     }
 }
@@ -172,6 +197,27 @@ struct GoogleCalendarSettingsView: View {
                     if model.selectedCalendarIDs.isEmpty {
                         Text("Select at least one calendar to save.")
                             .foregroundStyle(.red)
+                    }
+                }
+            }
+            if !model.unavailableSelectedCalendarIDs.isEmpty {
+                Section("Unavailable Calendars") {
+                    ForEach(model.unavailableSelectedCalendarIDs, id: \.self) { id in
+                        Button(role: .destructive) {
+                            model.removeUnavailableCalendar(id: id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(id)
+                                    .lineLimit(2)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Label("Remove", systemImage: "trash")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Remove unavailable calendar \(id)")
                     }
                 }
             }
