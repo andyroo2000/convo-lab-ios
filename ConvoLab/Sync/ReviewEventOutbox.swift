@@ -215,6 +215,13 @@ final class ReviewEventOutbox {
         return true
     }
 
+    func cardID(for mutation: PendingMutation) -> String? {
+        guard mutation.kind == "review", mutation.userID == activeUserID else {
+            return nil
+        }
+        return try? decode(mutation.payload).event.cardID
+    }
+
     func retarget(_ mutation: PendingMutation, cardID: String) throws {
         guard mutation.kind == "review", mutation.userID == activeUserID else { return }
         mutation.resourceID = cardID

@@ -1808,6 +1808,7 @@ final class StudyStore {
         guard let mutation = try failedMutation(id: id, userID: userID),
               let kind = mutation.studyMutationKind
         else { return }
+        guard mutation.failedStudyChange()?.isRetryable != false else { return }
 
         mutation.lastError = nil
         try context.save()
@@ -1848,11 +1849,16 @@ final class StudyStore {
         else { return }
 
         let resourceID = mutation.resourceID.lowercased()
+        let canonicalLookupID = if kind == .review {
+            reviewOutbox.cardID(for: mutation) ?? mutation.resourceID
+        } else {
+            mutation.resourceID
+        }
         let canonicalCard: StudyCard? = if kind == .cardDelete
             || kind == .cardUpdate
             || kind == .review
         {
-            try await fetchCanonicalCard(id: mutation.resourceID)
+            try await fetchCanonicalCard(id: canonicalLookupID)
         } else {
             nil
         }
