@@ -5,7 +5,7 @@ import XCTest
 final class GoogleCalendarSettingsModelTests: XCTestCase {
     func testLoadPreservesSelectionsAndSaveUsesFreshExistingRules() async {
         let existing = GoogleCalendarSettings(
-            calendarIds: ["primary", "unavailable"],
+            calendarIds: ["primary", "unavailable", "remote-removed"],
             titleMatchTerms: [" iTalki ", "学校"],
             syncEnabled: false
         )
@@ -24,11 +24,14 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         await model.load()
 
         XCTAssertEqual(model.state, .loaded)
-        XCTAssertEqual(model.selectedCalendarIDs, ["primary", "unavailable"])
-        XCTAssertEqual(model.unavailableSelectedCount, 1)
-        XCTAssertEqual(model.unavailableSelectedCalendarIDs, ["unavailable"])
+        XCTAssertEqual(model.selectedCalendarIDs, ["primary", "unavailable", "remote-removed"])
+        XCTAssertEqual(model.titleMatchTerms, [" iTalki ", "学校"])
+        XCTAssertEqual(model.unavailableSelectedCount, 2)
+        XCTAssertEqual(model.unavailableSelectedCalendarIDs, ["unavailable", "remote-removed"])
         model.toggleCalendar(id: "primary")
         model.toggleCalendar(id: "lessons")
+        model.removeTitleMatchTerm(at: 0)
+        XCTAssertTrue(model.addTitleMatchTerm(" lesson "))
         service.statusResponse = CalendarSettingsServiceFake.status(
             settings: .init(
                 calendarIds: ["unavailable", "remote"],
@@ -42,11 +45,115 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
             service.updateRequests,
             [.init(
                 calendarIds: ["unavailable", "remote", "lessons"],
-                titleMatchTerms: ["remote edit"],
+                titleMatchTerms: ["remote edit", "lesson"],
                 syncEnabled: true
             )]
         )
         XCTAssertEqual(refreshCount, 1)
+    }
+
+    func testInitialSetupSavesExactPayloadWithoutInventingDefaults() async {
+        let service = CalendarSettingsServiceFake(
+            settings: nil,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: nil)
+        await model.load()
+
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertTrue(model.selectedCalendarIDs.isEmpty)
+        XCTAssertTrue(model.titleMatchTerms.isEmpty)
+        XCTAssertFalse(model.canSave)
+
+        model.toggleCalendar(id: "primary")
+        XCTAssertTrue(model.addTitleMatchTerm("  iTalki  "))
+        XCTAssertTrue(model.canSave)
+        let didSave = await model.save()
+        XCTAssertTrue(didSave)
+        XCTAssertEqual(service.updateRequests, [
+            .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"], syncEnabled: false),
+        ])
+    }
+
+    func testRemoteSetupAppearingWhileOpenReceivesLocalDelta() async {
+        let service = CalendarSettingsServiceFake(
+            settings: nil,
+            calendars: [
+                .init(id: "primary", name: "Personal", primary: true),
+                .init(id: "lessons", name: "Lessons", primary: false),
+            ]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: nil)
+        await model.load()
+        model.toggleCalendar(id: "lessons")
+        XCTAssertTrue(model.addTitleMatchTerm("学校"))
+        service.statusResponse = CalendarSettingsServiceFake.status(settings: .init(
+            calendarIds: ["primary"], titleMatchTerms: ["remote"], syncEnabled: true
+        ))
+
+        let didSave = await model.save()
+        XCTAssertTrue(didSave)
+        XCTAssertEqual(service.updateRequests, [
+            .init(
+                calendarIds: ["primary", "lessons"],
+                titleMatchTerms: ["remote", "学校"],
+                syncEnabled: true
+            ),
+        ])
+    }
+
+    func testTermEditingTrimsDeduplicatesValidatesAndPreservesOrder() async {
+        let service = CalendarSettingsServiceFake(
+            settings: .init(calendarIds: ["primary"], titleMatchTerms: ["existing"], syncEnabled: true),
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: service.statusResponse.settings)
+        await model.load()
+
+        XCTAssertFalse(model.addTitleMatchTerm("  "))
+        XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.emptyTerm.localizedDescription)
+        XCTAssertFalse(model.addTitleMatchTerm(String(repeating: "界", count: 101)))
+        XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.termTooLong.localizedDescription)
+        XCTAssertTrue(model.addTitleMatchTerm(" Übung "))
+        XCTAssertFalse(model.addTitleMatchTerm("üBUNG"))
+        XCTAssertEqual(model.saveErrorMessage, "That title-match term is already included.")
+        XCTAssertTrue(model.addTitleMatchTerm("Straße"))
+        XCTAssertTrue(model.addTitleMatchTerm("STRASSE"))
+        XCTAssertTrue(model.addTitleMatchTerm("学校"))
+        XCTAssertEqual(model.titleMatchTerms, ["existing", "Übung", "Straße", "STRASSE", "学校"])
+
+        model.removeTitleMatchTerm(at: 1)
+        XCTAssertEqual(model.titleMatchTerms, ["existing", "Straße", "STRASSE", "学校"])
+        for index in 4...49 {
+            XCTAssertTrue(model.addTitleMatchTerm("term-\(index)"))
+        }
+        XCTAssertEqual(model.titleMatchTerms.count, 50)
+        XCTAssertFalse(model.addTitleMatchTerm("one-too-many"))
+        XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.termCount.localizedDescription)
+    }
+
+    func testInvalidLoadedTermHasVisibleValidationAndCanBeRepaired() async {
+        let invalidTerm = String(repeating: "e\u{301}", count: 50) + "a"
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: [invalidTerm], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+
+        XCTAssertEqual(model.titleMatchTerms, [invalidTerm])
+        XCTAssertFalse(model.canSave)
+        XCTAssertEqual(
+            model.titleTermsValidationMessage,
+            GoogleCalendarSettingsValidationError.termTooLong.localizedDescription
+        )
+        model.removeTitleMatchTerm(at: 0)
+        XCTAssertTrue(model.addTitleMatchTerm("lesson"))
+        XCTAssertNil(model.titleTermsValidationMessage)
+        XCTAssertTrue(model.canSave)
     }
 
     func testUnavailableSelectionCanBeRemovedAndSelectionStopsAt25() async {
@@ -88,6 +195,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         await model.load()
 
         model.toggleCalendar(id: "primary")
+        model.removeTitleMatchTerm(at: 0)
 
         XCTAssertFalse(model.canSave)
         let didSave = await model.save()
@@ -97,6 +205,11 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(service.statusResponse.settings, settings)
 
         model.toggleCalendar(id: "primary")
+        XCTAssertFalse(model.canSave)
+        let missingTermSave = await model.save()
+        XCTAssertFalse(missingTermSave)
+        XCTAssertEqual(model.saveErrorMessage, "Add at least one title-match term to save.")
+        XCTAssertTrue(model.addTitleMatchTerm("lesson"))
         XCTAssertTrue(model.canSave)
         // Dismissing the sheet performs no model action and therefore no request.
         XCTAssertTrue(service.updateRequests.isEmpty)
@@ -130,7 +243,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertTrue(model.canSave)
     }
 
-    func testErrorAndUnconfiguredStatesDoNotLeakOrInventSettings() async {
+    func testErrorsDoNotLeakRawServerDetails() async {
         let failing = CalendarSettingsServiceFake(
             settings: .init(calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true),
             calendars: []
@@ -143,18 +256,18 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         }
         XCTAssertFalse(message.contains("secret"))
 
-        let unconfigured = CalendarSettingsServiceFake(
-            settings: nil,
+        let saveFailure = CalendarSettingsServiceFake(
+            settings: .init(calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true),
             calendars: [.init(id: "primary", name: "Personal", primary: true)]
         )
-        let unconfiguredModel = GoogleCalendarSettingsModel(service: unconfigured, initialSettings: nil)
-        await unconfiguredModel.load()
-
-        XCTAssertEqual(unconfiguredModel.state, .unconfigured)
-        XCTAssertTrue(unconfiguredModel.selectedCalendarIDs.isEmpty)
-        let didSave = await unconfiguredModel.save()
+        saveFailure.updateError = APIClientError.rejected(status: 500, message: "raw save secret")
+        let saveModel = GoogleCalendarSettingsModel(
+            service: saveFailure, initialSettings: saveFailure.statusResponse.settings
+        )
+        await saveModel.load()
+        let didSave = await saveModel.save()
         XCTAssertFalse(didSave)
-        XCTAssertTrue(unconfigured.updateRequests.isEmpty)
+        XCTAssertFalse(saveModel.saveErrorMessage?.contains("secret") ?? true)
     }
 }
 
@@ -163,6 +276,7 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     var statusResponse: GoogleCalendarConnectionStatus
     var calendarResponse: GoogleCalendarListResponse
     var calendarError: Error?
+    var updateError: Error?
     var pauseCalendars = false
     var calendarContinuation: CheckedContinuation<GoogleCalendarListResponse, Never>?
     private(set) var updateRequests: [GoogleCalendarSettings] = []
@@ -191,6 +305,7 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
         return await withCheckedContinuation { calendarContinuation = $0 }
     }
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings {
+        if let updateError { throw updateError }
         updateRequests.append(settings)
         return settings
     }
