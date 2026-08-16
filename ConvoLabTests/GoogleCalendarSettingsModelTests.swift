@@ -31,7 +31,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         model.toggleCalendar(id: "lessons")
         service.statusResponse = CalendarSettingsServiceFake.status(
             settings: .init(
-                calendarIds: ["primary", "unavailable"],
+                calendarIds: ["unavailable", "remote"],
                 titleMatchTerms: ["remote edit"],
                 syncEnabled: true
             )
@@ -41,7 +41,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(
             service.updateRequests,
             [.init(
-                calendarIds: ["unavailable", "lessons"],
+                calendarIds: ["unavailable", "remote", "lessons"],
                 titleMatchTerms: ["remote edit"],
                 syncEnabled: true
             )]

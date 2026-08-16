@@ -104,18 +104,23 @@ final class GoogleCalendarSettingsModel: Identifiable {
         saveErrorMessage = nil
         defer { isSaving = false }
 
-        let existing = settings.calendarIds.filter(selectedCalendarIDs.contains)
-        let existingIDs = Set(existing)
-        let added = calendars.map(\.id).filter {
-            selectedCalendarIDs.contains($0) && !existingIDs.contains($0)
-        }
         do {
-            let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added)
             let freshStatus = try await service.status()
             guard freshStatus.connected else { throw GoogleCalendarConnectionError.notConnected }
             guard let freshSettings = freshStatus.settings else {
                 throw GoogleCalendarConnectionError.invalidSettings
             }
+            let initialIDs = Set(settings.calendarIds)
+            let removedIDs = initialIDs.subtracting(selectedCalendarIDs)
+            let addedIDs = selectedCalendarIDs.subtracting(initialIDs)
+            var mergedIDs = freshSettings.calendarIds.filter { !removedIDs.contains($0) }
+            var seenIDs = Set(mergedIDs)
+            for id in settings.calendarIds + calendars.map(\.id)
+                where addedIDs.contains(id) && seenIDs.insert(id).inserted
+            {
+                mergedIDs.append(id)
+            }
+            let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(mergedIDs)
             let request = GoogleCalendarSettings(
                 calendarIds: calendarIds,
                 titleMatchTerms: freshSettings.titleMatchTerms,
