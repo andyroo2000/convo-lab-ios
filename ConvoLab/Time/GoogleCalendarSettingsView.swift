@@ -19,6 +19,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
     private(set) var calendars: [GoogleCalendar] = []
     private(set) var selectedCalendarIDs: Set<String>
     private(set) var titleMatchTerms: [String]
+    private(set) var automaticTrackingEnabled: Bool
     private(set) var isTruncated = false
     private(set) var isSaving = false
     private(set) var saveErrorMessage: String?
@@ -32,6 +33,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
         self.settings = initialSettings
         self.selectedCalendarIDs = Set(initialSettings?.calendarIds ?? [])
         self.titleMatchTerms = initialSettings?.titleMatchTerms ?? []
+        self.automaticTrackingEnabled = initialSettings?.syncEnabled ?? false
         self.didSave = didSave
     }
 
@@ -91,6 +93,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
             settings = status.settings
             selectedCalendarIDs = Set(status.settings?.calendarIds ?? [])
             titleMatchTerms = status.settings?.titleMatchTerms ?? []
+            automaticTrackingEnabled = status.settings?.syncEnabled ?? false
             state = calendars.isEmpty ? .empty : .loaded
         } catch {
             state = .failed(Self.safeMessage(for: error))
@@ -147,6 +150,12 @@ final class GoogleCalendarSettingsModel: Identifiable {
         saveErrorMessage = nil
     }
 
+    func setAutomaticTrackingEnabled(_ enabled: Bool) {
+        guard state == .loaded, !isSaving else { return }
+        automaticTrackingEnabled = enabled
+        saveErrorMessage = nil
+    }
+
     func makePreviewModel() -> GoogleCalendarPreviewModel? {
         guard canPreview else { return nil }
         do {
@@ -195,6 +204,10 @@ final class GoogleCalendarSettingsModel: Identifiable {
                 throw GoogleCalendarConnectionError.invalidSettings
             }
             let freshSettings = freshStatus.settings
+            let baseSyncEnabled = initialSettings?.syncEnabled ?? false
+            let mergedSyncEnabled = automaticTrackingEnabled != baseSyncEnabled
+                ? automaticTrackingEnabled
+                : freshSettings?.syncEnabled ?? false
             let initialIDs = Set(initialSettings?.calendarIds ?? [])
             let removedIDs = initialIDs.subtracting(selectedCalendarIDs)
             let addedIDs = selectedCalendarIDs.subtracting(initialIDs)
@@ -226,9 +239,11 @@ final class GoogleCalendarSettingsModel: Identifiable {
             let request = GoogleCalendarSettings(
                 calendarIds: calendarIds,
                 titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(mergedTerms),
-                syncEnabled: freshSettings?.syncEnabled ?? false
+                syncEnabled: mergedSyncEnabled
             )
-            self.settings = try await service.updateSettings(request)
+            let savedSettings = try await service.updateSettings(request)
+            self.settings = savedSettings
+            automaticTrackingEnabled = savedSettings.syncEnabled
             await didSave()
             return true
         } catch {
@@ -383,6 +398,24 @@ struct GoogleCalendarSettingsView: View {
                 .accessibilityHint("Shows matching completed events from the server’s recent preview window without importing them")
             } footer: {
                 Text("Preview uses the selections above. It does not import or sync anything.")
+            }
+            Section {
+                Toggle(
+                    "Add matching lessons automatically",
+                    isOn: Binding(
+                        get: { model.automaticTrackingEnabled },
+                        set: { model.setAutomaticTrackingEnabled($0) }
+                    )
+                )
+                .disabled(model.isSaving)
+                .accessibilityIdentifier("GoogleCalendarAutomaticTrackingToggle")
+                .accessibilityHint(
+                    "When on, completed matching events are added as Conversation study time during automatic calendar sync"
+                )
+            } header: {
+                Text("Automatic Tracking")
+            } footer: {
+                Text("When on, completed events matching the calendars and title terms above will be added as Conversation time during automatic calendar sync. Saving this setting does not run a sync.")
             }
             if let message = model.saveErrorMessage {
                 errorLabel(message)
