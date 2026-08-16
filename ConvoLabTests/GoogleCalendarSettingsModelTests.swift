@@ -84,6 +84,15 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
 
         XCTAssertEqual(model.state, .empty)
         XCTAssertFalse(model.canSave)
+
+        service.pauseCalendars = false
+        service.calendarResponse = .init(
+            calendars: [.init(id: "primary", name: "Personal", primary: true)],
+            truncated: false
+        )
+        await model.load()
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertTrue(model.canSave)
     }
 
     func testErrorAndUnconfiguredStatesDoNotLeakOrInventSettings() async {

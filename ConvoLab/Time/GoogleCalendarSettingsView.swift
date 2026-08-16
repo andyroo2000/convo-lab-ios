@@ -183,6 +183,8 @@ struct GoogleCalendarSettingsView: View {
                 title: "No readable calendars",
                 description: "Google did not return any calendars you can read."
             )
+            Button("Refresh Calendars") { Task { await model.load() } }
+                .frame(minHeight: 44)
         case .unconfigured:
             unavailableContent(
                 title: "Setup not complete",
