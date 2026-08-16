@@ -33,7 +33,7 @@ struct GoogleCalendarSettingsDraft: Equatable {
     var syncEnabled: Bool
 
     func canonicalized() throws -> GoogleCalendarSettings {
-        let calendarIds = try Self.canonicalCalendarIDs(calendarIds)
+        let calendarIds = try Self.canonicalizedCalendarIDs(calendarIds)
         let titleMatchTerms = try Self.canonicalTerms(titleMatchTerms)
         return GoogleCalendarSettings(
             calendarIds: calendarIds,
@@ -42,7 +42,7 @@ struct GoogleCalendarSettingsDraft: Equatable {
         )
     }
 
-    private static func canonicalCalendarIDs(_ values: [String]) throws -> [String] {
+    static func canonicalizedCalendarIDs(_ values: [String]) throws -> [String] {
         guard 1...25 ~= values.count else {
             throw GoogleCalendarSettingsValidationError.calendarCount
         }

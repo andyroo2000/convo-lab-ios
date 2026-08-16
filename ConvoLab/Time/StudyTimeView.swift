@@ -27,6 +27,7 @@ struct StudyTimeView: View {
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
     @State private var confirmingCalendarDisconnect = false
+    @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
         store.analytics?.range(selectedRange)
@@ -198,6 +199,9 @@ struct StudyTimeView: View {
             .sheet(item: $editingSession) { session in
                 StudyTimeEntryView(store: store, session: session)
             }
+            .sheet(item: $calendarSettingsModel) { model in
+                GoogleCalendarSettingsView(model: model)
+            }
             .confirmationDialog(
                 "Disconnect Google Calendar?",
                 isPresented: $confirmingCalendarDisconnect
@@ -252,9 +256,18 @@ struct StudyTimeView: View {
                         Text("Disconnecting…")
                     }
                 } else {
+                    Button {
+                        calendarSettingsModel = store.makeGoogleCalendarSettingsModel()
+                    } label: {
+                        Label("Choose Calendars", systemImage: "calendar")
+                            .frame(minHeight: 44)
+                    }
+                    .disabled(store.googleCalendarIsLoading)
+
                     Button("Disconnect", role: .destructive) {
                         confirmingCalendarDisconnect = true
                     }
+                    .frame(minHeight: 44)
                     .disabled(store.googleCalendarIsLoading)
                 }
             } else {

@@ -204,6 +204,16 @@ final class StudyTimeStore {
         }
     }
 
+    func makeGoogleCalendarSettingsModel() -> GoogleCalendarSettingsModel? {
+        guard googleCalendarStatus?.connected == true else { return nil }
+        return GoogleCalendarSettingsModel(
+            service: googleCalendar,
+            initialSettings: googleCalendarStatus?.settings
+        ) { [weak self] in
+            await self?.loadGoogleCalendarConnection()
+        }
+    }
+
     func loadWeeklyRecap(timeZone: String = TimeZone.autoupdatingCurrent.identifier) async {
         guard let requestedUserID = activeUserID else { return }
         weeklyRecapRequestGeneration += 1
