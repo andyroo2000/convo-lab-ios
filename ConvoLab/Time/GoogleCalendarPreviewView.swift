@@ -96,28 +96,30 @@ struct GoogleCalendarPreviewView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 120)
         case .empty:
-            ContentUnavailableView(
-                "No matching lessons",
-                systemImage: "calendar.badge.checkmark",
-                description: Text("No completed events in the last 31 days matched these calendars and title terms.")
-            )
-            if let response = model.response {
-                Section {
+            Section {
+                ContentUnavailableView(
+                    "No matching lessons",
+                    systemImage: "calendar.badge.checkmark",
+                    description: Text("No completed events in the last 31 days matched these calendars and title terms.")
+                )
+                if let response = model.response {
                     LabeledContent("Events scanned", value: "\(response.scannedEventCount)")
                     if response.truncated {
                         Label("The bounded preview limit was reached.", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
                 }
+                Button("Try Again") { Task { await model.load() } }
+                    .frame(minHeight: 44)
             }
-            Button("Try Again") { Task { await model.load() } }
-                .frame(minHeight: 44)
         case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .accessibilityLabel("Error: \(message)")
-            Button("Try Again") { Task { await model.load() } }
-                .frame(minHeight: 44)
+            Section {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("Error: \(message)")
+                Button("Try Again") { Task { await model.load() } }
+                    .frame(minHeight: 44)
+            }
         case .loaded:
             if let response = model.response {
                 Section {

@@ -144,17 +144,24 @@ final class GoogleCalendarConnectionTests: XCTestCase {
                 let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"message":"raw provider token secret"}"#.utf8))
             }
-            do {
-                _ = try await LiveGoogleCalendarConnectionService(api: api).calendars()
-                XCTFail("Expected status \(status) to fail")
-            } catch {
-                XCTAssertEqual(error as? GoogleCalendarConnectionError, expected)
-                XCTAssertFalse(error.localizedDescription.contains("secret"))
-                if expected == .requestFailed {
-                    XCTAssertEqual(
-                        error.localizedDescription,
-                        "Something went wrong with Google Calendar. Please try again."
-                    )
+            let service = LiveGoogleCalendarConnectionService(api: api)
+            let operations: [() async throws -> Void] = [
+                { _ = try await service.calendars() },
+                { _ = try await service.preview(.init(calendarIds: ["work"], titleMatchTerms: ["lesson"])) },
+            ]
+            for operation in operations {
+                do {
+                    try await operation()
+                    XCTFail("Expected status \(status) to fail")
+                } catch {
+                    XCTAssertEqual(error as? GoogleCalendarConnectionError, expected)
+                    XCTAssertFalse(error.localizedDescription.contains("secret"))
+                    if expected == .requestFailed {
+                        XCTAssertEqual(
+                            error.localizedDescription,
+                            "Something went wrong with Google Calendar. Please try again."
+                        )
+                    }
                 }
             }
         }
