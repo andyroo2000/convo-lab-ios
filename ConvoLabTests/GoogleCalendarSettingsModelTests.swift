@@ -26,6 +26,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(model.state, .loaded)
         XCTAssertEqual(model.selectedCalendarIDs, ["primary", "unavailable", "remote-removed"])
         XCTAssertEqual(model.titleMatchTerms, [" iTalki ", "学校"])
+        XCTAssertFalse(model.automaticTrackingEnabled)
         XCTAssertEqual(model.unavailableSelectedCount, 2)
         XCTAssertEqual(model.unavailableSelectedCalendarIDs, ["unavailable", "remote-removed"])
         model.toggleCalendar(id: "primary")
@@ -63,6 +64,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(model.state, .loaded)
         XCTAssertTrue(model.selectedCalendarIDs.isEmpty)
         XCTAssertTrue(model.titleMatchTerms.isEmpty)
+        XCTAssertFalse(model.automaticTrackingEnabled)
         XCTAssertFalse(model.canSave)
 
         model.toggleCalendar(id: "primary")
@@ -73,6 +75,83 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(service.updateRequests, [
             .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"], syncEnabled: false),
         ])
+    }
+
+    func testFirstTimeSetupCanEnableAutomaticTrackingInExactPayload() async {
+        let service = CalendarSettingsServiceFake(
+            settings: nil,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: nil)
+        await model.load()
+        model.toggleCalendar(id: "primary")
+        XCTAssertTrue(model.addTitleMatchTerm("iTalki"))
+        model.setAutomaticTrackingEnabled(true)
+
+        let didSave = await model.save()
+
+        XCTAssertTrue(didSave)
+        XCTAssertEqual(service.updateRequests, [
+            .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"], syncEnabled: true),
+        ])
+    }
+
+    func testLegacyAutomaticTrackingSettingLoadsVisibly() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: nil)
+
+        XCTAssertFalse(model.automaticTrackingEnabled)
+        await model.load()
+
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertTrue(model.automaticTrackingEnabled)
+    }
+
+    func testLocallyChangedAutomaticTrackingWinsThreeWayMerge() async {
+        for (base, local) in [(false, true), (true, false)] {
+            let settings = GoogleCalendarSettings(
+                calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: base
+            )
+            let service = CalendarSettingsServiceFake(
+                settings: settings,
+                calendars: [.init(id: "primary", name: "Personal", primary: true)]
+            )
+            let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+            await model.load()
+            model.setAutomaticTrackingEnabled(local)
+            service.statusResponse = CalendarSettingsServiceFake.status(settings: settings)
+
+            let didSave = await model.save()
+            XCTAssertTrue(didSave)
+            XCTAssertEqual(service.updateRequests.last?.syncEnabled, local)
+        }
+    }
+
+    func testUntouchedAutomaticTrackingUsesFreshRemoteValue() async {
+        for (base, remote) in [(false, true), (true, false)] {
+            let settings = GoogleCalendarSettings(
+                calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: base
+            )
+            let service = CalendarSettingsServiceFake(
+                settings: settings,
+                calendars: [.init(id: "primary", name: "Personal", primary: true)]
+            )
+            let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+            await model.load()
+            service.statusResponse = CalendarSettingsServiceFake.status(settings: .init(
+                calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: remote
+            ))
+
+            let didSave = await model.save()
+            XCTAssertTrue(didSave)
+            XCTAssertEqual(service.updateRequests.last?.syncEnabled, remote)
+        }
     }
 
     func testRemoteSetupAppearingWhileOpenReceivesLocalDelta() async {
@@ -258,6 +337,7 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
 
         model.toggleCalendar(id: "primary")
         model.removeTitleMatchTerm(at: 0)
+        model.setAutomaticTrackingEnabled(false)
 
         XCTAssertFalse(model.canSave)
         let didSave = await model.save()
@@ -276,6 +356,42 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         // Dismissing the sheet performs no model action and therefore no request.
         XCTAssertTrue(service.updateRequests.isEmpty)
         XCTAssertEqual(service.statusResponse.settings, settings)
+    }
+
+    func testSavingBlocksAllDraftEditsAndDuplicateSave() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [
+                .init(id: "primary", name: "Personal", primary: true),
+                .init(id: "other", name: "Other", primary: false),
+            ]
+        )
+        service.pauseUpdates = true
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+        model.setAutomaticTrackingEnabled(true)
+
+        let save = Task { await model.save() }
+        while service.updateContinuation == nil { await Task.yield() }
+        XCTAssertTrue(model.isSaving)
+
+        model.setAutomaticTrackingEnabled(false)
+        model.toggleCalendar(id: "other")
+        model.removeTitleMatchTerm(at: 0)
+        XCTAssertFalse(model.addTitleMatchTerm("school"))
+        let duplicateSave = await model.save()
+        XCTAssertFalse(duplicateSave)
+        XCTAssertTrue(model.automaticTrackingEnabled)
+        XCTAssertEqual(model.selectedCalendarIDs, ["primary"])
+        XCTAssertEqual(model.titleMatchTerms, ["lesson"])
+        XCTAssertEqual(service.updateRequests.count, 1)
+
+        service.resumeUpdate()
+        let didSave = await save.value
+        XCTAssertTrue(didSave)
     }
 
     func testLoadingAndEmptyStatesAreExplicit() async {
@@ -340,7 +456,9 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     var calendarError: Error?
     var updateError: Error?
     var pauseCalendars = false
+    var pauseUpdates = false
     var calendarContinuation: CheckedContinuation<GoogleCalendarListResponse, Never>?
+    var updateContinuation: CheckedContinuation<GoogleCalendarSettings, Never>?
     private(set) var updateRequests: [GoogleCalendarSettings] = []
 
     init(settings: GoogleCalendarSettings?, calendars: [GoogleCalendar]) {
@@ -369,6 +487,9 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings {
         if let updateError { throw updateError }
         updateRequests.append(settings)
+        if pauseUpdates {
+            return await withCheckedContinuation { updateContinuation = $0 }
+        }
         return settings
     }
     func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
@@ -382,5 +503,11 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     func resumeCalendars() {
         calendarContinuation?.resume(returning: calendarResponse)
         calendarContinuation = nil
+    }
+
+    func resumeUpdate() {
+        guard let request = updateRequests.last else { return }
+        updateContinuation?.resume(returning: request)
+        updateContinuation = nil
     }
 }
