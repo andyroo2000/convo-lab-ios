@@ -47,6 +47,9 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     var calendarValidationMessage: String? {
+        guard !selectedCalendarIDs.isEmpty else {
+            return "Select at least one calendar to preview or save."
+        }
         do {
             _ = try currentCalendarIDs()
             return nil

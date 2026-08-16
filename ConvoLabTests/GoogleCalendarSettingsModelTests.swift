@@ -151,6 +151,19 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertTrue(service.updateRequests.isEmpty)
     }
 
+    func testEmptyCalendarSelectionHasPreciseValidationMessage() async {
+        let service = CalendarSettingsServiceFake(
+            settings: .init(calendarIds: [], titleMatchTerms: ["lesson"], syncEnabled: true),
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: service.statusResponse.settings)
+        await model.load()
+
+        XCTAssertFalse(model.canPreview)
+        XCTAssertFalse(model.canSave)
+        XCTAssertEqual(model.calendarValidationMessage, "Select at least one calendar to preview or save.")
+    }
+
     func testTermEditingTrimsDeduplicatesValidatesAndPreservesOrder() async {
         let service = CalendarSettingsServiceFake(
             settings: .init(calendarIds: ["primary"], titleMatchTerms: ["existing"], syncEnabled: true),
