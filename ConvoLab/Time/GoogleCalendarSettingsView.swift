@@ -8,7 +8,6 @@ final class GoogleCalendarSettingsModel: Identifiable {
         case loading
         case loaded
         case empty
-        case unconfigured
         case failed(String)
     }
 
@@ -19,6 +18,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
     private(set) var state: ContentState = .idle
     private(set) var calendars: [GoogleCalendar] = []
     private(set) var selectedCalendarIDs: Set<String>
+    private(set) var titleMatchTerms: [String]
     private(set) var isTruncated = false
     private(set) var isSaving = false
     private(set) var saveErrorMessage: String?
@@ -31,11 +31,15 @@ final class GoogleCalendarSettingsModel: Identifiable {
         self.service = service
         self.settings = initialSettings
         self.selectedCalendarIDs = Set(initialSettings?.calendarIds ?? [])
+        self.titleMatchTerms = initialSettings?.titleMatchTerms ?? []
         self.didSave = didSave
     }
 
     var canSave: Bool {
-        state == .loaded && !selectedCalendarIDs.isEmpty && !isSaving
+        state == .loaded
+            && !selectedCalendarIDs.isEmpty
+            && (try? GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms))?.isEmpty == false
+            && !isSaving
     }
 
     var unavailableSelectedCount: Int {
@@ -59,14 +63,9 @@ final class GoogleCalendarSettingsModel: Identifiable {
             let response = try await service.calendars()
             calendars = response.calendars
             isTruncated = response.truncated
-            guard let currentSettings = status.settings else {
-                settings = nil
-                selectedCalendarIDs = []
-                state = .unconfigured
-                return
-            }
-            settings = currentSettings
-            selectedCalendarIDs = Set(currentSettings.calendarIds)
+            settings = status.settings
+            selectedCalendarIDs = Set(status.settings?.calendarIds ?? [])
+            titleMatchTerms = status.settings?.titleMatchTerms ?? []
             state = calendars.isEmpty ? .empty : .loaded
         } catch {
             state = .failed(Self.safeMessage(for: error))
@@ -94,12 +93,45 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     @discardableResult
+    func addTitleMatchTerm(_ input: String) -> Bool {
+        saveErrorMessage = nil
+        do {
+            let candidate = try GoogleCalendarSettingsDraft.canonicalizedTerms([input])[0]
+            let candidateKey = GoogleCalendarSettingsDraft.termComparisonKey(candidate)
+            guard !titleMatchTerms.contains(where: {
+                GoogleCalendarSettingsDraft.termComparisonKey($0) == candidateKey
+            }) else {
+                saveErrorMessage = "That title-match term is already included."
+                return false
+            }
+            guard titleMatchTerms.count < 50 else {
+                throw GoogleCalendarSettingsValidationError.termCount
+            }
+            titleMatchTerms.append(candidate)
+            return true
+        } catch {
+            saveErrorMessage = Self.safeMessage(for: error)
+            return false
+        }
+    }
+
+    func removeTitleMatchTerm(at index: Int) {
+        guard titleMatchTerms.indices.contains(index) else { return }
+        titleMatchTerms.remove(at: index)
+        saveErrorMessage = nil
+    }
+
+    @discardableResult
     func save() async -> Bool {
         guard !selectedCalendarIDs.isEmpty else {
             saveErrorMessage = "Select at least one calendar to save."
             return false
         }
-        guard state == .loaded, !isSaving, let settings else { return false }
+        guard !titleMatchTerms.isEmpty else {
+            saveErrorMessage = "Add at least one title-match term to save."
+            return false
+        }
+        guard state == .loaded, !isSaving else { return false }
         isSaving = true
         saveErrorMessage = nil
         defer { isSaving = false }
@@ -107,24 +139,43 @@ final class GoogleCalendarSettingsModel: Identifiable {
         do {
             let freshStatus = try await service.status()
             guard freshStatus.connected else { throw GoogleCalendarConnectionError.notConnected }
-            guard let freshSettings = freshStatus.settings else {
+            let initialSettings = settings
+            guard initialSettings == nil || freshStatus.settings != nil else {
                 throw GoogleCalendarConnectionError.invalidSettings
             }
-            let initialIDs = Set(settings.calendarIds)
+            let freshSettings = freshStatus.settings
+            let initialIDs = Set(initialSettings?.calendarIds ?? [])
             let removedIDs = initialIDs.subtracting(selectedCalendarIDs)
             let addedIDs = selectedCalendarIDs.subtracting(initialIDs)
-            var mergedIDs = freshSettings.calendarIds.filter { !removedIDs.contains($0) }
+            var mergedIDs = (freshSettings?.calendarIds ?? []).filter { !removedIDs.contains($0) }
             var seenIDs = Set(mergedIDs)
-            for id in settings.calendarIds + calendars.map(\.id)
+            for id in calendars.map(\.id)
                 where addedIDs.contains(id) && seenIDs.insert(id).inserted
             {
                 mergedIDs.append(id)
             }
             let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(mergedIDs)
+
+            let initialTerms = initialSettings?.titleMatchTerms ?? []
+            let localTerms = try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+            let initialKeys = Set(initialTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+            let localKeys = Set(localTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+            let removedTermKeys = initialKeys.subtracting(localKeys)
+            let addedTermKeys = localKeys.subtracting(initialKeys)
+            var mergedTerms = (freshSettings?.titleMatchTerms ?? []).filter {
+                !removedTermKeys.contains(GoogleCalendarSettingsDraft.termComparisonKey($0))
+            }
+            var seenTermKeys = Set(mergedTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+            for term in localTerms {
+                let key = GoogleCalendarSettingsDraft.termComparisonKey(term)
+                if addedTermKeys.contains(key), seenTermKeys.insert(key).inserted {
+                    mergedTerms.append(term)
+                }
+            }
             let request = GoogleCalendarSettings(
                 calendarIds: calendarIds,
-                titleMatchTerms: freshSettings.titleMatchTerms,
-                syncEnabled: freshSettings.syncEnabled
+                titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(mergedTerms),
+                syncEnabled: freshSettings?.syncEnabled ?? false
             )
             self.settings = try await service.updateSettings(request)
             await didSave()
@@ -147,6 +198,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
 struct GoogleCalendarSettingsView: View {
     let model: GoogleCalendarSettingsModel
     @Environment(\.dismiss) private var dismiss
+    @State private var titleTermDraft = ""
 
     var body: some View {
         NavigationStack {
@@ -226,6 +278,44 @@ struct GoogleCalendarSettingsView: View {
                     }
                 }
             }
+            Section {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    TextField("e.g. iTalki or lesson", text: $titleTermDraft)
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .onSubmit(addTitleTerm)
+                        .accessibilityLabel("New title-match term")
+                    Button("Add", action: addTitleTerm)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .disabled(titleTermDraft.isEmpty)
+                }
+                ForEach(Array(model.titleMatchTerms.enumerated()), id: \.offset) { index, term in
+                    Button(role: .destructive) {
+                        model.removeTitleMatchTerm(at: index)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(term)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Remove title-match term \(term)")
+                }
+            } header: {
+                Text("Lesson Title Terms")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Add words found in conversation lesson titles, such as iTalki or lesson. No examples are added automatically.")
+                    Text("1–50 terms, up to 100 characters each.")
+                    if model.titleMatchTerms.isEmpty {
+                        Text("Add at least one title-match term to save.")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
             if let message = model.saveErrorMessage {
                 errorLabel(message)
             }
@@ -236,15 +326,16 @@ struct GoogleCalendarSettingsView: View {
             )
             Button("Refresh Calendars") { Task { await model.load() } }
                 .frame(minHeight: 44)
-        case .unconfigured:
-            unavailableContent(
-                title: "Setup not complete",
-                description: "Calendar matching terms must be configured before calendars can be selected."
-            )
         case let .failed(message):
             errorLabel(message)
             Button("Try Again") { Task { await model.load() } }
                 .frame(minHeight: 44)
+        }
+    }
+
+    private func addTitleTerm() {
+        if model.addTitleMatchTerm(titleTermDraft) {
+            titleTermDraft = ""
         }
     }
 

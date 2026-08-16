@@ -259,7 +259,7 @@ struct StudyTimeView: View {
                     Button {
                         calendarSettingsModel = store.makeGoogleCalendarSettingsModel()
                     } label: {
-                        Label("Choose Calendars", systemImage: "calendar")
+                        Label("Calendar Settings", systemImage: "calendar")
                             .frame(minHeight: 44)
                     }
                     .disabled(store.googleCalendarIsLoading)

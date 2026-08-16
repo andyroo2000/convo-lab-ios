@@ -154,7 +154,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         ).canonicalized()
 
         XCTAssertEqual(settings.calendarIds, ["primary", "PRIMARY"])
-        XCTAssertEqual(settings.titleMatchTerms, ["iTalki", "学校", "Übung", "Straße", "STRASSE"])
+        XCTAssertEqual(settings.titleMatchTerms, ["iTalki", "学校", "Übung", "Straße"])
         XCTAssertFalse(settings.syncEnabled)
     }
 
