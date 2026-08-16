@@ -38,8 +38,17 @@ final class GoogleCalendarSettingsModel: Identifiable {
     var canSave: Bool {
         state == .loaded
             && !selectedCalendarIDs.isEmpty
-            && (try? GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms))?.isEmpty == false
+            && titleTermsValidationMessage == nil
             && !isSaving
+    }
+
+    var titleTermsValidationMessage: String? {
+        do {
+            _ = try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+            return nil
+        } catch {
+            return Self.safeMessage(for: error)
+        }
     }
 
     var unavailableSelectedCount: Int {
@@ -73,7 +82,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     func toggleCalendar(id: String) {
-        guard state == .loaded, calendars.contains(where: { $0.id == id }) else { return }
+        guard !isSaving, state == .loaded, calendars.contains(where: { $0.id == id }) else { return }
         saveErrorMessage = nil
         if selectedCalendarIDs.contains(id) {
             selectedCalendarIDs.remove(id)
@@ -87,13 +96,14 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     func removeUnavailableCalendar(id: String) {
-        guard unavailableSelectedCalendarIDs.contains(id) else { return }
+        guard !isSaving, unavailableSelectedCalendarIDs.contains(id) else { return }
         selectedCalendarIDs.remove(id)
         saveErrorMessage = nil
     }
 
     @discardableResult
     func addTitleMatchTerm(_ input: String) -> Bool {
+        guard !isSaving else { return false }
         saveErrorMessage = nil
         do {
             let candidate = try GoogleCalendarSettingsDraft.canonicalizedTerms([input])[0]
@@ -116,7 +126,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     func removeTitleMatchTerm(at index: Int) {
-        guard titleMatchTerms.indices.contains(index) else { return }
+        guard !isSaving, titleMatchTerms.indices.contains(index) else { return }
         titleMatchTerms.remove(at: index)
         saveErrorMessage = nil
     }
@@ -275,6 +285,7 @@ struct GoogleCalendarSettingsView: View {
                             .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Remove unavailable calendar \(id)")
+                        .disabled(model.isSaving)
                     }
                 }
             }
@@ -285,9 +296,10 @@ struct GoogleCalendarSettingsView: View {
                         .submitLabel(.done)
                         .onSubmit(addTitleTerm)
                         .accessibilityLabel("New title-match term")
+                        .disabled(model.isSaving)
                     Button("Add", action: addTitleTerm)
                         .frame(minWidth: 44, minHeight: 44)
-                        .disabled(titleTermDraft.isEmpty)
+                        .disabled(titleTermDraft.isEmpty || model.isSaving)
                 }
                 ForEach(Array(model.titleMatchTerms.enumerated()), id: \.offset) { index, term in
                     Button(role: .destructive) {
@@ -303,6 +315,7 @@ struct GoogleCalendarSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Remove title-match term \(term)")
+                    .disabled(model.isSaving)
                 }
             } header: {
                 Text("Lesson Title Terms")
@@ -310,8 +323,8 @@ struct GoogleCalendarSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Add words found in conversation lesson titles, such as iTalki or lesson. No examples are added automatically.")
                     Text("1–50 terms, up to 100 characters each.")
-                    if model.titleMatchTerms.isEmpty {
-                        Text("Add at least one title-match term to save.")
+                    if let message = model.titleTermsValidationMessage {
+                        Text(message)
                             .foregroundStyle(.red)
                     }
                 }
@@ -366,6 +379,7 @@ struct GoogleCalendarSettingsView: View {
         .accessibilityLabel(calendar.primary ? "\(calendar.name), primary calendar" : calendar.name)
         .accessibilityValue(selected ? "Selected" : "Not selected")
         .accessibilityHint("Double-tap to \(selected ? "deselect" : "select") this calendar")
+        .disabled(model.isSaving)
     }
 
     private func errorLabel(_ message: String) -> some View {

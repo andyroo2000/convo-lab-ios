@@ -132,6 +132,30 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.termCount.localizedDescription)
     }
 
+    func testInvalidLoadedTermHasVisibleValidationAndCanBeRepaired() async {
+        let invalidTerm = String(repeating: "e\u{301}", count: 50) + "a"
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: [invalidTerm], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+
+        XCTAssertEqual(model.titleMatchTerms, [invalidTerm])
+        XCTAssertFalse(model.canSave)
+        XCTAssertEqual(
+            model.titleTermsValidationMessage,
+            GoogleCalendarSettingsValidationError.termTooLong.localizedDescription
+        )
+        model.removeTitleMatchTerm(at: 0)
+        XCTAssertTrue(model.addTitleMatchTerm("lesson"))
+        XCTAssertNil(model.titleTermsValidationMessage)
+        XCTAssertTrue(model.canSave)
+    }
+
     func testUnavailableSelectionCanBeRemovedAndSelectionStopsAt25() async {
         let settings = GoogleCalendarSettings(
             calendarIds: ["stale"], titleMatchTerms: ["lesson"], syncEnabled: true
