@@ -36,10 +36,26 @@ final class GoogleCalendarSettingsModel: Identifiable {
     }
 
     var canSave: Bool {
+        canPreview
+    }
+
+    var canPreview: Bool {
         state == .loaded
-            && !selectedCalendarIDs.isEmpty
+            && calendarValidationMessage == nil
             && titleTermsValidationMessage == nil
             && !isSaving
+    }
+
+    var calendarValidationMessage: String? {
+        guard !selectedCalendarIDs.isEmpty else {
+            return "Select at least one calendar to preview or save."
+        }
+        do {
+            _ = try currentCalendarIDs()
+            return nil
+        } catch {
+            return Self.safeMessage(for: error)
+        }
     }
 
     var titleTermsValidationMessage: String? {
@@ -131,6 +147,31 @@ final class GoogleCalendarSettingsModel: Identifiable {
         saveErrorMessage = nil
     }
 
+    func makePreviewModel() -> GoogleCalendarPreviewModel? {
+        guard canPreview else { return nil }
+        do {
+            return GoogleCalendarPreviewModel(
+                service: service,
+                request: .init(
+                    calendarIds: try currentCalendarIDs(),
+                    titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+                )
+            )
+        } catch {
+            saveErrorMessage = Self.safeMessage(for: error)
+            return nil
+        }
+    }
+
+    private func currentCalendarIDs() throws -> [String] {
+        let existing = (settings?.calendarIds ?? []).filter(selectedCalendarIDs.contains)
+        let seen = Set(existing)
+        let added = calendars.map(\.id).filter {
+            selectedCalendarIDs.contains($0) && !seen.contains($0)
+        }
+        return try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added)
+    }
+
     @discardableResult
     func save() async -> Bool {
         guard !selectedCalendarIDs.isEmpty else {
@@ -209,6 +250,7 @@ struct GoogleCalendarSettingsView: View {
     let model: GoogleCalendarSettingsModel
     @Environment(\.dismiss) private var dismiss
     @State private var titleTermDraft = ""
+    @State private var previewModel: GoogleCalendarPreviewModel?
 
     var body: some View {
         NavigationStack {
@@ -233,6 +275,7 @@ struct GoogleCalendarSettingsView: View {
             }
             .interactiveDismissDisabled(model.isSaving)
             .task { await model.load() }
+            .sheet(item: $previewModel) { GoogleCalendarPreviewView(model: $0) }
         }
     }
 
@@ -261,8 +304,8 @@ struct GoogleCalendarSettingsView: View {
                     if model.isTruncated {
                         Text("Only the first available calendars are shown.")
                     }
-                    if model.selectedCalendarIDs.isEmpty {
-                        Text("Select at least one calendar to save.")
+                    if let message = model.calendarValidationMessage {
+                        Text(message)
                             .foregroundStyle(.red)
                     }
                 }
@@ -328,6 +371,18 @@ struct GoogleCalendarSettingsView: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+            Section {
+                Button {
+                    previewModel = model.makePreviewModel()
+                } label: {
+                    Label("Preview matching events", systemImage: "calendar.badge.clock")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .disabled(!model.canPreview)
+                .accessibilityHint("Shows matching completed events from the server’s recent preview window without importing them")
+            } footer: {
+                Text("Preview uses the selections above. It does not import or sync anything.")
             }
             if let message = model.saveErrorMessage {
                 errorLabel(message)

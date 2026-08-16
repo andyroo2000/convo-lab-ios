@@ -57,6 +57,14 @@ final class GoogleCalendarConnectionTests: XCTestCase {
                     response,
                     Data(#"{"calendars":[{"id":"primary","name":"Andrew","primary":true}],"truncated":false}"#.utf8)
                 )
+            case ("POST", "/api/study/google-calendar/preview"):
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: try requestBody(request)) as? [String: Any]
+                )
+                XCTAssertEqual(Set(json.keys), ["calendarIds", "titleMatchTerms"])
+                XCTAssertEqual(json["calendarIds"] as? [String], ["primary"])
+                XCTAssertEqual(json["titleMatchTerms"] as? [String], ["iTalki"])
+                return (response, Data(#"{"generatedAt":"2026-08-15T14:00:00Z","startsAt":"2026-07-15T14:00:00Z","endsAt":"2026-08-15T14:00:00Z","scannedEventCount":4,"matchedEventCount":1,"truncated":false,"matches":[{"calendarId":"primary","calendarName":"Andrew","title":"iTalki lesson","startsAt":"2026-08-14T14:00:00Z","endsAt":"2026-08-14T15:00:00Z","durationMs":3600000,"matchedTerms":["iTalki"],"alreadySynced":false}]}"#.utf8))
             case ("PUT", "/api/study/google-calendar/settings"):
                 let json = try XCTUnwrap(
                     JSONSerialization.jsonObject(with: try requestBody(request)) as? [String: Any]
@@ -94,6 +102,14 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             calendars: [.init(id: "primary", name: "Andrew", primary: true)],
             truncated: false
         ))
+        let preview = try await service.preview(
+            .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"])
+        )
+        XCTAssertEqual(preview.scannedEventCount, 4)
+        XCTAssertEqual(preview.matchedEventCount, 1)
+        XCTAssertEqual(preview.matches.first?.title, "iTalki lesson")
+        XCTAssertEqual(preview.matches.first?.statusLabel, "Eligible")
+        XCTAssertEqual(preview.matches.first?.matchReason, "Matched: iTalki")
         let settings = try await service.updateSettings(
             .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"], syncEnabled: true)
         )
@@ -128,17 +144,24 @@ final class GoogleCalendarConnectionTests: XCTestCase {
                 let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
                 return (response, Data(#"{"message":"raw provider token secret"}"#.utf8))
             }
-            do {
-                _ = try await LiveGoogleCalendarConnectionService(api: api).calendars()
-                XCTFail("Expected status \(status) to fail")
-            } catch {
-                XCTAssertEqual(error as? GoogleCalendarConnectionError, expected)
-                XCTAssertFalse(error.localizedDescription.contains("secret"))
-                if expected == .requestFailed {
-                    XCTAssertEqual(
-                        error.localizedDescription,
-                        "Something went wrong with Google Calendar. Please try again."
-                    )
+            let service = LiveGoogleCalendarConnectionService(api: api)
+            let operations: [() async throws -> Void] = [
+                { _ = try await service.calendars() },
+                { _ = try await service.preview(.init(calendarIds: ["work"], titleMatchTerms: ["lesson"])) },
+            ]
+            for operation in operations {
+                do {
+                    try await operation()
+                    XCTFail("Expected status \(status) to fail")
+                } catch {
+                    XCTAssertEqual(error as? GoogleCalendarConnectionError, expected)
+                    XCTAssertFalse(error.localizedDescription.contains("secret"))
+                    if expected == .requestFailed {
+                        XCTAssertEqual(
+                            error.localizedDescription,
+                            "Something went wrong with Google Calendar. Please try again."
+                        )
+                    }
                 }
             }
         }
@@ -325,6 +348,12 @@ private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectio
     }
     func authorizationURL() async throws -> URL { authorizationURLValue }
     func calendars() async throws -> GoogleCalendarListResponse { .init(calendars: [], truncated: false) }
+    func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
+        .init(
+            generatedAt: .now, startsAt: .now, endsAt: .now,
+            scannedEventCount: 0, matchedEventCount: 0, truncated: false, matches: []
+        )
+    }
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings { settings }
     func disconnect() async throws { disconnectCount += 1 }
 

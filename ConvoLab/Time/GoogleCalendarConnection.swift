@@ -27,6 +27,35 @@ struct GoogleCalendarListResponse: Decodable, Equatable {
     let truncated: Bool
 }
 
+struct GoogleCalendarPreviewRequest: Encodable, Equatable {
+    let calendarIds: [String]
+    let titleMatchTerms: [String]
+}
+
+struct GoogleCalendarPreviewResponse: Decodable, Equatable {
+    let generatedAt: Date
+    let startsAt: Date
+    let endsAt: Date
+    let scannedEventCount: Int
+    let matchedEventCount: Int
+    let truncated: Bool
+    let matches: [GoogleCalendarPreviewMatch]
+}
+
+struct GoogleCalendarPreviewMatch: Decodable, Equatable {
+    let calendarId: String
+    let calendarName: String
+    let title: String
+    let startsAt: Date
+    let endsAt: Date
+    let durationMs: Int64
+    let matchedTerms: [String]
+    let alreadySynced: Bool
+
+    var statusLabel: String { alreadySynced ? "Already imported" : "Eligible" }
+    var matchReason: String { "Matched: \(matchedTerms.joined(separator: ", "))" }
+}
+
 struct GoogleCalendarSettingsDraft: Equatable {
     var calendarIds: [String]
     var titleMatchTerms: [String]
@@ -109,6 +138,7 @@ protocol GoogleCalendarConnectionServing {
     func status() async throws -> GoogleCalendarConnectionStatus
     func authorizationURL() async throws -> URL
     func calendars() async throws -> GoogleCalendarListResponse
+    func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings
     func disconnect() async throws
 }
@@ -118,6 +148,7 @@ final class LiveGoogleCalendarConnectionService: GoogleCalendarConnectionServing
         static let connection = "/api/study/google-calendar"
         static let connect = "/api/study/google-calendar/connect"
         static let calendars = "/api/study/google-calendar/calendars"
+        static let preview = "/api/study/google-calendar/preview"
         static let settings = "/api/study/google-calendar/settings"
     }
 
@@ -146,6 +177,14 @@ final class LiveGoogleCalendarConnectionService: GoogleCalendarConnectionServing
     func calendars() async throws -> GoogleCalendarListResponse {
         do {
             return try await api.request(Endpoint.calendars)
+        } catch {
+            throw mapGoogleCalendarAPIError(error)
+        }
+    }
+
+    func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
+        do {
+            return try await api.request(Endpoint.preview, method: "POST", body: request)
         } catch {
             throw mapGoogleCalendarAPIError(error)
         }
