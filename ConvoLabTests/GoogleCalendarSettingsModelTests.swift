@@ -3,6 +3,32 @@ import XCTest
 
 @MainActor
 final class GoogleCalendarSettingsModelTests: XCTestCase {
+    func testConnectedLegacyStatusWithoutSyncLoadsAsIdle() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.statusResponse = .init(
+            connected: true,
+            accountEmail: "andrew@example.com",
+            scopes: ["calendar.readonly"],
+            settings: settings,
+            connectedAt: nil,
+            lastSyncedAt: nil,
+            sync: nil
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+
+        await model.load()
+
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertEqual(model.connectionStatus?.sync?.status, .idle)
+        XCTAssertTrue(model.canSync)
+    }
+
     func testManualSyncUsesSavedSettingsEvenWhenAutomaticTrackingIsOff() async {
         let settings = GoogleCalendarSettings(
             calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
@@ -190,6 +216,41 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
 
         XCTAssertEqual(service.statusRequestCount, 1)
         XCTAssertEqual(model.connectionStatus?.sync?.status, .queued)
+    }
+
+    func testDisconnectionWhilePollingShowsReconnectGuidance() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        let model = GoogleCalendarSettingsModel(
+            service: service,
+            initialSettings: settings,
+            pollDelay: {}
+        )
+        await model.load()
+        await model.startManualSync()
+        service.statusQueue = [.init(
+            connected: false,
+            accountEmail: nil,
+            scopes: [],
+            settings: nil,
+            connectedAt: nil,
+            lastSyncedAt: nil,
+            sync: nil
+        )]
+
+        await model.pollUntilSettled(maxAttempts: 1)
+
+        XCTAssertEqual(
+            model.syncErrorMessage,
+            "Connect or reconnect Google Calendar, then try again."
+        )
+        XCTAssertFalse(model.shouldPoll)
     }
 
     func testLoadPreservesSelectionsAndSaveUsesFreshExistingRules() async {

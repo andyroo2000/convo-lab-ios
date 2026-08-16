@@ -140,10 +140,8 @@ final class GoogleCalendarSettingsModel: Identifiable {
         saveErrorMessage = nil
         syncErrorMessage = nil
         do {
-            let status = try await service.status()
+            let status = try Self.normalizedStatus(try await service.status())
             guard !Task.isCancelled, requestGeneration == generation else { return }
-            guard status.connected else { throw GoogleCalendarConnectionError.notConnected }
-            guard status.sync != nil else { throw GoogleCalendarConnectionError.requestFailed }
             let response = try await service.calendars()
             guard !Task.isCancelled, requestGeneration == generation else { return }
             calendars = response.calendars
@@ -337,9 +335,8 @@ final class GoogleCalendarSettingsModel: Identifiable {
         do {
             let status = try await service.sync()
             guard !Task.isCancelled, requestGeneration == generation else { return }
-            guard status.connected, status.sync != nil else {
-                throw GoogleCalendarConnectionError.requestFailed
-            }
+            guard status.connected else { throw GoogleCalendarConnectionError.notConnected }
+            guard status.sync != nil else { throw GoogleCalendarConnectionError.requestFailed }
             connectionStatus = status
             if status.sync?.status.isActive == true { pollingGeneration += 1 }
             await finishSyncIfNeeded(status)
@@ -359,11 +356,8 @@ final class GoogleCalendarSettingsModel: Identifiable {
             if requestGeneration == generation { isStartingSync = false }
         }
         do {
-            let status = try await service.status()
+            let status = try Self.normalizedStatus(try await service.status())
             guard !Task.isCancelled, requestGeneration == generation else { return }
-            guard status.connected, status.sync != nil else {
-                throw GoogleCalendarConnectionError.requestFailed
-            }
             connectionStatus = status
             pollingExhausted = false
             if status.sync?.status.isActive == true { pollingGeneration += 1 }
@@ -382,11 +376,8 @@ final class GoogleCalendarSettingsModel: Identifiable {
             do { try await pollDelay() } catch { return }
             guard !Task.isCancelled, requestGeneration == generation, shouldPoll else { return }
             do {
-                let status = try await service.status()
+                let status = try Self.normalizedStatus(try await service.status())
                 guard !Task.isCancelled, requestGeneration == generation else { return }
-                guard status.connected, status.sync != nil else {
-                    throw GoogleCalendarConnectionError.requestFailed
-                }
                 connectionStatus = status
                 if !syncIsActive {
                     await finishSyncIfNeeded(status)
@@ -426,6 +417,22 @@ final class GoogleCalendarSettingsModel: Identifiable {
             return "Reconnect Google Calendar before syncing again. Return to Study Time, disconnect, then connect your account again."
         }
         return "Google Calendar sync didn’t finish. Try again."
+    }
+
+    private static func normalizedStatus(
+        _ status: GoogleCalendarConnectionStatus
+    ) throws -> GoogleCalendarConnectionStatus {
+        guard status.connected else { throw GoogleCalendarConnectionError.notConnected }
+        guard status.sync == nil else { return status }
+        return GoogleCalendarConnectionStatus(
+            connected: true,
+            accountEmail: status.accountEmail,
+            scopes: status.scopes,
+            settings: status.settings,
+            connectedAt: status.connectedAt,
+            lastSyncedAt: status.lastSyncedAt,
+            sync: GoogleCalendarSyncState(status: .idle, errorCode: nil, statusAt: nil)
+        )
     }
 
     private static func safeMessage(for error: Error) -> String {
