@@ -50,6 +50,12 @@ final class GoogleCalendarPreviewModel: Identifiable {
         return "\(minutes)m"
     }
 
+    func windowText(_ response: GoogleCalendarPreviewResponse) -> String {
+        let start = response.startsAt.formatted(date: .abbreviated, time: .omitted)
+        let end = response.endsAt.formatted(date: .abbreviated, time: .omitted)
+        return "\(start) – \(end)"
+    }
+
     private static func safeMessage(for error: Error) -> String {
         if let error = error as? GoogleCalendarConnectionError {
             return error.localizedDescription
@@ -92,17 +98,17 @@ struct GoogleCalendarPreviewView: View {
         case .idle, .loading:
             HStack(spacing: 12) {
                 ProgressView()
-                Text("Checking the last 31 days…")
+                Text("Checking recent events…")
             }
             .frame(maxWidth: .infinity, minHeight: 120)
         case .empty:
             Section {
-                ContentUnavailableView(
-                    "No matching lessons",
-                    systemImage: "calendar.badge.checkmark",
-                    description: Text("No completed events in the last 31 days matched these calendars and title terms.")
-                )
                 if let response = model.response {
+                    ContentUnavailableView(
+                        "No matching lessons",
+                        systemImage: "calendar.badge.checkmark",
+                        description: Text("No completed events from \(model.windowText(response)) matched these calendars and title terms.")
+                    )
                     LabeledContent("Events scanned", value: "\(response.scannedEventCount)")
                     if response.truncated {
                         Label("The bounded preview limit was reached.", systemImage: "exclamationmark.triangle")
@@ -127,7 +133,7 @@ struct GoogleCalendarPreviewView: View {
                         eventRow(match)
                     }
                 } header: {
-                    Text("Matching events · Last 31 days")
+                    Text("Matching events · \(model.windowText(response))")
                 } footer: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Scanned \(response.scannedEventCount) events. Found \(response.matchedEventCount) matches.")

@@ -26,6 +26,7 @@ final class GoogleCalendarPreviewModelTests: XCTestCase {
         XCTAssertTrue(model.accessibilitySummary(for: imported).contains("Already imported"))
         XCTAssertEqual(model.durationText(5_400_000), "1h 30m")
         XCTAssertEqual(model.durationText(30_000), "<1m")
+        XCTAssertTrue(model.windowText(response).contains("2024"))
     }
 
     func testLoadingEmptyAndRetryStatesAreExplicit() async {

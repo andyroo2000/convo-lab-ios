@@ -359,7 +359,7 @@ struct GoogleCalendarSettingsView: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
                 .disabled(!model.canPreview)
-                .accessibilityHint("Shows matching completed events from the last 31 days without importing them")
+                .accessibilityHint("Shows matching completed events from the server’s recent preview window without importing them")
             } footer: {
                 Text("Preview uses the selections above. It does not import or sync anything.")
             }
