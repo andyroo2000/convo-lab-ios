@@ -8,6 +8,37 @@ struct GoogleCalendarConnectionStatus: Decodable, Equatable {
     let settings: GoogleCalendarSettings?
     let connectedAt: Date?
     let lastSyncedAt: Date?
+    let sync: GoogleCalendarSyncState?
+
+    init(
+        connected: Bool,
+        accountEmail: String?,
+        scopes: [String],
+        settings: GoogleCalendarSettings?,
+        connectedAt: Date?,
+        lastSyncedAt: Date?,
+        sync: GoogleCalendarSyncState? = nil
+    ) {
+        self.connected = connected
+        self.accountEmail = accountEmail
+        self.scopes = scopes
+        self.settings = settings
+        self.connectedAt = connectedAt
+        self.lastSyncedAt = lastSyncedAt
+        self.sync = sync
+    }
+}
+
+enum GoogleCalendarSyncPhase: String, Decodable, Equatable {
+    case idle, queued, running, succeeded, failed
+
+    var isActive: Bool { self == .queued || self == .running }
+}
+
+struct GoogleCalendarSyncState: Decodable, Equatable {
+    let status: GoogleCalendarSyncPhase
+    let errorCode: String?
+    let statusAt: Date?
 }
 
 struct GoogleCalendarSettings: Codable, Equatable {
@@ -140,6 +171,7 @@ protocol GoogleCalendarConnectionServing {
     func calendars() async throws -> GoogleCalendarListResponse
     func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings
+    func sync() async throws -> GoogleCalendarConnectionStatus
     func disconnect() async throws
 }
 
@@ -150,6 +182,7 @@ final class LiveGoogleCalendarConnectionService: GoogleCalendarConnectionServing
         static let calendars = "/api/study/google-calendar/calendars"
         static let preview = "/api/study/google-calendar/preview"
         static let settings = "/api/study/google-calendar/settings"
+        static let sync = "/api/study/google-calendar/sync"
     }
 
     private let api: APIClient
@@ -159,7 +192,11 @@ final class LiveGoogleCalendarConnectionService: GoogleCalendarConnectionServing
     }
 
     func status() async throws -> GoogleCalendarConnectionStatus {
-        try await api.request(Endpoint.connection)
+        do {
+            return try await api.request(Endpoint.connection)
+        } catch {
+            throw mapGoogleCalendarAPIError(error)
+        }
     }
 
     func authorizationURL() async throws -> URL {
@@ -197,6 +234,14 @@ final class LiveGoogleCalendarConnectionService: GoogleCalendarConnectionServing
                 method: "PUT",
                 body: settings
             )
+        } catch {
+            throw mapGoogleCalendarAPIError(error)
+        }
+    }
+
+    func sync() async throws -> GoogleCalendarConnectionStatus {
+        do {
+            return try await api.request(Endpoint.sync, method: "POST")
         } catch {
             throw mapGoogleCalendarAPIError(error)
         }

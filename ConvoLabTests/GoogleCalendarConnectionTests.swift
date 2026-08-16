@@ -26,9 +26,11 @@ final class GoogleCalendarConnectionTests: XCTestCase {
 
     func testLiveServiceUsesTheDocumentedRoutesAndIOSCompletionTarget() async throws {
         let api = makeClient { request in
+            let statusCode = request.httpMethod == "DELETE" ? 204
+                : request.url?.path == "/api/study/google-calendar/sync" ? 202 : 200
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
-                statusCode: request.httpMethod == "DELETE" ? 204 : 200,
+                statusCode: statusCode,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
@@ -37,7 +39,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
                 return (
                     response,
                     Data(
-                        #"{"connected":true,"accountEmail":"andrew@example.com","scopes":["calendar.readonly"],"settings":{"calendarIds":["primary"],"titleMatchTerms":["iTalki"],"syncEnabled":true},"connectedAt":"2026-08-15T14:00:00Z","lastSyncedAt":"2026-08-15T14:11:12Z"}"#.utf8
+                        #"{"connected":true,"accountEmail":"andrew@example.com","scopes":["calendar.readonly"],"settings":{"calendarIds":["primary"],"titleMatchTerms":["iTalki"],"syncEnabled":true},"connectedAt":"2026-08-15T14:00:00Z","lastSyncedAt":"2026-08-15T14:11:12Z","sync":{"status":"idle","errorCode":null,"statusAt":"2026-08-15T14:11:12Z"}}"#.utf8
                     )
                 )
             case ("POST", "/api/study/google-calendar/connect"):
@@ -77,6 +79,13 @@ final class GoogleCalendarConnectionTests: XCTestCase {
                     response,
                     Data(#"{"calendarIds":["primary"],"titleMatchTerms":["iTalki"],"syncEnabled":true}"#.utf8)
                 )
+            case ("POST", "/api/study/google-calendar/sync"):
+                XCTAssertNil(request.httpBody)
+                XCTAssertNil(request.value(forHTTPHeaderField: "Content-Type"))
+                return (
+                    response,
+                    Data(#"{"connected":true,"accountEmail":"andrew@example.com","scopes":["calendar.readonly"],"settings":{"calendarIds":["primary"],"titleMatchTerms":["iTalki"],"syncEnabled":true},"connectedAt":"2026-08-15T14:00:00Z","lastSyncedAt":"2026-08-15T14:11:12Z","sync":{"status":"queued","errorCode":null,"statusAt":"2026-08-15T14:12:00Z"}}"#.utf8)
+                )
             default:
                 XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
                 throw URLError(.badURL)
@@ -95,6 +104,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             status.lastSyncedAt,
             ISO8601DateFormatter().date(from: "2026-08-15T14:11:12Z")
         )
+        XCTAssertEqual(status.sync?.status, .idle)
         let authorizationURL = try await service.authorizationURL()
         XCTAssertEqual(authorizationURL.absoluteString, "https://accounts.google.com/oauth")
         let calendars = try await service.calendars()
@@ -114,13 +124,16 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             .init(calendarIds: ["primary"], titleMatchTerms: ["iTalki"], syncEnabled: true)
         )
         XCTAssertEqual(settings, status.settings)
+        let sync = try await service.sync()
+        XCTAssertEqual(sync.sync?.status, .queued)
+        XCTAssertEqual(sync.sync?.statusAt, ISO8601DateFormatter().date(from: "2026-08-15T14:12:00Z"))
         try await service.disconnect()
     }
 
     func testDisconnectedStatusDecodesExplicitNullSettings() async throws {
         let api = makeClient { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, Data(#"{"connected":false,"accountEmail":null,"scopes":[],"settings":null,"connectedAt":null,"lastSyncedAt":null}"#.utf8))
+            return (response, Data(#"{"connected":false,"accountEmail":null,"scopes":[],"settings":null,"connectedAt":null,"lastSyncedAt":null,"sync":null}"#.utf8))
         }
 
         let status = try await LiveGoogleCalendarConnectionService(api: api).status()
@@ -128,6 +141,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         XCTAssertFalse(status.connected)
         XCTAssertEqual(status.scopes, [])
         XCTAssertNil(status.settings)
+        XCTAssertNil(status.sync)
     }
 
     func testNewEndpointsMapControlledCalendarErrors() async throws {
@@ -146,8 +160,10 @@ final class GoogleCalendarConnectionTests: XCTestCase {
             }
             let service = LiveGoogleCalendarConnectionService(api: api)
             let operations: [() async throws -> Void] = [
+                { _ = try await service.status() },
                 { _ = try await service.calendars() },
                 { _ = try await service.preview(.init(calendarIds: ["work"], titleMatchTerms: ["lesson"])) },
+                { _ = try await service.sync() },
             ]
             for operation in operations {
                 do {
@@ -306,6 +322,41 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         XCTAssertFalse(store.googleCalendarIsLoading)
     }
 
+    func testCompletedManualSyncCannotRefreshAReplacementAccount() async throws {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = TestGoogleCalendarConnectionService()
+        service.statusResponse = .init(
+            connected: true, accountEmail: "andrew@example.com", scopes: ["calendar.readonly"],
+            settings: settings, connectedAt: nil, lastSyncedAt: nil,
+            sync: .init(status: .idle, errorCode: nil, statusAt: nil)
+        )
+        service.calendarResponse = .init(
+            calendars: [.init(id: "primary", name: "Personal", primary: true)], truncated: false
+        )
+        service.syncResponse = .init(
+            connected: true, accountEmail: "andrew@example.com", scopes: ["calendar.readonly"],
+            settings: settings, connectedAt: nil, lastSyncedAt: .now,
+            sync: .init(status: .succeeded, errorCode: nil, statusAt: .now)
+        )
+        let store = try makeStore(
+            service: service,
+            authorizer: TestGoogleCalendarAuthorizer(result: .failure(URLError(.cancelled)))
+        )
+        store.activate(userID: 42)
+        await store.loadGoogleCalendarConnection()
+        let model = try XCTUnwrap(store.makeGoogleCalendarSettingsModel())
+        await model.load()
+        store.activate(userID: 43)
+
+        await model.startManualSync()
+
+        XCTAssertEqual(service.syncCount, 1)
+        XCTAssertEqual(service.statusRequestCount, 2)
+        XCTAssertNil(store.googleCalendarStatus)
+    }
+
     private func makeStore(
         service: TestGoogleCalendarConnectionService,
         authorizer: TestGoogleCalendarAuthorizer
@@ -340,14 +391,19 @@ private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectio
     var pauseStatus = false
     var statusError: Error?
     var statusContinuation: CheckedContinuation<GoogleCalendarConnectionStatus, Never>?
+    var calendarResponse = GoogleCalendarListResponse(calendars: [], truncated: false)
+    var syncResponse: GoogleCalendarConnectionStatus?
+    private(set) var statusRequestCount = 0
+    private(set) var syncCount = 0
 
     func status() async throws -> GoogleCalendarConnectionStatus {
+        statusRequestCount += 1
         if let statusError { throw statusError }
         guard pauseStatus else { return statusResponse }
         return await withCheckedContinuation { statusContinuation = $0 }
     }
     func authorizationURL() async throws -> URL { authorizationURLValue }
-    func calendars() async throws -> GoogleCalendarListResponse { .init(calendars: [], truncated: false) }
+    func calendars() async throws -> GoogleCalendarListResponse { calendarResponse }
     func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
         .init(
             generatedAt: .now, startsAt: .now, endsAt: .now,
@@ -355,6 +411,10 @@ private final class TestGoogleCalendarConnectionService: GoogleCalendarConnectio
         )
     }
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings { settings }
+    func sync() async throws -> GoogleCalendarConnectionStatus {
+        syncCount += 1
+        return syncResponse ?? statusResponse
+    }
     func disconnect() async throws { disconnectCount += 1 }
 
     func resumeStatus() {

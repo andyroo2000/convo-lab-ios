@@ -122,6 +122,7 @@ private final class PreviewServiceFake: GoogleCalendarConnectionServing {
         return await withCheckedContinuation { continuation = $0 }
     }
     func updateSettings(_ settings: GoogleCalendarSettings) async throws -> GoogleCalendarSettings { settings }
+    func sync() async throws -> GoogleCalendarConnectionStatus { try await status() }
     func disconnect() async throws {}
 
     func resume() {

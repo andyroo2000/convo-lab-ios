@@ -3,6 +3,195 @@ import XCTest
 
 @MainActor
 final class GoogleCalendarSettingsModelTests: XCTestCase {
+    func testManualSyncUsesSavedSettingsEvenWhenAutomaticTrackingIsOff() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+
+        XCTAssertTrue(model.canSync)
+        await model.startManualSync()
+
+        XCTAssertEqual(service.syncCount, 1)
+        XCTAssertTrue(model.shouldPoll)
+        XCTAssertTrue(model.editsLocked)
+        XCTAssertEqual(model.connectionStatus?.sync?.status, .queued)
+    }
+
+    func testUnsavedDraftRequiresSaveBeforeManualSync() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+        model.setAutomaticTrackingEnabled(true)
+
+        XCTAssertTrue(model.hasUnsavedChanges)
+        XCTAssertFalse(model.canSync)
+        XCTAssertEqual(
+            model.syncHelpText,
+            "Save changes before syncing. Manual sync uses your saved settings."
+        )
+        await model.startManualSync()
+        XCTAssertEqual(service.syncCount, 0)
+    }
+
+    func testQueuedSyncPollsToSuccessAndRefreshesExactlyOnce() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        var refreshCount = 0
+        let model = GoogleCalendarSettingsModel(
+            service: service,
+            initialSettings: settings,
+            didSync: { refreshCount += 1 },
+            pollDelay: {}
+        )
+        await model.load()
+        await model.startManualSync()
+        service.statusQueue = [
+            Self.connection(settings: settings, phase: .running),
+            Self.connection(settings: settings, phase: .succeeded, lastSyncedAt: .init(timeIntervalSince1970: 500)),
+        ]
+
+        await model.pollUntilSettled(maxAttempts: 5)
+        await model.pollUntilSettled(maxAttempts: 5)
+
+        XCTAssertEqual(model.connectionStatus?.sync?.status, .succeeded)
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertEqual(service.syncCount, 1)
+        XCTAssertEqual(service.statusRequestCount, 3)
+    }
+
+    func testPollingExhaustionChecksStatusWithoutStartingCompetingSync() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        var refreshCount = 0
+        let model = GoogleCalendarSettingsModel(
+            service: service,
+            initialSettings: settings,
+            didSync: { refreshCount += 1 },
+            pollDelay: {}
+        )
+        await model.load()
+        await model.startManualSync()
+        service.statusQueue = [Self.connection(settings: settings, phase: .running)]
+        await model.pollUntilSettled(maxAttempts: 1)
+
+        XCTAssertEqual(model.syncActionTitle, "Check Sync Status")
+        XCTAssertTrue(model.canSync)
+        service.statusQueue = [Self.connection(settings: settings, phase: .succeeded)]
+        await model.startManualSync()
+
+        XCTAssertEqual(service.syncCount, 1)
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertEqual(model.connectionStatus?.sync?.status, .succeeded)
+    }
+
+    func testFailedAndTransportErrorsUseSafeRetryCopy() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.statusResponse = Self.connection(
+            settings: settings, phase: .failed, errorCode: "reconnect_required"
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+        XCTAssertTrue(model.syncErrorMessage?.contains("Reconnect Google Calendar") == true)
+        XCTAssertFalse(model.syncErrorMessage?.contains("reconnect_required") == true)
+        XCTAssertFalse(model.canSync)
+        XCTAssertEqual(model.syncActionTitle, "Reconnect Required")
+
+        let retryService = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        retryService.syncError = APIClientError.rejected(status: 500, message: "raw provider secret")
+        let retryModel = GoogleCalendarSettingsModel(service: retryService, initialSettings: settings)
+        await retryModel.load()
+        await retryModel.startManualSync()
+        XCTAssertEqual(retryModel.syncActionTitle, "Try Again")
+        XCTAssertFalse(retryModel.syncErrorMessage?.contains("secret") == true)
+    }
+
+    func testSyncRequestTransitionBlocksDraftDismissalAndDuplicateTap() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: false
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        service.pauseSync = true
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+        let sync = Task { await model.startManualSync() }
+        while service.syncContinuation == nil { await Task.yield() }
+
+        XCTAssertTrue(model.blocksDismissal)
+        XCTAssertTrue(model.editsLocked)
+        model.setAutomaticTrackingEnabled(true)
+        await model.startManualSync()
+        XCTAssertFalse(model.automaticTrackingEnabled)
+        XCTAssertEqual(service.syncCount, 1)
+
+        service.resumeSync()
+        await sync.value
+        XCTAssertFalse(model.blocksDismissal)
+        XCTAssertTrue(model.syncIsActive)
+    }
+
+    func testPollingCancellationDoesNotPublishLateStatus() async {
+        let settings = GoogleCalendarSettings(
+            calendarIds: ["primary"], titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: [.init(id: "primary", name: "Personal", primary: true)]
+        )
+        service.syncResponse = Self.connection(settings: settings, phase: .queued)
+        let model = GoogleCalendarSettingsModel(
+            service: service,
+            initialSettings: settings,
+            pollDelay: { try await Task.sleep(for: .seconds(30)) }
+        )
+        await model.load()
+        await model.startManualSync()
+        let poll = Task { await model.pollUntilSettled(maxAttempts: 2) }
+        await Task.yield()
+        poll.cancel()
+        await poll.value
+
+        XCTAssertEqual(service.statusRequestCount, 1)
+        XCTAssertEqual(model.connectionStatus?.sync?.status, .queued)
+    }
+
     func testLoadPreservesSelectionsAndSaveUsesFreshExistingRules() async {
         let existing = GoogleCalendarSettings(
             calendarIds: ["primary", "unavailable", "remote-removed"],
@@ -447,6 +636,23 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertFalse(didSave)
         XCTAssertFalse(saveModel.saveErrorMessage?.contains("secret") ?? true)
     }
+
+    private static func connection(
+        settings: GoogleCalendarSettings,
+        phase: GoogleCalendarSyncPhase,
+        errorCode: String? = nil,
+        lastSyncedAt: Date? = nil
+    ) -> GoogleCalendarConnectionStatus {
+        .init(
+            connected: true,
+            accountEmail: "andrew@example.com",
+            scopes: ["calendar.readonly"],
+            settings: settings,
+            connectedAt: .init(timeIntervalSince1970: 100),
+            lastSyncedAt: lastSyncedAt,
+            sync: .init(status: phase, errorCode: errorCode, statusAt: .init(timeIntervalSince1970: 200))
+        )
+    }
 }
 
 @MainActor
@@ -455,14 +661,22 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
     var calendarResponse: GoogleCalendarListResponse
     var calendarError: Error?
     var updateError: Error?
+    var syncError: Error?
+    var syncResponse: GoogleCalendarConnectionStatus
+    var statusQueue: [GoogleCalendarConnectionStatus] = []
     var pauseCalendars = false
     var pauseUpdates = false
+    var pauseSync = false
     var calendarContinuation: CheckedContinuation<GoogleCalendarListResponse, Never>?
     var updateContinuation: CheckedContinuation<GoogleCalendarSettings, Never>?
+    var syncContinuation: CheckedContinuation<GoogleCalendarConnectionStatus, Never>?
     private(set) var updateRequests: [GoogleCalendarSettings] = []
+    private(set) var syncCount = 0
+    private(set) var statusRequestCount = 0
 
     init(settings: GoogleCalendarSettings?, calendars: [GoogleCalendar]) {
         statusResponse = Self.status(settings: settings)
+        syncResponse = statusResponse
         calendarResponse = .init(calendars: calendars, truncated: false)
     }
 
@@ -473,11 +687,16 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
             scopes: ["calendar.readonly"],
             settings: settings,
             connectedAt: nil,
-            lastSyncedAt: nil
+            lastSyncedAt: nil,
+            sync: .init(status: .idle, errorCode: nil, statusAt: nil)
         )
     }
 
-    func status() async throws -> GoogleCalendarConnectionStatus { statusResponse }
+    func status() async throws -> GoogleCalendarConnectionStatus {
+        statusRequestCount += 1
+        if !statusQueue.isEmpty { return statusQueue.removeFirst() }
+        return statusResponse
+    }
     func authorizationURL() async throws -> URL { URL(string: "https://example.test")! }
     func calendars() async throws -> GoogleCalendarListResponse {
         if let calendarError { throw calendarError }
@@ -491,6 +710,14 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
             return await withCheckedContinuation { updateContinuation = $0 }
         }
         return settings
+    }
+    func sync() async throws -> GoogleCalendarConnectionStatus {
+        syncCount += 1
+        if let syncError { throw syncError }
+        if pauseSync {
+            return await withCheckedContinuation { syncContinuation = $0 }
+        }
+        return syncResponse
     }
     func preview(_ request: GoogleCalendarPreviewRequest) async throws -> GoogleCalendarPreviewResponse {
         .init(
@@ -509,5 +736,10 @@ private final class CalendarSettingsServiceFake: GoogleCalendarConnectionServing
         guard let request = updateRequests.last else { return }
         updateContinuation?.resume(returning: request)
         updateContinuation = nil
+    }
+
+    func resumeSync() {
+        syncContinuation?.resume(returning: syncResponse)
+        syncContinuation = nil
     }
 }
