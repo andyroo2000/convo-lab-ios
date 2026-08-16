@@ -41,9 +41,18 @@ final class GoogleCalendarSettingsModel: Identifiable {
 
     var canPreview: Bool {
         state == .loaded
-            && !selectedCalendarIDs.isEmpty
+            && calendarValidationMessage == nil
             && titleTermsValidationMessage == nil
             && !isSaving
+    }
+
+    var calendarValidationMessage: String? {
+        do {
+            _ = try currentCalendarIDs()
+            return nil
+        } catch {
+            return Self.safeMessage(for: error)
+        }
     }
 
     var titleTermsValidationMessage: String? {
@@ -137,18 +146,27 @@ final class GoogleCalendarSettingsModel: Identifiable {
 
     func makePreviewModel() -> GoogleCalendarPreviewModel? {
         guard canPreview else { return nil }
+        do {
+            return GoogleCalendarPreviewModel(
+                service: service,
+                request: .init(
+                    calendarIds: try currentCalendarIDs(),
+                    titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+                )
+            )
+        } catch {
+            saveErrorMessage = Self.safeMessage(for: error)
+            return nil
+        }
+    }
+
+    private func currentCalendarIDs() throws -> [String] {
         let existing = (settings?.calendarIds ?? []).filter(selectedCalendarIDs.contains)
         let seen = Set(existing)
         let added = calendars.map(\.id).filter {
             selectedCalendarIDs.contains($0) && !seen.contains($0)
         }
-        guard let calendarIds = try? GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added),
-              let terms = try? GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
-        else { return nil }
-        return GoogleCalendarPreviewModel(
-            service: service,
-            request: .init(calendarIds: calendarIds, titleMatchTerms: terms)
-        )
+        return try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(existing + added)
     }
 
     @discardableResult
@@ -283,8 +301,8 @@ struct GoogleCalendarSettingsView: View {
                     if model.isTruncated {
                         Text("Only the first available calendars are shown.")
                     }
-                    if model.selectedCalendarIDs.isEmpty {
-                        Text("Select at least one calendar to save.")
+                    if let message = model.calendarValidationMessage {
+                        Text(message)
                             .foregroundStyle(.red)
                     }
                 }

@@ -128,6 +128,29 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertTrue(service.updateRequests.isEmpty)
     }
 
+    func testLegacyCalendarOverflowDisablesPreviewWithVisibleValidation() async {
+        let ids = (1...26).map { "calendar-\($0)" }
+        let settings = GoogleCalendarSettings(
+            calendarIds: ids, titleMatchTerms: ["lesson"], syncEnabled: true
+        )
+        let service = CalendarSettingsServiceFake(
+            settings: settings,
+            calendars: ids.map { .init(id: $0, name: $0, primary: false) }
+        )
+        let model = GoogleCalendarSettingsModel(service: service, initialSettings: settings)
+        await model.load()
+
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertFalse(model.canPreview)
+        XCTAssertFalse(model.canSave)
+        XCTAssertEqual(
+            model.calendarValidationMessage,
+            GoogleCalendarSettingsValidationError.calendarCount.localizedDescription
+        )
+        XCTAssertNil(model.makePreviewModel())
+        XCTAssertTrue(service.updateRequests.isEmpty)
+    }
+
     func testTermEditingTrimsDeduplicatesValidatesAndPreservesOrder() async {
         let service = CalendarSettingsServiceFake(
             settings: .init(calendarIds: ["primary"], titleMatchTerms: ["existing"], syncEnabled: true),
