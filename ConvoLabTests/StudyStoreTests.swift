@@ -6323,6 +6323,11 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.failedStudyChanges.count, 1)
         XCTAssertFalse(try XCTUnwrap(store.failedStudyChanges.first).isRetryable)
 
+        try await store.retryFailedStudyChange(id: mutation.id)
+
+        XCTAssertTrue(requestedCardIDs.values.isEmpty)
+        XCTAssertEqual(store.failedStudyChanges.map(\.id), [mutation.id])
+
         try await store.discardFailedStudyChange(id: mutation.id)
 
         XCTAssertEqual(requestedCardIDs.values, [serverID])
