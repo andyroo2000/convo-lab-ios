@@ -1848,11 +1848,16 @@ final class StudyStore {
         else { return }
 
         let resourceID = mutation.resourceID.lowercased()
+        let canonicalLookupID = if kind == .review {
+            try reviewOutbox.cardID(for: mutation) ?? mutation.resourceID
+        } else {
+            mutation.resourceID
+        }
         let canonicalCard: StudyCard? = if kind == .cardDelete
             || kind == .cardUpdate
             || kind == .review
         {
-            try await fetchCanonicalCard(id: mutation.resourceID)
+            try await fetchCanonicalCard(id: canonicalLookupID)
         } else {
             nil
         }

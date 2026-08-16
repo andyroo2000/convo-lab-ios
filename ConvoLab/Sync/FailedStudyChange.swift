@@ -39,6 +39,13 @@ struct FailedStudyChange: Identifiable, Equatable, Sendable {
     let attemptCount: Int
     let lastAttemptAt: Date?
     let errorMessage: String
+
+    var isRetryable: Bool {
+        !(kind == .review
+            && errorMessage.localizedCaseInsensitiveContains(
+                "selected card id is invalid"
+            ))
+    }
 }
 
 @MainActor

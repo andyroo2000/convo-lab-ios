@@ -6249,6 +6249,94 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardingRejectedReviewUsesServerIDAndRemovesStaleLocalCard() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let localID = "8D748A0E-2EE9-49A9-8A32-7B9E4187C273"
+        let serverID = "01J00000000000000000000F8"
+        let cardBefore = makeCard(
+            id: localID,
+            syncId: serverID,
+            expression: "削除済み"
+        )
+        let cardAfter = makeCard(
+            id: localID,
+            syncId: serverID,
+            expression: "削除済み",
+            dueAt: Date(timeIntervalSince1970: 1_800_000_000),
+            masteryLevel: "mastered"
+        )
+        let record = LocalCardRecord(
+            card: cardAfter,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(cardAfter)
+        )
+        let event = ReviewBatchRequest.Event(
+            id: "01J00000000000000000000E8",
+            cardID: serverID,
+            rating: .good,
+            reviewedAt: .now,
+            durationMilliseconds: nil,
+            clientEventID: "discard-stale-review",
+            deviceID: "device",
+            clientCreatedAt: .now
+        )
+        let mutation = PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: localID,
+            payload: try StorageCodec.encoder.encode(
+                PendingReviewPayload(
+                    event: event,
+                    cardBefore: PendingReviewCardState(card: cardBefore)
+                )
+            )
+        )
+        mutation.lastError = "HTTP 422: The selected card id is invalid."
+        container.mainContext.insert(record)
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+
+        let requestedCardIDs = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/cards/batch" {
+                let body = try JSONSerialization.jsonObject(
+                    with: try requestBody(request)
+                ) as? [String: Any]
+                let ids = try XCTUnwrap(body?["ids"] as? [String])
+                requestedCardIDs.append(try XCTUnwrap(ids.first))
+                return Self.response(data: Data(#"{"cards":[]}"#.utf8))
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.failedStudyChanges.count, 1)
+        XCTAssertFalse(try XCTUnwrap(store.failedStudyChanges.first).isRetryable)
+
+        try await store.discardFailedStudyChange(id: mutation.id)
+
+        XCTAssertEqual(requestedCardIDs.values, [serverID])
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty
+        )
+        XCTAssertTrue(store.libraryCards.isEmpty)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+    }
+
+    @MainActor
     func testOfflineRetryKeepsRejectedReviewPayloadPending() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }

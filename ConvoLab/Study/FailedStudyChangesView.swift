@@ -67,13 +67,15 @@ struct FailedStudyChangesView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Retry") {
-                    perform(change) {
-                        try await store.retryFailedStudyChange(id: change.id)
+                if change.isRetryable {
+                    Button("Retry") {
+                        perform(change) {
+                            try await store.retryFailedStudyChange(id: change.id)
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(workingID != nil)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(workingID != nil)
                 Button("Discard", role: .destructive) {
                     discarding = change
                 }
