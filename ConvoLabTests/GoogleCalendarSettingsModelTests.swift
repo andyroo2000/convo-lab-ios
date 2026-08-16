@@ -114,15 +114,17 @@ final class GoogleCalendarSettingsModelTests: XCTestCase {
         XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.emptyTerm.localizedDescription)
         XCTAssertFalse(model.addTitleMatchTerm(String(repeating: "界", count: 101)))
         XCTAssertEqual(model.saveErrorMessage, GoogleCalendarSettingsValidationError.termTooLong.localizedDescription)
-        XCTAssertTrue(model.addTitleMatchTerm(" Straße "))
-        XCTAssertFalse(model.addTitleMatchTerm("STRASSE"))
+        XCTAssertTrue(model.addTitleMatchTerm(" Übung "))
+        XCTAssertFalse(model.addTitleMatchTerm("üBUNG"))
         XCTAssertEqual(model.saveErrorMessage, "That title-match term is already included.")
+        XCTAssertTrue(model.addTitleMatchTerm("Straße"))
+        XCTAssertTrue(model.addTitleMatchTerm("STRASSE"))
         XCTAssertTrue(model.addTitleMatchTerm("学校"))
-        XCTAssertEqual(model.titleMatchTerms, ["existing", "Straße", "学校"])
+        XCTAssertEqual(model.titleMatchTerms, ["existing", "Übung", "Straße", "STRASSE", "学校"])
 
         model.removeTitleMatchTerm(at: 1)
-        XCTAssertEqual(model.titleMatchTerms, ["existing", "学校"])
-        for index in 2...49 {
+        XCTAssertEqual(model.titleMatchTerms, ["existing", "Straße", "STRASSE", "学校"])
+        for index in 4...49 {
             XCTAssertTrue(model.addTitleMatchTerm("term-\(index)"))
         }
         XCTAssertEqual(model.titleMatchTerms.count, 50)

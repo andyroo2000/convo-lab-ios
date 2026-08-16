@@ -154,11 +154,11 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         ).canonicalized()
 
         XCTAssertEqual(settings.calendarIds, ["primary", "PRIMARY"])
-        XCTAssertEqual(settings.titleMatchTerms, ["iTalki", "学校", "Übung", "Straße"])
+        XCTAssertEqual(settings.titleMatchTerms, ["iTalki", "学校", "Übung", "Straße", "STRASSE"])
         XCTAssertFalse(settings.syncEnabled)
     }
 
-    func testSettingsDraftValidatesCountsAndSwiftCharacterLengths() throws {
+    func testSettingsDraftValidatesCountsAndUnicodeScalarLengths() throws {
         XCTAssertThrowsError(try GoogleCalendarSettingsDraft(
             calendarIds: [], titleMatchTerms: ["lesson"], syncEnabled: true
         ).canonicalized()) { XCTAssertEqual($0 as? GoogleCalendarSettingsValidationError, .calendarCount) }
@@ -174,7 +174,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         ).canonicalized()) { XCTAssertEqual($0 as? GoogleCalendarSettingsValidationError, .calendarIDTooLong) }
         XCTAssertNoThrow(try GoogleCalendarSettingsDraft(
             calendarIds: ["primary"],
-            titleMatchTerms: [String(repeating: "👩🏽‍🏫", count: 100)],
+            titleMatchTerms: [String(repeating: "e\u{301}", count: 50)],
             syncEnabled: true
         ).canonicalized())
         XCTAssertThrowsError(try GoogleCalendarSettingsDraft(
@@ -187,7 +187,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         ).canonicalized()) { XCTAssertEqual($0 as? GoogleCalendarSettingsValidationError, .termCount) }
         XCTAssertThrowsError(try GoogleCalendarSettingsDraft(
             calendarIds: ["primary"],
-            titleMatchTerms: [String(repeating: "👩🏽‍🏫", count: 101)],
+            titleMatchTerms: [String(repeating: "e\u{301}", count: 50) + "a"],
             syncEnabled: true
         ).canonicalized()) { XCTAssertEqual($0 as? GoogleCalendarSettingsValidationError, .termTooLong) }
     }

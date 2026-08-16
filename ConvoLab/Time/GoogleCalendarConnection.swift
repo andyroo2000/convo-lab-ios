@@ -63,7 +63,9 @@ struct GoogleCalendarSettingsDraft: Equatable {
         return try values.compactMap { value in
             let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { throw GoogleCalendarSettingsValidationError.emptyTerm }
-            guard value.count <= 100 else { throw GoogleCalendarSettingsValidationError.termTooLong }
+            guard value.unicodeScalars.count <= 100 else {
+                throw GoogleCalendarSettingsValidationError.termTooLong
+            }
             let key = termComparisonKey(value)
             return seen.insert(key).inserted ? value : nil
         }
@@ -71,7 +73,7 @@ struct GoogleCalendarSettingsDraft: Equatable {
 
     static func termComparisonKey(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased(with: Locale(identifier: "en_US_POSIX"))
     }
 }
 
