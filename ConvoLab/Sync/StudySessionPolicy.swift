@@ -117,8 +117,13 @@ struct StudySessionCounts: Equatable {
         let loadedReviewRemaining = cards.count(where: {
             $0.state.failedAt == nil && $0.state.queueState != "new"
         })
-        let reviewRemaining = overview.map { max(0, $0.dueCount) }
-            ?? loadedReviewRemaining
+        // A persisted overview is useful immediately at launch, but its due count
+        // naturally becomes stale as time passes offline. Locally promoted cards
+        // must therefore be allowed to raise the count without waiting for sync.
+        let reviewRemaining = max(
+            overview.map { max(0, $0.dueCount) } ?? 0,
+            loadedReviewRemaining
+        )
 
         return StudySessionCounts(
             failedDue: max(authoritativeFailedDueCount, loadedFailedDueCardIDs.count),

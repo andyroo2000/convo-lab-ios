@@ -1673,6 +1673,46 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testActivationRestoresLastOverviewWithoutNetwork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let overview = StudyOverview(
+            dueCount: 7,
+            newCount: 5,
+            reviewCount: 120,
+            totalCards: 4103,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 5,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 90
+        )
+        container.mainContext.insert(
+            LocalStudyOverviewSnapshot(
+                userID: 1,
+                payload: try StorageCodec.encoder.encode(overview)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.overview?.dueCount, 7)
+        XCTAssertEqual(store.overview?.newCount, 5)
+        XCTAssertEqual(store.overview?.totalCards, 4103)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
+        store.deactivate()
+    }
+
+    @MainActor
     func testLoadNextReviewBatchPromotesNewlyDueOfflineReserveBeforeSyncing() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let futureCard = makeCard(

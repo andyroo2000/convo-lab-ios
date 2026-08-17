@@ -237,11 +237,7 @@ struct StudyCardLocalRepository {
     }
 
     private func recordIdentifiers(_ record: LocalCardRecord) -> Set<String> {
-        var identifiers = Set([record.id.lowercased()])
-        if let card = decodeCard(record: record) {
-            identifiers.formUnion(StudyCardIdentity.identifiers(for: card))
-        }
-        return identifiers
+        Set([record.normalizedID, record.syncID]).filter { !$0.isEmpty }
     }
 
     private func recordsByIdentifier(

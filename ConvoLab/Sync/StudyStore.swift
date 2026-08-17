@@ -227,6 +227,7 @@ final class StudyStore {
         deactivate()
         activeUserID = userID
         mediaCache.activate(userID: userID)
+        loadCachedOverview(userID: userID)
         loadLocalCards(userID: userID)
         loadLibraryCards(userID: userID)
         reviewOutbox.activate(userID: userID)
@@ -321,10 +322,16 @@ final class StudyStore {
                 predicate: #Predicate { $0.userID == userID }
             )
         )
+        let overviewSnapshots = try context.fetch(
+            FetchDescriptor<LocalStudyOverviewSnapshot>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
         try knownKanjiService.stageLocalDataDeletion(userID: userID)
         cards.forEach(context.delete)
         mutations.forEach(context.delete)
         syncStates.forEach(context.delete)
+        overviewSnapshots.forEach(context.delete)
         try context.save()
     }
 
@@ -600,6 +607,7 @@ final class StudyStore {
         // previous batch was loaded. Promote that delta before doing a full sync;
         // otherwise refreshSession can replace the active markers before these
         // locally ready cards ever reach the player.
+        loadLibraryCards(userID: userID)
         activateOfflineDueCards()
         if cards.isEmpty {
             await synchronize()
@@ -629,7 +637,7 @@ final class StudyStore {
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
-        overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
+        setOverview(StudySettingsPolicy.applying(resolvedSettings, to: session.overview))
         studySettings = resolvedSettings
         studySurfaceRevision += 1
         cards = activeCards
@@ -673,7 +681,7 @@ final class StudyStore {
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
-        overview = StudySettingsPolicy.applying(resolvedSettings, to: session.overview)
+        setOverview(StudySettingsPolicy.applying(resolvedSettings, to: session.overview))
         studySettings = resolvedSettings
         studySurfaceRevision += 1
         cards = lessonCards
@@ -748,7 +756,7 @@ final class StudyStore {
             )
             studySettings = resolvedResponse
             if let current = overview {
-                overview = StudySettingsPolicy.applying(resolvedResponse, to: current)
+                setOverview(StudySettingsPolicy.applying(resolvedResponse, to: current))
             }
             studySettingsErrorMessage = nil
         } catch {
@@ -821,7 +829,7 @@ final class StudyStore {
             )
             studySettings = resolvedResponse
             if let current = overview {
-                overview = StudySettingsPolicy.applying(resolvedResponse, to: current)
+                setOverview(StudySettingsPolicy.applying(resolvedResponse, to: current))
             }
             // The server may now admit a different set of new cards and build a
             // different offline reserve. Force the next Study-page entry to refresh.
@@ -1067,18 +1075,20 @@ final class StudyStore {
             )
         )) ?? []
         let pendingDeleteIDs = (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        var inactiveRecordsByIdentifier: [String: LocalCardRecord] = [:]
+        for record in records {
+            for identifier in [record.normalizedID, record.syncID] where !identifier.isEmpty {
+                inactiveRecordsByIdentifier[identifier] = record
+            }
+        }
         var activeCardIdentifiers = cards.reduce(into: Set<String>()) {
             $0.formUnion(StudyCardIdentity.identifiers(for: $1))
         }
         var newlyDueCards: [StudyCard] = []
         var changed = false
 
-        for record in records {
+        for card in libraryCards {
             guard
-                let card = try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
-                ),
                 !StudyCardIdentity.matches(card, any: pendingDeleteIDs),
                 card.isEligibleForOfflineStudy(at: date)
             else {
@@ -1086,6 +1096,9 @@ final class StudyStore {
             }
             let identifiers = StudyCardIdentity.identifiers(for: card)
             if activeCardIdentifiers.isDisjoint(with: identifiers) {
+                guard let record = identifiers.lazy.compactMap({
+                    inactiveRecordsByIdentifier[$0]
+                }).first else { continue }
                 activeCardIdentifiers.formUnion(identifiers)
                 newlyDueCards.append(card)
                 changed = true
@@ -1277,7 +1290,7 @@ final class StudyStore {
             undoingPresentedLesson: undoingPresentedLesson
         )
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
-        overview = response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes)
+        setOverview(response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes))
         apply(try reviewOutbox.pendingState())
         restoreSessionFailure(
             for: restoredCard.id,
@@ -2072,7 +2085,7 @@ final class StudyStore {
 
     private func consumeOverviewCount(for card: StudyCard) {
         guard let current = overview else { return }
-        overview = StudyOverview(
+        setOverview(StudyOverview(
             dueCount: card.state.failedAt == nil && card.state.queueState != "new"
                 ? max(0, current.dueCount - 1)
                 : current.dueCount,
@@ -2093,7 +2106,7 @@ final class StudyStore {
             reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
-        )
+        ))
     }
 
     func dismissMasteryAnimation() {
@@ -2492,6 +2505,52 @@ final class StudyStore {
 
     private func loadLibraryCards(userID: Int) {
         libraryCards = (try? localCardRepository.libraryCards(userID: userID)) ?? []
+    }
+
+    private func loadCachedOverview(userID: Int) {
+        var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
+            predicate: #Predicate { $0.userID == userID }
+        )
+        descriptor.fetchLimit = 1
+        guard
+            let snapshot = try? context.fetch(descriptor).first,
+            let cachedOverview = try? StorageCodec.decoder.decode(
+                StudyOverview.self,
+                from: snapshot.payload
+            )
+        else { return }
+
+        overview = cachedOverview
+        studySettings = StudySettingsPolicy.settings(
+            from: cachedOverview,
+            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes ?? 90
+        )
+    }
+
+    private func setOverview(_ value: StudyOverview) {
+        overview = value
+        guard let userID = activeUserID else { return }
+
+        do {
+            let payload = try StorageCodec.encoder.encode(value)
+            var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+            descriptor.fetchLimit = 1
+            if let snapshot = try context.fetch(descriptor).first {
+                snapshot.payload = payload
+                snapshot.updatedAt = .now
+            } else {
+                context.insert(
+                    LocalStudyOverviewSnapshot(userID: userID, payload: payload)
+                )
+            }
+            try context.save()
+        } catch {
+            // The snapshot is a disposable presentation cache. Study cards and
+            // queued reviews remain durable even if this best-effort save fails.
+            context.rollback()
+        }
     }
 
     private func scheduleNextOfflineActivation() {

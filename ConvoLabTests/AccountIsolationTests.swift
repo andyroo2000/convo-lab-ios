@@ -114,6 +114,10 @@ final class AccountIsolationTests: XCTestCase {
                 payload: Data()
             ))
             container.mainContext.insert(LocalSyncState(userID: userID, cardCheckpoint: 7))
+            container.mainContext.insert(LocalStudyOverviewSnapshot(
+                userID: userID,
+                payload: Data()
+            ))
             container.mainContext.insert(LocalKnownKanjiSnapshot(
                 userID: userID,
                 payload: Data()
@@ -160,6 +164,14 @@ final class AccountIsolationTests: XCTestCase {
         XCTAssertEqual(try localRecordCount(CachedMediaRecord.self, userID: 2, in: container), 1)
         XCTAssertEqual(try localRecordCount(LocalSyncState.self, userID: 1, in: container), 0)
         XCTAssertEqual(try localRecordCount(LocalSyncState.self, userID: 2, in: container), 1)
+        XCTAssertEqual(
+            try localRecordCount(LocalStudyOverviewSnapshot.self, userID: 1, in: container),
+            0
+        )
+        XCTAssertEqual(
+            try localRecordCount(LocalStudyOverviewSnapshot.self, userID: 2, in: container),
+            1
+        )
         XCTAssertEqual(
             try localRecordCount(LocalKnownKanjiSnapshot.self, userID: 1, in: container),
             0
@@ -763,6 +775,7 @@ final class AccountIsolationTests: XCTestCase {
             case let record as CachedMediaRecord: record.userID == userID
             case let record as LocalDailyAudioPractice: record.userID == userID
             case let record as LocalSyncState: record.userID == userID
+            case let record as LocalStudyOverviewSnapshot: record.userID == userID
             case let record as LocalKnownKanjiSnapshot: record.userID == userID
             default: false
             }

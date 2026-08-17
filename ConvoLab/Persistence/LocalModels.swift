@@ -254,6 +254,19 @@ final class LocalSyncState {
 }
 
 @Model
+final class LocalStudyOverviewSnapshot {
+    @Attribute(.unique) var userID: Int
+    var payload: Data
+    var updatedAt: Date
+
+    init(userID: Int, payload: Data, updatedAt: Date = .now) {
+        self.userID = userID
+        self.payload = payload
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
 final class LocalKnownKanjiSnapshot {
     @Attribute(.unique) var userID: Int
     var payload: Data
@@ -431,11 +444,25 @@ enum ConvoLabSchemaV3: VersionedSchema {
     ]
 }
 
+enum ConvoLabSchemaV4: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
+    static let models: [any PersistentModel.Type] = [
+        LocalCardRecord.self,
+        PendingMutation.self,
+        CachedMediaRecord.self,
+        LocalDailyAudioPractice.self,
+        LocalKnownKanjiSnapshot.self,
+        LocalSyncState.self,
+        LocalStudyOverviewSnapshot.self,
+    ]
+}
+
 enum ConvoLabMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         ConvoLabSchemaV1.self,
         ConvoLabSchemaV2.self,
         ConvoLabSchemaV3.self,
+        ConvoLabSchemaV4.self,
     ]
     static let stages: [MigrationStage] = [
         .lightweight(
@@ -456,6 +483,10 @@ enum ConvoLabMigrationPlan: SchemaMigrationPlan {
                 }
                 try context.save()
             }
+        ),
+        .lightweight(
+            fromVersion: ConvoLabSchemaV3.self,
+            toVersion: ConvoLabSchemaV4.self
         ),
     ]
 }
@@ -510,7 +541,7 @@ enum Persistence {
         inMemory: Bool = false,
         storeURL: URL? = nil
     ) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: ConvoLabSchemaV3.self)
+        let schema = Schema(versionedSchema: ConvoLabSchemaV4.self)
         let configuration: ModelConfiguration
         if let storeURL {
             configuration = ModelConfiguration(

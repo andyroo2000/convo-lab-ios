@@ -50,7 +50,7 @@ final class APIClient {
             authorizationToken: authorizationToken
         )
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try await Self.decode(Response.self, from: data)
         } catch let error as DecodingError {
             let details = Self.decodingDetails(error)
             print("API decoding failed for \(path): \(details)")
@@ -222,7 +222,7 @@ final class APIClient {
             throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
         }
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try await Self.decode(Response.self, from: data)
         } catch let error as DecodingError {
             let details = Self.decodingDetails(error)
             print("API decoding failed for \(path): \(details)")
@@ -286,6 +286,28 @@ final class APIClient {
         decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
         return decoder
     }()
+
+    // API response models are immutable value snapshots. This wrapper carries the
+    // fully decoded value across the detached task without forcing every legacy
+    // Codable conformance in this MainActor-default module to be redeclared.
+    private nonisolated final class DecodedResponse<Response>: @unchecked Sendable {
+        let value: Response
+
+        init(_ value: Response) {
+            self.value = value
+        }
+    }
+
+    private static func decode<Response: Decodable>(
+        _ type: Response.Type,
+        from data: Data
+    ) async throws -> Response {
+        try await Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
+            return try DecodedResponse(decoder.decode(type, from: data))
+        }.value.value
+    }
 
     private static func decodingDetails(_ error: DecodingError) -> String {
         switch error {
