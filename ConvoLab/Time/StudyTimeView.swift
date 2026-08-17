@@ -1,5 +1,85 @@
 import Charts
 import SwiftUI
+import UIKit
+
+enum StudyTimeSwipeRecognition {
+    static func isHorizontal(velocity: CGPoint) -> Bool {
+        abs(velocity.x) > abs(velocity.y)
+    }
+}
+
+private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
+    let isEnabled: Bool
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (_ translation: CGFloat, _ projectedTranslation: CGFloat) -> Void
+    let onCancelled: () -> Void
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var configuration: HorizontalStudyTimePanGesture
+
+        init(configuration: HorizontalStudyTimePanGesture) {
+            self.configuration = configuration
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard configuration.isEnabled,
+                  let pan = gestureRecognizer as? UIPanGestureRecognizer
+            else {
+                return false
+            }
+            return StudyTimeSwipeRecognition.isHorizontal(
+                velocity: pan.velocity(in: pan.view)
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator(configuration: self)
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.delegate = context.coordinator
+        recognizer.cancelsTouchesInView = false
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.isEnabled = isEnabled
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(
+        _ recognizer: UIPanGestureRecognizer,
+        context: Context
+    ) {
+        context.coordinator.configuration = self
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(
+        _ recognizer: UIPanGestureRecognizer,
+        context: Context
+    ) {
+        let configuration = context.coordinator.configuration
+        let translation = recognizer.translation(in: recognizer.view).x
+        switch recognizer.state {
+        case .began, .changed:
+            configuration.onChanged(translation)
+        case .ended:
+            let velocity = recognizer.velocity(in: recognizer.view).x
+            configuration.onEnded(translation, translation + velocity * 0.2)
+        case .cancelled, .failed:
+            configuration.onCancelled()
+        default:
+            break
+        }
+    }
+}
 
 enum StudyTimeEditableEntries {
     static let sectionTitle = "Editable entries"
@@ -292,7 +372,20 @@ struct StudyTimeView: View {
         }
         .clipped()
         .contentShape(Rectangle())
-        .simultaneousGesture(analyticsSwipeGesture(analytics))
+        .gesture(
+            HorizontalStudyTimePanGesture(
+                isEnabled: selectedRange != .all && !isSettlingAnalyticsSwipe,
+                onChanged: { analyticsDragOffset = $0 },
+                onEnded: { translation, projectedTranslation in
+                    finishAnalyticsPan(
+                        translation: translation,
+                        projectedTranslation: projectedTranslation,
+                        analytics: analytics
+                    )
+                },
+                onCancelled: snapAnalyticsBack
+            )
+        )
         .task(
             id: "\(store.analytics?.anchorDate ?? "")"
                 + "-\(selectedRange.rawValue)-\(store.analyticsCacheGeneration)"
@@ -403,39 +496,21 @@ struct StudyTimeView: View {
         return analyticsDragOffset
     }
 
-    private func analyticsSwipeGesture(
-        _ analytics: StudyTimeAnalyticsRange
-    ) -> some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard
-                    selectedRange != .all,
-                    !isSettlingAnalyticsSwipe,
-                    abs(value.translation.width) > abs(value.translation.height)
-                else {
-                    return
-                }
-                analyticsDragOffset = value.translation.width
-            }
-            .onEnded { value in
-                guard selectedRange != .all, !isSettlingAnalyticsSwipe else { return }
-                let horizontal = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                guard abs(horizontal) > abs(value.translation.height) else {
-                    snapAnalyticsBack()
-                    return
-                }
-
-                if max(horizontal, predicted) > 70 {
-                    completeAnalyticsSwipe(by: -1)
-                } else if min(horizontal, predicted) < -70,
-                          canNavigateLater(from: analytics)
-                {
-                    completeAnalyticsSwipe(by: 1)
-                } else {
-                    snapAnalyticsBack()
-                }
-            }
+    private func finishAnalyticsPan(
+        translation: CGFloat,
+        projectedTranslation: CGFloat,
+        analytics: StudyTimeAnalyticsRange
+    ) {
+        guard selectedRange != .all, !isSettlingAnalyticsSwipe else { return }
+        if max(translation, projectedTranslation) > 70 {
+            completeAnalyticsSwipe(by: -1)
+        } else if min(translation, projectedTranslation) < -70,
+                  canNavigateLater(from: analytics)
+        {
+            completeAnalyticsSwipe(by: 1)
+        } else {
+            snapAnalyticsBack()
+        }
     }
 
     private func navigateAnalytics(

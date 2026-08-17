@@ -581,6 +581,14 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(StudyTimeRange.all.drillDownTarget)
     }
 
+    func testStudyTimeSwipeRecognizerOnlyAcceptsHorizontalMovement() {
+        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 40, y: 5)))
+        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: -40, y: 5)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 5, y: 40)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 5, y: -40)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 20, y: 20)))
+    }
+
     func testActivitiesMapToOnePrimaryCategory() {
         XCTAssertEqual(StudyActivityKind.cardReview.category, .review)
         XCTAssertEqual(StudyActivityKind.dailyAudio.category, .listen)
