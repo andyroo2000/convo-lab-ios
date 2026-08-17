@@ -1939,7 +1939,7 @@ final class StudyStore {
         if let identifier = directCandidates.compactMap({ $0 }).first(where: {
             ClientIdentifier.isULID($0)
         }) {
-            return identifier
+            return identifier.lowercased()
         }
 
         let resourceID = mutation.resourceID.lowercased()
@@ -1954,7 +1954,7 @@ final class StudyStore {
             if let identifier = candidates.compactMap({ $0 }).first(where: {
                 ClientIdentifier.isULID($0)
             }) {
-                return identifier
+                return identifier.lowercased()
             }
         }
         return nil
