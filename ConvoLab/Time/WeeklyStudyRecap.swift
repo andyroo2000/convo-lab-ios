@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct WeeklyStudyRecapStats: Codable, Equatable {
+struct WeeklyStudyRecapStats: nonisolated Codable, Equatable, Sendable {
     let totalMs: Int
     let activeDays: Int
     let reviewCount: Int
@@ -8,7 +8,7 @@ struct WeeklyStudyRecapStats: Codable, Equatable {
     let newCardsIntroduced: Int
 }
 
-struct WeeklyStudyRecapCategories: Codable, Equatable {
+struct WeeklyStudyRecapCategories: nonisolated Codable, Equatable, Sendable {
     let review: Int
     let listen: Int
     let create: Int
@@ -30,8 +30,8 @@ struct WeeklyStudyRecapCategories: Codable, Equatable {
     var total: Int { StudyActivityCategory.allCases.reduce(0) { $0 + duration(for: $1) } }
 }
 
-struct WeeklyStudyRecapWeek: Codable, Equatable {
-    struct BestDay: Codable, Equatable {
+struct WeeklyStudyRecapWeek: nonisolated Codable, Equatable, Sendable {
+    struct BestDay: nonisolated Codable, Equatable, Sendable {
         let date: String
         let totalMs: Int
     }
@@ -47,7 +47,7 @@ struct WeeklyStudyRecapWeek: Codable, Equatable {
     let categories: WeeklyStudyRecapCategories
 }
 
-struct WeeklyStudyRecap: Codable, Equatable {
+struct WeeklyStudyRecap: nonisolated Codable, Equatable, Sendable {
     let generatedAt: Date
     let week: WeeklyStudyRecapWeek
     let previousWeek: WeeklyStudyRecapStats

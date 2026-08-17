@@ -1,7 +1,7 @@
 import AuthenticationServices
 import UIKit
 
-struct GoogleCalendarConnectionStatus: Decodable, Equatable {
+struct GoogleCalendarConnectionStatus: nonisolated Decodable, Equatable, Sendable {
     let connected: Bool
     let accountEmail: String?
     let scopes: [String]
@@ -29,31 +29,31 @@ struct GoogleCalendarConnectionStatus: Decodable, Equatable {
     }
 }
 
-enum GoogleCalendarSyncPhase: String, Decodable, Equatable {
+enum GoogleCalendarSyncPhase: String, nonisolated Decodable, Equatable, Sendable {
     case idle, queued, running, succeeded, failed
 
     var isActive: Bool { self == .queued || self == .running }
 }
 
-struct GoogleCalendarSyncState: Decodable, Equatable {
+struct GoogleCalendarSyncState: nonisolated Decodable, Equatable, Sendable {
     let status: GoogleCalendarSyncPhase
     let errorCode: String?
     let statusAt: Date?
 }
 
-struct GoogleCalendarSettings: Codable, Equatable {
+struct GoogleCalendarSettings: nonisolated Codable, Equatable, Sendable {
     let calendarIds: [String]
     let titleMatchTerms: [String]
     let syncEnabled: Bool
 }
 
-struct GoogleCalendar: Decodable, Equatable, Identifiable {
+struct GoogleCalendar: nonisolated Decodable, Equatable, Identifiable, Sendable {
     let id: String
     let name: String
     let primary: Bool
 }
 
-struct GoogleCalendarListResponse: Decodable, Equatable {
+struct GoogleCalendarListResponse: nonisolated Decodable, Equatable, Sendable {
     let calendars: [GoogleCalendar]
     let truncated: Bool
 }
@@ -63,7 +63,7 @@ struct GoogleCalendarPreviewRequest: Encodable, Equatable {
     let titleMatchTerms: [String]
 }
 
-struct GoogleCalendarPreviewResponse: Decodable, Equatable {
+struct GoogleCalendarPreviewResponse: nonisolated Decodable, Equatable, Sendable {
     let generatedAt: Date
     let startsAt: Date
     let endsAt: Date
@@ -73,7 +73,7 @@ struct GoogleCalendarPreviewResponse: Decodable, Equatable {
     let matches: [GoogleCalendarPreviewMatch]
 }
 
-struct GoogleCalendarPreviewMatch: Decodable, Equatable {
+struct GoogleCalendarPreviewMatch: nonisolated Decodable, Equatable, Sendable {
     let calendarId: String
     let calendarName: String
     let title: String
@@ -161,7 +161,7 @@ struct GoogleCalendarAuthorizationRequest: Encodable, Equatable {
     let completionTarget = "ios"
 }
 
-struct GoogleCalendarAuthorizationResponse: Decodable, Equatable {
+struct GoogleCalendarAuthorizationResponse: nonisolated Decodable, Equatable, Sendable {
     let authorizationUrl: URL
 }
 

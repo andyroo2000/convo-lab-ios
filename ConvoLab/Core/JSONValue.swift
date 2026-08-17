@@ -1,6 +1,6 @@
 import Foundation
 
-enum JSONValue: Codable, Hashable, Sendable {
+enum JSONValue: nonisolated Codable, Hashable, Sendable {
     case object([String: JSONValue])
     case array([JSONValue])
     case string(String)
@@ -8,7 +8,7 @@ enum JSONValue: Codable, Hashable, Sendable {
     case bool(Bool)
     case null
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self = .null
@@ -25,7 +25,7 @@ enum JSONValue: Codable, Hashable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case let .object(value): try container.encode(value)

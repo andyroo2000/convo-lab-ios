@@ -32,7 +32,7 @@ final class APIClient {
         accessToken = token
     }
 
-    func request<Response: Decodable>(
+    func request<Response: Decodable & Sendable>(
         _ path: String,
         method: String = "GET",
         query: [URLQueryItem] = [],
@@ -50,7 +50,7 @@ final class APIClient {
             authorizationToken: authorizationToken
         )
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try await Self.decode(Response.self, from: data)
         } catch let error as DecodingError {
             let details = Self.decodingDetails(error)
             print("API decoding failed for \(path): \(details)")
@@ -167,7 +167,7 @@ final class APIClient {
         }
     }
 
-    func upload<Response: Decodable>(
+    func upload<Response: Decodable & Sendable>(
         _ path: String,
         fields: [String: String],
         fileData: Data,
@@ -222,7 +222,7 @@ final class APIClient {
             throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
         }
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try await Self.decode(Response.self, from: data)
         } catch let error as DecodingError {
             let details = Self.decodingDetails(error)
             print("API decoding failed for \(path): \(details)")
@@ -281,11 +281,22 @@ final class APIClient {
         return encoder
     }()
 
-    private static let decoder: JSONDecoder = {
+    private static let decoder = makeDecoder()
+
+    private nonisolated static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
         return decoder
-    }()
+    }
+
+    private static func decode<Response: Decodable & Sendable>(
+        _ type: Response.Type,
+        from data: Data
+    ) async throws -> Response {
+        try await Task.detached(priority: .userInitiated) {
+            try Self.makeDecoder().decode(type, from: data)
+        }.value
+    }
 
     private static func decodingDetails(_ error: DecodingError) -> String {
         switch error {

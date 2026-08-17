@@ -1,6 +1,6 @@
 import Foundation
 
-enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
+enum StudyActivityCategory: String, nonisolated Codable, CaseIterable, Identifiable, Sendable {
     case review
     case listen
     case create
@@ -21,7 +21,7 @@ enum StudyActivityCategory: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
+enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable, Sendable {
     case cardReview = "card_review"
     case dailyAudio = "daily_audio"
     case cardCreation = "card_creation"
@@ -60,18 +60,18 @@ enum StudyActivityKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum StudyActivitySource: String, Codable {
+enum StudyActivitySource: String, nonisolated Codable, Sendable {
     case automatic
     case manual
     case calendar
 }
 
-enum StudyActivityProvider: String, Equatable {
+enum StudyActivityProvider: String, Equatable, Sendable {
     case googleCalendar = "google_calendar"
     case waniKani = "wanikani"
 }
 
-enum StudyActivityOrigin: String, Codable {
+enum StudyActivityOrigin: String, nonisolated Codable, Sendable {
     case legacy
     case ios
     case web
@@ -95,7 +95,7 @@ enum StudyActivityOrigin: String, Codable {
     }
 }
 
-struct StudyActivitySession: Codable, Identifiable, Equatable {
+struct StudyActivitySession: nonisolated Codable, Identifiable, Equatable, Sendable {
     let id: String?
     let clientSessionId: String
     let category: StudyActivityCategory
@@ -157,7 +157,7 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         case startedAt, endedAt, durationMs, audioPlaybackMs, cardsCreated
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(String.self, forKey: .id)
         clientSessionId = try values.decode(String.self, forKey: .clientSessionId)
@@ -190,7 +190,7 @@ struct StudyActivitySession: Codable, Identifiable, Equatable {
         cardsCreated = try values.decodeIfPresent(Int.self, forKey: .cardsCreated)
     }
 
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encodeIfPresent(id, forKey: .id)
         try values.encode(clientSessionId, forKey: .clientSessionId)
@@ -225,13 +225,13 @@ struct StudyActivityBatchRequest: Encodable {
 
 }
 
-struct EditableStudyActivitySessionPage: Decodable, Equatable {
+struct EditableStudyActivitySessionPage: nonisolated Decodable, Equatable, Sendable {
     let items: [StudyActivitySession]
     let limit: Int
     let nextCursor: String?
 }
 
-enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
+enum StudyTimeRange: String, nonisolated Codable, CaseIterable, Identifiable, Sendable {
     case today
     case week
     case month
@@ -262,7 +262,7 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct StudyTimeAnalytics: Codable, Equatable {
+struct StudyTimeAnalytics: nonisolated Codable, Equatable, Sendable {
     let generatedAt: Date
     let anchorDate: String
     let timezone: String
@@ -273,7 +273,7 @@ struct StudyTimeAnalytics: Codable, Equatable {
     }
 }
 
-struct StudyTimeAnalyticsRange: Codable, Equatable, Identifiable {
+struct StudyTimeAnalyticsRange: nonisolated Codable, Equatable, Identifiable, Sendable {
     let key: StudyTimeRange
     let startsAt: Date
     let endsAt: Date
@@ -292,7 +292,7 @@ struct StudyTimeAnalyticsRange: Codable, Equatable, Identifiable {
     }
 }
 
-struct StudyTimeAnalyticsBucket: Codable, Equatable, Identifiable {
+struct StudyTimeAnalyticsBucket: nonisolated Codable, Equatable, Identifiable, Sendable {
     let startsAt: Date
     let endsAt: Date
     let totalMs: Int

@@ -195,6 +195,24 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.reviewRemaining, 618)
     }
 
+    func testCardsThatBecomeDueOfflineOverrideAStaleCachedOverview() {
+        let overview = StudyOverview(
+            dueCount: 0,
+            newCount: 0,
+            reviewCount: 12,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        let cards = [
+            makeCard(id: "became-due-1", queueState: "review"),
+            makeCard(id: "became-due-2", queueState: "review"),
+        ]
+
+        let counts = StudySessionCounts.calculate(cards: cards, overview: overview)
+
+        XCTAssertEqual(counts.reviewRemaining, 2)
+    }
+
     func testLoadedFailuresWinWhenOverviewIsStaleOrUnavailableOffline() {
         let cards = [
             makeCard(id: "failed-1", queueState: "relearning", failedAt: .now),

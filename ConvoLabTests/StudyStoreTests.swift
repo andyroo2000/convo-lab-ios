@@ -1673,6 +1673,46 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testActivationRestoresLastOverviewWithoutNetwork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let overview = StudyOverview(
+            dueCount: 7,
+            newCount: 5,
+            reviewCount: 120,
+            totalCards: 4103,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 5,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 90
+        )
+        container.mainContext.insert(
+            LocalStudyOverviewSnapshot(
+                userID: 1,
+                payload: try StorageCodec.encoder.encode(overview)
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.overview?.dueCount, 7)
+        XCTAssertEqual(store.overview?.newCount, 5)
+        XCTAssertEqual(store.overview?.totalCards, 4103)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
+        store.deactivate()
+    }
+
+    @MainActor
     func testLoadNextReviewBatchPromotesNewlyDueOfflineReserveBeforeSyncing() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let futureCard = makeCard(
@@ -6770,6 +6810,56 @@ final class StudyStoreTests: XCTestCase {
             from: eventData
         )
         XCTAssertEqual(review.durationMilliseconds, 750)
+    }
+
+    @MainActor
+    func testReviewOverviewSnapshotFlushesWithoutWaitingForNetwork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000019",
+            expression: "魚"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        container.mainContext.insert(LocalStudyOverviewSnapshot(
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ))
+        ))
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.recordReview(card: card, rating: .good, duration: nil)
+        store.persistCachedState()
+
+        let verificationContext = ModelContext(container)
+        let snapshot = try XCTUnwrap(
+            verificationContext.fetch(FetchDescriptor<LocalStudyOverviewSnapshot>()).first
+        )
+        let restored = try StorageCodec.decoder.decode(
+            StudyOverview.self,
+            from: snapshot.payload
+        )
+        XCTAssertEqual(restored.dueCount, 0)
     }
 
     @MainActor
