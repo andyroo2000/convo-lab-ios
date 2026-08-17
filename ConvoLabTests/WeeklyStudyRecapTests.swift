@@ -6,6 +6,9 @@ import XCTest
 @MainActor
 final class WeeklyStudyRecapTests: XCTestCase {
     private static var retainedContainers: [ModelContainer] = []
+    // SwiftData's iOS 26 in-memory context can double-free while tearing down a
+    // main-actor store. Keep these bounded fixtures alive for this small suite.
+    private static var retainedStores: [StudyTimeStore] = []
 
     override func tearDown() {
         MockURLProtocol.handler = nil
@@ -39,12 +42,16 @@ final class WeeklyStudyRecapTests: XCTestCase {
 
     func testStoreLoadsRecapWithRequestedTimeZone() async throws {
         let service = TestWeeklyStudyRecapService(value: try Self.fixture())
+        let cache = TestStudyTimeSnapshotCache()
+        let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         Self.retainedContainers.append(container)
         let store = StudyTimeStore(
             api: makeClient { _ in throw URLError(.unsupportedURL) },
             context: container.mainContext,
-            weeklyRecapService: service
+            weeklyRecapService: service,
+            snapshotCache: cache,
+            now: { now }
         )
         store.activate(userID: 42)
 
@@ -54,6 +61,92 @@ final class WeeklyStudyRecapTests: XCTestCase {
         XCTAssertEqual(service.requests, [.init(timeZone: "America/New_York", weekStartsOn: 2)])
         XCTAssertFalse(store.weeklyRecapIsLoading)
         XCTAssertNil(store.weeklyRecapErrorMessage)
+        XCTAssertEqual(cache.saved?.snapshot.weeklyRecap, try Self.fixture())
+        XCTAssertEqual(cache.saved?.userID, 42)
+        XCTAssertEqual(cache.saved?.timeZone, "America/New_York")
+    }
+
+    func testStoreRestoresCurrentCachedRecapBeforeRefreshing() throws {
+        let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        calendar.firstWeekday = 2
+        let currentWeekStart = try XCTUnwrap(
+            calendar.dateInterval(of: .weekOfYear, for: now)?.start
+        )
+        let recap = try Self.fixture(endingAt: currentWeekStart)
+        let cache = TestStudyTimeSnapshotCache()
+        cache.snapshot = StudyTimeSnapshot(
+            savedAt: now.addingTimeInterval(-60),
+            analytics: nil,
+            weeklyRecap: recap
+        )
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        Self.retainedContainers.append(container)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.unsupportedURL) },
+            context: container.mainContext,
+            snapshotCache: cache,
+            now: { now }
+        )
+
+        store.activate(userID: 42)
+        Self.retainedStores.append(store)
+
+        XCTAssertEqual(store.weeklyRecap, recap)
+        XCTAssertEqual(cache.loaded?.userID, 42)
+        XCTAssertEqual(cache.loaded?.timeZone, TimeZone.autoupdatingCurrent.identifier)
+    }
+
+    func testStoreRejectsExpiredSnapshot() throws {
+        let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
+        let cache = TestStudyTimeSnapshotCache()
+        cache.snapshot = StudyTimeSnapshot(
+            savedAt: now.addingTimeInterval(-8 * 86_400),
+            analytics: nil,
+            weeklyRecap: try Self.fixture()
+        )
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        Self.retainedContainers.append(container)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.unsupportedURL) },
+            context: container.mainContext,
+            snapshotCache: cache,
+            now: { now }
+        )
+
+        store.activate(userID: 42)
+        Self.retainedStores.append(store)
+
+        XCTAssertNil(store.weeklyRecap)
+    }
+
+    func testStoreDoesNotRestoreAnalyticsForAPastAnchor() throws {
+        let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
+        let cache = TestStudyTimeSnapshotCache()
+        cache.snapshot = StudyTimeSnapshot(
+            savedAt: now.addingTimeInterval(-60),
+            analytics: StudyTimeAnalytics(
+                generatedAt: now.addingTimeInterval(-60),
+                anchorDate: "2026-08-10",
+                timezone: TimeZone.autoupdatingCurrent.identifier,
+                ranges: []
+            ),
+            weeklyRecap: nil
+        )
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        Self.retainedContainers.append(container)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.unsupportedURL) },
+            context: container.mainContext,
+            snapshotCache: cache,
+            now: { now }
+        )
+
+        store.activate(userID: 42)
+        Self.retainedStores.append(store)
+
+        XCTAssertNil(store.analytics)
     }
 
     func testStoreIgnoresRecapFromPreviouslyActiveUser() async throws {
@@ -110,10 +203,26 @@ final class WeeklyStudyRecapTests: XCTestCase {
         return APIClient(baseURL: URL(string: "https://example.test")!, session: URLSession(configuration: configuration))
     }
 
-    private static func fixture() throws -> WeeklyStudyRecap {
+    private static func fixture(endingAt end: Date? = nil) throws -> WeeklyStudyRecap {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WeeklyStudyRecap.self, from: fixtureData)
+        let recap = try decoder.decode(WeeklyStudyRecap.self, from: fixtureData)
+        guard let end else { return recap }
+        return WeeklyStudyRecap(
+            generatedAt: recap.generatedAt,
+            week: WeeklyStudyRecapWeek(
+                startsAt: end.addingTimeInterval(-7 * 86_400),
+                endsAt: end,
+                totalMs: recap.week.totalMs,
+                activeDays: recap.week.activeDays,
+                reviewCount: recap.week.reviewCount,
+                recallRate: recap.week.recallRate,
+                newCardsIntroduced: recap.week.newCardsIntroduced,
+                bestDay: recap.week.bestDay,
+                categories: recap.week.categories
+            ),
+            previousWeek: recap.previousWeek
+        )
     }
 
     nonisolated private static let fixtureData = Data(#"""
@@ -154,5 +263,33 @@ private final class DeferredWeeklyStudyRecapService: WeeklyStudyRecapServing {
     func succeed(with recap: WeeklyStudyRecap) {
         continuation?.resume(returning: recap)
         continuation = nil
+    }
+}
+
+@MainActor
+private final class TestStudyTimeSnapshotCache: StudyTimeSnapshotCaching {
+    struct Request: Equatable {
+        let userID: Int
+        let timeZone: String
+    }
+
+    var snapshot: StudyTimeSnapshot?
+    private(set) var loaded: Request?
+    private(set) var saved: (snapshot: StudyTimeSnapshot, userID: Int, timeZone: String)?
+    private(set) var removedUserID: Int?
+
+    func load(userID: Int, timeZone: String) -> StudyTimeSnapshot? {
+        loaded = .init(userID: userID, timeZone: timeZone)
+        return snapshot
+    }
+
+    func save(_ snapshot: StudyTimeSnapshot, userID: Int, timeZone: String) {
+        self.snapshot = snapshot
+        saved = (snapshot, userID, timeZone)
+    }
+
+    func remove(userID: Int) {
+        snapshot = nil
+        removedUserID = userID
     }
 }

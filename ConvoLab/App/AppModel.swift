@@ -214,7 +214,8 @@ final class AppModel {
                 maxAge: .seconds(60)
             )
             async let timeSync: Void = studyTime.synchronize()
-            _ = await (studySync, dailyAudioRefresh, timeSync)
+            async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
+            _ = await (studySync, dailyAudioRefresh, timeSync, weeklyRecap)
         }
     }
 
@@ -315,6 +316,7 @@ final class AppModel {
         async let studySync: Void = study.synchronize()
         async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
-        _ = await (studySync, audioRefresh, timeSync)
+        async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
+        _ = await (studySync, audioRefresh, timeSync, weeklyRecap)
     }
 }

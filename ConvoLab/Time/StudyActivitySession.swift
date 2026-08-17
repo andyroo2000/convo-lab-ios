@@ -225,6 +225,12 @@ struct StudyActivityBatchRequest: Encodable {
 
 }
 
+struct EditableStudyActivitySessionPage: Decodable, Equatable {
+    let items: [StudyActivitySession]
+    let limit: Int
+    let nextCursor: String?
+}
+
 enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
     case today
     case week
@@ -236,7 +242,7 @@ enum StudyTimeRange: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .today: "Today"
+        case .today: "Day"
         case .week: "Week"
         case .month: "Month"
         case .year: "Year"

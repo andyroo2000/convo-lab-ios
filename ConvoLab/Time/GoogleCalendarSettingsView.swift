@@ -414,7 +414,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
 
     private static func syncFailureMessage(_ sync: GoogleCalendarSyncState?) -> String {
         if sync?.errorCode == "reconnect_required" {
-            return "Reconnect Google Calendar before syncing again. Return to Study Time, disconnect, then connect your account again."
+            return "Reconnect Google Calendar before syncing again. Return to Settings, disconnect, then connect your account again."
         }
         return "Google Calendar sync didn’t finish. Try again."
     }

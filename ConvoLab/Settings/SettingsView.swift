@@ -6,6 +6,7 @@ struct SettingsView: View {
 
     @State private var wanikaniAPIToken = ""
     @State private var confirmingWaniKaniDisconnect = false
+    @State private var confirmingCalendarDisconnect = false
     @State private var confirmingClearDownloads = false
     @State private var showingProfileEditor = false
     @State private var showingPasswordEditor = false
@@ -15,6 +16,7 @@ struct SettingsView: View {
     @State private var lessonBatchSize: Int
     @State private var reviewTimeBudgetMinutes: Int
     @State private var studySettingsSaved = false
+    @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
 
     init(model: AppModel, user: CurrentUser) {
         self.model = model
@@ -140,7 +142,9 @@ struct SettingsView: View {
                     )
                 }
 
-                Section("Integrations") {
+                googleCalendarSection
+
+                Section("WaniKani") {
                     if model.study.wanikaniConnected {
                         LabeledContent("WaniKani", value: "Connected")
                         LabeledContent(
@@ -218,12 +222,27 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task {
-                await model.study.refreshStudySettings()
+                async let studySettings: Void = model.study.refreshStudySettings()
+                async let calendar: Void = model.studyTime.loadGoogleCalendarConnection()
+                _ = await (studySettings, calendar)
                 if let settings = model.study.studySettings {
                     newCardsPerDay = settings.newCardsPerDay
                     lessonBatchSize = settings.lessonBatchSize
                     reviewTimeBudgetMinutes = settings.reviewTimeBudgetMinutes
                 }
+            }
+            .confirmationDialog(
+                "Disconnect Google Calendar?",
+                isPresented: $confirmingCalendarDisconnect,
+                titleVisibility: .visible
+            ) {
+                Button("Disconnect", role: .destructive) {
+                    Task { await model.studyTime.disconnectGoogleCalendar() }
+                }
+                .disabled(model.studyTime.googleCalendarIsLoading)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Calendar study time already imported into your analytics will remain.")
             }
             .confirmationDialog(
                 "Disconnect WaniKani?",
@@ -257,9 +276,96 @@ struct SettingsView: View {
             .sheet(isPresented: $showingAccountDeletion) {
                 AccountDeletionView(model: model)
             }
+            .sheet(item: $calendarSettingsModel) { calendarModel in
+                GoogleCalendarSettingsView(model: calendarModel)
+            }
         }
         .sheet(isPresented: $showingFailedStudyChanges) {
             FailedStudyChangesView(store: model.study)
+        }
+    }
+
+    @ViewBuilder
+    private var googleCalendarSection: some View {
+        Section("Google Calendar") {
+            if model.studyTime.googleCalendarIsLoading,
+               model.studyTime.googleCalendarStatus == nil
+            {
+                HStack {
+                    ProgressView()
+                    Text("Checking connection…")
+                }
+            } else if model.studyTime.googleCalendarStatus?.connected == true {
+                Label("Connected", systemImage: "checkmark.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                if let email = model.studyTime.googleCalendarStatus?.accountEmail {
+                    LabeledContent("Account", value: email)
+                }
+                if let lastSync = model.studyTime.googleCalendarStatus?.lastSyncedAt {
+                    LabeledContent("Last sync") {
+                        Text(
+                            lastSync,
+                            format: .dateTime.month(.abbreviated).day().hour().minute()
+                        )
+                    }
+                } else {
+                    LabeledContent("Last sync", value: "Waiting for first sync")
+                }
+                if model.studyTime.googleCalendarIsWorking {
+                    HStack {
+                        ProgressView()
+                        Text("Disconnecting…")
+                    }
+                } else {
+                    Button {
+                        calendarSettingsModel = model.studyTime.makeGoogleCalendarSettingsModel()
+                    } label: {
+                        Label("Calendar Settings", systemImage: "calendar")
+                            .frame(minHeight: 44)
+                    }
+                    .disabled(model.studyTime.googleCalendarIsLoading)
+
+                    Button("Disconnect", role: .destructive) {
+                        confirmingCalendarDisconnect = true
+                    }
+                    .frame(minHeight: 44)
+                    .disabled(model.studyTime.googleCalendarIsLoading)
+                }
+            } else {
+                Text("Connect your account to include calendar lessons in study analytics.")
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await model.studyTime.connectGoogleCalendar() }
+                } label: {
+                    if model.studyTime.googleCalendarIsWorking {
+                        HStack {
+                            ProgressView()
+                            Text("Connecting…")
+                        }
+                    } else {
+                        Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
+                    }
+                }
+                .disabled(
+                    model.studyTime.googleCalendarIsLoading
+                        || model.studyTime.googleCalendarIsWorking
+                )
+            }
+
+            if let message = model.studyTime.googleCalendarErrorMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                if model.studyTime.googleCalendarStatus == nil {
+                    Button("Retry") {
+                        Task { await model.studyTime.loadGoogleCalendarConnection() }
+                    }
+                    .disabled(
+                        model.studyTime.googleCalendarIsLoading
+                            || model.studyTime.googleCalendarIsWorking
+                    )
+                }
+            }
         }
     }
 }
