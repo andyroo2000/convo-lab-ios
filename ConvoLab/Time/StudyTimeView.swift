@@ -3,15 +3,36 @@ import SwiftUI
 import UIKit
 
 enum StudyTimeSwipeRecognition {
-    static func isHorizontal(velocity: CGPoint) -> Bool {
-        abs(velocity.x) > abs(velocity.y)
+    enum Navigation: Equatable {
+        case previous
+        case next
+        case snapBack
+    }
+
+    static func isHorizontal(translation: CGPoint) -> Bool {
+        abs(translation.x) > abs(translation.y)
+    }
+
+    static func navigation(
+        translation: CGPoint,
+        projectedTranslationX: CGFloat,
+        canNavigateLater: Bool
+    ) -> Navigation {
+        guard isHorizontal(translation: translation) else { return .snapBack }
+        if max(translation.x, projectedTranslationX) > 70 {
+            return .previous
+        }
+        if min(translation.x, projectedTranslationX) < -70, canNavigateLater {
+            return .next
+        }
+        return .snapBack
     }
 }
 
 private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
     let isEnabled: Bool
     let onChanged: (CGFloat) -> Void
-    let onEnded: (_ translation: CGFloat, _ projectedTranslation: CGFloat) -> Void
+    let onEnded: (_ translation: CGPoint, _ projectedTranslationX: CGFloat) -> Void
     let onCancelled: () -> Void
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
@@ -28,7 +49,7 @@ private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
                 return false
             }
             return StudyTimeSwipeRecognition.isHorizontal(
-                velocity: pan.velocity(in: pan.view)
+                translation: pan.translation(in: pan.view)
             )
         }
 
@@ -66,13 +87,13 @@ private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
         context: Context
     ) {
         let configuration = context.coordinator.configuration
-        let translation = recognizer.translation(in: recognizer.view).x
+        let translation = recognizer.translation(in: recognizer.view)
         switch recognizer.state {
         case .began, .changed:
-            configuration.onChanged(translation)
+            configuration.onChanged(translation.x)
         case .ended:
             let velocity = recognizer.velocity(in: recognizer.view).x
-            configuration.onEnded(translation, translation + velocity * 0.2)
+            configuration.onEnded(translation, translation.x + velocity * 0.2)
         case .cancelled, .failed:
             configuration.onCancelled()
         default:
@@ -376,10 +397,10 @@ struct StudyTimeView: View {
             HorizontalStudyTimePanGesture(
                 isEnabled: selectedRange != .all && !isSettlingAnalyticsSwipe,
                 onChanged: { analyticsDragOffset = $0 },
-                onEnded: { translation, projectedTranslation in
+                onEnded: { translation, projectedTranslationX in
                     finishAnalyticsPan(
                         translation: translation,
-                        projectedTranslation: projectedTranslation,
+                        projectedTranslationX: projectedTranslationX,
                         analytics: analytics
                     )
                 },
@@ -497,18 +518,21 @@ struct StudyTimeView: View {
     }
 
     private func finishAnalyticsPan(
-        translation: CGFloat,
-        projectedTranslation: CGFloat,
+        translation: CGPoint,
+        projectedTranslationX: CGFloat,
         analytics: StudyTimeAnalyticsRange
     ) {
         guard selectedRange != .all, !isSettlingAnalyticsSwipe else { return }
-        if max(translation, projectedTranslation) > 70 {
+        switch StudyTimeSwipeRecognition.navigation(
+            translation: translation,
+            projectedTranslationX: projectedTranslationX,
+            canNavigateLater: canNavigateLater(from: analytics)
+        ) {
+        case .previous:
             completeAnalyticsSwipe(by: -1)
-        } else if min(translation, projectedTranslation) < -70,
-                  canNavigateLater(from: analytics)
-        {
+        case .next:
             completeAnalyticsSwipe(by: 1)
-        } else {
+        case .snapBack:
             snapAnalyticsBack()
         }
     }

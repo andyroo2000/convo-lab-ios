@@ -582,11 +582,54 @@ final class StudyActivitySessionTests: XCTestCase {
     }
 
     func testStudyTimeSwipeRecognizerOnlyAcceptsHorizontalMovement() {
-        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 40, y: 5)))
-        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: -40, y: 5)))
-        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 5, y: 40)))
-        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 5, y: -40)))
-        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(velocity: CGPoint(x: 20, y: 20)))
+        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(translation: CGPoint(x: 40, y: 5)))
+        XCTAssertTrue(StudyTimeSwipeRecognition.isHorizontal(translation: CGPoint(x: -40, y: 5)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(translation: CGPoint(x: 5, y: 40)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(translation: CGPoint(x: 5, y: -40)))
+        XCTAssertFalse(StudyTimeSwipeRecognition.isHorizontal(translation: CGPoint(x: 20, y: 20)))
+    }
+
+    func testStudyTimeSwipeNavigationRequiresHorizontalThresholdAndAvailablePeriod() {
+        XCTAssertEqual(
+            StudyTimeSwipeRecognition.navigation(
+                translation: CGPoint(x: 20, y: 2),
+                projectedTranslationX: 80,
+                canNavigateLater: false
+            ),
+            .previous
+        )
+        XCTAssertEqual(
+            StudyTimeSwipeRecognition.navigation(
+                translation: CGPoint(x: -80, y: 2),
+                projectedTranslationX: -100,
+                canNavigateLater: true
+            ),
+            .next
+        )
+        XCTAssertEqual(
+            StudyTimeSwipeRecognition.navigation(
+                translation: CGPoint(x: -80, y: 2),
+                projectedTranslationX: -100,
+                canNavigateLater: false
+            ),
+            .snapBack
+        )
+        XCTAssertEqual(
+            StudyTimeSwipeRecognition.navigation(
+                translation: CGPoint(x: 80, y: 100),
+                projectedTranslationX: 120,
+                canNavigateLater: true
+            ),
+            .snapBack
+        )
+        XCTAssertEqual(
+            StudyTimeSwipeRecognition.navigation(
+                translation: CGPoint(x: 60, y: 2),
+                projectedTranslationX: 60,
+                canNavigateLater: true
+            ),
+            .snapBack
+        )
     }
 
     func testActivitiesMapToOnePrimaryCategory() {
