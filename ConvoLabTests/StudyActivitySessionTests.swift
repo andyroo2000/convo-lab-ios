@@ -1233,7 +1233,7 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertNil(store.syncErrorMessage)
     }
 
-    func testEditableEntriesLoadInCursorPagesAndMergeIntoLocalStorage() async throws {
+    func testEditableEntriesLoadInCursorPagesWithoutEagerPersistence() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let client = makeClient { request in
             let url = try XCTUnwrap(request.url)
@@ -1299,8 +1299,138 @@ final class StudyActivitySessionTests: XCTestCase {
             try container.mainContext.fetchCount(
                 FetchDescriptor<LocalStudyActivitySession>()
             ),
-            2
+            0
         )
+    }
+
+    func testEditingPaginatedRemoteEntryMaterializesItLocallyOnDemand() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let url = try XCTUnwrap(request.url)
+            switch (request.httpMethod, url.path) {
+            case ("GET", "/api/study/activity-sessions/editable"):
+                let body: [String: Any] = [
+                    "items": [
+                        studyActivityJSON(
+                            id: "01K-REMOTE",
+                            clientSessionID: "remote-editable",
+                            startedAt: "2026-08-16T14:00:00Z"
+                        ),
+                    ],
+                    "limit": 20,
+                    "nextCursor": NSNull(),
+                ]
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: body)
+                )
+            case ("POST", "/api/study/activity-sessions/batch"):
+                let body = try requestBody(request)
+                let payload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                let sessions = try XCTUnwrap(payload["sessions"] as? [[String: Any]])
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: sessions)
+                )
+            case ("GET", "/api/study/activity-analytics"):
+                return try analyticsResponse(for: request)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        await store.loadEditableSessions()
+        let session = try XCTUnwrap(store.editableSessions.first)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            0
+        )
+
+        _ = try await store.update(
+            session: session,
+            activity: .reading,
+            name: "Edited after paging",
+            startedAt: session.startedAt,
+            duration: 600
+        )
+
+        let saved = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyActivitySession>()).first
+        )
+        XCTAssertEqual(saved.name, "Edited after paging")
+        XCTAssertEqual(saved.activity, StudyActivityKind.reading.rawValue)
+        XCTAssertFalse(saved.syncPending)
+    }
+
+    func testProductionSizedSynchronizationCompletesPromptly() async throws {
+        let sessionCount = 568
+        let startedAt = Date(timeIntervalSince1970: 1_755_000_000)
+        let remote = (0..<sessionCount).map { index in
+            StudyActivitySession(
+                id: "server-\(index)",
+                clientSessionId: "client-\(index)",
+                category: .review,
+                activity: .cardReview,
+                source: .automatic,
+                origin: .ios,
+                name: nil,
+                startedAt: startedAt.addingTimeInterval(Double(index)),
+                endedAt: startedAt.addingTimeInterval(Double(index + 1)),
+                durationMs: 1_000,
+                audioPlaybackMs: nil,
+                cardsCreated: nil
+            )
+        }
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        for session in remote {
+            container.mainContext.insert(
+                LocalStudyActivitySession(session: session, userID: 42)
+            )
+        }
+        try container.mainContext.save()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let responseBody = try encoder.encode(remote)
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/activity-sessions" {
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseBody
+                )
+            }
+            return try analyticsResponse(for: request)
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+        let started = ContinuousClock.now
+
+        await store.synchronize()
+
+        let elapsed = started.duration(to: .now)
+        print("Production-sized study-time synchronization: \(elapsed)")
+        XCTAssertLessThan(elapsed, .seconds(2))
+        XCTAssertNil(store.syncErrorMessage)
+        XCTAssertEqual(store.sessions.count, sessionCount)
     }
 
     func testEditableEntryPagePreservesPendingLocalEdit() async throws {

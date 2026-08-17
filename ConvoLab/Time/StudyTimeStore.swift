@@ -299,9 +299,14 @@ final class StudyTimeStore {
                 query: query
             )
             guard activeUserID == requestedUserID else { return }
-            let resolvedItems = try mergeRemoteSessions(page.items, userID: requestedUserID)
-                .filter(\.isEditable)
-            mergeCompletedSessionsIntoLocalView(resolvedItems)
+            // This paginated list is presentation data, not a replica refresh. Persisting
+            // each page here makes SwiftData save on the main actor while the user is
+            // trying to scroll the Time tab. Overlay any unsent local mutations, but only
+            // materialize a server entry in SwiftData if the user edits or deletes it.
+            let resolvedItems = try resolvedEditableSessions(
+                page.items,
+                userID: requestedUserID
+            )
             if reset {
                 editableSessions = sortedUniqueEditableSessions(
                     resolvedItems + pendingEditableSessions(userID: requestedUserID)
@@ -606,9 +611,7 @@ final class StudyTimeStore {
         guard session.isEditable else {
             throw StudyTimeStoreError.readOnlySession
         }
-        guard let record = record(clientSessionID: session.clientSessionId) else {
-            throw StudyTimeStoreError.sessionUnavailable
-        }
+        let record = try mutationRecord(for: session)
         guard let previousSession = record.session else {
             throw StudyTimeStoreError.sessionUnavailable
         }
@@ -687,9 +690,7 @@ final class StudyTimeStore {
         guard session.isEditable else {
             throw StudyTimeStoreError.readOnlySession
         }
-        guard let record = record(clientSessionID: session.clientSessionId) else {
-            throw StudyTimeStoreError.sessionUnavailable
-        }
+        let record = try mutationRecord(for: session)
         let operation = StorageWriteOperation.delete(
             clientSessionID: session.clientSessionId
         )
@@ -804,18 +805,26 @@ final class StudyTimeStore {
                 records[record.clientSessionID] = record
             }
         }
+        var didMutate = false
         for session in remote {
             if let record = recordsByID[session.clientSessionId] {
-                if !record.isTombstone, !record.syncPending {
+                if !record.isTombstone,
+                   !record.syncPending,
+                   record.session != session
+                {
                     record.apply(session)
+                    didMutate = true
                 }
             } else {
                 let record = LocalStudyActivitySession(session: session, userID: userID)
                 context.insert(record)
                 recordsByID[session.clientSessionId] = record
+                didMutate = true
             }
         }
-        try context.save()
+        if didMutate {
+            try context.save()
+        }
         return remote.compactMap { recordsByID[$0.clientSessionId]?.session }
     }
 
@@ -1296,16 +1305,56 @@ final class StudyTimeStore {
             .filter(\.isEditable) ?? []
     }
 
-    private func mergeCompletedSessionsIntoLocalView(_ merged: [StudyActivitySession]) {
-        let mergedIDs = Set(merged.map(\.clientSessionId))
-        sessions.removeAll { mergedIDs.contains($0.clientSessionId) }
-        sessions.append(contentsOf: merged)
-        sessions.sort { lhs, rhs in
-            if lhs.startedAt == rhs.startedAt {
-                return lhs.clientSessionId > rhs.clientSessionId
+    private func resolvedEditableSessions(
+        _ remote: [StudyActivitySession],
+        userID: Int
+    ) throws -> [StudyActivitySession] {
+        guard !remote.isEmpty else { return [] }
+        let remoteIDs = remote.map(\.clientSessionId)
+        let local = try context.fetch(
+            FetchDescriptor<LocalStudyActivitySession>(
+                predicate: #Predicate {
+                    $0.userID == userID && remoteIDs.contains($0.clientSessionID)
+                }
+            )
+        )
+        let localByID = Dictionary(
+            local.map { ($0.clientSessionID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return remote.compactMap { session in
+            guard session.isEditable else { return nil }
+            guard let local = localByID[session.clientSessionId] else {
+                return session
             }
-            return lhs.startedAt > rhs.startedAt
+            if local.isTombstone {
+                return nil
+            }
+            if local.syncPending {
+                return local.session
+            }
+            return session
         }
+    }
+
+    private func mutationRecord(
+        for session: StudyActivitySession
+    ) throws -> LocalStudyActivitySession {
+        guard let userID = activeUserID else {
+            throw StudyTimeStoreError.sessionUnavailable
+        }
+        if let existing = record(clientSessionID: session.clientSessionId) {
+            return existing
+        }
+        // EventKit identifiers are device-local and are never present in a paginated
+        // server row. Do not create a detached calendar record that cannot be updated.
+        if session.source == .calendar {
+            throw StudyTimeStoreError.calendarEventUnavailable
+        }
+        let inserted = LocalStudyActivitySession(session: session, userID: userID)
+        context.insert(inserted)
+        return inserted
     }
 
     private func sortedUniqueEditableSessions(
