@@ -281,20 +281,20 @@ final class APIClient {
         return encoder
     }()
 
-    private static let decoder: JSONDecoder = {
+    private static let decoder = makeDecoder()
+
+    private nonisolated static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
         return decoder
-    }()
+    }
 
     private static func decode<Response: Decodable & Sendable>(
         _ type: Response.Type,
         from data: Data
     ) async throws -> Response {
         try await Task.detached(priority: .userInitiated) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
-            return try decoder.decode(type, from: data)
+            try Self.makeDecoder().decode(type, from: data)
         }.value
     }
 

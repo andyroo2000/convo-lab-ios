@@ -6851,8 +6851,9 @@ final class StudyStoreTests: XCTestCase {
         await store.recordReview(card: card, rating: .good, duration: nil)
         store.persistCachedState()
 
+        let verificationContext = ModelContext(container)
         let snapshot = try XCTUnwrap(
-            container.mainContext.fetch(FetchDescriptor<LocalStudyOverviewSnapshot>()).first
+            verificationContext.fetch(FetchDescriptor<LocalStudyOverviewSnapshot>()).first
         )
         let restored = try StorageCodec.decoder.decode(
             StudyOverview.self,

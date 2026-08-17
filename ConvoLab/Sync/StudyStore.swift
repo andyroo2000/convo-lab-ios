@@ -53,6 +53,7 @@ final class StudyStore {
 
     private let api: APIClient
     private let context: ModelContext
+    private let overviewContext: ModelContext
     private let mediaCache: MediaCache
     private let knownKanjiService: KnownKanjiService
     private let reviewOutbox: ReviewEventOutbox
@@ -194,6 +195,8 @@ final class StudyStore {
     ) {
         self.api = api
         self.context = context
+        overviewContext = ModelContext(context.container)
+        overviewContext.autosaveEnabled = false
         self.mediaCache = mediaCache
         self.storageMode = storageMode
         knownKanjiService = KnownKanjiService(api: api, context: context)
@@ -1081,13 +1084,15 @@ final class StudyStore {
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate {
                     $0.userID == userID && !$0.isInActiveSession
-                }
+                },
+                sortBy: [SortDescriptor(\.normalizedID), SortDescriptor(\.id)]
             )
         )) ?? []
         let pendingDeleteIDs = (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
         var inactiveRecordsByIdentifier: [String: LocalCardRecord] = [:]
         for record in records {
-            for identifier in [record.normalizedID, record.syncID] where !identifier.isEmpty {
+            for identifier in [record.normalizedID, record.syncID]
+            where !identifier.isEmpty && inactiveRecordsByIdentifier[identifier] == nil {
                 inactiveRecordsByIdentifier[identifier] = record
             }
         }
@@ -2519,7 +2524,7 @@ final class StudyStore {
             predicate: #Predicate { $0.userID == userID }
         )
         descriptor.fetchLimit = 1
-        guard let snapshot = try? context.fetch(descriptor).first else { return }
+        guard let snapshot = try? overviewContext.fetch(descriptor).first else { return }
         overviewSnapshot = snapshot
         guard let cachedOverview = try? StorageCodec.decoder.decode(
                 StudyOverview.self,
@@ -2550,11 +2555,11 @@ final class StudyStore {
                     predicate: #Predicate { $0.userID == userID }
                 )
                 descriptor.fetchLimit = 1
-                if let existing = try context.fetch(descriptor).first {
+                if let existing = try overviewContext.fetch(descriptor).first {
                     snapshot = existing
                 } else {
                     snapshot = LocalStudyOverviewSnapshot(userID: userID, payload: payload)
-                    context.insert(snapshot)
+                    overviewContext.insert(snapshot)
                 }
                 overviewSnapshot = snapshot
             }
@@ -2568,7 +2573,7 @@ final class StudyStore {
         } catch {
             // The snapshot is a disposable presentation cache. Study cards and
             // queued reviews remain durable even if this best-effort save fails.
-            context.rollback()
+            overviewContext.rollback()
             overviewSnapshot = nil
         }
     }
@@ -2585,13 +2590,13 @@ final class StudyStore {
     private func persistPendingOverviewSnapshot() {
         overviewSnapshotSaveTask?.cancel()
         overviewSnapshotSaveTask = nil
-        guard context.hasChanges else { return }
+        guard overviewContext.hasChanges else { return }
         do {
-            try context.save()
+            try overviewContext.save()
         } catch {
-            // The snapshot is a disposable presentation cache. Its next server
-            // refresh can rebuild it without affecting cards or the review outbox.
-            context.rollback()
+            // This dedicated context contains only the disposable presentation
+            // snapshot, so rollback can never discard cards or outbox mutations.
+            overviewContext.rollback()
             overviewSnapshot = nil
         }
     }
