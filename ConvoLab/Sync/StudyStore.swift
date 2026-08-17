@@ -1849,8 +1849,8 @@ final class StudyStore {
         else { return }
 
         let resourceID = mutation.resourceID.lowercased()
-        let canonicalLookupID = if kind == .review {
-            reviewOutbox.cardID(for: mutation) ?? mutation.resourceID
+        let canonicalLookupID: String? = if kind == .review {
+            try canonicalReviewCardID(for: mutation, userID: userID)
         } else {
             mutation.resourceID
         }
@@ -1858,7 +1858,11 @@ final class StudyStore {
             || kind == .cardUpdate
             || kind == .review
         {
-            try await fetchCanonicalCard(id: canonicalLookupID)
+            if let canonicalLookupID {
+                try await fetchCanonicalCard(id: canonicalLookupID)
+            } else {
+                nil
+            }
         } else {
             nil
         }
@@ -1922,6 +1926,38 @@ final class StudyStore {
         } catch APIClientError.rejected(status: 404, message: _) {
             return nil
         }
+    }
+
+    private func canonicalReviewCardID(
+        for mutation: PendingMutation,
+        userID: Int
+    ) throws -> String? {
+        let directCandidates = [
+            reviewOutbox.cardID(for: mutation),
+            mutation.resourceID,
+        ]
+        if let identifier = directCandidates.compactMap({ $0 }).first(where: {
+            ClientIdentifier.isULID($0)
+        }) {
+            return identifier
+        }
+
+        let resourceID = mutation.resourceID.lowercased()
+        for record in try localRecords(userID: userID, matching: resourceID) {
+            let candidates = [
+                record.syncID,
+                (try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                ))?.reviewCardID,
+            ]
+            if let identifier = candidates.compactMap({ $0 }).first(where: {
+                ClientIdentifier.isULID($0)
+            }) {
+                return identifier
+            }
+        }
+        return nil
     }
 
     private func recoverCorruptedSchedulerState(

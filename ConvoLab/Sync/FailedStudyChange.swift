@@ -43,10 +43,10 @@ struct FailedStudyChange: Identifiable, Equatable, Sendable {
     var isRetryable: Bool {
         // The review API does not currently return a structured error code for
         // this permanent missing-card rejection, so preserve its contract here.
-        !(kind == .review
-            && errorMessage.localizedCaseInsensitiveContains(
-                "selected card id is invalid"
-            ))
+        guard kind == .review else { return true }
+        let message = errorMessage.lowercased()
+        return !message.contains("selected card id is invalid")
+            && !(message.contains("ids.0") && message.contains("valid ulid"))
     }
 }
 

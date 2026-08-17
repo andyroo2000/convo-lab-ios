@@ -3,6 +3,7 @@ import Security
 
 enum ClientIdentifier {
     private static let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
+    private static let alphabetSet = Set(alphabet)
 
     static func ulid(date: Date = .now) -> String {
         let milliseconds = UInt64(max(0, date.timeIntervalSince1970 * 1_000))
@@ -32,6 +33,15 @@ enum ClientIdentifier {
         return String(prefix) + suffix
     }
 
+    static func isULID(_ value: String) -> Bool {
+        let characters = Array(value.uppercased())
+        guard characters.count == 26,
+              let first = characters.first,
+              ("0"..."7").contains(first)
+        else { return false }
+        return characters.allSatisfy(alphabetSet.contains)
+    }
+
     static func deviceID(defaults: UserDefaults = .standard) -> String {
         let key = "convolab.device-id"
         if let existing = defaults.string(forKey: key) {
@@ -42,4 +52,3 @@ enum ClientIdentifier {
         return value
     }
 }
-
