@@ -299,17 +299,19 @@ final class StudyTimeStore {
                 query: query
             )
             guard activeUserID == requestedUserID else { return }
-            try mergeRemoteSessions(page.items, userID: requestedUserID)
-            let resolvedItems = page.items.compactMap { session in
-                record(clientSessionID: session.clientSessionId)?.session
-            }.filter(\.isEditable)
+            let resolvedItems = try mergeRemoteSessions(page.items, userID: requestedUserID)
+                .filter(\.isEditable)
+            mergeCompletedSessionsIntoLocalView(resolvedItems)
             if reset {
-                editableSessions = resolvedItems
+                editableSessions = sortedUniqueEditableSessions(
+                    resolvedItems + pendingEditableSessions(userID: requestedUserID)
+                )
             } else {
                 let existingIDs = Set(editableSessions.map(\.clientSessionId))
                 editableSessions.append(contentsOf: resolvedItems.filter {
                     !existingIDs.contains($0.clientSessionId)
                 })
+                editableSessions = sortedUniqueEditableSessions(editableSessions)
             }
             editableSessionsNextCursor = page.nextCursor
         } catch {
@@ -757,7 +759,8 @@ final class StudyTimeStore {
                 response: [StudyActivitySession].self
             )
             if requestMutationGeneration == localMutationGeneration {
-                try mergeRemoteSessions(remote, userID: userID)
+                _ = try mergeRemoteSessions(remote, userID: userID)
+                loadLocalSessions()
             }
         } catch {
             failures.append(error.localizedDescription)
@@ -785,10 +788,14 @@ final class StudyTimeStore {
     private func mergeRemoteSessions(
         _ remote: [StudyActivitySession],
         userID: Int
-    ) throws {
+    ) throws -> [StudyActivitySession] {
+        guard !remote.isEmpty else { return [] }
+        let remoteIDs = remote.map(\.clientSessionId)
         let existing = try context.fetch(
             FetchDescriptor<LocalStudyActivitySession>(
-                predicate: #Predicate { $0.userID == userID }
+                predicate: #Predicate {
+                    $0.userID == userID && remoteIDs.contains($0.clientSessionID)
+                }
             )
         )
         var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
@@ -809,7 +816,7 @@ final class StudyTimeStore {
             }
         }
         try context.save()
-        loadLocalSessions()
+        return remote.compactMap { recordsByID[$0.clientSessionId]?.session }
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -1233,7 +1240,9 @@ final class StudyTimeStore {
         let age = now().timeIntervalSince(snapshot.savedAt)
         guard age >= 0, age < 7 * 86_400 else { return }
 
-        if let cachedAnalytics = snapshot.analytics {
+        if let cachedAnalytics = snapshot.analytics,
+           cachedAnalytics.anchorDate == analyticsAnchorString(from: now())
+        {
             analytics = cachedAnalytics
             analyticsCache[cachedAnalytics.anchorDate] = cachedAnalytics
         }
@@ -1274,5 +1283,43 @@ final class StudyTimeStore {
             for: now()
         )?.start else { return false }
         return abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
+    }
+
+    private func pendingEditableSessions(userID: Int) -> [StudyActivitySession] {
+        let descriptor = FetchDescriptor<LocalStudyActivitySession>(
+            predicate: #Predicate {
+                $0.userID == userID && $0.syncPending && !$0.isTombstone
+            }
+        )
+        return (try? context.fetch(descriptor))?
+            .compactMap(\.session)
+            .filter(\.isEditable) ?? []
+    }
+
+    private func mergeCompletedSessionsIntoLocalView(_ merged: [StudyActivitySession]) {
+        let mergedIDs = Set(merged.map(\.clientSessionId))
+        sessions.removeAll { mergedIDs.contains($0.clientSessionId) }
+        sessions.append(contentsOf: merged)
+        sessions.sort { lhs, rhs in
+            if lhs.startedAt == rhs.startedAt {
+                return lhs.clientSessionId > rhs.clientSessionId
+            }
+            return lhs.startedAt > rhs.startedAt
+        }
+    }
+
+    private func sortedUniqueEditableSessions(
+        _ candidates: [StudyActivitySession]
+    ) -> [StudyActivitySession] {
+        var byID: [String: StudyActivitySession] = [:]
+        for session in candidates where session.isEditable {
+            byID[session.clientSessionId] = session
+        }
+        return byID.values.sorted { lhs, rhs in
+            if lhs.startedAt == rhs.startedAt {
+                return lhs.clientSessionId > rhs.clientSessionId
+            }
+            return lhs.startedAt > rhs.startedAt
+        }
     }
 }

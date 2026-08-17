@@ -67,8 +67,14 @@ final class WeeklyStudyRecapTests: XCTestCase {
     }
 
     func testStoreRestoresCurrentCachedRecapBeforeRefreshing() throws {
-        let recap = try Self.fixture()
         let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        calendar.firstWeekday = 2
+        let currentWeekStart = try XCTUnwrap(
+            calendar.dateInterval(of: .weekOfYear, for: now)?.start
+        )
+        let recap = try Self.fixture(endingAt: currentWeekStart)
         let cache = TestStudyTimeSnapshotCache()
         cache.snapshot = StudyTimeSnapshot(
             savedAt: now.addingTimeInterval(-60),
@@ -113,6 +119,34 @@ final class WeeklyStudyRecapTests: XCTestCase {
         Self.retainedStores.append(store)
 
         XCTAssertNil(store.weeklyRecap)
+    }
+
+    func testStoreDoesNotRestoreAnalyticsForAPastAnchor() throws {
+        let now = try Date("2026-08-17T12:00:00Z", strategy: .iso8601)
+        let cache = TestStudyTimeSnapshotCache()
+        cache.snapshot = StudyTimeSnapshot(
+            savedAt: now.addingTimeInterval(-60),
+            analytics: StudyTimeAnalytics(
+                generatedAt: now.addingTimeInterval(-60),
+                anchorDate: "2026-08-10",
+                timezone: TimeZone.autoupdatingCurrent.identifier,
+                ranges: []
+            ),
+            weeklyRecap: nil
+        )
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        Self.retainedContainers.append(container)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.unsupportedURL) },
+            context: container.mainContext,
+            snapshotCache: cache,
+            now: { now }
+        )
+
+        store.activate(userID: 42)
+        Self.retainedStores.append(store)
+
+        XCTAssertNil(store.analytics)
     }
 
     func testStoreIgnoresRecapFromPreviouslyActiveUser() async throws {
@@ -169,10 +203,26 @@ final class WeeklyStudyRecapTests: XCTestCase {
         return APIClient(baseURL: URL(string: "https://example.test")!, session: URLSession(configuration: configuration))
     }
 
-    private static func fixture() throws -> WeeklyStudyRecap {
+    private static func fixture(endingAt end: Date? = nil) throws -> WeeklyStudyRecap {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WeeklyStudyRecap.self, from: fixtureData)
+        let recap = try decoder.decode(WeeklyStudyRecap.self, from: fixtureData)
+        guard let end else { return recap }
+        return WeeklyStudyRecap(
+            generatedAt: recap.generatedAt,
+            week: WeeklyStudyRecapWeek(
+                startsAt: end.addingTimeInterval(-7 * 86_400),
+                endsAt: end,
+                totalMs: recap.week.totalMs,
+                activeDays: recap.week.activeDays,
+                reviewCount: recap.week.reviewCount,
+                recallRate: recap.week.recallRate,
+                newCardsIntroduced: recap.week.newCardsIntroduced,
+                bestDay: recap.week.bestDay,
+                categories: recap.week.categories
+            ),
+            previousWeek: recap.previousWeek
+        )
     }
 
     nonisolated private static let fixtureData = Data(#"""

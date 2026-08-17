@@ -1351,6 +1351,56 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(saved.name, "Locally edited lesson")
     }
 
+    func testEditableEntryRefreshPreservesPendingLocalCreationMissingFromServerPage() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let localSession = makeSession(
+            source: .manual,
+            clientSessionId: "local-only"
+        )
+        let local = LocalStudyActivitySession(session: localSession, userID: 42)
+        local.name = "Not pushed yet"
+        local.syncPending = true
+        container.mainContext.insert(local)
+        try container.mainContext.save()
+
+        let client = makeClient { request in
+            let url = try XCTUnwrap(request.url)
+            let body: [String: Any] = [
+                "items": [
+                    studyActivityJSON(
+                        id: "01K-SERVER",
+                        clientSessionID: "server-only",
+                        startedAt: "2026-08-16T14:00:00Z"
+                    ),
+                ],
+                "limit": 20,
+                "nextCursor": NSNull(),
+            ]
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: body)
+            )
+        }
+        let store = StudyTimeStore(api: client, context: container.mainContext)
+        store.activate(userID: 42)
+
+        await store.loadEditableSessions()
+
+        XCTAssertEqual(
+            Set(store.editableSessions.map(\.clientSessionId)),
+            ["local-only", "server-only"]
+        )
+        XCTAssertEqual(
+            store.editableSessions.first { $0.clientSessionId == "local-only" }?.name,
+            "Not pushed yet"
+        )
+    }
+
     func testFailedAnchoredAnalyticsRequestPreservesCurrentChart() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let client = makeClient { request in
