@@ -76,7 +76,13 @@ final class StudyTimeStore {
     private let googleCalendar: any GoogleCalendarConnectionServing
     private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
     private let weeklyRecapService: any WeeklyStudyRecapServing
+    private let snapshotCache: any StudyTimeSnapshotCaching
+    private let now: () -> Date
     private(set) var sessions: [StudyActivitySession] = []
+    private(set) var editableSessions: [StudyActivitySession] = []
+    private(set) var editableSessionsNextCursor: String?
+    private(set) var editableSessionsIsLoading = false
+    private(set) var editableSessionsErrorMessage: String?
     private(set) var analytics: StudyTimeAnalytics?
     private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
     private(set) var analyticsCacheGeneration = 0
@@ -101,6 +107,7 @@ final class StudyTimeStore {
     private var analyticsRequestGeneration = 0
     private var googleCalendarRequestGeneration = 0
     private var weeklyRecapRequestGeneration = 0
+    private var weeklyRecapRefreshedAt: Date?
     private var requestedAnalyticsAnchor: Date?
 
     init(
@@ -111,7 +118,9 @@ final class StudyTimeStore {
         calendar: (any StudyCalendarProviding)? = nil,
         googleCalendar: (any GoogleCalendarConnectionServing)? = nil,
         googleCalendarAuthorizer: (any GoogleCalendarAuthorizing)? = nil,
-        weeklyRecapService: (any WeeklyStudyRecapServing)? = nil
+        weeklyRecapService: (any WeeklyStudyRecapServing)? = nil,
+        snapshotCache: (any StudyTimeSnapshotCaching)? = nil,
+        now: @escaping () -> Date = { .now }
     ) {
         self.api = api
         self.context = context
@@ -122,6 +131,8 @@ final class StudyTimeStore {
         self.googleCalendarAuthorizer = googleCalendarAuthorizer
             ?? LiveGoogleCalendarAuthorizer()
         self.weeklyRecapService = weeklyRecapService ?? LiveWeeklyStudyRecapService(api: api)
+        self.snapshotCache = snapshotCache ?? UserDefaultsStudyTimeSnapshotCache()
+        self.now = now
     }
 
     func activate(userID: Int) {
@@ -142,8 +153,16 @@ final class StudyTimeStore {
         weeklyRecap = nil
         weeklyRecapErrorMessage = nil
         weeklyRecapIsLoading = false
+        weeklyRecapRefreshedAt = nil
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
+        editableSessions = Array(
+            sessions.filter(\.isEditable).sorted { $0.startedAt > $1.startedAt }.prefix(20)
+        )
+        editableSessionsNextCursor = nil
+        editableSessionsErrorMessage = nil
+        editableSessionsIsLoading = false
+        restoreSnapshot(userID: userID)
     }
 
     @discardableResult
@@ -159,6 +178,10 @@ final class StudyTimeStore {
         await pushPending()
         activeUserID = nil
         sessions = []
+        editableSessions = []
+        editableSessionsNextCursor = nil
+        editableSessionsErrorMessage = nil
+        editableSessionsIsLoading = false
         analytics = nil
         analyticsCache = [:]
         analyticsCacheGeneration += 1
@@ -172,6 +195,7 @@ final class StudyTimeStore {
         weeklyRecap = nil
         weeklyRecapErrorMessage = nil
         weeklyRecapIsLoading = false
+        weeklyRecapRefreshedAt = nil
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
         return didFinish
@@ -221,8 +245,17 @@ final class StudyTimeStore {
         }
     }
 
-    func loadWeeklyRecap(timeZone: String = TimeZone.autoupdatingCurrent.identifier) async {
-        guard let requestedUserID = activeUserID else { return }
+    func loadWeeklyRecap(
+        timeZone: String = TimeZone.autoupdatingCurrent.identifier,
+        force: Bool = false
+    ) async {
+        guard let requestedUserID = activeUserID, !weeklyRecapIsLoading else { return }
+        if !force, let weeklyRecapRefreshedAt {
+            let age = now().timeIntervalSince(weeklyRecapRefreshedAt)
+            if age >= 0, age < 15 * 60 {
+                return
+            }
+        }
         weeklyRecapRequestGeneration += 1
         let generation = weeklyRecapRequestGeneration
         weeklyRecapIsLoading = true
@@ -236,9 +269,52 @@ final class StudyTimeStore {
             let value = try await weeklyRecapService.recap(timeZone: timeZone, weekStartsOn: 2)
             guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
             weeklyRecap = value
+            weeklyRecapRefreshedAt = now()
+            persistSnapshot(timeZone: timeZone)
         } catch {
             guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
             weeklyRecapErrorMessage = "Couldn’t load your weekly recap. Pull to refresh and try again."
+        }
+    }
+
+    func loadEditableSessions(reset: Bool = true) async {
+        guard let requestedUserID = activeUserID, !editableSessionsIsLoading else { return }
+        let cursor = reset ? nil : editableSessionsNextCursor
+        if !reset, cursor == nil { return }
+        editableSessionsIsLoading = true
+        editableSessionsErrorMessage = nil
+        defer {
+            if activeUserID == requestedUserID {
+                editableSessionsIsLoading = false
+            }
+        }
+
+        do {
+            var query = [URLQueryItem(name: "per_page", value: "20")]
+            if let cursor {
+                query.append(URLQueryItem(name: "cursor", value: cursor))
+            }
+            let page: EditableStudyActivitySessionPage = try await api.request(
+                "/api/study/activity-sessions/editable",
+                query: query
+            )
+            guard activeUserID == requestedUserID else { return }
+            try mergeRemoteSessions(page.items, userID: requestedUserID)
+            let resolvedItems = page.items.compactMap { session in
+                record(clientSessionID: session.clientSessionId)?.session
+            }.filter(\.isEditable)
+            if reset {
+                editableSessions = resolvedItems
+            } else {
+                let existingIDs = Set(editableSessions.map(\.clientSessionId))
+                editableSessions.append(contentsOf: resolvedItems.filter {
+                    !existingIDs.contains($0.clientSessionId)
+                })
+            }
+            editableSessionsNextCursor = page.nextCursor
+        } catch {
+            guard activeUserID == requestedUserID else { return }
+            editableSessionsErrorMessage = "Couldn’t load editable entries. Try again."
         }
     }
 
@@ -509,6 +585,9 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
+        if let completedSession = record.session {
+            upsertEditableSession(completedSession)
+        }
         await pushPending()
         await refreshAnalytics()
         return calendarWarning
@@ -593,6 +672,9 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
+        if let updatedSession = record.session {
+            upsertEditableSession(updatedSession)
+        }
         await pushPending()
         await refreshAnalytics()
         return calendarWarning
@@ -625,6 +707,7 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
+        removeEditableSession(clientSessionID: session.clientSessionId)
         await pushPending()
         await refreshAnalytics()
     }
@@ -674,30 +757,7 @@ final class StudyTimeStore {
                 response: [StudyActivitySession].self
             )
             if requestMutationGeneration == localMutationGeneration {
-                let existing = try context.fetch(
-                    FetchDescriptor<LocalStudyActivitySession>(
-                        predicate: #Predicate { $0.userID == userID }
-                    )
-                )
-                var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
-                    records, record in
-                    if records[record.clientSessionID] == nil {
-                        records[record.clientSessionID] = record
-                    }
-                }
-                for session in remote {
-                    if let record = recordsByID[session.clientSessionId] {
-                        if !record.isTombstone, !record.syncPending {
-                            record.apply(session)
-                        }
-                    } else {
-                        let record = LocalStudyActivitySession(session: session, userID: userID)
-                        context.insert(record)
-                        recordsByID[session.clientSessionId] = record
-                    }
-                }
-                try context.save()
-                loadLocalSessions()
+                try mergeRemoteSessions(remote, userID: userID)
             }
         } catch {
             failures.append(error.localizedDescription)
@@ -710,6 +770,7 @@ final class StudyTimeStore {
                 analytics = fetchedAnalytics
                 analyticsCache[analyticsAnchorString(from: analyticsAnchor)] = fetchedAnalytics
                 analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
+                persistSnapshot()
             }
         } catch {
             if analyticsRequestGeneration == analyticsGeneration {
@@ -721,14 +782,47 @@ final class StudyTimeStore {
         }
     }
 
+    private func mergeRemoteSessions(
+        _ remote: [StudyActivitySession],
+        userID: Int
+    ) throws {
+        let existing = try context.fetch(
+            FetchDescriptor<LocalStudyActivitySession>(
+                predicate: #Predicate { $0.userID == userID }
+            )
+        )
+        var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
+            records, record in
+            if records[record.clientSessionID] == nil {
+                records[record.clientSessionID] = record
+            }
+        }
+        for session in remote {
+            if let record = recordsByID[session.clientSessionId] {
+                if !record.isTombstone, !record.syncPending {
+                    record.apply(session)
+                }
+            } else {
+                let record = LocalStudyActivitySession(session: session, userID: userID)
+                context.insert(record)
+                recordsByID[session.clientSessionId] = record
+            }
+        }
+        try context.save()
+        loadLocalSessions()
+    }
+
     func deleteLocalData(userID: Int) throws {
         localMutationGeneration += 1
+        snapshotCache.remove(userID: userID)
         try context.delete(
             model: LocalStudyActivitySession.self,
             where: #Predicate { $0.userID == userID }
         )
         if activeUserID == userID {
             sessions = []
+            editableSessions = []
+            editableSessionsNextCursor = nil
             analytics = nil
             analyticsCache = [:]
             analyticsCacheGeneration += 1
@@ -764,6 +858,9 @@ final class StudyTimeStore {
         active = nil
         clearStorageWriteError(for: operation)
         loadLocalSessions()
+        if let completedSession = record.session {
+            upsertEditableSession(completedSession)
+        }
         if enqueueSync {
             Task {
                 await pushPending()
@@ -1060,6 +1157,7 @@ final class StudyTimeStore {
                 analytics = fetchedAnalytics
                 analyticsCache[analyticsAnchorString(from: effectiveAnchor)] = fetchedAnalytics
                 analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
+                persistSnapshot()
                 return true
             }
         } catch {
@@ -1082,7 +1180,7 @@ final class StudyTimeStore {
                 URLQueryItem(name: "timezone", value: TimeZone.current.identifier),
                 URLQueryItem(
                     name: "weekStartsOn",
-                    value: String(Calendar.current.firstWeekday)
+                    value: "2"
                 ),
                 URLQueryItem(name: "anchorDate", value: anchorDateString),
             ],
@@ -1111,5 +1209,70 @@ final class StudyTimeStore {
     private func invalidateAnalyticsCache() {
         analyticsCache = [:]
         analyticsCacheGeneration += 1
+    }
+
+    private func upsertEditableSession(_ session: StudyActivitySession) {
+        guard session.isEditable else { return }
+        editableSessions.removeAll { $0.clientSessionId == session.clientSessionId }
+        editableSessions.append(session)
+        editableSessions.sort { lhs, rhs in
+            if lhs.startedAt == rhs.startedAt {
+                return lhs.clientSessionId > rhs.clientSessionId
+            }
+            return lhs.startedAt > rhs.startedAt
+        }
+    }
+
+    private func removeEditableSession(clientSessionID: String) {
+        editableSessions.removeAll { $0.clientSessionId == clientSessionID }
+    }
+
+    private func restoreSnapshot(userID: Int) {
+        let timeZone = TimeZone.autoupdatingCurrent.identifier
+        guard let snapshot = snapshotCache.load(userID: userID, timeZone: timeZone) else { return }
+        let age = now().timeIntervalSince(snapshot.savedAt)
+        guard age >= 0, age < 7 * 86_400 else { return }
+
+        if let cachedAnalytics = snapshot.analytics {
+            analytics = cachedAnalytics
+            analyticsCache[cachedAnalytics.anchorDate] = cachedAnalytics
+        }
+        if let cachedRecap = snapshot.weeklyRecap,
+           recapMatchesMostRecentCompletedWeek(cachedRecap, timeZone: timeZone)
+        {
+            weeklyRecap = cachedRecap
+            weeklyRecapRefreshedAt = snapshot.weeklyRecapRefreshedAt ?? snapshot.savedAt
+        }
+    }
+
+    private func persistSnapshot(
+        timeZone: String = TimeZone.autoupdatingCurrent.identifier
+    ) {
+        guard let userID = activeUserID else { return }
+        snapshotCache.save(
+            StudyTimeSnapshot(
+                savedAt: now(),
+                analytics: analytics,
+                weeklyRecap: weeklyRecap,
+                weeklyRecapRefreshedAt: weeklyRecapRefreshedAt
+            ),
+            userID: userID,
+            timeZone: timeZone
+        )
+    }
+
+    private func recapMatchesMostRecentCompletedWeek(
+        _ recap: WeeklyStudyRecap,
+        timeZone identifier: String
+    ) -> Bool {
+        guard let timeZone = TimeZone(identifier: identifier) else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        calendar.firstWeekday = 2
+        guard let currentWeekStart = calendar.dateInterval(
+            of: .weekOfYear,
+            for: now()
+        )?.start else { return false }
+        return abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
     }
 }

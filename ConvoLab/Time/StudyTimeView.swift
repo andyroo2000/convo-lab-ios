@@ -26,15 +26,13 @@ struct StudyTimeView: View {
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
-    @State private var confirmingCalendarDisconnect = false
-    @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
         store.analytics?.range(selectedRange)
     }
 
     private var editableSessions: [StudyActivitySession] {
-        StudyTimeEditableEntries.filter(store.sessions)
+        store.editableSessions
     }
 
     var body: some View {
@@ -90,11 +88,9 @@ struct StudyTimeView: View {
                         isLoading: store.weeklyRecapIsLoading,
                         errorMessage: store.weeklyRecapErrorMessage
                     ) {
-                        Task { await store.loadWeeklyRecap() }
+                        Task { await store.loadWeeklyRecap(force: true) }
                     }
                 }
-
-                googleCalendarSection
 
                 Section("Timer") {
                     Picker("Activity", selection: $selectedActivity) {
@@ -160,7 +156,23 @@ struct StudyTimeView: View {
                 }
 
                 Section(StudyTimeEditableEntries.sectionTitle) {
-                    if editableSessions.isEmpty {
+                    if store.editableSessionsIsLoading, editableSessions.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView("Loading entries…")
+                            Spacer()
+                        }
+                    } else if let message = store.editableSessionsErrorMessage,
+                              editableSessions.isEmpty
+                    {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(message, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Button("Retry") {
+                                Task { await store.loadEditableSessions() }
+                            }
+                        }
+                    } else if editableSessions.isEmpty {
                         ContentUnavailableView(
                             StudyTimeEditableEntries.emptyTitle,
                             systemImage: "clock.badge",
@@ -181,6 +193,24 @@ struct StudyTimeView: View {
                                 .tint(ConvoLabTheme.navy)
                             }
                     }
+                    if store.editableSessionsNextCursor != nil {
+                        Button {
+                            Task { await store.loadEditableSessions(reset: false) }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if store.editableSessionsIsLoading {
+                                    ProgressView()
+                                    Text("Loading…")
+                                } else {
+                                    Text("Load more entries")
+                                }
+                                Spacer()
+                            }
+                            .frame(minHeight: 44)
+                        }
+                        .disabled(store.editableSessionsIsLoading)
+                    }
                 }
             }
             .navigationTitle("Study Time")
@@ -199,104 +229,16 @@ struct StudyTimeView: View {
             .sheet(item: $editingSession) { session in
                 StudyTimeEntryView(store: store, session: session)
             }
-            .sheet(item: $calendarSettingsModel) { model in
-                GoogleCalendarSettingsView(model: model)
-            }
-            .confirmationDialog(
-                "Disconnect Google Calendar?",
-                isPresented: $confirmingCalendarDisconnect
-            ) {
-                Button("Disconnect", role: .destructive) {
-                    Task { await store.disconnectGoogleCalendar() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Calendar study time already imported into your analytics will remain.")
-            }
             .refreshable {
                 async let studyTime: Void = store.synchronize()
-                async let calendar: Void = store.loadGoogleCalendarConnection()
-                async let recap: Void = store.loadWeeklyRecap()
-                _ = await (studyTime, calendar, recap)
+                async let recap: Void = store.loadWeeklyRecap(force: true)
+                async let entries: Void = store.loadEditableSessions()
+                _ = await (studyTime, recap, entries)
             }
             .task {
-                async let studyTime: Void = store.synchronize()
-                async let calendar: Void = store.loadGoogleCalendarConnection()
                 async let recap: Void = store.loadWeeklyRecap()
-                _ = await (studyTime, calendar, recap)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var googleCalendarSection: some View {
-        Section("Google Calendar") {
-            if store.googleCalendarIsLoading, store.googleCalendarStatus == nil {
-                HStack {
-                    ProgressView()
-                    Text("Checking connection…")
-                }
-            } else if store.googleCalendarStatus?.connected == true {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.green)
-                if let email = store.googleCalendarStatus?.accountEmail {
-                    LabeledContent("Account", value: email)
-                }
-                if let lastSync = store.googleCalendarStatus?.lastSyncedAt {
-                    LabeledContent("Last sync") {
-                        Text(lastSync, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    }
-                } else {
-                    LabeledContent("Last sync", value: "Waiting for first sync")
-                }
-                if store.googleCalendarIsWorking {
-                    HStack {
-                        ProgressView()
-                        Text("Disconnecting…")
-                    }
-                } else {
-                    Button {
-                        calendarSettingsModel = store.makeGoogleCalendarSettingsModel()
-                    } label: {
-                        Label("Calendar Settings", systemImage: "calendar")
-                            .frame(minHeight: 44)
-                    }
-                    .disabled(store.googleCalendarIsLoading)
-
-                    Button("Disconnect", role: .destructive) {
-                        confirmingCalendarDisconnect = true
-                    }
-                    .frame(minHeight: 44)
-                    .disabled(store.googleCalendarIsLoading)
-                }
-            } else {
-                Text("Connect your account to include calendar lessons in study analytics.")
-                    .foregroundStyle(.secondary)
-                Button {
-                    Task { await store.connectGoogleCalendar() }
-                } label: {
-                    if store.googleCalendarIsWorking {
-                        HStack {
-                            ProgressView()
-                            Text("Connecting…")
-                        }
-                    } else {
-                        Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
-                    }
-                }
-                .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
-            }
-
-            if let message = store.googleCalendarErrorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                if store.googleCalendarStatus == nil {
-                    Button("Retry") {
-                        Task { await store.loadGoogleCalendarConnection() }
-                    }
-                    .disabled(store.googleCalendarIsLoading || store.googleCalendarIsWorking)
-                }
+                async let entries: Void = store.loadEditableSessions()
+                _ = await (recap, entries)
             }
         }
     }
