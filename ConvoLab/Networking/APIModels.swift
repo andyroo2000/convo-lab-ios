@@ -1,10 +1,10 @@
 import Foundation
 
-struct APIEnvelope<Value: Decodable>: Decodable {
+struct APIEnvelope<Value: Decodable & Sendable>: nonisolated Decodable, Sendable {
     let data: Value
 }
 
-struct CurrentUser: Codable, Sendable {
+struct CurrentUser: nonisolated Codable, Sendable {
     let id: Int
     let name: String
     let email: String
@@ -16,8 +16,8 @@ struct CurrentUser: Codable, Sendable {
     }
 }
 
-struct MobileTokenResponse: Decodable {
-    struct TokenData: Decodable {
+struct MobileTokenResponse: nonisolated Decodable, Sendable {
+    struct TokenData: nonisolated Decodable, Sendable {
         let token: String
         let tokenType: String
         let expiresAt: Date?
@@ -58,8 +58,8 @@ struct RegistrationRequest: Encodable {
     }
 }
 
-struct RegistrationResponse: Decodable {
-    struct RegistrationData: Decodable {
+struct RegistrationResponse: nonisolated Decodable, Sendable {
+    struct RegistrationData: nonisolated Decodable, Sendable {
         let user: CurrentUser
         let token: String
     }
@@ -106,7 +106,7 @@ struct RegenerateImageRequest: Encodable, Equatable, Sendable {
     let imageRole: String
 }
 
-enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendable {
+enum StudyCardCreationKind: String, nonisolated Codable, CaseIterable, Identifiable, Sendable {
     case textRecognition = "text-recognition"
     case audioRecognition = "audio-recognition"
     case productionText = "production-text"
@@ -145,7 +145,7 @@ enum StudyCardCreationKind: String, Codable, CaseIterable, Identifiable, Sendabl
 // learning-os resolves these ConvoLab compatibility resources directly, so
 // card-draft list, detail, mutation, and preview responses are intentionally
 // decoded without APIEnvelope.
-struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
+struct StudyManualCardDraft: nonisolated Codable, Identifiable, Equatable, Sendable {
     let id: String
     let status: String
     let committedCardId: String?
@@ -163,7 +163,7 @@ struct StudyManualCardDraft: Codable, Identifiable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-struct StudyManualCardDraftListResponse: Codable, Sendable {
+struct StudyManualCardDraftListResponse: nonisolated Codable, Sendable {
     let drafts: [StudyManualCardDraft]
     let total: Int?
     let limit: Int
@@ -190,12 +190,12 @@ struct UpdateStudyManualCardDraftRequest: Encodable, Equatable, Sendable {
     let previewImage: JSONValue
 }
 
-struct StudyCardDraftPreviewAudioResponse: Codable, Sendable {
+struct StudyCardDraftPreviewAudioResponse: nonisolated Codable, Sendable {
     let previewAudio: JSONValue?
     let previewAudioRole: String?
 }
 
-struct StudyCardDraftImageResponse: Codable, Sendable {
+struct StudyCardDraftImageResponse: nonisolated Codable, Sendable {
     let previewImage: JSONValue
     let imagePrompt: String
     let imagePlacement: StudyCardDraft.ImagePlacement
@@ -205,12 +205,12 @@ struct CreateCardFromStudyManualDraftRequest: Codable, Equatable, Sendable {
     let id: String
 }
 
-struct StudySession: Codable, Sendable {
+struct StudySession: nonisolated Codable, Sendable {
     let overview: StudyOverview
     let cards: [StudyCard]
 }
 
-struct StudySessionResponse: Decodable, Sendable {
+struct StudySessionResponse: nonisolated Decodable, Sendable {
     let session: StudySession
 
     private enum CodingKeys: String, CodingKey {
@@ -219,7 +219,7 @@ struct StudySessionResponse: Decodable, Sendable {
         case cards
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if container.contains(.data) {
             session = try container.decode(StudySession.self, forKey: .data)
@@ -229,7 +229,7 @@ struct StudySessionResponse: Decodable, Sendable {
     }
 }
 
-struct StudyOfflineReserve: Decodable, Sendable {
+struct StudyOfflineReserve: nonisolated Decodable, Sendable {
     let cards: [StudyCard]
     let reserveDays: Int
     let generatedAt: Date
@@ -244,8 +244,8 @@ struct StudyOfflineReserve: Decodable, Sendable {
     }
 }
 
-struct SyncFeedPage: Decodable, Sendable {
-    struct Entry: Decodable, Sendable {
+struct SyncFeedPage: nonisolated Decodable, Sendable {
+    struct Entry: nonisolated Decodable, Sendable {
         let checkpoint: Int64
         let resourceId: String
         let operation: String
@@ -256,7 +256,7 @@ struct SyncFeedPage: Decodable, Sendable {
         }
     }
 
-    struct Metadata: Decodable, Sendable {
+    struct Metadata: nonisolated Decodable, Sendable {
         let nextCheckpoint: Int64
         let hasMore: Bool
 
@@ -274,11 +274,11 @@ struct StudyCardBatchRequest: Encodable, Sendable {
     let ids: [String]
 }
 
-struct StudyCardBatchResponse: Decodable, Sendable {
+struct StudyCardBatchResponse: nonisolated Decodable, Sendable {
     let cards: [StudyCard]
 }
 
-struct StudyOverview: Codable, Sendable {
+struct StudyOverview: nonisolated Codable, Sendable {
     let dueCount: Int
     let failedCount: Int?
     let failedDueCount: Int?
@@ -344,7 +344,7 @@ struct StudyOverview: Codable, Sendable {
         case legacyNewCardsAvailableToday = "new_cards_available_today"
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         dueCount = try container.decodeIfPresent(Int.self, forKey: .dueCount)
             ?? container.decode(Int.self, forKey: .legacyDueCount)
@@ -375,7 +375,7 @@ struct StudyOverview: Codable, Sendable {
         )
     }
 
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(dueCount, forKey: .dueCount)
         try container.encodeIfPresent(failedCount, forKey: .failedCount)
@@ -409,7 +409,7 @@ struct StudyOverview: Codable, Sendable {
     }
 }
 
-struct StudySettings: Codable, Equatable, Sendable {
+struct StudySettings: nonisolated Codable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int
@@ -433,7 +433,7 @@ struct StudySettings: Codable, Equatable, Sendable {
         case reviewTimeBudgetMinutes
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         newCardsPerDay = try container.decode(Int.self, forKey: .newCardsPerDay)
         lessonBatchSize = try container.decodeIfPresent(Int.self, forKey: .lessonBatchSize) ?? 5
@@ -450,7 +450,7 @@ struct StudySettings: Codable, Equatable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
@@ -483,7 +483,7 @@ struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
     }
 }
 
-struct StudyMasterySpread: Codable, Equatable, Sendable {
+struct StudyMasterySpread: nonisolated Codable, Equatable, Sendable {
     let apprentice: Int
     let guru: Int
     let master: Int
@@ -491,7 +491,7 @@ struct StudyMasterySpread: Codable, Equatable, Sendable {
     let burned: Int
 }
 
-struct StudyLearningReadiness: Codable, Equatable, Sendable {
+struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
     let recommendation: String
     let readinessLevel: String?
     let sampleSize: Int
@@ -529,8 +529,8 @@ struct StudyLearningReadiness: Codable, Equatable, Sendable {
     }
 }
 
-struct StudyCard: Codable, Identifiable, Hashable, Sendable {
-    struct State: Codable, Hashable, Sendable {
+struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
+    struct State: nonisolated Codable, Hashable, Sendable {
         let dueAt: Date?
         let introducedAt: Date?
         let failedAt: Date?
@@ -677,7 +677,7 @@ struct StudyCard: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-struct StudyNewCardQueueItem: Codable, Identifiable, Equatable, Sendable {
+struct StudyNewCardQueueItem: nonisolated Codable, Identifiable, Equatable, Sendable {
     let id: String
     let noteId: String
     let cardType: String
@@ -688,14 +688,14 @@ struct StudyNewCardQueueItem: Codable, Identifiable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-struct StudyNewCardQueueResponse: Codable, Equatable, Sendable {
+struct StudyNewCardQueueResponse: nonisolated Codable, Equatable, Sendable {
     let items: [StudyNewCardQueueItem]
     let total: Int
     let limit: Int
     let nextCursor: String?
 }
 
-struct StudyCardListResponse: Codable, Equatable, Sendable {
+struct StudyCardListResponse: nonisolated Codable, Equatable, Sendable {
     let items: [StudyCard]
     let limit: Int
     let nextCursor: String?
@@ -761,8 +761,8 @@ struct StudyMediaBatchRequest: Encodable {
     let ids: [String]
 }
 
-struct StudyMediaBatchResponse: Decodable {
-    struct Item: Decodable {
+struct StudyMediaBatchResponse: nonisolated Decodable, Sendable {
+    struct Item: nonisolated Decodable, Sendable {
         let id: String
         let mimeType: String
         let data: Data
@@ -777,13 +777,13 @@ struct UndoStudyReviewRequest: Encodable {
     let currentOverview: StudyOverview?
 }
 
-struct UndoStudyReviewResponse: Decodable {
+struct UndoStudyReviewResponse: nonisolated Decodable, Sendable {
     let reviewLogId: String
     let card: StudyCard
     let overview: StudyOverview
 }
 
-struct DailyAudioPractice: Codable, Identifiable, Sendable {
+struct DailyAudioPractice: nonisolated Codable, Identifiable, Sendable {
     let id: String
     let practiceDate: String
     let status: String
@@ -794,7 +794,7 @@ struct DailyAudioPractice: Codable, Identifiable, Sendable {
     let tracks: [DailyAudioTrack]
 }
 
-struct DailyAudioPracticePage: Codable, Sendable {
+struct DailyAudioPracticePage: nonisolated Codable, Sendable {
     let items: [DailyAudioPractice]
     let total: Int
     let limit: Int
@@ -812,7 +812,7 @@ struct DailyAudioPracticePage: Codable, Sendable {
         self.nextCursor = nextCursor
     }
 
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         if var legacy = try? decoder.unkeyedContainer() {
             var practices: [DailyAudioPractice] = []
             while !legacy.isAtEnd {
@@ -833,7 +833,7 @@ struct DailyAudioPracticePage: Codable, Sendable {
     }
 }
 
-struct DailyAudioTrack: Codable, Identifiable, Sendable {
+struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
     let id: String
     let practiceId: String
     let mode: String
@@ -886,14 +886,14 @@ struct DailyAudioTrack: Codable, Identifiable, Sendable {
     }
 }
 
-struct DailyAudioScriptUnit: Codable, Equatable, Sendable {
+struct DailyAudioScriptUnit: nonisolated Codable, Equatable, Sendable {
     let type: String
     let text: String?
     let reading: String?
     let translation: String?
 }
 
-struct DailyAudioTiming: Codable, Equatable, Sendable {
+struct DailyAudioTiming: nonisolated Codable, Equatable, Sendable {
     let unitIndex: Int
     let startTime: Double
     let endTime: Double
@@ -916,8 +916,8 @@ struct UpdateStudyCardRequest: Codable {
     let answer: JSONValue
 }
 
-struct KnownKanjiSnapshot: Codable, Equatable, Sendable {
-    struct WaniKaniStatus: Codable, Equatable, Sendable {
+struct KnownKanjiSnapshot: nonisolated Codable, Equatable, Sendable {
+    struct WaniKaniStatus: nonisolated Codable, Equatable, Sendable {
         let connected: Bool
         let lastSyncedAt: Date?
     }
@@ -932,7 +932,7 @@ struct ConnectWaniKaniRequest: Encodable {
     let apiToken: String
 }
 
-struct WaniKaniSyncResult: Decodable, Equatable, Sendable {
+struct WaniKaniSyncResult: nonisolated Decodable, Equatable, Sendable {
     let added: Int
     let effectiveTotal: Int
     let version: Int

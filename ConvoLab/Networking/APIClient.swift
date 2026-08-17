@@ -32,7 +32,7 @@ final class APIClient {
         accessToken = token
     }
 
-    func request<Response: Decodable>(
+    func request<Response: Decodable & Sendable>(
         _ path: String,
         method: String = "GET",
         query: [URLQueryItem] = [],
@@ -167,7 +167,7 @@ final class APIClient {
         }
     }
 
-    func upload<Response: Decodable>(
+    func upload<Response: Decodable & Sendable>(
         _ path: String,
         fields: [String: String],
         fileData: Data,
@@ -287,26 +287,15 @@ final class APIClient {
         return decoder
     }()
 
-    // API response models are immutable value snapshots. This wrapper carries the
-    // fully decoded value across the detached task without forcing every legacy
-    // Codable conformance in this MainActor-default module to be redeclared.
-    private nonisolated final class DecodedResponse<Response>: @unchecked Sendable {
-        let value: Response
-
-        init(_ value: Response) {
-            self.value = value
-        }
-    }
-
-    private static func decode<Response: Decodable>(
+    private static func decode<Response: Decodable & Sendable>(
         _ type: Response.Type,
         from data: Data
     ) async throws -> Response {
         try await Task.detached(priority: .userInitiated) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
-            return try DecodedResponse(decoder.decode(type, from: data))
-        }.value.value
+            return try decoder.decode(type, from: data)
+        }.value
     }
 
     private static func decodingDetails(_ error: DecodingError) -> String {

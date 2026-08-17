@@ -19,6 +19,7 @@ struct ConvoLabApp: App {
                             await model.applicationDidBecomeActive()
                         }
                     } else {
+                        model.study.persistCachedState()
                         model.studyTime.stopForegroundAutomaticTracking()
                     }
                 }

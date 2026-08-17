@@ -81,6 +81,8 @@ final class StudyStore {
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored private var offlineDueActivationTimer: Timer?
+    @ObservationIgnored private var overviewSnapshot: LocalStudyOverviewSnapshot?
+    @ObservationIgnored private var overviewSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var studySurfaceRevision = 0
     // Session freshness suppresses redundant UI refreshes. A failed mutation
     // outbox receives one prompt retry before returning to that throttle; the
@@ -245,12 +247,16 @@ final class StudyStore {
     }
 
     func deactivate() {
+        persistPendingOverviewSnapshot()
         accountActivationGeneration += 1
         studySettingsMutationRevision += 1
         studySettingsRefreshID = nil
         studySettingsUpdateID = nil
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
+        overviewSnapshotSaveTask?.cancel()
+        overviewSnapshotSaveTask = nil
+        overviewSnapshot = nil
         activeUserID = nil
         mediaCache.deactivate()
         knownKanjiService.deactivate()
@@ -301,6 +307,10 @@ final class StudyStore {
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
         masteryAnimation = nil
+    }
+
+    func persistCachedState() {
+        persistPendingOverviewSnapshot()
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -1102,10 +1112,7 @@ final class StudyStore {
                 activeCardIdentifiers.formUnion(identifiers)
                 newlyDueCards.append(card)
                 changed = true
-                if !record.isInActiveSession {
-                    record.isInActiveSession = true
-                    changed = true
-                }
+                record.isInActiveSession = true
             }
         }
 
@@ -2106,7 +2113,7 @@ final class StudyStore {
             reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
             masterySpread: current.masterySpread,
             learningReadiness: current.learningReadiness
-        ))
+        ), persistImmediately: false)
     }
 
     func dismissMasteryAnimation() {
@@ -2512,13 +2519,12 @@ final class StudyStore {
             predicate: #Predicate { $0.userID == userID }
         )
         descriptor.fetchLimit = 1
-        guard
-            let snapshot = try? context.fetch(descriptor).first,
-            let cachedOverview = try? StorageCodec.decoder.decode(
+        guard let snapshot = try? context.fetch(descriptor).first else { return }
+        overviewSnapshot = snapshot
+        guard let cachedOverview = try? StorageCodec.decoder.decode(
                 StudyOverview.self,
                 from: snapshot.payload
-            )
-        else { return }
+            ) else { return }
 
         overview = cachedOverview
         studySettings = StudySettingsPolicy.settings(
@@ -2527,29 +2533,66 @@ final class StudyStore {
         )
     }
 
-    private func setOverview(_ value: StudyOverview) {
+    private func setOverview(
+        _ value: StudyOverview,
+        persistImmediately: Bool = true
+    ) {
         overview = value
         guard let userID = activeUserID else { return }
 
         do {
             let payload = try StorageCodec.encoder.encode(value)
-            var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-            descriptor.fetchLimit = 1
-            if let snapshot = try context.fetch(descriptor).first {
-                snapshot.payload = payload
-                snapshot.updatedAt = .now
+            let snapshot: LocalStudyOverviewSnapshot
+            if let overviewSnapshot, overviewSnapshot.userID == userID {
+                snapshot = overviewSnapshot
             } else {
-                context.insert(
-                    LocalStudyOverviewSnapshot(userID: userID, payload: payload)
+                var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
+                    predicate: #Predicate { $0.userID == userID }
                 )
+                descriptor.fetchLimit = 1
+                if let existing = try context.fetch(descriptor).first {
+                    snapshot = existing
+                } else {
+                    snapshot = LocalStudyOverviewSnapshot(userID: userID, payload: payload)
+                    context.insert(snapshot)
+                }
+                overviewSnapshot = snapshot
             }
-            try context.save()
+            snapshot.payload = payload
+            snapshot.updatedAt = .now
+            if persistImmediately {
+                persistPendingOverviewSnapshot()
+            } else {
+                scheduleOverviewSnapshotSave()
+            }
         } catch {
             // The snapshot is a disposable presentation cache. Study cards and
             // queued reviews remain durable even if this best-effort save fails.
             context.rollback()
+            overviewSnapshot = nil
+        }
+    }
+
+    private func scheduleOverviewSnapshotSave() {
+        overviewSnapshotSaveTask?.cancel()
+        overviewSnapshotSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.persistPendingOverviewSnapshot()
+        }
+    }
+
+    private func persistPendingOverviewSnapshot() {
+        overviewSnapshotSaveTask?.cancel()
+        overviewSnapshotSaveTask = nil
+        guard context.hasChanges else { return }
+        do {
+            try context.save()
+        } catch {
+            // The snapshot is a disposable presentation cache. Its next server
+            // refresh can rebuild it without affecting cards or the review outbox.
+            context.rollback()
+            overviewSnapshot = nil
         }
     }
 

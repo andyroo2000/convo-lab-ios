@@ -6813,6 +6813,55 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testReviewOverviewSnapshotFlushesWithoutWaitingForNetwork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000019",
+            expression: "魚"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        container.mainContext.insert(LocalStudyOverviewSnapshot(
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ))
+        ))
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.recordReview(card: card, rating: .good, duration: nil)
+        store.persistCachedState()
+
+        let snapshot = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalStudyOverviewSnapshot>()).first
+        )
+        let restored = try StorageCodec.decoder.decode(
+            StudyOverview.self,
+            from: snapshot.payload
+        )
+        XCTAssertEqual(restored.dueCount, 0)
+    }
+
+    @MainActor
     func testReviewFromStaleSnapshotUpdatesCanonicalRecordWithoutDuplicate() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientID = "01J000000000000000000000RV"
