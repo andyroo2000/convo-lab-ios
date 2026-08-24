@@ -61,14 +61,14 @@ struct StudyMasterySpreadView: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private var entries: [StudyMasterySpreadEntry] { spread.entries }
-
     var body: some View {
+        let entries = spread.entries
+
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            distributionBar
-            details
+            distributionBar(entries: entries)
+            details(entries: entries)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -103,7 +103,7 @@ struct StudyMasterySpreadView: View {
             .monospacedDigit()
     }
 
-    private var distributionBar: some View {
+    private func distributionBar(entries: [StudyMasterySpreadEntry]) -> some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 ForEach(entries) { entry in
@@ -112,7 +112,7 @@ struct StudyMasterySpreadView: View {
                         if !dynamicTypeSize.isAccessibilitySize, entry.percentage >= 12 {
                             Text("\(entry.percentage)%")
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(.black)
                                 .minimumScaleFactor(0.8)
                         }
                     }
@@ -125,10 +125,10 @@ struct StudyMasterySpreadView: View {
         .clipShape(.rect(cornerRadius: 8))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Item spread")
-        .accessibilityValue(distributionAccessibilityValue)
+        .accessibilityValue(distributionAccessibilityValue(entries: entries))
     }
 
-    private var details: some View {
+    private func details(entries: [StudyMasterySpreadEntry]) -> some View {
         VStack(spacing: 0) {
             if !dynamicTypeSize.isAccessibilitySize {
                 detailHeader
@@ -200,7 +200,7 @@ struct StudyMasterySpreadView: View {
         "\(entry.title), \(entry.count) cards, \(entry.percentage) percent"
     }
 
-    private var distributionAccessibilityValue: String {
+    private func distributionAccessibilityValue(entries: [StudyMasterySpreadEntry]) -> String {
         let populatedEntries = entries.filter { $0.count > 0 }
         guard !populatedEntries.isEmpty else { return "No cards" }
 
