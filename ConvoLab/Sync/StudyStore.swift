@@ -684,6 +684,7 @@ final class StudyStore {
     func refreshOverview() async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
+        let settingsMutationRevision = studySettingsMutationRevision
         let refreshID = UUID()
         overviewRefreshID = refreshID
         isRefreshingOverview = true
@@ -700,16 +701,23 @@ final class StudyStore {
             let refreshed: StudyOverview = try await api.request("/api/study/overview")
             guard isCurrentActivation(userID, generation: activationGeneration),
                   overviewRefreshID == refreshID else { return }
-            let resolvedSettings = StudySettingsPolicy.settings(
+            let responseSettings = StudySettingsPolicy.settings(
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
             )
+            let canPublishResponseSettings = studySettingsMutationRevision
+                == settingsMutationRevision
+            let appliedSettings = canPublishResponseSettings
+                ? responseSettings
+                : studySettings ?? responseSettings
             setOverview(StudySettingsPolicy.applying(
-                resolvedSettings,
+                appliedSettings,
                 to: refreshed,
                 preservingJLPTMasteryFrom: overview
             ))
-            studySettings = resolvedSettings
+            if canPublishResponseSettings {
+                studySettings = responseSettings
+            }
         } catch {
             guard isCurrentActivation(userID, generation: activationGeneration),
                   overviewRefreshID == refreshID else { return }

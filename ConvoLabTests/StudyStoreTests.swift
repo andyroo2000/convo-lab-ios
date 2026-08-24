@@ -5008,6 +5008,62 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewRefreshCannotOverwriteNewerSavedSettings() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let deferredOverview = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            switch (request.url?.path, request.httpMethod) {
+            case ("/api/study/settings", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"newCardsPerDay":12,"lessonBatchSize":5,"reviewTimeBudgetMinutes":90}"#.utf8
+                ))))
+            case ("/api/study/settings", "PATCH"):
+                completion(.success(Self.response(data: Data(
+                    #"{"newCardsPerDay":24,"lessonBatchSize":8,"reviewTimeBudgetMinutes":150}"#.utf8
+                ))))
+            case ("/api/study/overview", "GET"):
+                deferredOverview.hold(completion)
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "nil") \(request.url?.path ?? "nil")")
+                completion(.failure(URLError(.unsupportedURL)))
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        await store.refreshStudySettings()
+
+        let refresh = Task { await store.refreshOverview() }
+        await deferredOverview.waitUntilPending()
+        let saved = await store.updateStudySettings(
+            newCardsPerDay: 24,
+            lessonBatchSize: 8,
+            reviewTimeBudgetMinutes: 150
+        )
+        XCTAssertTrue(saved)
+
+        deferredOverview.succeed(with: Self.response(data: Data(
+            #"{"dueCount":3,"newCount":4,"reviewCount":7,"newCardsPerDay":12,"lessonBatchSize":5,"reviewTimeBudgetMinutes":90}"#.utf8
+        )))
+        await refresh.value
+
+        XCTAssertEqual(store.overview?.dueCount, 3)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 8)
+        XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+        XCTAssertEqual(store.overview?.newCardsPerDay, 24)
+        XCTAssertEqual(store.overview?.lessonBatchSize, 8)
+        XCTAssertEqual(store.overview?.reviewTimeBudgetMinutes, 150)
+    }
+
+    @MainActor
     func testSessionRefreshPreservesBudgetAndMasteryWhenResponseFieldsAreAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         container.mainContext.insert(LocalStudyOverviewSnapshot(
