@@ -734,13 +734,21 @@ private struct JLPTMasteryMetricRow: View {
         min(max(metric.masteryPercent, 0), 100)
     }
 
-    private var knownCount: Int {
-        let inferred = Int((Double(boundedPercent) / 100 * Double(metric.total)).rounded())
-        return min(max(metric.known ?? inferred, 0), metric.total)
-    }
-
     private var matchedCount: Int {
         min(max(metric.matched ?? metric.covered, 0), metric.total)
+    }
+
+    private var knownCount: Int? {
+        guard let known = metric.known else { return nil }
+        return min(max(known, 0), matchedCount)
+    }
+
+    private var accessibilitySummary: String {
+        let matched = "\(matchedCount) of \(metric.total) matched in your cards"
+        guard let knownCount else {
+            return "\(boundedPercent) percent, \(matched)"
+        }
+        return "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, \(matched)"
     }
 
     var body: some View {
@@ -756,7 +764,9 @@ private struct JLPTMasteryMetricRow: View {
             ProgressView(value: Double(boundedPercent), total: 100)
                 .tint(tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(knownCount) of \(metric.total) known (Guru+)")
+                if let knownCount {
+                    Text("\(knownCount) of \(metric.total) known (Guru+)")
+                }
                 Text("\(matchedCount) of \(metric.total) matched in your cards")
             }
             .font(.caption)
@@ -765,10 +775,7 @@ private struct JLPTMasteryMetricRow: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("N5 \(title) mastery")
-        .accessibilityValue(
-            "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, "
-                + "\(matchedCount) of \(metric.total) matched in your cards"
-        )
+        .accessibilityValue(accessibilitySummary)
     }
 }
 
