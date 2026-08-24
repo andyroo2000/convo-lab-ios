@@ -43,19 +43,13 @@ nonisolated extension StudyMasterySpread {
 struct StudyMasterySpreadView: View {
     let spread: StudyMasterySpread
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     private var entries: [StudyMasterySpreadEntry] { spread.entries }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Item Spread")
-                    .font(.headline)
-                Spacer()
-                Text("\(spread.total) cards")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
+            header
 
             distributionBar
             details
@@ -65,12 +59,40 @@ struct StudyMasterySpreadView: View {
         .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
     }
 
+    @ViewBuilder
+    private var header: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                title
+                total
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline) {
+                title
+                Spacer()
+                total
+            }
+        }
+    }
+
+    private var title: some View {
+        Text("Item Spread")
+            .font(.headline)
+    }
+
+    private var total: some View {
+        Text("\(spread.total) cards")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+    }
+
     private var distributionBar: some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 ForEach(entries) { entry in
                     ZStack {
-                        color(for: entry.level)
+                        MasteryReviewAnimation.color(for: entry.level)
                         if entry.percentage >= 12 {
                             Text("\(entry.percentage)%")
                                 .font(.caption2.weight(.semibold))
@@ -96,31 +118,41 @@ struct StudyMasterySpreadView: View {
 
     private var details: some View {
         VStack(spacing: 0) {
-            detailHeader
+            if !dynamicTypeSize.isAccessibilitySize {
+                detailHeader
+            }
             ForEach(entries) { entry in
                 Divider()
-                HStack(spacing: 12) {
-                    Label {
-                        Text(entry.title)
-                            .fontWeight(.semibold)
-                    } icon: {
-                        Circle()
-                            .fill(color(for: entry.level))
-                            .frame(width: 8, height: 8)
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 4) {
+                        stageLabel(for: entry)
+                        Text("\(entry.count.formatted()) cards · \(entry.percentage)%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
-                    Spacer(minLength: 8)
-                    Text(entry.count, format: .number)
-                        .frame(width: 54, alignment: .trailing)
-                        .monospacedDigit()
-                    Text("\(entry.percentage)%")
-                        .frame(width: 52, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(rowAccessibilityLabel(for: entry))
+                } else {
+                    HStack(spacing: 12) {
+                        stageLabel(for: entry)
+                        Spacer(minLength: 8)
+                        Text(entry.count, format: .number)
+                            .frame(width: 54, alignment: .trailing)
+                            .monospacedDigit()
+                        Text("\(entry.percentage)%")
+                            .frame(width: 52, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .frame(minHeight: 38)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(rowAccessibilityLabel(for: entry))
                 }
-                .font(.subheadline)
-                .frame(minHeight: 38)
             }
         }
+        .font(.subheadline)
     }
 
     private var detailHeader: some View {
@@ -140,14 +172,20 @@ struct StudyMasterySpreadView: View {
         .accessibilityHidden(true)
     }
 
-    private func color(for level: StudyMasteryLevel) -> Color {
-        switch level {
-        case .apprentice: .pink
-        case .guru: .purple
-        case .master: .blue
-        case .enlightened: .orange
-        case .burned: .green
+    private func stageLabel(for entry: StudyMasterySpreadEntry) -> some View {
+        Label {
+            Text(entry.title)
+                .fontWeight(.semibold)
+        } icon: {
+            Circle()
+                .fill(MasteryReviewAnimation.color(for: entry.level))
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
         }
+    }
+
+    private func rowAccessibilityLabel(for entry: StudyMasterySpreadEntry) -> String {
+        "\(entry.title), \(entry.count) cards, \(entry.percentage) percent"
     }
 }
 
