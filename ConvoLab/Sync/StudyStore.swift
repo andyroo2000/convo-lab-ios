@@ -77,6 +77,7 @@ final class StudyStore {
     @ObservationIgnored private var studySettingsMutationRevision = 0
     @ObservationIgnored private var studySettingsRefreshID: UUID?
     @ObservationIgnored private var studySettingsUpdateID: UUID?
+    @ObservationIgnored private var overviewRefreshID: UUID?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
@@ -257,6 +258,7 @@ final class StudyStore {
         studySettingsMutationRevision += 1
         studySettingsRefreshID = nil
         studySettingsUpdateID = nil
+        overviewRefreshID = nil
         offlineDueActivationTimer?.invalidate()
         offlineDueActivationTimer = nil
         overviewSnapshotSaveTask?.cancel()
@@ -654,7 +656,11 @@ final class StudyStore {
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
-        setOverview(StudySettingsPolicy.applying(resolvedSettings, to: session.overview))
+        setOverview(StudySettingsPolicy.applying(
+            resolvedSettings,
+            to: session.overview,
+            preservingJLPTMasteryFrom: overview
+        ))
         studySettings = resolvedSettings
         studySurfaceRevision += 1
         cards = activeCards
@@ -678,18 +684,22 @@ final class StudyStore {
     func refreshOverview() async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
+        let refreshID = UUID()
+        overviewRefreshID = refreshID
         isRefreshingOverview = true
         overviewRefreshErrorMessage = nil
 
         defer {
-            if isCurrentActivation(userID, generation: activationGeneration) {
+            if isCurrentActivation(userID, generation: activationGeneration),
+               overviewRefreshID == refreshID {
                 isRefreshingOverview = false
             }
         }
 
         do {
             let refreshed: StudyOverview = try await api.request("/api/study/overview")
-            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  overviewRefreshID == refreshID else { return }
             let resolvedSettings = StudySettingsPolicy.settings(
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
@@ -697,7 +707,8 @@ final class StudyStore {
             setOverview(StudySettingsPolicy.applying(resolvedSettings, to: refreshed))
             studySettings = resolvedSettings
         } catch {
-            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  overviewRefreshID == refreshID else { return }
             overviewRefreshErrorMessage = error.localizedDescription
         }
     }
@@ -725,7 +736,11 @@ final class StudyStore {
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget()
         )
-        setOverview(StudySettingsPolicy.applying(resolvedSettings, to: session.overview))
+        setOverview(StudySettingsPolicy.applying(
+            resolvedSettings,
+            to: session.overview,
+            preservingJLPTMasteryFrom: overview
+        ))
         studySettings = resolvedSettings
         studySurfaceRevision += 1
         cards = lessonCards
@@ -1333,7 +1348,10 @@ final class StudyStore {
             undoingPresentedLesson: undoingPresentedLesson
         )
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
-        setOverview(response.overview.updatingReviewTimeBudget(to: reviewTimeBudgetMinutes))
+        setOverview(response.overview.updatingReviewTimeBudget(
+            to: reviewTimeBudgetMinutes,
+            fallbackJLPTMastery: overview?.jlptMastery
+        ))
         apply(try reviewOutbox.pendingState())
         restoreSessionFailure(
             for: restoredCard.id,

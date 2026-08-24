@@ -144,6 +144,19 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(updatedReadiness.reviewTimeBudgetMinutes, 45)
         XCTAssertEqual(updatedReadiness.projectedDailyReviewMinutes, 58)
         XCTAssertEqual(updatedReadiness.reviewTimeHeadroomMinutes, -13)
+
+        let narrowOverview = StudyOverview(
+            dueCount: 8,
+            newCount: 4,
+            reviewCount: 6,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: 4
+        ).updatingReviewTimeBudget(
+            to: 45,
+            fallbackJLPTMastery: overview.jlptMastery
+        )
+        XCTAssertEqual(narrowOverview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(narrowOverview.jlptMastery?.n5.grammar.masteryPercent, 21)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {

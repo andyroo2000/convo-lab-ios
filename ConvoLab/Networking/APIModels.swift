@@ -397,7 +397,10 @@ struct StudyOverview: nonisolated Codable, Sendable {
         try container.encodeIfPresent(learningReadiness, forKey: .learningReadiness)
     }
 
-    func updatingReviewTimeBudget(to budgetMinutes: Int) -> Self {
+    func updatingReviewTimeBudget(
+        to budgetMinutes: Int,
+        fallbackJLPTMastery: StudyJLPTMastery? = nil
+    ) -> Self {
         Self(
             dueCount: dueCount,
             newCount: newCount,
@@ -410,7 +413,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
             lessonBatchSize: lessonBatchSize,
             reviewTimeBudgetMinutes: budgetMinutes,
             masterySpread: masterySpread,
-            jlptMastery: jlptMastery,
+            jlptMastery: jlptMastery ?? fallbackJLPTMastery,
             learningReadiness: learningReadiness?.updatingReviewTimeBudget(to: budgetMinutes)
         )
     }
