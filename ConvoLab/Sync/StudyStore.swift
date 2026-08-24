@@ -704,7 +704,11 @@ final class StudyStore {
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
             )
-            setOverview(StudySettingsPolicy.applying(resolvedSettings, to: refreshed))
+            setOverview(StudySettingsPolicy.applying(
+                resolvedSettings,
+                to: refreshed,
+                preservingJLPTMasteryFrom: overview
+            ))
             studySettings = resolvedSettings
         } catch {
             guard isCurrentActivation(userID, generation: activationGeneration),

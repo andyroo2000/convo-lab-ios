@@ -4948,6 +4948,66 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewRefreshPreservesMasteryWhenResponseOmitsIt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(LocalStudyOverviewSnapshot(
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(StudyOverview(
+                dueCount: 1,
+                newCount: 0,
+                reviewCount: 1,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                jlptMastery: StudyJLPTMastery(
+                    n5: StudyJLPTLevelMastery(
+                        vocabulary: StudyJLPTMasteryMetric(
+                            masteryPercent: 8,
+                            covered: 83,
+                            total: 684
+                        ),
+                        grammar: StudyJLPTMasteryMetric(
+                            masteryPercent: 46,
+                            covered: 36,
+                            total: 77
+                        )
+                    )
+                )
+            ))
+        ))
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"dueCount":2,"newCount":0,"reviewCount":2,"newCardsPerDay":20}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshOverview()
+
+        XCTAssertEqual(store.overview?.dueCount, 2)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.masteryPercent, 8)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.masteryPercent, 46)
+    }
+
+    @MainActor
     func testSessionRefreshPreservesBudgetAndMasteryWhenResponseFieldsAreAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         container.mainContext.insert(LocalStudyOverviewSnapshot(
