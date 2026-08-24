@@ -767,11 +767,10 @@ private struct JLPTMasteryMetricRow: View {
         .accessibilityLabel("N5 \(title) mastery")
         .accessibilityValue(
             "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, "
-                + "\(matchedCount) matched in your cards"
+                + "\(matchedCount) of \(metric.total) matched in your cards"
         )
     }
 }
-
 
 private struct StudyRhythmChart: View {
     let analytics: StudyTimeAnalyticsRange
