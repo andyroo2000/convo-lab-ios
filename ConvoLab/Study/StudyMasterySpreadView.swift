@@ -109,7 +109,7 @@ struct StudyMasterySpreadView: View {
                 ForEach(entries) { entry in
                     ZStack {
                         MasteryReviewAnimation.color(for: entry.level)
-                        if entry.percentage >= 12 {
+                        if !dynamicTypeSize.isAccessibilitySize, entry.percentage >= 12 {
                             Text("\(entry.percentage)%")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.white)
@@ -125,11 +125,7 @@ struct StudyMasterySpreadView: View {
         .clipShape(.rect(cornerRadius: 8))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Item spread")
-        .accessibilityValue(
-            entries
-                .map { "\($0.title) \($0.percentage) percent" }
-                .joined(separator: ", ")
-        )
+        .accessibilityValue(distributionAccessibilityValue)
     }
 
     private var details: some View {
@@ -202,6 +198,15 @@ struct StudyMasterySpreadView: View {
 
     private func rowAccessibilityLabel(for entry: StudyMasterySpreadEntry) -> String {
         "\(entry.title), \(entry.count) cards, \(entry.percentage) percent"
+    }
+
+    private var distributionAccessibilityValue: String {
+        let populatedEntries = entries.filter { $0.count > 0 }
+        guard !populatedEntries.isEmpty else { return "No cards" }
+
+        return populatedEntries
+            .map { "\($0.title) \($0.percentage) percent" }
+            .joined(separator: ", ")
     }
 }
 
