@@ -63,7 +63,8 @@ enum StudySettingsPolicy {
 
     static func applying(
         _ settings: StudySettings,
-        to overview: StudyOverview
+        to overview: StudyOverview,
+        preservingJLPTMasteryFrom currentOverview: StudyOverview? = nil
     ) -> StudyOverview {
         StudyOverview(
             dueCount: overview.dueCount,
@@ -77,6 +78,7 @@ enum StudySettingsPolicy {
             lessonBatchSize: settings.lessonBatchSize,
             reviewTimeBudgetMinutes: settings.reviewTimeBudgetMinutes,
             masterySpread: overview.masterySpread,
+            jlptMastery: overview.jlptMastery ?? currentOverview?.jlptMastery,
             learningReadiness: overview.learningReadiness?
                 .updatingReviewTimeBudget(to: settings.reviewTimeBudgetMinutes)
         )

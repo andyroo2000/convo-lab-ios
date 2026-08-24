@@ -146,7 +146,7 @@ private struct MainTabView: View {
                 DailyAudioView(store: model.dailyAudio, player: model.audioPlayer)
             }
             Tab("Time", systemImage: "clock.fill", value: MainTab.time) {
-                StudyTimeView(store: model.studyTime)
+                StudyTimeView(store: model.studyTime, studyStore: model.study)
             }
             Tab("Settings", systemImage: "gearshape.fill", value: MainTab.settings) {
                 SettingsView(model: model, user: user)

@@ -94,6 +94,12 @@ final class StudySessionCountsTests: XCTestCase {
                     "enlightened": 1,
                     "burned": 5
                   },
+                  "jlptMastery": {
+                    "N5": {
+                      "vocabulary": {"masteryPercent": 34, "covered": 280, "total": 684},
+                      "grammar": {"masteryPercent": 21, "covered": 29, "total": 77}
+                    }
+                  },
                   "learningReadiness": {
                     "recommendation": "caution",
                     "readinessLevel": "ease_up",
@@ -120,6 +126,12 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.totalCards, 42)
         XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.covered, 280)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.total, 684)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.masteryPercent, 21)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.covered, 29)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.total, 77)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")
         XCTAssertEqual(overview.learningReadiness?.projectedDailyReviewMinutes, 58)
@@ -132,6 +144,19 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(updatedReadiness.reviewTimeBudgetMinutes, 45)
         XCTAssertEqual(updatedReadiness.projectedDailyReviewMinutes, 58)
         XCTAssertEqual(updatedReadiness.reviewTimeHeadroomMinutes, -13)
+
+        let narrowOverview = StudyOverview(
+            dueCount: 8,
+            newCount: 4,
+            reviewCount: 6,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: 4
+        ).updatingReviewTimeBudget(
+            to: 45,
+            fallbackJLPTMastery: overview.jlptMastery
+        )
+        XCTAssertEqual(narrowOverview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(narrowOverview.jlptMastery?.n5.grammar.masteryPercent, 21)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {
