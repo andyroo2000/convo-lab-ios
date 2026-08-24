@@ -1,0 +1,78 @@
+concept_id,jlpt_level,pattern,meaning,source,source_id,review_status
+n5-grammar-desu-polite-copula,N5,Noun + です,is / am / are (polite copula),Japanese Language Data,desu-polite-copula,draft
+n5-grammar-da-plain-copula,N5,Noun + だ,is / am / are (plain copula),Japanese Language Data,da-plain-copula,draft
+n5-grammar-deshita-past-polite-copula,N5,Noun + でした,was / were (polite past copula),Japanese Language Data,deshita-past-polite-copula,draft
+n5-grammar-dewa-arimasen-negative-polite-copula,N5,Noun + ではありません,is not / am not / are not (polite negative copula),Japanese Language Data,dewa-arimasen-negative-polite-copula,draft
+n5-grammar-masu-polite-verb,N5,Verb stem + ます,polite non-past verb ending,Japanese Language Data,masu-polite-verb,draft
+n5-grammar-mashita-polite-past-verb,N5,Verb stem + ました,polite past verb ending,Japanese Language Data,mashita-polite-past-verb,draft
+n5-grammar-masen-polite-negative-verb,N5,Verb stem + ません,polite non-past negative verb ending,Japanese Language Data,masen-polite-negative-verb,draft
+n5-grammar-masendeshita-polite-past-negative-verb,N5,Verb stem + ませんでした,polite past negative verb ending,Japanese Language Data,masendeshita-polite-past-negative-verb,draft
+n5-grammar-particle-wa-topic,N5,X + は,marks the topic of a sentence (pronounced 'wa'),Japanese Language Data,particle-wa-topic,draft
+n5-grammar-particle-ga-subject,N5,X + が,marks the grammatical subject; introduces new information,Japanese Language Data,particle-ga-subject,draft
+n5-grammar-particle-o-object,N5,X + を,marks the direct object of a transitive verb,Japanese Language Data,particle-o-object,draft
+n5-grammar-particle-ni-target,N5,X + に,"marks target, destination, location of existence, or time",Japanese Language Data,particle-ni-target,draft
+n5-grammar-particle-de-means,N5,X + で,"marks the means, tool, or location of an action",Japanese Language Data,particle-de-means,draft
+n5-grammar-particle-to-and-with,N5,X と Y,and (exhaustive listing); with (accompanying person/thing),Japanese Language Data,particle-to-and-with,draft
+n5-grammar-particle-no-possession,N5,X + の + Y,marks possession; modifies a noun with another noun,Japanese Language Data,particle-no-possession,draft
+n5-grammar-particle-e-direction,N5,X + へ,marks direction of movement (pronounced 'e'),Japanese Language Data,particle-e-direction,draft
+n5-grammar-particle-kara-from,N5,X + から,marks the starting point: from (place/time),Japanese Language Data,particle-kara-from,draft
+n5-grammar-particle-made-until,N5,X + まで,marks the endpoint: until / as far as,Japanese Language Data,particle-made-until,draft
+n5-grammar-particle-mo-also,N5,X + も,also / too / as well,Japanese Language Data,particle-mo-also,draft
+n5-grammar-particle-ka-question,N5,Sentence + か,marks a sentence as a question,Japanese Language Data,particle-ka-question,draft
+n5-grammar-particle-ne-seeking-agreement,N5,Sentence + ね,right? / isn't it? (seeking agreement or confirming shared knowledge),Japanese Language Data,particle-ne-seeking-agreement,draft
+n5-grammar-particle-yo-emphasis,N5,Sentence + よ,I'm telling you / emphasis; informs the listener of new information,Japanese Language Data,particle-yo-emphasis,draft
+n5-grammar-kore-sore-are-demonstratives,N5,これ / それ / あれ / どれ,this / that / that over there / which (pronominal demonstratives),Japanese Language Data,kore-sore-are-demonstratives,draft
+n5-grammar-kono-sono-ano-dono-attributive,N5,この / その / あの / どの + Noun,this / that / that ___ over there / which ___ (attributive demonstratives),Japanese Language Data,kono-sono-ano-dono-attributive,draft
+n5-grammar-koko-soko-asoko-doko,N5,ここ / そこ / あそこ / どこ,here / there / over there / where (place demonstratives),Japanese Language Data,koko-soko-asoko-doko,draft
+n5-grammar-arimasu-existence-inanimate,N5,Place に Noun が あります,there is / exists (for inanimate things),Japanese Language Data,arimasu-existence-inanimate,draft
+n5-grammar-imasu-existence-animate,N5,Place に Animate が います,there is / exists (for animate beings: people and animals),Japanese Language Data,imasu-existence-animate,draft
+n5-grammar-te-form-basic,N5,Verb-て,connecting form (basis for many compound constructions),Japanese Language Data,te-form-basic,draft
+n5-grammar-te-kudasai-request,N5,Verb-て + ください,please do (polite request),Japanese Language Data,te-kudasai-request,draft
+n5-grammar-te-imasu-progressive,N5,Verb-て + います,be doing (progressive); be in the state of having done (resultant state),Japanese Language Data,te-imasu-progressive,draft
+n5-grammar-nai-form,N5,Verb-ない,plain (casual) negative verb form,Japanese Language Data,nai-form,draft
+n5-grammar-ta-form,N5,Verb-た,plain (casual) past verb form,Japanese Language Data,ta-form,draft
+n5-grammar-i-adjective-nonpast,N5,い-adjective + (です),い-adjective non-past (affirmative),Japanese Language Data,i-adjective-nonpast,draft
+n5-grammar-i-adjective-negative,N5,い-adjective stem + くない / くありません,い-adjective negative (is not ___),Japanese Language Data,i-adjective-negative,draft
+n5-grammar-i-adjective-past,N5,い-adjective stem + かった(です),い-adjective past (was ___),Japanese Language Data,i-adjective-past,draft
+n5-grammar-na-adjective-nonpast,N5,な-adjective + です / だ,な-adjective non-past,Japanese Language Data,na-adjective-nonpast,draft
+n5-grammar-na-adjective-attributive,N5,な-adjective + な + Noun,な-adjective modifying a noun directly,Japanese Language Data,na-adjective-attributive,draft
+n5-grammar-na-adjective-negative,N5,な-adjective + ではありません / じゃない,な-adjective negative,Japanese Language Data,na-adjective-negative,draft
+n5-grammar-na-adjective-past,N5,な-adjective + でした / だった,な-adjective past,Japanese Language Data,na-adjective-past,draft
+n5-grammar-mashou-volitional,N5,Verb stem + ましょう,let's ___ (polite volitional),Japanese Language Data,mashou-volitional,draft
+n5-grammar-mashou-ka-invitation,N5,Verb stem + ましょうか,shall we ___? (invitation); shall I ___? (offer),Japanese Language Data,mashou-ka-invitation,draft
+n5-grammar-tai-desire,N5,Verb stem + たい,want to ___ (speaker's own desire),Japanese Language Data,tai-desire,draft
+n5-grammar-ga-hoshii-wanting-thing,N5,Noun + が + ほしい(です),want (a thing) — for the speaker's own desire,Japanese Language Data,ga-hoshii-wanting-thing,draft
+n5-grammar-hou-ga-comparative,N5,A のほうが B より + adjective,A is more ___ than B (comparative),Japanese Language Data,hou-ga-comparative,draft
+n5-grammar-ichiban-superlative,N5,一番 + adjective,the most / the best (superlative),Japanese Language Data,ichiban-superlative,draft
+n5-grammar-counter-tsu,N5,Number + つ,"general-purpose counter for small things (one, two, three…)",Japanese Language Data,counter-tsu,draft
+n5-grammar-counter-people-nin,N5,Number + 人 (にん),counter for people,Japanese Language Data,counter-people-nin,draft
+n5-grammar-question-words-basic,N5,何 / 誰 / どこ / いつ / どう / どうして,basic interrogatives: what / who / where / when / how / why,Japanese Language Data,question-words-basic,draft
+n5-grammar-nai-de-kudasai,N5,Verb-ない + でください,please do not ___ (polite negative request),Japanese Language Data,nai-de-kudasai,draft
+n5-grammar-particle-ya-non-exhaustive,N5,X や Y (など),X and Y (and so on) — non-exhaustive listing,Japanese Language Data,particle-ya-non-exhaustive,draft
+n5-grammar-masenka-invitation,N5,Verb stem + ませんか,won't you...? / would you like to...? (invitation),Japanese Language Data,masenka-invitation,draft
+n5-grammar-mou-ta-already,N5,もう + Verb-た / ました,already did,Japanese Language Data,mou-ta-already,draft
+n5-grammar-mada-not-yet,N5,まだ + Verb-ていない / まだ + Verb-ている,not yet / still,Japanese Language Data,mada-not-yet,draft
+n5-grammar-toki-ni-when-basic,N5,V plain / i-adj / na-adj な / noun の + とき(に),when / at the time of,Japanese Language Data,toki-ni-when-basic,draft
+n5-grammar-issho-ni-together,N5,Noun + と + 一緒に,together with,Japanese Language Data,issho-ni-together,draft
+n5-grammar-dake-only-basic,N5,Noun (or number + counter) + だけ,only / just (basic noun restriction),Japanese Language Data,dake-only-basic,draft
+n5-grammar-i-adj-adverbial-ku,N5,i-adjective stem + く (+ verb),adverbial form of i-adjectives,Japanese Language Data,i-adj-adverbial-ku,draft
+n5-grammar-na-adj-adverbial-ni,N5,na-adjective root + に (+ verb),adverbial form of na-adjectives,Japanese Language Data,na-adj-adverbial-ni,draft
+n5-grammar-i-adj-te-joining-kute,N5,i-adjective stem + くて,te-form of i-adjectives (joining / causal),Japanese Language Data,i-adj-te-joining-kute,draft
+n5-grammar-na-adj-te-joining-de,N5,na-adjective / noun + で,te-form of na-adjectives and nouns (joining / causal),Japanese Language Data,na-adj-te-joining-de,draft
+n5-grammar-mo-mo-both,N5,Noun + も + Noun + も,both X and Y / neither X nor Y,Japanese Language Data,mo-mo-both,draft
+n5-grammar-to-exhaustive-listing,N5,Noun + と + Noun,X and Y (exhaustive listing of nouns),Japanese Language Data,to-exhaustive-listing,draft
+n5-grammar-location-nouns-ue-shita,N5,Noun + の + 上/下/中/前/後ろ/横/隣/間 + (に/で/へ),"location relative to a reference (above, below, inside, in front, behind, next to)",Japanese Language Data,location-nouns-ue-shita,draft
+n5-grammar-ikutsu-how-many,N5,いくつ (+ optional counter-specific form),how many / how old,Japanese Language Data,ikutsu-how-many,draft
+n5-grammar-ikura-how-much,N5,いくら,how much (price / quantity),Japanese Language Data,ikura-how-much,draft
+n5-grammar-nanji-what-time,N5,何時 (+ optional 〜分),what time / when (specific clock time),Japanese Language Data,nanji-what-time,draft
+n5-grammar-nanyoubi-day-of-week,N5,何曜日 / 曜日,what day of the week / days of the week,Japanese Language Data,nanyoubi-day-of-week,draft
+n5-grammar-counter-ji-oclock,N5,Number + 時,o'clock (hour counter),Japanese Language Data,counter-ji-oclock,draft
+n5-grammar-counter-fun-minute,N5,Number + 分,minute (time / duration counter),Japanese Language Data,counter-fun-minute,draft
+n5-grammar-counter-sai-age,N5,Number + 歳 / 才,year of age (age counter),Japanese Language Data,counter-sai-age,draft
+n5-grammar-counter-en-money,N5,Number + 円,yen (Japanese currency counter),Japanese Language Data,counter-en-money,draft
+n5-grammar-counter-hon-long,N5,Number + 本,"counter for long, thin objects",Japanese Language Data,counter-hon-long,draft
+n5-grammar-counter-mai-flat,N5,Number + 枚,"counter for flat, thin objects",Japanese Language Data,counter-mai-flat,draft
+n5-grammar-mai-every-prefix,N5,毎 + time noun,every / each (time period),Japanese Language Data,mai-every-prefix,draft
+n5-grammar-jikan-time-duration,N5,Number + 時間,hour (duration counter),Japanese Language Data,jikan-time-duration,draft
+n5-grammar-i-adj-desu-politeness,N5,i-adjective + です,polite ending for i-adjective predicates,Japanese Language Data,i-adj-desu-politeness,draft
+n5-grammar-kara-cause,N5,Plain or polite form + から,because / since ___,Japanese Language Data,kara-cause,draft

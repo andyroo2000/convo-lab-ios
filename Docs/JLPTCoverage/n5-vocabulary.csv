@@ -1,0 +1,685 @@
+concept_id,jlpt_level,expression,reading,meaning,source,source_id,review_status
+n5-vocab-1198180-ada066ed,N5,会う,あう,to meet,Jonathan Waller JLPT vocabulary list,1198180,seed
+n5-vocab-1381380-ebec6584,N5,青,あお,blue,Jonathan Waller JLPT vocabulary list,1381380,seed
+n5-vocab-1381390-51a671ec,N5,青い,あおい,blue,Jonathan Waller JLPT vocabulary list,1381390,seed
+n5-vocab-2013900-2dacb910,N5,赤,あか,red,Jonathan Waller JLPT vocabulary list,2013900,seed
+n5-vocab-1383240-44ba38cf,N5,赤い,あかい,red,Jonathan Waller JLPT vocabulary list,1383240,seed
+n5-vocab-1532350-7a0f4c14,N5,明い,あかるい,bright,Jonathan Waller JLPT vocabulary list,1532350,seed
+n5-vocab-1332650-8dc7006b,N5,秋,あき,autumn,Jonathan Waller JLPT vocabulary list,1332650,seed
+n5-vocab-1586270-fc3bc1e6,N5,開く,あく,"to open, to become open",Jonathan Waller JLPT vocabulary list,1586270,seed
+n5-vocab-1202450-321963ed,N5,開ける,あける,to open,Jonathan Waller JLPT vocabulary list,1202450,seed
+n5-vocab-1352320-9661cbac,N5,上げる,あげる,to give,Jonathan Waller JLPT vocabulary list,1352320,seed
+n5-vocab-1428280-d46ae79a,N5,朝,あさ,morning,Jonathan Waller JLPT vocabulary list,1428280,seed
+n5-vocab-1586330-3e253822,N5,朝御飯,あさごはん,breakfast,Jonathan Waller JLPT vocabulary list,1586330,seed
+n5-vocab-1584640-b3b4041c,N5,あさって,あさって,day after tomorrow,Jonathan Waller JLPT vocabulary list,1584640,seed
+n5-vocab-1404630-27df3d58,N5,足,あし,"foot, leg",Jonathan Waller JLPT vocabulary list,1404630,seed
+n5-vocab-1584660-115ec834,N5,明日,あした,tomorrow,Jonathan Waller JLPT vocabulary list,1584660,seed
+n5-vocab-1000320-bee501fa,N5,あそこ,あそこ,over there,Jonathan Waller JLPT vocabulary list,1000320,seed
+n5-vocab-1542160-2d555713,N5,遊ぶ,あそぶ,"to play, to make a visit",Jonathan Waller JLPT vocabulary list,1542160,seed
+n5-vocab-1586420-f665c212,N5,暖かい,あたたかい,warm,Jonathan Waller JLPT vocabulary list,1586420,seed
+n5-vocab-1582310-b62cb9ce,N5,頭,あたま,head,Jonathan Waller JLPT vocabulary list,1582310,seed
+n5-vocab-1361490-8ae27e3b,N5,新しい,あたらしい,new,Jonathan Waller JLPT vocabulary list,1361490,seed
+n5-vocab-1483185-34e6f7d2,N5,あちら,あちら,there,Jonathan Waller JLPT vocabulary list,1483185,seed
+n5-vocab-1343460-7b4aecdf,N5,暑い,あつい,hot,Jonathan Waller JLPT vocabulary list,1343460,seed
+n5-vocab-1467720-a379d413,N5,熱い,あつい,hot to the touch,Jonathan Waller JLPT vocabulary list,1467720,seed
+n5-vocab-1275320-9949d874,N5,厚い,あつい,"kind, deep, thick",Jonathan Waller JLPT vocabulary list,1275320,seed
+n5-vocab-1483185-60dd6337,N5,あっち,あっち,over there,Jonathan Waller JLPT vocabulary list,1483185,seed
+n5-vocab-1269320-4f134c9b,N5,後,あと,afterwards,Jonathan Waller JLPT vocabulary list,1269320,seed
+n5-vocab-1223615-2494cd35,N5,貴方,あなた,you,Jonathan Waller JLPT vocabulary list,1223615,seed
+n5-vocab-1249900-4aab6998,N5,兄,あに,(humble) older brother,Jonathan Waller JLPT vocabulary list,1249900,seed
+n5-vocab-1307630-8bfeb208,N5,姉,あね,(humble) older sister,Jonathan Waller JLPT vocabulary list,1307630,seed
+n5-vocab-1000430-ac470606,N5,あの,あの,um...,Jonathan Waller JLPT vocabulary list,1000430,seed
+n5-vocab-1017760-0cf05b3a,N5,アパート,アパート,apartment,Jonathan Waller JLPT vocabulary list,1017760,seed
+n5-vocab-1547450-a5aceb64,N5,あびる,あびる,"to bathe, to shower",Jonathan Waller JLPT vocabulary list,1547450,seed
+n5-vocab-1218380-0509cb3b,N5,危ない,あぶない,dangerous,Jonathan Waller JLPT vocabulary list,1218380,seed
+n5-vocab-1213400-4afffe58,N5,甘い,あまい,sweet,Jonathan Waller JLPT vocabulary list,1213400,seed
+n5-vocab-1584930-eac90e8e,N5,あまり,あまり,not very,Jonathan Waller JLPT vocabulary list,1584930,seed
+n5-vocab-1171900-277a58c9,N5,雨,あめ,rain,Jonathan Waller JLPT vocabulary list,1171900,seed
+n5-vocab-1153520-5d72771a,N5,飴,あめ,candy,Jonathan Waller JLPT vocabulary list,1153520,seed
+n5-vocab-1390930-f8fa9694,N5,洗う,あらう,to wash,Jonathan Waller JLPT vocabulary list,1390930,seed
+n5-vocab-1296400-4f205154,N5,有る,ある,"to be,to have (used for inanimate objects)",Jonathan Waller JLPT vocabulary list,1296400,seed
+n5-vocab-1514320-55f3080c,N5,歩く,あるく,to walk,Jonathan Waller JLPT vocabulary list,1514320,seed
+n5-vocab-2847612-d727a76b,N5,あれ,あれ,that,Jonathan Waller JLPT vocabulary list,2847612,seed
+n5-vocab-2820690-e37a087c,N5,いい,いい,good,Jonathan Waller JLPT vocabulary list,2820690,seed
+n5-vocab-1605820-d00cf273,N5,良い,よい,good,Jonathan Waller JLPT vocabulary list,1605820,seed
+n5-vocab-1583250-6d4596ae,N5,いいえ,いいえ,no,Jonathan Waller JLPT vocabulary list,1583250,seed
+n5-vocab-1587040-ae0cc00f,N5,言う,いう,to say,Jonathan Waller JLPT vocabulary list,1587040,seed
+n5-vocab-1191730-9f074820,N5,家,いえ,house,Jonathan Waller JLPT vocabulary list,1191730,seed
+n5-vocab-2845606-a3f296ad,N5,いかが,いかが,how,Jonathan Waller JLPT vocabulary list,2845606,seed
+n5-vocab-1578850-66e4692d,N5,行く,いく,to go,Jonathan Waller JLPT vocabulary list,1578850,seed
+n5-vocab-1219960-026ae57b,N5,いくつ,いくつ,"how many?,how old?",Jonathan Waller JLPT vocabulary list,1219960,seed
+n5-vocab-1219980-4fc98c69,N5,いくら,いくら,how much?,Jonathan Waller JLPT vocabulary list,1219980,seed
+n5-vocab-1421700-43c874a6,N5,池,いけ,pond,Jonathan Waller JLPT vocabulary list,1421700,seed
+n5-vocab-1159980-ca761625,N5,医者,いしゃ,medical doctor,Jonathan Waller JLPT vocabulary list,1159980,seed
+n5-vocab-1157070-d305fa14,N5,いす,いす,chair,Jonathan Waller JLPT vocabulary list,1157070,seed
+n5-vocab-1519290-cd1bcc2b,N5,忙しい,いそがしい,"busy, irritated",Jonathan Waller JLPT vocabulary list,1519290,seed
+n5-vocab-1432680-4dae3677,N5,痛い,いたい,painful,Jonathan Waller JLPT vocabulary list,1432680,seed
+n5-vocab-1160790-9d8f8627,N5,一,いち,one,Jonathan Waller JLPT vocabulary list,1160790,seed
+n5-vocab-1576260-1cfccd0c,N5,一日,いちにち,first of the month,Jonathan Waller JLPT vocabulary list,1576260,seed
+n5-vocab-1165970-cb96f363,N5,いちばん,いちばん,"best, first",Jonathan Waller JLPT vocabulary list,1165970,seed
+n5-vocab-1188760-9a8f6521,N5,何時,いつ,when,Jonathan Waller JLPT vocabulary list,1188760,seed
+n5-vocab-1268570-2a7c4baf,N5,五日,いつか,"five days, fifth day",Jonathan Waller JLPT vocabulary list,1268570,seed
+n5-vocab-1163400-2dc7289c,N5,一緒,いっしょ,together,Jonathan Waller JLPT vocabulary list,1163400,seed
+n5-vocab-1268070-9ac35c39,N5,五つ,いつつ,five,Jonathan Waller JLPT vocabulary list,1268070,seed
+n5-vocab-1188890-dea2a1df,N5,いつも,いつも,always,Jonathan Waller JLPT vocabulary list,1188890,seed
+n5-vocab-1258330-0df89f50,N5,犬,いぬ,dog,Jonathan Waller JLPT vocabulary list,1258330,seed
+n5-vocab-1288850-ce75c756,N5,今,いま,now,Jonathan Waller JLPT vocabulary list,1288850,seed
+n5-vocab-1156800-cb29ccdd,N5,意味,いみ,meaning,Jonathan Waller JLPT vocabulary list,1156800,seed
+n5-vocab-1524590-12047d01,N5,妹,いもうと,(humble) younger sister,Jonathan Waller JLPT vocabulary list,1524590,seed
+n5-vocab-1587610-eda751e0,N5,嫌,いや,unpleasant,Jonathan Waller JLPT vocabulary list,1587610,seed
+n5-vocab-1582820-1ff0529d,N5,入口,いりぐち,entrance,Jonathan Waller JLPT vocabulary list,1582820,seed
+n5-vocab-1577980-21675e5a,N5,居る,いる,"to be, to have (used for people and animals)",Jonathan Waller JLPT vocabulary list,1577980,seed
+n5-vocab-1546640-7a842087,N5,要る,いる,to need,Jonathan Waller JLPT vocabulary list,1546640,seed
+n5-vocab-1465610-6d824d51,N5,入れる,いれる,to put in,Jonathan Waller JLPT vocabulary list,1465610,seed
+n5-vocab-1357600-523266ea,N5,色,いろ,colour,Jonathan Waller JLPT vocabulary list,1357600,seed
+n5-vocab-1587850-f74dd1ee,N5,いろいろ,いろいろ,various,Jonathan Waller JLPT vocabulary list,1587850,seed
+n5-vocab-1352130-08a3ed21,N5,上,うえ,on top of,Jonathan Waller JLPT vocabulary list,1352130,seed
+n5-vocab-1269410-93bdc81d,N5,後ろ,うしろ,behind,Jonathan Waller JLPT vocabulary list,1269410,seed
+n5-vocab-1475480-d2b2316e,N5,薄い,うすい,"thin,weak",Jonathan Waller JLPT vocabulary list,1475480,seed
+n5-vocab-1193180-036f4180,N5,歌,うた,song,Jonathan Waller JLPT vocabulary list,1193180,seed
+n5-vocab-1588120-3464318c,N5,歌う,うたう,to sing,Jonathan Waller JLPT vocabulary list,1588120,seed
+n5-vocab-1378690-63bc7722,N5,生まれる,うまれる,to be born,Jonathan Waller JLPT vocabulary list,1378690,seed
+n5-vocab-1201190-06ac21dc,N5,海,うみ,sea,Jonathan Waller JLPT vocabulary list,1201190,seed
+n5-vocab-1473950-f7e1da43,N5,売る,うる,to sell,Jonathan Waller JLPT vocabulary list,1473950,seed
+n5-vocab-1481920-7ecfe0d2,N5,煩い,うるさい,"noisy, annoying",Jonathan Waller JLPT vocabulary list,1481920,seed
+n5-vocab-1580340-1ef8a05b,N5,上着,うわぎ,jacket,Jonathan Waller JLPT vocabulary list,1580340,seed
+n5-vocab-1202270-5bb390da,N5,絵,え,picture,Jonathan Waller JLPT vocabulary list,1202270,seed
+n5-vocab-1173720-92b16212,N5,映画,えいが,movie,Jonathan Waller JLPT vocabulary list,1173720,seed
+n5-vocab-1173750-8a88cfbc,N5,映画館,えいがかん,cinema,Jonathan Waller JLPT vocabulary list,1173750,seed
+n5-vocab-1174420-16adc7bd,N5,英語,えいご,English language,Jonathan Waller JLPT vocabulary list,1174420,seed
+n5-vocab-1001140-8ac60a40,N5,ええ,ええ,yes,Jonathan Waller JLPT vocabulary list,1001140,seed
+n5-vocab-1175140-d5f359c2,N5,駅,えき,station,Jonathan Waller JLPT vocabulary list,1175140,seed
+n5-vocab-1030630-eb1695ba,N5,エレベーター,エレベーター,elevator,Jonathan Waller JLPT vocabulary list,1030630,seed
+n5-vocab-1178590-381da4d0,N5,鉛筆,えんぴつ,pencil,Jonathan Waller JLPT vocabulary list,1178590,seed
+n5-vocab-1486650-7f02ae8f,N5,おいしい,おいしい,delicious,Jonathan Waller JLPT vocabulary list,1486650,seed
+n5-vocab-1407460-60813fff,N5,多い,おおい,many,Jonathan Waller JLPT vocabulary list,1407460,seed
+n5-vocab-1588880-8fa5a63f,N5,大きい,おおきい,big,Jonathan Waller JLPT vocabulary list,1588880,seed
+n5-vocab-1412890-3a2de0af,N5,大きな,おおきな,big,Jonathan Waller JLPT vocabulary list,1412890,seed
+n5-vocab-1414220-57ed89b2,N5,大勢,おおぜい,great number of people,Jonathan Waller JLPT vocabulary list,1414220,seed
+n5-vocab-1002650-20079477,N5,お母さん,おかあさん,(honorable) mother,Jonathan Waller JLPT vocabulary list,1002650,seed
+n5-vocab-1001710-669019c6,N5,お菓子,おかし,"sweets, candy",Jonathan Waller JLPT vocabulary list,1001710,seed
+n5-vocab-1001820-3e015d0a,N5,お金,おかね,money,Jonathan Waller JLPT vocabulary list,1001820,seed
+n5-vocab-1223640-248a353e,N5,起きる,おきる,to get up,Jonathan Waller JLPT vocabulary list,1223640,seed
+n5-vocab-1421850-96845304,N5,置く,おく,to put,Jonathan Waller JLPT vocabulary list,1421850,seed
+n5-vocab-1179330-6c4661d6,N5,奥さん,おくさん,(honorable) wife,Jonathan Waller JLPT vocabulary list,1179330,seed
+n5-vocab-1329015-f843b001,N5,お酒,おさけ,"alcohol, rice wine",Jonathan Waller JLPT vocabulary list,1329015,seed
+n5-vocab-1299685-101d46a0,N5,お皿,おさら,"plate, dish",Jonathan Waller JLPT vocabulary list,1299685,seed
+n5-vocab-1002320-786e95f0,N5,おじいさん,おじいさん,"grandfather, male senior citizen",Jonathan Waller JLPT vocabulary list,1002320,seed
+n5-vocab-1236900-f2fa049f,N5,教える,おしえる,"to teach, to tell",Jonathan Waller JLPT vocabulary list,1236900,seed
+n5-vocab-2261490-bc3f2c7a,N5,おじさん,おじさん,"uncle, middle aged gentleman",Jonathan Waller JLPT vocabulary list,2261490,seed
+n5-vocab-1180470-ce8facdf,N5,押す,おす,"to push, to stamp something",Jonathan Waller JLPT vocabulary list,1180470,seed
+n5-vocab-1421970-a082687f,N5,遅い,おそい,"late, slow",Jonathan Waller JLPT vocabulary list,1421970,seed
+n5-vocab-1002430-edca336b,N5,お茶,おちゃ,green tea,Jonathan Waller JLPT vocabulary list,1002430,seed
+n5-vocab-1002100-75a36b03,N5,お手洗い,おてあらい,bathroom,Jonathan Waller JLPT vocabulary list,1002100,seed
+n5-vocab-1002590-89807c7c,N5,お父さん,おとうさん,(honorable) father,Jonathan Waller JLPT vocabulary list,1002590,seed
+n5-vocab-1581930-db32745b,N5,弟,おとうと,younger brother,Jonathan Waller JLPT vocabulary list,1581930,seed
+n5-vocab-1419990-2fd7d45c,N5,男,おとこ,Man,Jonathan Waller JLPT vocabulary list,1419990,seed
+n5-vocab-1420010-6f664d3d,N5,男の子,おとこのこ,Boy,Jonathan Waller JLPT vocabulary list,1420010,seed
+n5-vocab-1576050-f0f38260,N5,一昨日,おととい,day before yesterday,Jonathan Waller JLPT vocabulary list,1576050,seed
+n5-vocab-1576060-b75778f0,N5,一昨年,おととし,year before last,Jonathan Waller JLPT vocabulary list,1576060,seed
+n5-vocab-1414170-6f5049e2,N5,大人,おとな,Adult,Jonathan Waller JLPT vocabulary list,1414170,seed
+n5-vocab-1002610-3707072a,N5,おなか,おなか,stomach,Jonathan Waller JLPT vocabulary list,1002610,seed
+n5-vocab-1451750-7c134ec8,N5,同じ,おなじ,same,Jonathan Waller JLPT vocabulary list,1451750,seed
+n5-vocab-1001830-c6f43a8c,N5,お兄さん,おにいさん,(honorable) older brother,Jonathan Waller JLPT vocabulary list,1001830,seed
+n5-vocab-1001990-af378a4c,N5,お姉さん,おねえさん,(honorable) older sister,Jonathan Waller JLPT vocabulary list,1001990,seed
+n5-vocab-1002330-12d94877,N5,おばあさん,おばあさん,"grandmother, female senior-citizen",Jonathan Waller JLPT vocabulary list,1002330,seed
+n5-vocab-2261500-03d7b157,N5,伯母さん,おばさん,Aunt,Jonathan Waller JLPT vocabulary list,2261500,seed
+n5-vocab-2220600-f3474850,N5,お風呂,おふろ,Bath,Jonathan Waller JLPT vocabulary list,2220600,seed
+n5-vocab-1513065-7a073616,N5,お弁当,おべんとう,boxed lunch,Jonathan Waller JLPT vocabulary list,1513065,seed
+n5-vocab-1206050-dad2d162,N5,覚える,おぼえる,to remember,Jonathan Waller JLPT vocabulary list,1206050,seed
+n5-vocab-1002120-ae5d1778,N5,おまわりさん,おまわりさん,friendly term for policeman,Jonathan Waller JLPT vocabulary list,1002120,seed
+n5-vocab-1335750-cdfb7768,N5,重い,おもい,Heavy,Jonathan Waller JLPT vocabulary list,1335750,seed
+n5-vocab-1533580-2568873e,N5,おもしろい,おもしろい,Interesting,Jonathan Waller JLPT vocabulary list,1533580,seed
+n5-vocab-1174340-3c5bb8f2,N5,泳ぐ,およぐ,to swim,Jonathan Waller JLPT vocabulary list,1174340,seed
+n5-vocab-1589500-ae004421,N5,降りる,おりる,"to get off, to descend",Jonathan Waller JLPT vocabulary list,1589500,seed
+n5-vocab-1589600-d7960dc7,N5,終る,おわる,to finish,Jonathan Waller JLPT vocabulary list,1589600,seed
+n5-vocab-1183720-cdea0172,N5,音楽,おんがく,Music,Jonathan Waller JLPT vocabulary list,1183720,seed
+n5-vocab-1344930-980a922a,N5,女,おんな,Woman,Jonathan Waller JLPT vocabulary list,1344930,seed
+n5-vocab-1344970-e6afab39,N5,女の子,おんなのこ,Girl,Jonathan Waller JLPT vocabulary list,1344970,seed
+n5-vocab-1203620-31a803c7,N5,外国,がいこく,foreign country,Jonathan Waller JLPT vocabulary list,1203620,seed
+n5-vocab-1203650-70f16781,N5,外国人,がいこくじん,Foreigner,Jonathan Waller JLPT vocabulary list,1203650,seed
+n5-vocab-1198550-2120ff50,N5,会社,かいしゃ,Company,Jonathan Waller JLPT vocabulary list,1198550,seed
+n5-vocab-1203090-7cb27c41,N5,階段,かいだん,Stairs,Jonathan Waller JLPT vocabulary list,1203090,seed
+n5-vocab-1589730-a771d4f9,N5,買い物,かいもの,Shopping,Jonathan Waller JLPT vocabulary list,1589730,seed
+n5-vocab-1473740-bdb125e5,N5,買う,かう,to buy,Jonathan Waller JLPT vocabulary list,1473740,seed
+n5-vocab-1512130-8ea4b03d,N5,返す,かえす,to return something,Jonathan Waller JLPT vocabulary list,1512130,seed
+n5-vocab-1221270-1d22f1d0,N5,帰る,かえる,to go back,Jonathan Waller JLPT vocabulary list,1221270,seed
+n5-vocab-1207590-e2435998,N5,掛かる,かかる,to take time or money,Jonathan Waller JLPT vocabulary list,1207590,seed
+n5-vocab-1260490-d2a1417d,N5,鍵,かぎ,Key,Jonathan Waller JLPT vocabulary list,1260490,seed
+n5-vocab-1343950-f7c7f35d,N5,書く,かく,to write,Jonathan Waller JLPT vocabulary list,1343950,seed
+n5-vocab-1206900-452102ad,N5,学生,がくせい,Student,Jonathan Waller JLPT vocabulary list,1206900,seed
+n5-vocab-1207610-d2fce179,N5,掛ける,かける,to call by phone,Jonathan Waller JLPT vocabulary list,1207610,seed
+n5-vocab-1301940-6f54881e,N5,傘,かさ,Umbrella,Jonathan Waller JLPT vocabulary list,1301940,seed
+n5-vocab-1411160-1122cac4,N5,貸す,かす,to lend,Jonathan Waller JLPT vocabulary list,1411160,seed
+n5-vocab-1499720-c1a28465,N5,風,かぜ,Wind,Jonathan Waller JLPT vocabulary list,1499720,seed
+n5-vocab-1583720-c9b5da4d,N5,風邪,かぜ,a cold,Jonathan Waller JLPT vocabulary list,1583720,seed
+n5-vocab-1192150-1c9db63b,N5,家族,かぞく,Family,Jonathan Waller JLPT vocabulary list,1192150,seed
+n5-vocab-1516925-e34295f3,N5,方,かた,"person, way of doing",Jonathan Waller JLPT vocabulary list,1516925,seed
+n5-vocab-1206730-dd8ac16b,N5,学校,がっこう,School,Jonathan Waller JLPT vocabulary list,1206730,seed
+n5-vocab-1037670-613c41bd,N5,カップ,カップ,Cup,Jonathan Waller JLPT vocabulary list,1037670,seed
+n5-vocab-1192280-66eeeb81,N5,家庭,かてい,Household,Jonathan Waller JLPT vocabulary list,1192280,seed
+n5-vocab-1206110-4092bfd9,N5,角,かど,a corner,Jonathan Waller JLPT vocabulary list,1206110,seed
+n5-vocab-1208910-95e187eb,N5,鞄,かばん,"bag, basket",Jonathan Waller JLPT vocabulary list,1208910,seed
+n5-vocab-1194870-749f78c9,N5,花瓶,かびん,a vase,Jonathan Waller JLPT vocabulary list,1194870,seed
+n5-vocab-1311530-cd08f9cd,N5,紙,かみ,paper,Jonathan Waller JLPT vocabulary list,1311530,seed
+n5-vocab-1038350-9d648d38,N5,カメラ,カメラ,camera,Jonathan Waller JLPT vocabulary list,1038350,seed
+n5-vocab-1194290-0dbf9ef8,N5,火曜日,かようび,Tuesday,Jonathan Waller JLPT vocabulary list,1194290,seed
+n5-vocab-1365850-d2546ac9,N5,辛い,からい,Spicy,Jonathan Waller JLPT vocabulary list,1365850,seed
+n5-vocab-1409140-a556e5ed,N5,体,からだ,Body,Jonathan Waller JLPT vocabulary list,1409140,seed
+n5-vocab-1323560-8cd440a1,N5,借りる,かりる,to borrow,Jonathan Waller JLPT vocabulary list,1323560,seed
+n5-vocab-1252560-a8b9eb42,N5,軽い,かるい,Light,Jonathan Waller JLPT vocabulary list,1252560,seed
+n5-vocab-1039140-9decc44f,N5,カレー,カレー,Curry,Jonathan Waller JLPT vocabulary list,1039140,seed
+n5-vocab-1039220-6382448b,N5,カレンダー,カレンダー,calendar,Jonathan Waller JLPT vocabulary list,1039220,seed
+n5-vocab-1390020-bcf12e00,N5,川,かわ,River,Jonathan Waller JLPT vocabulary list,1390020,seed
+n5-vocab-1390020-5c1b91aa,N5,河,かわ,River,Jonathan Waller JLPT vocabulary list,1390020,seed
+n5-vocab-1577200-bad3423a,N5,かわいい,かわいい,Cute,Jonathan Waller JLPT vocabulary list,1577200,seed
+n5-vocab-1213170-fdc787af,N5,漢字,かんじ,Chinese character,Jonathan Waller JLPT vocabulary list,1213170,seed
+n5-vocab-1534520-22836046,N5,木,き,"tree, wood",Jonathan Waller JLPT vocabulary list,1534520,seed
+n5-vocab-1576760-5d679a1a,N5,黄色,きいろ,yellow,Jonathan Waller JLPT vocabulary list,1576760,seed
+n5-vocab-1182030-0b36c8d6,N5,黄色い,きいろい,yellow,Jonathan Waller JLPT vocabulary list,1182030,seed
+n5-vocab-1350040-6030b502,N5,消える,きえる,to disappear,Jonathan Waller JLPT vocabulary list,1350040,seed
+n5-vocab-1591110-dc19a213,N5,聞く,きく,"to hear, to listen to, to ask",Jonathan Waller JLPT vocabulary list,1591110,seed
+n5-vocab-1520670-fa320a51,N5,北,きた,North,Jonathan Waller JLPT vocabulary list,1520670,seed
+n5-vocab-1042820-4fb1c0d7,N5,ギター,ギター,Guitar,Jonathan Waller JLPT vocabulary list,1042820,seed
+n5-vocab-1178940-7d1cf153,N5,汚い,きたない,Dirty,Jonathan Waller JLPT vocabulary list,1178940,seed
+n5-vocab-1226440-5620a00a,N5,喫茶店,きっさてん,coffee lounge,Jonathan Waller JLPT vocabulary list,1226440,seed
+n5-vocab-1385070-e101e41f,N5,切手,きって,postage stamp,Jonathan Waller JLPT vocabulary list,1385070,seed
+n5-vocab-1385170-4fee5be3,N5,切符,きっぷ,Ticket,Jonathan Waller JLPT vocabulary list,1385170,seed
+n5-vocab-1579260-a94a4be0,N5,昨日,きのう,Yesterday,Jonathan Waller JLPT vocabulary list,1579260,seed
+n5-vocab-1578150-8f81565a,N5,九,きゅう,Nine,Jonathan Waller JLPT vocabulary list,1578150,seed
+n5-vocab-1578150-571f0ee8,N5,九,く,Nine,Jonathan Waller JLPT vocabulary list,1578150,seed
+n5-vocab-1231580-b4faf372,N5,牛肉,ぎゅうにく,Beef,Jonathan Waller JLPT vocabulary list,1231580,seed
+n5-vocab-1231590-797ae8d5,N5,牛乳,ぎゅうにゅう,Milk,Jonathan Waller JLPT vocabulary list,1231590,seed
+n5-vocab-1579110-0400a204,N5,今日,きょう,Today,Jonathan Waller JLPT vocabulary list,1579110,seed
+n5-vocab-1237150-85eb9948,N5,教室,きょうしつ,Classroom,Jonathan Waller JLPT vocabulary list,1237150,seed
+n5-vocab-1249960-976c4f71,N5,兄弟,きょうだい,(humble) siblings,Jonathan Waller JLPT vocabulary list,1249960,seed
+n5-vocab-1231690-ec4e1dfc,N5,去年,きょねん,last year,Jonathan Waller JLPT vocabulary list,1231690,seed
+n5-vocab-1257240-d106dac0,N5,嫌い,きらい,Hate,Jonathan Waller JLPT vocabulary list,1257240,seed
+n5-vocab-1384830-cf23f5fb,N5,切る,きる,to cut,Jonathan Waller JLPT vocabulary list,1384830,seed
+n5-vocab-1423000-45fbcb86,N5,着る,きる,to put on from the shoulders down,Jonathan Waller JLPT vocabulary list,1423000,seed
+n5-vocab-1591900-43cd9825,N5,きれい,きれい,"pretty, clean",Jonathan Waller JLPT vocabulary list,1591900,seed
+n5-vocab-1042610-36016e0c,N5,キロ,キロ,Kilogram,Jonathan Waller JLPT vocabulary list,1042610,seed
+n5-vocab-1042620-ef88d638,N5,キログラム,キログラム,Kilogram,Jonathan Waller JLPT vocabulary list,1042620,seed
+n5-vocab-1042650-f00e7b67,N5,キロメートル,キロメートル,Kilometer,Jonathan Waller JLPT vocabulary list,1042650,seed
+n5-vocab-1243490-a59efa30,N5,銀行,ぎんこう,Bank,Jonathan Waller JLPT vocabulary list,1243490,seed
+n5-vocab-1243320-b00c4af0,N5,金曜日,きんようび,Friday,Jonathan Waller JLPT vocabulary list,1243320,seed
+n5-vocab-1538160-95ccaa32,N5,薬,くすり,medicine,Jonathan Waller JLPT vocabulary list,1538160,seed
+n5-vocab-1184270-a36841ba,N5,ください,ください,Please,Jonathan Waller JLPT vocabulary list,1184270,seed
+n5-vocab-1193060-6b454b89,N5,果物,くだもの,Fruit,Jonathan Waller JLPT vocabulary list,1193060,seed
+n5-vocab-1275640-a123a147,N5,口,くち,"mouth, opening",Jonathan Waller JLPT vocabulary list,1275640,seed
+n5-vocab-1246700-9dd0572f,N5,靴,くつ,Shoes,Jonathan Waller JLPT vocabulary list,1246700,seed
+n5-vocab-1246740-20a12789,N5,靴下,くつした,Socks,Jonathan Waller JLPT vocabulary list,1246740,seed
+n5-vocab-1592250-b55dd305,N5,国,くに,Country,Jonathan Waller JLPT vocabulary list,1592250,seed
+n5-vocab-1592340-eec0f939,N5,曇り,くもり,cloudy weather,Jonathan Waller JLPT vocabulary list,1592340,seed
+n5-vocab-1457560-c34fdb60,N5,曇る,くもる,"to become cloudy, to become dim",Jonathan Waller JLPT vocabulary list,1457560,seed
+n5-vocab-1154330-01a0587b,N5,暗い,くらい,Gloomy,Jonathan Waller JLPT vocabulary list,1154330,seed
+n5-vocab-1044070-72c04ce0,N5,クラス,クラス,Class,Jonathan Waller JLPT vocabulary list,1044070,seed
+n5-vocab-1046810-5538df2b,N5,グラム,グラム,Gram,Jonathan Waller JLPT vocabulary list,1046810,seed
+n5-vocab-1547720-2e2abd26,N5,来る,くる,to come,Jonathan Waller JLPT vocabulary list,1547720,seed
+n5-vocab-1323080-d6b85573,N5,車,くるま,"car, vehicle",Jonathan Waller JLPT vocabulary list,1323080,seed
+n5-vocab-1287410-3c32cfb0,N5,黒,くろ,Black,Jonathan Waller JLPT vocabulary list,1287410,seed
+n5-vocab-1287420-5e5300cf,N5,黒い,くろい,black,Jonathan Waller JLPT vocabulary list,1287420,seed
+n5-vocab-1252330-e1634cb3,N5,警官,けいかん,policeman,Jonathan Waller JLPT vocabulary list,1252330,seed
+n5-vocab-1579100-9c1d724a,N5,今朝,けさ,this morning,Jonathan Waller JLPT vocabulary list,1579100,seed
+n5-vocab-1350110-19f270c6,N5,消す,けす,"to erase, to turn off power",Jonathan Waller JLPT vocabulary list,1350110,seed
+n5-vocab-1254760-dd342507,N5,結構,けっこう,"splendid, enough",Jonathan Waller JLPT vocabulary list,1254760,seed
+n5-vocab-1254790-2eb252da,N5,結婚,けっこん,Marriage,Jonathan Waller JLPT vocabulary list,1254790,seed
+n5-vocab-1255890-04e80a2b,N5,月曜日,げつようび,Monday,Jonathan Waller JLPT vocabulary list,1255890,seed
+n5-vocab-1263400-2e1642b2,N5,玄関,げんかん,entry hall,Jonathan Waller JLPT vocabulary list,1263400,seed
+n5-vocab-1260720-442c4aa1,N5,元気,げんき,"health, vitality",Jonathan Waller JLPT vocabulary list,1260720,seed
+n5-vocab-1268060-47c1fdbe,N5,五,ご,Five,Jonathan Waller JLPT vocabulary list,1268060,seed
+n5-vocab-1273270-05cf5909,N5,公園,こうえん,Park,Jonathan Waller JLPT vocabulary list,1273270,seed
+n5-vocab-1592970-8699b8be,N5,交差点,こうさてん,intersection,Jonathan Waller JLPT vocabulary list,1592970,seed
+n5-vocab-1280770-1288e600,N5,紅茶,こうちゃ,black tea,Jonathan Waller JLPT vocabulary list,1280770,seed
+n5-vocab-1272500-402eb0d2,N5,交番,こうばん,police box,Jonathan Waller JLPT vocabulary list,1272500,seed
+n5-vocab-1380440-d890e456,N5,声,こえ,Voice,Jonathan Waller JLPT vocabulary list,1380440,seed
+n5-vocab-1049000-c552e79d,N5,コート,コート,"coat, tennis court",Jonathan Waller JLPT vocabulary list,1049000,seed
+n5-vocab-1049180-67126059,N5,コーヒー,コーヒー,Coffee,Jonathan Waller JLPT vocabulary list,1049180,seed
+n5-vocab-1288810-2056b6fa,N5,此処,ここ,Here,Jonathan Waller JLPT vocabulary list,1288810,seed
+n5-vocab-1268990-9a7c9622,N5,午後,ごご,afternoon,Jonathan Waller JLPT vocabulary list,1268990,seed
+n5-vocab-1243850-f114f6f4,N5,九日,ここのか,"nine days, ninth day",Jonathan Waller JLPT vocabulary list,1243850,seed
+n5-vocab-1243600-cff3c574,N5,九つ,ここのつ,Nine,Jonathan Waller JLPT vocabulary list,1243600,seed
+n5-vocab-1269060-c92dbe62,N5,午前,ごぜん,morning,Jonathan Waller JLPT vocabulary list,1269060,seed
+n5-vocab-1449540-d5d8c608,N5,答える,こたえる,to answer,Jonathan Waller JLPT vocabulary list,1449540,seed
+n5-vocab-1004500-e9e492c6,N5,こちら,こちら,this person or way,Jonathan Waller JLPT vocabulary list,1004500,seed
+n5-vocab-1004500-29cbc18f,N5,此方,こっち,this person or way,Jonathan Waller JLPT vocabulary list,1004500,seed
+n5-vocab-2846389-2da7034c,N5,コップ,コップ,a glass,Jonathan Waller JLPT vocabulary list,2846389,seed
+n5-vocab-1579130-0020b9ee,N5,今年,ことし,this year,Jonathan Waller JLPT vocabulary list,1579130,seed
+n5-vocab-1264540-491cfa69,N5,言葉,ことば,"word, language",Jonathan Waller JLPT vocabulary list,1264540,seed
+n5-vocab-1307850-1f4bb6e5,N5,子供,こども,Child,Jonathan Waller JLPT vocabulary list,1307850,seed
+n5-vocab-1582920-5068e204,N5,此の,この,This,Jonathan Waller JLPT vocabulary list,1582920,seed
+n5-vocab-1270590-a2694d25,N5,御飯,ごはん,"cooked rice, meal",Jonathan Waller JLPT vocabulary list,1270590,seed
+n5-vocab-1050590-4aef785a,N5,コピー,コピー,to copy,Jonathan Waller JLPT vocabulary list,1050590,seed
+n5-vocab-1289590-61994485,N5,困る,こまる,to be worried,Jonathan Waller JLPT vocabulary list,1289590,seed
+n5-vocab-2216120-6313cc9c,N5,これ,これ,This,Jonathan Waller JLPT vocabulary list,2216120,seed
+n5-vocab-1289100-37931736,N5,今月,こんげつ,this month,Jonathan Waller JLPT vocabulary list,1289100,seed
+n5-vocab-1289220-7a27eade,N5,今週,こんしゅう,this week,Jonathan Waller JLPT vocabulary list,1289220,seed
+n5-vocab-1004880-e1978f90,N5,こんな,こんな,Such,Jonathan Waller JLPT vocabulary list,1004880,seed
+n5-vocab-1289470-eb1c9a5d,N5,今晩,こんばん,this evening,Jonathan Waller JLPT vocabulary list,1289470,seed
+n5-vocab-1005110-7ba7ba24,N5,さあ,さあ,well…,Jonathan Waller JLPT vocabulary list,1005110,seed
+n5-vocab-1296970-a96e3a2b,N5,財布,さいふ,Wallet,Jonathan Waller JLPT vocabulary list,1296970,seed
+n5-vocab-1578010-dbd7cd31,N5,魚,さかな,Fish,Jonathan Waller JLPT vocabulary list,1578010,seed
+n5-vocab-1387210-20fcc4f5,N5,先,さき,"the future, previous",Jonathan Waller JLPT vocabulary list,1387210,seed
+n5-vocab-1297210-4c39babf,N5,咲く,さく,to bloom,Jonathan Waller JLPT vocabulary list,1297210,seed
+n5-vocab-1297960-c10cb307,N5,作文,さくぶん,"composition, writing",Jonathan Waller JLPT vocabulary list,1297960,seed
+n5-vocab-1291330-4e2aefb8,N5,差す,さす,"to stretch out hands, to raise an umbrella",Jonathan Waller JLPT vocabulary list,1291330,seed
+n5-vocab-1299400-a371cc6a,N5,雑誌,ざっし,Magazine,Jonathan Waller JLPT vocabulary list,1299400,seed
+n5-vocab-1291600-8af5030b,N5,砂糖,さとう,Sugar,Jonathan Waller JLPT vocabulary list,1291600,seed
+n5-vocab-1210360-688bc670,N5,寒い,さむい,Cold,Jonathan Waller JLPT vocabulary list,1210360,seed
+n5-vocab-1293660-65485b35,N5,さ来年,さらいねん,year after next,Jonathan Waller JLPT vocabulary list,1293660,seed
+n5-vocab-1579350-5cb07674,N5,三,さん,Three,Jonathan Waller JLPT vocabulary list,1579350,seed
+n5-vocab-1303620-e2695084,N5,散歩,さんぽ,to stroll,Jonathan Waller JLPT vocabulary list,1303620,seed
+n5-vocab-1579470-da4b805e,N5,四,し,Four,Jonathan Waller JLPT vocabulary list,1579470,seed
+n5-vocab-1579470-b89b9da2,N5,四,よん,Four,Jonathan Waller JLPT vocabulary list,1579470,seed
+n5-vocab-1576630-b366a3d6,N5,塩,しお,Salt,Jonathan Waller JLPT vocabulary list,1576630,seed
+n5-vocab-1505990-2160e277,N5,然し,しかし,However,Jonathan Waller JLPT vocabulary list,1505990,seed
+n5-vocab-1315920-d5c916ca,N5,時間,じかん,Time,Jonathan Waller JLPT vocabulary list,1315920,seed
+n5-vocab-1304970-573bc15b,N5,仕事,しごと,Job,Jonathan Waller JLPT vocabulary list,1304970,seed
+n5-vocab-1318970-8ec35978,N5,辞書,じしょ,Dictionary,Jonathan Waller JLPT vocabulary list,1318970,seed
+n5-vocab-1381820-178469ba,N5,静か,しずか,Quiet,Jonathan Waller JLPT vocabulary list,1381820,seed
+n5-vocab-1184140-dd36cae3,N5,下,した,Below,Jonathan Waller JLPT vocabulary list,1184140,seed
+n5-vocab-1319210-988db986,N5,七,しち,Seven,Jonathan Waller JLPT vocabulary list,1319210,seed
+n5-vocab-1319210-b1bc1e44,N5,七,なな,Seven,Jonathan Waller JLPT vocabulary list,1319210,seed
+n5-vocab-1320760-2c5c9997,N5,質問,しつもん,Question,Jonathan Waller JLPT vocabulary list,1320760,seed
+n5-vocab-1318290-ebf194a3,N5,自転車,じてんしゃ,Bicycle,Jonathan Waller JLPT vocabulary list,1318290,seed
+n5-vocab-1318400-78fd1a0e,N5,自動車,じどうしゃ,Automobile,Jonathan Waller JLPT vocabulary list,1318400,seed
+n5-vocab-1310730-ec6fd2f8,N5,死ぬ,しぬ,to die,Jonathan Waller JLPT vocabulary list,1310730,seed
+n5-vocab-1315140-6156bfb4,N5,字引,じびき,Dictionary,Jonathan Waller JLPT vocabulary list,1315140,seed
+n5-vocab-1318610-995a632b,N5,自分,じぶん,Oneself,Jonathan Waller JLPT vocabulary list,1318610,seed
+n5-vocab-1436560-01420cdf,N5,閉まる,しまる,"to close, to be closed",Jonathan Waller JLPT vocabulary list,1436560,seed
+n5-vocab-1508590-95827b08,N5,閉める,しめる,to close something,Jonathan Waller JLPT vocabulary list,1508590,seed
+n5-vocab-1436570-8e6c15be,N5,締める,しめる,to tie,Jonathan Waller JLPT vocabulary list,1436570,seed
+n5-vocab-1005900-091c8c0e,N5,じゃ,じゃ,well then…,Jonathan Waller JLPT vocabulary list,1005900,seed
+n5-vocab-1005900-823b048f,N5,じゃあ,じゃあ,well then…,Jonathan Waller JLPT vocabulary list,1005900,seed
+n5-vocab-1321900-5101640e,N5,写真,しゃしん,photograph,Jonathan Waller JLPT vocabulary list,1321900,seed
+n5-vocab-1061520-f71424e3,N5,シャツ,シャツ,Shirt,Jonathan Waller JLPT vocabulary list,1061520,seed
+n5-vocab-1061820-d9c88143,N5,シャワー,シャワー,Shower,Jonathan Waller JLPT vocabulary list,1061820,seed
+n5-vocab-1579840-db9f5d44,N5,十,じゅう,Ten,Jonathan Waller JLPT vocabulary list,1579840,seed
+n5-vocab-1579840-99f3a516,N5,十,とお,Ten,Jonathan Waller JLPT vocabulary list,1579840,seed
+n5-vocab-1330290-5bae5595,N5,授業,じゅぎょう,"lesson, class work",Jonathan Waller JLPT vocabulary list,1330290,seed
+n5-vocab-1337270-4daa103d,N5,宿題,しゅくだい,homework,Jonathan Waller JLPT vocabulary list,1337270,seed
+n5-vocab-1353320-1763fc41,N5,上手,じょうず,Skillful,Jonathan Waller JLPT vocabulary list,1353320,seed
+n5-vocab-1580480-50525927,N5,丈夫,じょうぶ,"strong, durable",Jonathan Waller JLPT vocabulary list,1580480,seed
+n5-vocab-1595020-9476d796,N5,しょうゆ,しょうゆ,soy sauce,Jonathan Waller JLPT vocabulary list,1595020,seed
+n5-vocab-1358550-dcc87a37,N5,食堂,しょくどう,dining hall,Jonathan Waller JLPT vocabulary list,1358550,seed
+n5-vocab-1420470-1fcb2fec,N5,知る,しる,to know,Jonathan Waller JLPT vocabulary list,1420470,seed
+n5-vocab-1474900-98eace70,N5,白,しろ,White,Jonathan Waller JLPT vocabulary list,1474900,seed
+n5-vocab-1474910-8997f64f,N5,白い,しろい,White,Jonathan Waller JLPT vocabulary list,1474910,seed
+n5-vocab-1362360-b8317395,N5,新聞,しんぶん,newspaper,Jonathan Waller JLPT vocabulary list,1362360,seed
+n5-vocab-1372190-44d9d708,N5,水曜日,すいようび,Wednesday,Jonathan Waller JLPT vocabulary list,1372190,seed
+n5-vocab-1228260-e8272719,N5,吸う,すう,"to smoke, to suck",Jonathan Waller JLPT vocabulary list,1228260,seed
+n5-vocab-1067470-f0f5f6b2,N5,スカート,スカート,Skirt,Jonathan Waller JLPT vocabulary list,1067470,seed
+n5-vocab-1277450-20cbecd4,N5,好き,すき,Likeable,Jonathan Waller JLPT vocabulary list,1277450,seed
+n5-vocab-1348910-0d38b011,N5,少ない,すくない,a few,Jonathan Waller JLPT vocabulary list,1348910,seed
+n5-vocab-1430620-a8722990,N5,すぐに,すぐに,Instantly,Jonathan Waller JLPT vocabulary list,1430620,seed
+n5-vocab-1348870-c3735551,N5,少し,すこし,Few,Jonathan Waller JLPT vocabulary list,1348870,seed
+n5-vocab-1554370-67f5908e,N5,涼しい,すずしい,Refreshing,Jonathan Waller JLPT vocabulary list,1554370,seed
+n5-vocab-1070790-8149d776,N5,ストーブ,ストーブ,Heater,Jonathan Waller JLPT vocabulary list,1070790,seed
+n5-vocab-1072590-938a169f,N5,スプーン,スプーン,Spoon,Jonathan Waller JLPT vocabulary list,1072590,seed
+n5-vocab-1073210-0a33903c,N5,スポーツ,スポーツ,Sport,Jonathan Waller JLPT vocabulary list,1073210,seed
+n5-vocab-1074260-10fe0704,N5,ズボン,ズボン,Trousers,Jonathan Waller JLPT vocabulary list,1074260,seed
+n5-vocab-1334040-d6710970,N5,住む,すむ,to live in,Jonathan Waller JLPT vocabulary list,1334040,seed
+n5-vocab-1073900-508131fe,N5,スリッパ,スリッパ,Slippers,Jonathan Waller JLPT vocabulary list,1073900,seed
+n5-vocab-1157170-3391f289,N5,為る,する,to do,Jonathan Waller JLPT vocabulary list,1157170,seed
+n5-vocab-1291800-c9a15e87,N5,座る,すわる,to sit,Jonathan Waller JLPT vocabulary list,1291800,seed
+n5-vocab-2147990-898b0672,N5,背,せ,"height, stature",Jonathan Waller JLPT vocabulary list,2147990,seed
+n5-vocab-1379380-af7459ef,N5,生徒,せいと,Pupil,Jonathan Waller JLPT vocabulary list,1379380,seed
+n5-vocab-1074270-4b0b49a4,N5,セーター,セーター,"sweater, jumper",Jonathan Waller JLPT vocabulary list,1074270,seed
+n5-vocab-1382590-b48d0c99,N5,せっけん,せっけん,soap,Jonathan Waller JLPT vocabulary list,1382590,seed
+n5-vocab-1472740-9d432ac1,N5,背広,せびろ,business suit,Jonathan Waller JLPT vocabulary list,1472740,seed
+n5-vocab-1237680-d12ee2e9,N5,狭い,せまい,Narrow,Jonathan Waller JLPT vocabulary list,1237680,seed
+n5-vocab-2839962-434707d7,N5,ゼロ,ゼロ,Zero,Jonathan Waller JLPT vocabulary list,2839962,seed
+n5-vocab-1388740-1729d60f,N5,千,せん,Thousand,Jonathan Waller JLPT vocabulary list,1388740,seed
+n5-vocab-1387500-0eaa93c1,N5,先月,せんげつ,last month,Jonathan Waller JLPT vocabulary list,1387500,seed
+n5-vocab-1387870-b8c4cd80,N5,先週,せんしゅう,last week,Jonathan Waller JLPT vocabulary list,1387870,seed
+n5-vocab-1387990-814bdc2c,N5,先生,せんせい,"teacher, doctor",Jonathan Waller JLPT vocabulary list,1387990,seed
+n5-vocab-1390980-4d0ca7b3,N5,洗濯,せんたく,Washing,Jonathan Waller JLPT vocabulary list,1390980,seed
+n5-vocab-1396130-acba6e07,N5,全部,ぜんぶ,All,Jonathan Waller JLPT vocabulary list,1396130,seed
+n5-vocab-1399790-501df34d,N5,掃除,そうじ,"to clean, to sweep",Jonathan Waller JLPT vocabulary list,1399790,seed
+n5-vocab-1612860-e75777d2,N5,そうして,そうして,And,Jonathan Waller JLPT vocabulary list,1612860,seed
+n5-vocab-1006730-16554028,N5,そして,そして,And,Jonathan Waller JLPT vocabulary list,1006730,seed
+n5-vocab-1006670-52ec2d63,N5,其処,そこ,that place,Jonathan Waller JLPT vocabulary list,1006670,seed
+n5-vocab-1006780-105df795,N5,そちら,そちら,over there,Jonathan Waller JLPT vocabulary list,1006780,seed
+n5-vocab-1006780-80981fa1,N5,そっち,そっち,over there,Jonathan Waller JLPT vocabulary list,1006780,seed
+n5-vocab-1203250-68ad5f43,N5,外,そと,Outside,Jonathan Waller JLPT vocabulary list,1203250,seed
+n5-vocab-1006830-3d83f24f,N5,其の,その,That,Jonathan Waller JLPT vocabulary list,1006830,seed
+n5-vocab-1403830-2fcbaf6f,N5,側,そば,"near, beside",Jonathan Waller JLPT vocabulary list,1403830,seed
+n5-vocab-1245290-6ff51bac,N5,空,そら,Sky,Jonathan Waller JLPT vocabulary list,1245290,seed
+n5-vocab-2216210-79d922e3,N5,それ,それ,that,Jonathan Waller JLPT vocabulary list,2216210,seed
+n5-vocab-1006980-799b7cab,N5,それから,それから,after that,Jonathan Waller JLPT vocabulary list,1006980,seed
+n5-vocab-1406050-46c17215,N5,それでは,それでは,in that situation,Jonathan Waller JLPT vocabulary list,1406050,seed
+n5-vocab-1413240-5b303264,N5,大学,だいがく,university,Jonathan Waller JLPT vocabulary list,1413240,seed
+n5-vocab-1413890-992fc073,N5,大使館,たいしかん,embassy,Jonathan Waller JLPT vocabulary list,1413890,seed
+n5-vocab-1414150-2f62b9db,N5,大丈夫,だいじょうぶ,all right,Jonathan Waller JLPT vocabulary list,1414150,seed
+n5-vocab-1413660-9ee7cd33,N5,大好き,だいすき,to be very likeable,Jonathan Waller JLPT vocabulary list,1413660,seed
+n5-vocab-1414340-b3a8593e,N5,大切,たいせつ,important,Jonathan Waller JLPT vocabulary list,1414340,seed
+n5-vocab-1412640-1c0b0f77,N5,台所,だいどころ,kitchen,Jonathan Waller JLPT vocabulary list,1412640,seed
+n5-vocab-1415000-a68d9c3b,N5,大変,たいへん,difficult situation,Jonathan Waller JLPT vocabulary list,1415000,seed
+n5-vocab-1283190-c74892f5,N5,高い,たかい,"tall, expensive",Jonathan Waller JLPT vocabulary list,1283190,seed
+n5-vocab-1415870-a7c72d9b,N5,たくさん,たくさん,many,Jonathan Waller JLPT vocabulary list,1415870,seed
+n5-vocab-1076190-2d5a93eb,N5,タクシー,タクシー,taxi,Jonathan Waller JLPT vocabulary list,1076190,seed
+n5-vocab-1338180-6298cfc5,N5,出す,だす,to put out,Jonathan Waller JLPT vocabulary list,1338180,seed
+n5-vocab-1597040-932afda2,N5,立つ,たつ,to stand,Jonathan Waller JLPT vocabulary list,1597040,seed
+n5-vocab-1335640-b083f5b7,N5,縦,たて,"length,height",Jonathan Waller JLPT vocabulary list,1335640,seed
+n5-vocab-1257540-372b0821,N5,建物,たてもの,building,Jonathan Waller JLPT vocabulary list,1257540,seed
+n5-vocab-1207240-9b2d455d,N5,楽しい,たのしい,enjoyable,Jonathan Waller JLPT vocabulary list,1207240,seed
+n5-vocab-1548370-7e9d38af,N5,頼む,たのむ,to ask,Jonathan Waller JLPT vocabulary list,1548370,seed
+n5-vocab-1597150-80beed00,N5,たばこ,たばこ,"tobacco,cigarettes",Jonathan Waller JLPT vocabulary list,1597150,seed
+n5-vocab-1407980-4e0ebcaf,N5,多分,たぶん,probably,Jonathan Waller JLPT vocabulary list,1407980,seed
+n5-vocab-1358340-5c89b309,N5,食べ物,たべもの,food,Jonathan Waller JLPT vocabulary list,1358340,seed
+n5-vocab-1358280-86f67e2d,N5,食べる,たべる,to eat,Jonathan Waller JLPT vocabulary list,1358280,seed
+n5-vocab-1549140-4d667396,N5,卵,たまご,egg,Jonathan Waller JLPT vocabulary list,1549140,seed
+n5-vocab-1416830-3d2ca62c,N5,誰,だれ,who,Jonathan Waller JLPT vocabulary list,1416830,seed
+n5-vocab-1416840-7f7ef4ab,N5,誰か,だれか,somebody,Jonathan Waller JLPT vocabulary list,1416840,seed
+n5-vocab-1419110-2e610178,N5,誕生日,たんじょうび,birthday,Jonathan Waller JLPT vocabulary list,1419110,seed
+n5-vocab-2546180-55dbb815,N5,だんだん,だんだん,gradually,Jonathan Waller JLPT vocabulary list,2546180,seed
+n5-vocab-1347750-d4779ac3,N5,小さい,ちいさい,little,Jonathan Waller JLPT vocabulary list,1347750,seed
+n5-vocab-2136180-38a8411e,N5,小さな,ちいさな,little,Jonathan Waller JLPT vocabulary list,2136180,seed
+n5-vocab-1242130-a21ba677,N5,近い,ちかい,near,Jonathan Waller JLPT vocabulary list,1242130,seed
+n5-vocab-1158880-35e9881c,N5,違う,ちがう,to differ,Jonathan Waller JLPT vocabulary list,1158880,seed
+n5-vocab-1242160-6d7293f7,N5,近く,ちかく,near,Jonathan Waller JLPT vocabulary list,1242160,seed
+n5-vocab-1420900-3134199c,N5,地下鉄,ちかてつ,underground train,Jonathan Waller JLPT vocabulary list,1420900,seed
+n5-vocab-1421290-ffa3dda3,N5,地図,ちず,map,Jonathan Waller JLPT vocabulary list,1421290,seed
+n5-vocab-1422720-f9b377e2,N5,茶色,ちゃいろ,brown,Jonathan Waller JLPT vocabulary list,1422720,seed
+n5-vocab-1597530-3d120360,N5,ちゃわん,ちゃわん,rice bowl,Jonathan Waller JLPT vocabulary list,1597530,seed
+n5-vocab-1427340-6525c46f,N5,丁度,ちょうど,exactly,Jonathan Waller JLPT vocabulary list,1427340,seed
+n5-vocab-1163940-602fdffb,N5,ちょっと,ちょっと,somewhat,Jonathan Waller JLPT vocabulary list,1163940,seed
+n5-vocab-2225040-48bc3e30,N5,一日,ついたち,first of month,Jonathan Waller JLPT vocabulary list,2225040,seed
+n5-vocab-1305990-c88e0ba1,N5,使う,つかう,to use,Jonathan Waller JLPT vocabulary list,1305990,seed
+n5-vocab-1483740-156f1711,N5,疲れる,つかれる,to get tired,Jonathan Waller JLPT vocabulary list,1483740,seed
+n5-vocab-1316380-d00ef0a9,N5,次,つぎ,next,Jonathan Waller JLPT vocabulary list,1316380,seed
+n5-vocab-1422970-9d4a68ce,N5,着く,つく,to arrive at,Jonathan Waller JLPT vocabulary list,1422970,seed
+n5-vocab-1220210-672321ba,N5,机,つくえ,desk,Jonathan Waller JLPT vocabulary list,1220210,seed
+n5-vocab-1597890-6e922a75,N5,作る,つくる,to make,Jonathan Waller JLPT vocabulary list,1597890,seed
+n5-vocab-1495770-af699ddb,N5,付ける,つける,to turn on,Jonathan Waller JLPT vocabulary list,1495770,seed
+n5-vocab-1240825-ba6c46f6,N5,勤める,つとめる,to work for someone,Jonathan Waller JLPT vocabulary list,1240825,seed
+n5-vocab-1008190-3a94b5e9,N5,つまらない,つまらない,boring,Jonathan Waller JLPT vocabulary list,1008190,seed
+n5-vocab-1556730-a23d3088,N5,冷たい,つめたい,cold to the touch,Jonathan Waller JLPT vocabulary list,1556730,seed
+n5-vocab-1236070-d99745fb,N5,強い,つよい,powerful,Jonathan Waller JLPT vocabulary list,1236070,seed
+n5-vocab-1327190-5b967042,N5,手,て,hand,Jonathan Waller JLPT vocabulary list,1327190,seed
+n5-vocab-1078750-0cf2b43e,N5,テープ,テープ,tape,Jonathan Waller JLPT vocabulary list,1078750,seed
+n5-vocab-1078630-ff161262,N5,テーブル,テーブル,table,Jonathan Waller JLPT vocabulary list,1078630,seed
+n5-vocab-1078810-dc0ae290,N5,テープレコーダー,テープレコーダー,tape recorder,Jonathan Waller JLPT vocabulary list,1078810,seed
+n5-vocab-1598550-375cfbef,N5,出かける,でかける,to go out,Jonathan Waller JLPT vocabulary list,1598550,seed
+n5-vocab-1327720-218ea677,N5,手紙,てがみ,letter,Jonathan Waller JLPT vocabulary list,1327720,seed
+n5-vocab-1340450-da882a71,N5,出来る,できる,to be able to,Jonathan Waller JLPT vocabulary list,1340450,seed
+n5-vocab-1338850-151fd721,N5,出口,でぐち,exit,Jonathan Waller JLPT vocabulary list,1338850,seed
+n5-vocab-1079760-90e9410b,N5,テスト,テスト,test,Jonathan Waller JLPT vocabulary list,1079760,seed
+n5-vocab-1008450-d33540fe,N5,では,では,with that...,Jonathan Waller JLPT vocabulary list,1008450,seed
+n5-vocab-1083590-01445059,N5,デパート,デパート,department store,Jonathan Waller JLPT vocabulary list,1083590,seed
+n5-vocab-1008460-3f71089c,N5,でも,でも,but,Jonathan Waller JLPT vocabulary list,1008460,seed
+n5-vocab-1338240-5ef4f7dd,N5,出る,でる,"to appear,to leave",Jonathan Waller JLPT vocabulary list,1338240,seed
+n5-vocab-1080510-c7e14d84,N5,テレビ,テレビ,television,Jonathan Waller JLPT vocabulary list,1080510,seed
+n5-vocab-1438690-679e3403,N5,天気,てんき,weather,Jonathan Waller JLPT vocabulary list,1438690,seed
+n5-vocab-1443000-a7c36fdb,N5,電気,でんき,"electricity,electric light",Jonathan Waller JLPT vocabulary list,1443000,seed
+n5-vocab-1443530-62b5c131,N5,電車,でんしゃ,electric train,Jonathan Waller JLPT vocabulary list,1443530,seed
+n5-vocab-1443840-3c039918,N5,電話,でんわ,telephone,Jonathan Waller JLPT vocabulary list,1443840,seed
+n5-vocab-1266970-6f469129,N5,戸,と,Japanese style door,Jonathan Waller JLPT vocabulary list,1266970,seed
+n5-vocab-1087820-677d3c5f,N5,ドア,ドア,Western style door,Jonathan Waller JLPT vocabulary list,1087820,seed
+n5-vocab-1084810-e1e7c2d2,N5,トイレ,トイレ,toilet,Jonathan Waller JLPT vocabulary list,1084810,seed
+n5-vocab-1008910-74fb524c,N5,如何,どう,"how,in what way",Jonathan Waller JLPT vocabulary list,1008910,seed
+n5-vocab-1466940-a891b73f,N5,どうして,どうして,for what reason,Jonathan Waller JLPT vocabulary list,1466940,seed
+n5-vocab-1189130-a71cbc3c,N5,どうぞ,どうぞ,please,Jonathan Waller JLPT vocabulary list,1189130,seed
+n5-vocab-1451470-03d03cf2,N5,動物,どうぶつ,animal,Jonathan Waller JLPT vocabulary list,1451470,seed
+n5-vocab-1009000-d2cb14f8,N5,どうも,どうも,thanks,Jonathan Waller JLPT vocabulary list,1009000,seed
+n5-vocab-1177800-f840779b,N5,遠い,とおい,far,Jonathan Waller JLPT vocabulary list,1177800,seed
+n5-vocab-1335000-e8579084,N5,十日,とおか,"ten days,the tenth day",Jonathan Waller JLPT vocabulary list,1335000,seed
+n5-vocab-1598680-978a2cef,N5,時々,ときどき,sometimes,Jonathan Waller JLPT vocabulary list,1598680,seed
+n5-vocab-1316140-e3ad7681,N5,時計,とけい,"watch,clock",Jonathan Waller JLPT vocabulary list,1316140,seed
+n5-vocab-1577140-ad884a3b,N5,どこ,どこ,where,Jonathan Waller JLPT vocabulary list,1577140,seed
+n5-vocab-1343100-ca332ac7,N5,所,ところ,place,Jonathan Waller JLPT vocabulary list,1343100,seed
+n5-vocab-1468060-358fc382,N5,年,とし,year,Jonathan Waller JLPT vocabulary list,1468060,seed
+n5-vocab-1370420-de5a4526,N5,図書館,としょかん,library,Jonathan Waller JLPT vocabulary list,1370420,seed
+n5-vocab-1189360-5480c153,N5,どちら,どちら,which of two,Jonathan Waller JLPT vocabulary list,1189360,seed
+n5-vocab-1189360-e8a48430,N5,どっち,どっち,which,Jonathan Waller JLPT vocabulary list,1189360,seed
+n5-vocab-1008630-a3679ee6,N5,とても,とても,very,Jonathan Waller JLPT vocabulary list,1008630,seed
+n5-vocab-1189370-10fb2e55,N5,どなた,どなた,who,Jonathan Waller JLPT vocabulary list,1189370,seed
+n5-vocab-1555830-c597c353,N5,隣,となり,next door to,Jonathan Waller JLPT vocabulary list,1555830,seed
+n5-vocab-1920240-00e4b708,N5,何の,どの,which,Jonathan Waller JLPT vocabulary list,1920240,seed
+n5-vocab-1429700-397b682f,N5,飛ぶ,とぶ,"to fly,to hop",Jonathan Waller JLPT vocabulary list,1429700,seed
+n5-vocab-1310620-9d1aa046,N5,止まる,とまる,to come to a halt,Jonathan Waller JLPT vocabulary list,1310620,seed
+n5-vocab-1540170-72c525f3,N5,友達,ともだち,friend,Jonathan Waller JLPT vocabulary list,1540170,seed
+n5-vocab-1445590-86e7fb81,N5,土曜日,どようび,Saturday,Jonathan Waller JLPT vocabulary list,1445590,seed
+n5-vocab-1430250-7e4fccba,N5,鳥,とり,bird,Jonathan Waller JLPT vocabulary list,1430250,seed
+n5-vocab-1253020-cdeb0a04,N5,とり肉,とりにく,chicken meat,Jonathan Waller JLPT vocabulary list,1253020,seed
+n5-vocab-1326980-1313ed47,N5,取る,とる,to take something,Jonathan Waller JLPT vocabulary list,1326980,seed
+n5-vocab-1298790-4cc27797,N5,撮る,とる,to take a photo or record a film,Jonathan Waller JLPT vocabulary list,1298790,seed
+n5-vocab-1009290-b21477c7,N5,どれ,どれ,which (of three or more),Jonathan Waller JLPT vocabulary list,1009290,seed
+n5-vocab-1089890-3ae88c29,N5,ナイフ,ナイフ,knife,Jonathan Waller JLPT vocabulary list,1089890,seed
+n5-vocab-1423310-5d32281d,N5,中,なか,middle,Jonathan Waller JLPT vocabulary list,1423310,seed
+n5-vocab-1429750-fcea29f1,N5,長い,ながい,long,Jonathan Waller JLPT vocabulary list,1429750,seed
+n5-vocab-1532870-07a41011,N5,鳴く,なく,"animal noise. to chirp, roar or croak etc.",Jonathan Waller JLPT vocabulary list,1532870,seed
+n5-vocab-1529530-04015c38,N5,無くす,なくす,to lose something,Jonathan Waller JLPT vocabulary list,1529530,seed
+n5-vocab-1577120-ef9536b1,N5,なぜ,なぜ,why,Jonathan Waller JLPT vocabulary list,1577120,seed
+n5-vocab-1191320-641ddbf6,N5,夏,なつ,summer,Jonathan Waller JLPT vocabulary list,1191320,seed
+n5-vocab-1191420-e09167a3,N5,夏休み,なつやすみ,summer holiday,Jonathan Waller JLPT vocabulary list,1191420,seed
+n5-vocab-1582300-cf584763,N5,など,など,et cetera,Jonathan Waller JLPT vocabulary list,1582300,seed
+n5-vocab-1319220-e65bf7ad,N5,七つ,ななつ,seven,Jonathan Waller JLPT vocabulary list,1319220,seed
+n5-vocab-1579630-75ed3c3b,N5,七日,なのか,"seven days,the seventh day",Jonathan Waller JLPT vocabulary list,1579630,seed
+n5-vocab-1531710-a812b1ac,N5,名前,なまえ,name,Jonathan Waller JLPT vocabulary list,1531710,seed
+n5-vocab-1333070-a95b0a87,N5,習う,ならう,to learn,Jonathan Waller JLPT vocabulary list,1333070,seed
+n5-vocab-1508380-1227b203,N5,並ぶ,ならぶ,"to line up,to stand in a line",Jonathan Waller JLPT vocabulary list,1508380,seed
+n5-vocab-1508390-1635de1a,N5,並べる,ならべる,"to line up,to set up",Jonathan Waller JLPT vocabulary list,1508390,seed
+n5-vocab-1375610-e05de498,N5,なる,なる,to become,Jonathan Waller JLPT vocabulary list,1375610,seed
+n5-vocab-2846738-558866ef,N5,何,なん,what,Jonathan Waller JLPT vocabulary list,2846738,seed
+n5-vocab-1577100-9d479584,N5,何,なに,what,Jonathan Waller JLPT vocabulary list,1577100,seed
+n5-vocab-1461140-34108268,N5,二,に,two,Jonathan Waller JLPT vocabulary list,1461140,seed
+n5-vocab-1463480-c17f97fa,N5,賑やか,にぎやか,"bustling,busy",Jonathan Waller JLPT vocabulary list,1463480,seed
+n5-vocab-1463520-efac1fc5,N5,肉,にく,meat,Jonathan Waller JLPT vocabulary list,1463520,seed
+n5-vocab-1380840-436f1c3c,N5,西,にし,west,Jonathan Waller JLPT vocabulary list,1380840,seed
+n5-vocab-1464900-d8c3a3f0,N5,日曜日,にちようび,Sunday,Jonathan Waller JLPT vocabulary list,1464900,seed
+n5-vocab-1195430-2e6c7d2d,N5,荷物,にもつ,luggage,Jonathan Waller JLPT vocabulary list,1195430,seed
+n5-vocab-1091500-b824bec2,N5,ニュース,ニュース,news,Jonathan Waller JLPT vocabulary list,1091500,seed
+n5-vocab-1436130-9ef6c9d7,N5,庭,にわ,garden,Jonathan Waller JLPT vocabulary list,1436130,seed
+n5-vocab-1416400-3af80b5b,N5,脱ぐ,ぬぐ,to take off clothes,Jonathan Waller JLPT vocabulary list,1416400,seed
+n5-vocab-1183300-2f01adeb,N5,温い,ぬるい,luke warm,Jonathan Waller JLPT vocabulary list,1183300,seed
+n5-vocab-1092820-18046e46,N5,ネクタイ,ネクタイ,"tie,necktie",Jonathan Waller JLPT vocabulary list,1092820,seed
+n5-vocab-1467640-cbbfc8ca,N5,猫,ねこ,cat,Jonathan Waller JLPT vocabulary list,1467640,seed
+n5-vocab-1360010-0c6e923e,N5,寝る,ねる,"to go to bed,to sleep",Jonathan Waller JLPT vocabulary list,1360010,seed
+n5-vocab-1093450-278c1e0e,N5,ノート,ノート,"notebook,exercise book",Jonathan Waller JLPT vocabulary list,1093450,seed
+n5-vocab-1352570-7817fc9d,N5,登る,のぼる,to climb,Jonathan Waller JLPT vocabulary list,1352570,seed
+n5-vocab-1600430-5e8fc866,N5,飲み物,のみもの,a drink,Jonathan Waller JLPT vocabulary list,1600430,seed
+n5-vocab-1169870-e0bcec9b,N5,飲む,のむ,to drink,Jonathan Waller JLPT vocabulary list,1169870,seed
+n5-vocab-1355120-822c5e11,N5,乗る,のる,"to get on,to ride",Jonathan Waller JLPT vocabulary list,1355120,seed
+n5-vocab-1313000-390ac644,N5,歯,は,tooth,Jonathan Waller JLPT vocabulary list,1313000,seed
+n5-vocab-1100760-28111455,N5,パーティー,パーティー,party,Jonathan Waller JLPT vocabulary list,1100760,seed
+n5-vocab-1010080-542f39c9,N5,はい,はい,yes,Jonathan Waller JLPT vocabulary list,1010080,seed
+n5-vocab-1201940-5cc1dad1,N5,灰皿,はいざら,ashtray,Jonathan Waller JLPT vocabulary list,1201940,seed
+n5-vocab-1465590-c428d02d,N5,入る,はいる,"to enter,to contain",Jonathan Waller JLPT vocabulary list,1465590,seed
+n5-vocab-1546590-645e1e3b,N5,葉書,はがき,postcard,Jonathan Waller JLPT vocabulary list,1546590,seed
+n5-vocab-1607260-01da2594,N5,履く,はく,"to wear,to put on trousers",Jonathan Waller JLPT vocabulary list,1607260,seed
+n5-vocab-1585650-658b912d,N5,箱,はこ,box,Jonathan Waller JLPT vocabulary list,1585650,seed
+n5-vocab-1237410-8f663254,N5,橋,はし,bridge,Jonathan Waller JLPT vocabulary list,1237410,seed
+n5-vocab-1476410-4964b4a1,N5,箸,はし,chopsticks,Jonathan Waller JLPT vocabulary list,1476410,seed
+n5-vocab-1307500-8fea1e3f,N5,始まる,はじまる,to begin,Jonathan Waller JLPT vocabulary list,1307500,seed
+n5-vocab-1342540-e5b36d7b,N5,初め,はじめ,beginning,Jonathan Waller JLPT vocabulary list,1342540,seed
+n5-vocab-1342540-47d9978e,N5,始め,はじめ,beginning,Jonathan Waller JLPT vocabulary list,1342540,seed
+n5-vocab-1342550-3f18999e,N5,初めて,はじめて,for the first time,Jonathan Waller JLPT vocabulary list,1342550,seed
+n5-vocab-1402540-244e1389,N5,走る,はしる,to run,Jonathan Waller JLPT vocabulary list,1402540,seed
+n5-vocab-1098390-bd7df6c7,N5,バス,バス,bus,Jonathan Waller JLPT vocabulary list,1098390,seed
+n5-vocab-1098620-43856166,N5,バター,バター,butter,Jonathan Waller JLPT vocabulary list,1098620,seed
+n5-vocab-1600790-c65a3464,N5,二十歳,はたち,"20 years old,20th year",Jonathan Waller JLPT vocabulary list,1600790,seed
+n5-vocab-1451150-9ea67126,N5,働く,はたらく,to work,Jonathan Waller JLPT vocabulary list,1451150,seed
+n5-vocab-1583090-6eeff514,N5,八,はち,eight,Jonathan Waller JLPT vocabulary list,1583090,seed
+n5-vocab-1600850-153de066,N5,二十日,はつか,"twenty days,twentieth",Jonathan Waller JLPT vocabulary list,1600850,seed
+n5-vocab-1194500-6485c3c2,N5,花,はな,flower,Jonathan Waller JLPT vocabulary list,1194500,seed
+n5-vocab-1486720-8b5843f7,N5,鼻,はな,nose,Jonathan Waller JLPT vocabulary list,1486720,seed
+n5-vocab-1600900-1ed0362c,N5,話,はなし,"talk,story",Jonathan Waller JLPT vocabulary list,1600900,seed
+n5-vocab-1562350-9d5bde24,N5,話す,はなす,to speak,Jonathan Waller JLPT vocabulary list,1562350,seed
+n5-vocab-1404975-4db42e01,N5,早い,はやい,early,Jonathan Waller JLPT vocabulary list,1404975,seed
+n5-vocab-1404975-406d15f6,N5,速い,はやい,quick,Jonathan Waller JLPT vocabulary list,1404975,seed
+n5-vocab-1341000-f16244c5,N5,春,はる,spring,Jonathan Waller JLPT vocabulary list,1341000,seed
+n5-vocab-1427900-f47c4aee,N5,貼る,はる,to stick,Jonathan Waller JLPT vocabulary list,1427900,seed
+n5-vocab-1376460-9edf8548,N5,晴れ,はれ,clear weather,Jonathan Waller JLPT vocabulary list,1376460,seed
+n5-vocab-1376470-3be88666,N5,晴れる,はれる,to be sunny,Jonathan Waller JLPT vocabulary list,1376470,seed
+n5-vocab-1478750-9cd7c780,N5,半,はん,half,Jonathan Waller JLPT vocabulary list,1478750,seed
+n5-vocab-1482110-532c73de,N5,晩,ばん,evening,Jonathan Waller JLPT vocabulary list,1482110,seed
+n5-vocab-1103090-098e9e7e,N5,パン,パン,bread,Jonathan Waller JLPT vocabulary list,1103090,seed
+n5-vocab-1096420-ee3206bb,N5,ハンカチ,ハンカチ,handkerchief,Jonathan Waller JLPT vocabulary list,1096420,seed
+n5-vocab-1482290-67775e3b,N5,番号,ばんごう,number,Jonathan Waller JLPT vocabulary list,1482290,seed
+n5-vocab-1601340-246b5ae8,N5,晩御飯,ばんごはん,evening meal,Jonathan Waller JLPT vocabulary list,1601340,seed
+n5-vocab-1479890-a1cda8cb,N5,半分,はんぶん,half minute,Jonathan Waller JLPT vocabulary list,1479890,seed
+n5-vocab-1447440-0a38c650,N5,東,ひがし,east,Jonathan Waller JLPT vocabulary list,1447440,seed
+n5-vocab-1169250-5b840392,N5,引く,ひく,to pull,Jonathan Waller JLPT vocabulary list,1169250,seed
+n5-vocab-1419370-23911a07,N5,弾く,ひく,"to play an instrument with strings, including piano",Jonathan Waller JLPT vocabulary list,1419370,seed
+n5-vocab-1434180-e25cf6ed,N5,低い,ひくい,"short,low",Jonathan Waller JLPT vocabulary list,1434180,seed
+n5-vocab-1485470-a8161216,N5,飛行機,ひこうき,aeroplane,Jonathan Waller JLPT vocabulary list,1485470,seed
+n5-vocab-1290800-ec5bd86b,N5,左,ひだり,left hand side,Jonathan Waller JLPT vocabulary list,1290800,seed
+n5-vocab-1580640-d91ee7a9,N5,人,ひと,person,Jonathan Waller JLPT vocabulary list,1580640,seed
+n5-vocab-1160820-537f8af3,N5,一つ,ひとつ,one,Jonathan Waller JLPT vocabulary list,1160820,seed
+n5-vocab-1162130-3554fb81,N5,一月,ひとつき,one month,Jonathan Waller JLPT vocabulary list,1162130,seed
+n5-vocab-1576150-3fb1b708,N5,一人,ひとり,one person,Jonathan Waller JLPT vocabulary list,1576150,seed
+n5-vocab-1577280-7a9ce8e2,N5,暇,ひま,free time,Jonathan Waller JLPT vocabulary list,1577280,seed
+n5-vocab-1488000-13696bc9,N5,百,ひゃく,hundred,Jonathan Waller JLPT vocabulary list,1488000,seed
+n5-vocab-1490220-734d275f,N5,病院,びょういん,hospital,Jonathan Waller JLPT vocabulary list,1490220,seed
+n5-vocab-1490230-c551bc3f,N5,病気,びょうき,illness,Jonathan Waller JLPT vocabulary list,1490230,seed
+n5-vocab-1426250-5d7a8d13,N5,昼,ひる,"noon, daytime",Jonathan Waller JLPT vocabulary list,1426250,seed
+n5-vocab-1602340-0b492c32,N5,昼御飯,ひるごはん,midday meal,Jonathan Waller JLPT vocabulary list,1602340,seed
+n5-vocab-1278410-230d5c73,N5,広い,ひろい,"spacious,wide",Jonathan Waller JLPT vocabulary list,1278410,seed
+n5-vocab-1109380-ef9babb0,N5,フィルム,フィルム,roll of film,Jonathan Waller JLPT vocabulary list,1109380,seed
+n5-vocab-1499690-d1564029,N5,封筒,ふうとう,envelope,Jonathan Waller JLPT vocabulary list,1499690,seed
+n5-vocab-1115150-55c14392,N5,プール,プール,swimming pool,Jonathan Waller JLPT vocabulary list,1115150,seed
+n5-vocab-1110110-71e2aefb,N5,フォーク,フォーク,fork,Jonathan Waller JLPT vocabulary list,1110110,seed
+n5-vocab-1370760-15f41364,N5,吹く,ふく,to blow,Jonathan Waller JLPT vocabulary list,1370760,seed
+n5-vocab-1500940-68571540,N5,服,ふく,clothes,Jonathan Waller JLPT vocabulary list,1500940,seed
+n5-vocab-1461160-0c1dbd48,N5,二つ,ふたつ,two,Jonathan Waller JLPT vocabulary list,1461160,seed
+n5-vocab-1457440-c518fb91,N5,豚肉,ぶたにく,pork,Jonathan Waller JLPT vocabulary list,1457440,seed
+n5-vocab-1582670-94c20768,N5,二人,ふたり,two people,Jonathan Waller JLPT vocabulary list,1582670,seed
+n5-vocab-1462900-750786cc,N5,二日,ふつか,"two days, second day of the month",Jonathan Waller JLPT vocabulary list,1462900,seed
+n5-vocab-1408180-4162724f,N5,太い,ふとい,fat,Jonathan Waller JLPT vocabulary list,1408180,seed
+n5-vocab-1446070-eb9acca7,N5,冬,ふゆ,winter,Jonathan Waller JLPT vocabulary list,1446070,seed
+n5-vocab-1282790-5791e248,N5,降る,ふる,"to fall, e.g. rain or snow",Jonathan Waller JLPT vocabulary list,1282790,seed
+n5-vocab-1265070-aa60dd4a,N5,古い,ふるい,old (not used for people),Jonathan Waller JLPT vocabulary list,1265070,seed
+n5-vocab-1500100-1202a0c3,N5,風呂,ふろ,bath,Jonathan Waller JLPT vocabulary list,1500100,seed
+n5-vocab-1505470-79ddbb2b,N5,文章,ぶんしょう,"sentence,text",Jonathan Waller JLPT vocabulary list,1505470,seed
+n5-vocab-1120410-f8fc73bd,N5,ページ,ページ,page,Jonathan Waller JLPT vocabulary list,1120410,seed
+n5-vocab-1185200-619dae70,N5,下手,へた,unskillful,Jonathan Waller JLPT vocabulary list,1185200,seed
+n5-vocab-1119650-91cf4ea2,N5,ベッド,ベッド,bed,Jonathan Waller JLPT vocabulary list,1119650,seed
+n5-vocab-1120990-db38ebd9,N5,ペット,ペット,pet,Jonathan Waller JLPT vocabulary list,1120990,seed
+n5-vocab-1499320-e7807492,N5,部屋,へや,room,Jonathan Waller JLPT vocabulary list,1499320,seed
+n5-vocab-1512070-71c372d7,N5,辺,へん,area,Jonathan Waller JLPT vocabulary list,1512070,seed
+n5-vocab-1121380-dd1183b0,N5,ペン,ペン,pen,Jonathan Waller JLPT vocabulary list,1121380,seed
+n5-vocab-1512670-65783b95,N5,勉強,べんきょう,to study,Jonathan Waller JLPT vocabulary list,1512670,seed
+n5-vocab-1512610-84887dde,N5,便利,べんり,"useful, convenient",Jonathan Waller JLPT vocabulary list,1512610,seed
+n5-vocab-1519170-cfc75623,N5,帽子,ぼうし,hat,Jonathan Waller JLPT vocabulary list,1519170,seed
+n5-vocab-1123590-785a9970,N5,ボールペン,ボールペン,ball-point pen,Jonathan Waller JLPT vocabulary list,1123590,seed
+n5-vocab-1203260-f71c6949,N5,ほか,ほか,"other, the rest",Jonathan Waller JLPT vocabulary list,1203260,seed
+n5-vocab-1124970-ab9f2792,N5,ポケット,ポケット,pocket,Jonathan Waller JLPT vocabulary list,1124970,seed
+n5-vocab-1547330-418493d9,N5,欲しい,ほしい,want,Jonathan Waller JLPT vocabulary list,1547330,seed
+n5-vocab-1125150-2dbe65ee,N5,ポスト,ポスト,post,Jonathan Waller JLPT vocabulary list,1125150,seed
+n5-vocab-1295510-785adc4f,N5,細い,ほそい,thin,Jonathan Waller JLPT vocabulary list,1295510,seed
+n5-vocab-1182880-04ab635f,N5,ボタン,ボタン,button,Jonathan Waller JLPT vocabulary list,1182880,seed
+n5-vocab-1122650-23ec5a0b,N5,ホテル,ホテル,hotel,Jonathan Waller JLPT vocabulary list,1122650,seed
+n5-vocab-1522150-0e8f798d,N5,本,ほん,book,Jonathan Waller JLPT vocabulary list,1522150,seed
+n5-vocab-1522980-3839786b,N5,本棚,ほんだな,bookshelves,Jonathan Waller JLPT vocabulary list,1522980,seed
+n5-vocab-1523060-c0a62175,N5,本当,ほんとう,truth,Jonathan Waller JLPT vocabulary list,1523060,seed
+n5-vocab-1524700-a59ba12b,N5,毎朝,まいあさ,every morning,Jonathan Waller JLPT vocabulary list,1524700,seed
+n5-vocab-1584350-771fbe6b,N5,毎月,まいげつ,every month,Jonathan Waller JLPT vocabulary list,1584350,seed
+n5-vocab-1584350-aebe89f3,N5,毎月,まいつき,every month,Jonathan Waller JLPT vocabulary list,1584350,seed
+n5-vocab-1524690-fd1c9383,N5,毎週,まいしゅう,every week,Jonathan Waller JLPT vocabulary list,1524690,seed
+n5-vocab-1524720-039a6962,N5,毎日,まいにち,every day,Jonathan Waller JLPT vocabulary list,1524720,seed
+n5-vocab-1584360-83700909,N5,毎年,まいねん,every year,Jonathan Waller JLPT vocabulary list,1584360,seed
+n5-vocab-1584360-7895818d,N5,毎年,まいとし,every year,Jonathan Waller JLPT vocabulary list,1584360,seed
+n5-vocab-1524730-25849435,N5,毎晩,まいばん,every night,Jonathan Waller JLPT vocabulary list,1524730,seed
+n5-vocab-1392580-319e2189,N5,前,まえ,before,Jonathan Waller JLPT vocabulary list,1392580,seed
+n5-vocab-1239730-ae3e0a70,N5,曲る,まがる,"to turn,to bend",Jonathan Waller JLPT vocabulary list,1239730,seed
+n5-vocab-1495000-f02b0036,N5,不味い,まずい,unpleasant,Jonathan Waller JLPT vocabulary list,1495000,seed
+n5-vocab-1524930-3d613343,N5,又,また,"again,and",Jonathan Waller JLPT vocabulary list,1524930,seed
+n5-vocab-1527110-6a7163f5,N5,まだ,まだ,"yet,still",Jonathan Waller JLPT vocabulary list,1527110,seed
+n5-vocab-1603990-4d76d06d,N5,町,まち,"town,city",Jonathan Waller JLPT vocabulary list,1603990,seed
+n5-vocab-1410590-6a397012,N5,待つ,まつ,to wait,Jonathan Waller JLPT vocabulary list,1410590,seed
+n5-vocab-1580600-ede9ab2f,N5,まっすぐ,まっすぐ,"straight ahead,direct",Jonathan Waller JLPT vocabulary list,1580600,seed
+n5-vocab-2784220-27f9d403,N5,マッチ,マッチ,match,Jonathan Waller JLPT vocabulary list,2784220,seed
+n5-vocab-1401400-77341948,N5,窓,まど,window,Jonathan Waller JLPT vocabulary list,1401400,seed
+n5-vocab-1604230-ab361099,N5,丸い,まるい,"round,circular",Jonathan Waller JLPT vocabulary list,1604230,seed
+n5-vocab-1604230-1a7c32fb,N5,円い,まるい,"round,circular",Jonathan Waller JLPT vocabulary list,1604230,seed
+n5-vocab-1584460-a0ff0f67,N5,万,まん,ten thousand,Jonathan Waller JLPT vocabulary list,1584460,seed
+n5-vocab-1526360-6318b042,N5,万年筆,まんねんひつ,fountain pen,Jonathan Waller JLPT vocabulary list,1526360,seed
+n5-vocab-1523940-7309a238,N5,磨く,みがく,"to brush teeth, to polish",Jonathan Waller JLPT vocabulary list,1523940,seed
+n5-vocab-1171010-f1046f31,N5,右,みぎ,right side,Jonathan Waller JLPT vocabulary list,1171010,seed
+n5-vocab-1418620-8568eded,N5,短い,みじかい,short,Jonathan Waller JLPT vocabulary list,1418620,seed
+n5-vocab-1371260-69a79252,N5,水,みず,water,Jonathan Waller JLPT vocabulary list,1371260,seed
+n5-vocab-1582120-0c8a588e,N5,店,みせ,shop,Jonathan Waller JLPT vocabulary list,1582120,seed
+n5-vocab-1259210-db35a99e,N5,見せる,みせる,to show,Jonathan Waller JLPT vocabulary list,1259210,seed
+n5-vocab-1454080-dc29195f,N5,道,みち,street,Jonathan Waller JLPT vocabulary list,1454080,seed
+n5-vocab-1301330-1713d0bb,N5,三日,みっか,"three days, third day of the month",Jonathan Waller JLPT vocabulary list,1301330,seed
+n5-vocab-1299740-b36b221d,N5,三つ,みっつ,three,Jonathan Waller JLPT vocabulary list,1299740,seed
+n5-vocab-1555300-85e4ba2f,N5,緑,みどり,green,Jonathan Waller JLPT vocabulary list,1555300,seed
+n5-vocab-1202170-d2b9c476,N5,皆さん,みなさん,everyone,Jonathan Waller JLPT vocabulary list,1202170,seed
+n5-vocab-1459870-84e465b5,N5,南,みなみ,south,Jonathan Waller JLPT vocabulary list,1459870,seed
+n5-vocab-1317170-e8cdf8b8,N5,耳,みみ,ear,Jonathan Waller JLPT vocabulary list,1317170,seed
+n5-vocab-1259290-85b37b68,N5,見る,みる,"to see, to watch",Jonathan Waller JLPT vocabulary list,1259290,seed
+n5-vocab-1259290-875c752e,N5,観る,みる,"to see, to watch",Jonathan Waller JLPT vocabulary list,1259290,seed
+n5-vocab-1202150-26765145,N5,みんな,みんな,everyone,Jonathan Waller JLPT vocabulary list,1202150,seed
+n5-vocab-1561470-bf44ddad,N5,六日,むいか,"six days, sixth day of the month",Jonathan Waller JLPT vocabulary list,1561470,seed
+n5-vocab-1277140-8e862f05,N5,向こう,むこう,over there,Jonathan Waller JLPT vocabulary list,1277140,seed
+n5-vocab-1460850-0a389417,N5,難しい,むずかしい,difficult,Jonathan Waller JLPT vocabulary list,1460850,seed
+n5-vocab-1585315-7ecc2c4b,N5,六つ,むっつ,six,Jonathan Waller JLPT vocabulary list,1585315,seed
+n5-vocab-1406820-5028971b,N5,村,むら,village,Jonathan Waller JLPT vocabulary list,1406820,seed
+n5-vocab-1604890-ae534d4c,N5,目,め,eye,Jonathan Waller JLPT vocabulary list,1604890,seed
+n5-vocab-1132570-eb545049,N5,メートル,メートル,metre,Jonathan Waller JLPT vocabulary list,1132570,seed
+n5-vocab-1577670-72eb77e0,N5,眼鏡,めがね,glasses,Jonathan Waller JLPT vocabulary list,1577670,seed
+n5-vocab-1012480-c5b7ad76,N5,もう,もう,already,Jonathan Waller JLPT vocabulary list,1012480,seed
+n5-vocab-2005860-3ae16ad9,N5,もう一度,もういちど,again,Jonathan Waller JLPT vocabulary list,2005860,seed
+n5-vocab-1534890-d10bb92f,N5,木曜日,もくようび,Thursday,Jonathan Waller JLPT vocabulary list,1534890,seed
+n5-vocab-1315720-16fda19d,N5,持つ,もつ,to hold,Jonathan Waller JLPT vocabulary list,1315720,seed
+n5-vocab-1012620-a8f5f4c5,N5,もっと,もっと,more,Jonathan Waller JLPT vocabulary list,1012620,seed
+n5-vocab-1502390-782272bf,N5,物,もの,thing,Jonathan Waller JLPT vocabulary list,1502390,seed
+n5-vocab-1584800-5b927580,N5,門,もん,gate,Jonathan Waller JLPT vocabulary list,1584800,seed
+n5-vocab-1536010-4f0f6b6a,N5,問題,もんだい,problem,Jonathan Waller JLPT vocabulary list,1536010,seed
+n5-vocab-1476960-8d29f60b,N5,八百屋,やおや,greengrocer,Jonathan Waller JLPT vocabulary list,1476960,seed
+n5-vocab-1537370-93628966,N5,野菜,やさい,vegetable,Jonathan Waller JLPT vocabulary list,1537370,seed
+n5-vocab-1157000-ead1ae27,N5,易しい,やさしい,"easy, simple",Jonathan Waller JLPT vocabulary list,1157000,seed
+n5-vocab-1153670-33b86212,N5,安い,やすい,cheap,Jonathan Waller JLPT vocabulary list,1153670,seed
+n5-vocab-1227500-d4a1d27d,N5,休み,やすみ,"rest,holiday",Jonathan Waller JLPT vocabulary list,1227500,seed
+n5-vocab-1227560-3e3efcb4,N5,休む,やすむ,to rest,Jonathan Waller JLPT vocabulary list,1227560,seed
+n5-vocab-1583095-62c42166,N5,八つ,やっつ,eight,Jonathan Waller JLPT vocabulary list,1583095,seed
+n5-vocab-1302680-e8a5cbdf,N5,山,やま,mountain,Jonathan Waller JLPT vocabulary list,1302680,seed
+n5-vocab-1012980-871cab34,N5,遣る,やる,to do,Jonathan Waller JLPT vocabulary list,1012980,seed
+n5-vocab-1542790-285b0086,N5,夕方,ゆうがた,evening,Jonathan Waller JLPT vocabulary list,1542790,seed
+n5-vocab-1584910-ae2b9f6d,N5,夕飯,ゆうはん,dinner,Jonathan Waller JLPT vocabulary list,1584910,seed
+n5-vocab-1542430-8b869217,N5,郵便局,ゆうびんきょく,post office,Jonathan Waller JLPT vocabulary list,1542430,seed
+n5-vocab-1542640-39fff8fc,N5,昨夜,ゆうべ,last night,Jonathan Waller JLPT vocabulary list,1542640,seed
+n5-vocab-1541620-50b217ed,N5,有名,ゆうめい,famous,Jonathan Waller JLPT vocabulary list,1541620,seed
+n5-vocab-1386500-78c044b9,N5,雪,ゆき,snow,Jonathan Waller JLPT vocabulary list,1386500,seed
+n5-vocab-1578850-0bbad2a7,N5,行く,ゆく,to go,Jonathan Waller JLPT vocabulary list,1578850,seed
+n5-vocab-1013050-ccd27b3d,N5,ゆっくり,ゆっくり,slowly,Jonathan Waller JLPT vocabulary list,1013050,seed
+n5-vocab-1476920-4f8e8394,N5,八日,ようか,"eight days, eighth day of the month",Jonathan Waller JLPT vocabulary list,1476920,seed
+n5-vocab-1546020-1907b6fc,N5,洋服,ようふく,western-style clothes,Jonathan Waller JLPT vocabulary list,1546020,seed
+n5-vocab-1605870-4e03b5b7,N5,良く,よく,"often, well",Jonathan Waller JLPT vocabulary list,1605870,seed
+n5-vocab-1180570-4cb7c969,N5,横,よこ,"beside,side,width",Jonathan Waller JLPT vocabulary list,1180570,seed
+n5-vocab-1307320-222ae96d,N5,四日,よっか,"four days, fouth day of the month",Jonathan Waller JLPT vocabulary list,1307320,seed
+n5-vocab-1307040-1000ee44,N5,四つ,よっつ,four,Jonathan Waller JLPT vocabulary list,1307040,seed
+n5-vocab-1266440-76f05a07,N5,呼ぶ,よぶ,"to call out,to invite",Jonathan Waller JLPT vocabulary list,1266440,seed
+n5-vocab-1456360-eb7e6759,N5,読む,よむ,to read,Jonathan Waller JLPT vocabulary list,1456360,seed
+n5-vocab-1536350-1a0aec67,N5,夜,よる,"evening,night",Jonathan Waller JLPT vocabulary list,1536350,seed
+n5-vocab-1324520-83da2937,N5,弱い,よわい,weak,Jonathan Waller JLPT vocabulary list,1324520,seed
+n5-vocab-1547900-61fd50f1,N5,来月,らいげつ,next month,Jonathan Waller JLPT vocabulary list,1547900,seed
+n5-vocab-1548010-7a4ef637,N5,来週,らいしゅう,next week,Jonathan Waller JLPT vocabulary list,1548010,seed
+n5-vocab-1548220-c68f2caa,N5,来年,らいねん,next year,Jonathan Waller JLPT vocabulary list,1548220,seed
+n5-vocab-1138860-670f2dd0,N5,ラジオ,ラジオ,radio,Jonathan Waller JLPT vocabulary list,1138860,seed
+n5-vocab-1138960-924572e5,N5,ラジカセ,ラジカセ,radio cassette player,Jonathan Waller JLPT vocabulary list,1138960,seed
+n5-vocab-1138900-a3f35807,N5,ラジオカセット,ラジオカセット,radio cassette player,Jonathan Waller JLPT vocabulary list,1138900,seed
+n5-vocab-1551790-e9c7d351,N5,立派,りっぱ,splendid,Jonathan Waller JLPT vocabulary list,1551790,seed
+n5-vocab-1552750-dc7d39c7,N5,留学生,りゅうがくせい,overseas student,Jonathan Waller JLPT vocabulary list,1552750,seed
+n5-vocab-1602710-0139a208,N5,両親,りょうしん,both parents,Jonathan Waller JLPT vocabulary list,1602710,seed
+n5-vocab-1554310-ee85169a,N5,料理,りょうり,cuisine,Jonathan Waller JLPT vocabulary list,1554310,seed
+n5-vocab-1553170-2ba96bef,N5,旅行,りょこう,travel,Jonathan Waller JLPT vocabulary list,1553170,seed
+n5-vocab-1557630-92b3bb72,N5,零,れい,zero,Jonathan Waller JLPT vocabulary list,1557630,seed
+n5-vocab-1557110-f7a15687,N5,冷蔵庫,れいぞうこ,refrigerator,Jonathan Waller JLPT vocabulary list,1557110,seed
+n5-vocab-1144940-0455201f,N5,レコード,レコード,record,Jonathan Waller JLPT vocabulary list,1144940,seed
+n5-vocab-1145310-31893e43,N5,レストラン,レストラン,restaurant,Jonathan Waller JLPT vocabulary list,1145310,seed
+n5-vocab-1559160-d23f0624,N5,練習,れんしゅう,to practice,Jonathan Waller JLPT vocabulary list,1559160,seed
+n5-vocab-1560670-5fc0f979,N5,廊下,ろうか,corridor,Jonathan Waller JLPT vocabulary list,1560670,seed
+n5-vocab-1585310-f9ccc7bf,N5,六,ろく,six,Jonathan Waller JLPT vocabulary list,1585310,seed
+n5-vocab-1148640-38249a2d,N5,ワイシャツ,ワイシャツ,business shirt,Jonathan Waller JLPT vocabulary list,1148640,seed
+n5-vocab-1324300-640761cb,N5,若い,わかい,young,Jonathan Waller JLPT vocabulary list,1324300,seed
+n5-vocab-1606560-ecee43eb,N5,分かる,わかる,to be understood,Jonathan Waller JLPT vocabulary list,1606560,seed
+n5-vocab-1519210-0ca0de9d,N5,忘れる,わすれる,to forget,Jonathan Waller JLPT vocabulary list,1519210,seed
+n5-vocab-2842390-d5c2e698,N5,私,わたくし,"(humble) I,myself",Jonathan Waller JLPT vocabulary list,2842390,seed
+n5-vocab-1311110-8b82a027,N5,私,わたし,"I,myself",Jonathan Waller JLPT vocabulary list,1311110,seed
+n5-vocab-1444610-b1d440d4,N5,渡す,わたす,to hand over,Jonathan Waller JLPT vocabulary list,1444610,seed
+n5-vocab-1444680-78255b98,N5,渡る,わたる,to go across,Jonathan Waller JLPT vocabulary list,1444680,seed
+n5-vocab-1151260-13b6dbec,N5,悪い,わるい,bad,Jonathan Waller JLPT vocabulary list,1151260,seed
+n5-vocab-1013190-6c214111,N5,より,より,Used for comparison.,Jonathan Waller JLPT vocabulary list,1013190,seed
+n5-vocab-1516930-9dda296d,N5,方,ほう,Used for comparison.,Jonathan Waller JLPT vocabulary list,1516930,seed
