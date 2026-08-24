@@ -220,8 +220,8 @@ struct StudyTimeView: View {
                     Text("JLPT N5 Mastery")
                 } footer: {
                     Text(
-                        "A rough estimate based on matched cards and this app’s N5 catalog. "
-                            + "Vocabulary and grammar are scored separately."
+                        "Known means the strongest matched card is Guru or above. "
+                            + "Matched in your cards is a separate, rough coverage estimate against this app’s N5 catalog."
                     )
                 }
 
@@ -734,6 +734,15 @@ private struct JLPTMasteryMetricRow: View {
         min(max(metric.masteryPercent, 0), 100)
     }
 
+    private var knownCount: Int {
+        let inferred = Int((Double(boundedPercent) / 100 * Double(metric.total)).rounded())
+        return min(max(metric.known ?? inferred, 0), metric.total)
+    }
+
+    private var matchedCount: Int {
+        min(max(metric.matched ?? metric.covered, 0), metric.total)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -746,18 +755,23 @@ private struct JLPTMasteryMetricRow: View {
             }
             ProgressView(value: Double(boundedPercent), total: 100)
                 .tint(tint)
-            Text("\(metric.covered) of \(metric.total) catalog concepts represented")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(knownCount) of \(metric.total) known (Guru+)")
+                Text("\(matchedCount) of \(metric.total) matched in your cards")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("N5 \(title) mastery")
         .accessibilityValue(
-            "\(boundedPercent) percent, \(metric.covered) of \(metric.total) concepts represented"
+            "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, "
+                + "\(matchedCount) matched in your cards"
         )
     }
 }
+
 
 private struct StudyRhythmChart: View {
     let analytics: StudyTimeAnalyticsRange

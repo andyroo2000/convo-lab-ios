@@ -516,8 +516,24 @@ struct StudyJLPTLevelMastery: nonisolated Codable, Equatable, Sendable {
 
 struct StudyJLPTMasteryMetric: nonisolated Codable, Equatable, Sendable {
     let masteryPercent: Int
+    let known: Int?
+    let matched: Int?
     let covered: Int
     let total: Int
+
+    init(
+        masteryPercent: Int,
+        known: Int? = nil,
+        matched: Int? = nil,
+        covered: Int,
+        total: Int
+    ) {
+        self.masteryPercent = masteryPercent
+        self.known = known
+        self.matched = matched
+        self.covered = covered
+        self.total = total
+    }
 }
 
 struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
