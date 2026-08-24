@@ -290,6 +290,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int?
     let masterySpread: StudyMasterySpread?
+    let jlptMastery: StudyJLPTMastery?
     let learningReadiness: StudyLearningReadiness?
 
     init(
@@ -304,6 +305,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
         lessonBatchSize: Int = 5,
         reviewTimeBudgetMinutes: Int? = nil,
         masterySpread: StudyMasterySpread? = nil,
+        jlptMastery: StudyJLPTMastery? = nil,
         learningReadiness: StudyLearningReadiness? = nil
     ) {
         self.dueCount = dueCount
@@ -317,6 +319,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
         self.lessonBatchSize = lessonBatchSize
         self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
         self.masterySpread = masterySpread
+        self.jlptMastery = jlptMastery
         self.learningReadiness = learningReadiness
     }
 
@@ -332,6 +335,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
         case lessonBatchSize
         case reviewTimeBudgetMinutes
         case masterySpread
+        case jlptMastery
         case learningReadiness
 
         case legacyDueCount = "due_count"
@@ -369,6 +373,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
             forKey: .reviewTimeBudgetMinutes
         )
         masterySpread = try container.decodeIfPresent(StudyMasterySpread.self, forKey: .masterySpread)
+        jlptMastery = try container.decodeIfPresent(StudyJLPTMastery.self, forKey: .jlptMastery)
         learningReadiness = try container.decodeIfPresent(
             StudyLearningReadiness.self,
             forKey: .learningReadiness
@@ -388,6 +393,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
         try container.encodeIfPresent(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
         try container.encodeIfPresent(masterySpread, forKey: .masterySpread)
+        try container.encodeIfPresent(jlptMastery, forKey: .jlptMastery)
         try container.encodeIfPresent(learningReadiness, forKey: .learningReadiness)
     }
 
@@ -404,6 +410,7 @@ struct StudyOverview: nonisolated Codable, Sendable {
             lessonBatchSize: lessonBatchSize,
             reviewTimeBudgetMinutes: budgetMinutes,
             masterySpread: masterySpread,
+            jlptMastery: jlptMastery,
             learningReadiness: learningReadiness?.updatingReviewTimeBudget(to: budgetMinutes)
         )
     }
@@ -489,6 +496,25 @@ struct StudyMasterySpread: nonisolated Codable, Equatable, Sendable {
     let master: Int
     let enlightened: Int
     let burned: Int
+}
+
+struct StudyJLPTMastery: nonisolated Codable, Equatable, Sendable {
+    let n5: StudyJLPTLevelMastery
+
+    private enum CodingKeys: String, CodingKey {
+        case n5 = "N5"
+    }
+}
+
+struct StudyJLPTLevelMastery: nonisolated Codable, Equatable, Sendable {
+    let vocabulary: StudyJLPTMasteryMetric
+    let grammar: StudyJLPTMasteryMetric
+}
+
+struct StudyJLPTMasteryMetric: nonisolated Codable, Equatable, Sendable {
+    let masteryPercent: Int
+    let covered: Int
+    let total: Int
 }
 
 struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {

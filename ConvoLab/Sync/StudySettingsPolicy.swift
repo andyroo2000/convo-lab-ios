@@ -77,6 +77,7 @@ enum StudySettingsPolicy {
             lessonBatchSize: settings.lessonBatchSize,
             reviewTimeBudgetMinutes: settings.reviewTimeBudgetMinutes,
             masterySpread: overview.masterySpread,
+            jlptMastery: overview.jlptMastery,
             learningReadiness: overview.learningReadiness?
                 .updatingReviewTimeBudget(to: settings.reviewTimeBudgetMinutes)
         )

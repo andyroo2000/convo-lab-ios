@@ -114,6 +114,7 @@ enum StudyTimeEditableEntries {
 
 struct StudyTimeView: View {
     let store: StudyTimeStore
+    let studyStore: StudyStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingEntry = false
     @State private var editingSession: StudyActivitySession?
@@ -180,6 +181,47 @@ struct StudyTimeView: View {
                         "Double-tap a category to filter it out or bring it back. In Week, Month, and Year, "
                             + "double-tap a bar to drill in. Audio drills count as Listen; "
                             + "iTalki and other lessons count as Conversation."
+                    )
+                }
+
+                Section {
+                    if let n5 = studyStore.overview?.jlptMastery?.n5 {
+                        JLPTMasteryMetricRow(
+                            title: "Vocabulary",
+                            metric: n5.vocabulary,
+                            tint: ConvoLabTheme.navy
+                        )
+                        JLPTMasteryMetricRow(
+                            title: "Grammar",
+                            metric: n5.grammar,
+                            tint: ConvoLabTheme.coral
+                        )
+                    } else if studyStore.isRefreshingOverview {
+                        HStack {
+                            Spacer()
+                            ProgressView("Loading mastery…")
+                            Spacer()
+                        }
+                    } else if let message = studyStore.overviewRefreshErrorMessage {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(message, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Button("Retry") {
+                                Task { await studyStore.refreshOverview() }
+                            }
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "Mastery estimate unavailable",
+                            systemImage: "chart.bar.xaxis"
+                        )
+                    }
+                } header: {
+                    Text("JLPT N5 Mastery")
+                } footer: {
+                    Text(
+                        "A rough estimate based on matched cards and this app’s N5 catalog. "
+                            + "Vocabulary and grammar are scored separately."
                     )
                 }
 
@@ -334,12 +376,14 @@ struct StudyTimeView: View {
                 async let studyTime: Void = store.synchronize()
                 async let recap: Void = store.loadWeeklyRecap(force: true)
                 async let entries: Void = store.loadEditableSessions()
-                _ = await (studyTime, recap, entries)
+                async let mastery: Void = studyStore.refreshOverview()
+                _ = await (studyTime, recap, entries, mastery)
             }
             .task {
                 async let recap: Void = store.loadWeeklyRecap()
                 async let entries: Void = store.loadEditableSessions()
-                _ = await (recap, entries)
+                async let mastery: Void = studyStore.refreshOverview()
+                _ = await (recap, entries, mastery)
             }
         }
     }
@@ -678,6 +722,40 @@ struct StudyTimeView: View {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: value)
+    }
+}
+
+private struct JLPTMasteryMetricRow: View {
+    let title: String
+    let metric: StudyJLPTMasteryMetric
+    let tint: Color
+
+    private var boundedPercent: Int {
+        min(max(metric.masteryPercent, 0), 100)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                Text("\(boundedPercent)%")
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+            }
+            ProgressView(value: Double(boundedPercent), total: 100)
+                .tint(tint)
+            Text("\(metric.covered) of \(metric.total) catalog concepts represented")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("N5 \(title) mastery")
+        .accessibilityValue(
+            "\(boundedPercent) percent, \(metric.covered) of \(metric.total) concepts represented"
+        )
     }
 }
 

@@ -109,6 +109,8 @@ final class StudyStore {
     private(set) var failedStudyChanges: [FailedStudyChange] = []
     var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
     private(set) var overview: StudyOverview?
+    private(set) var isRefreshingOverview = false
+    private(set) var overviewRefreshErrorMessage: String?
     private(set) var studySettings: StudySettings?
     private(set) var isUpdatingStudySettings = false
     private(set) var studySettingsErrorMessage: String?
@@ -289,6 +291,8 @@ final class StudyStore {
         isRefreshingNewCardQueue = false
         isLoadingMoreNewCardQueue = false
         overview = nil
+        isRefreshingOverview = false
+        overviewRefreshErrorMessage = nil
         studySettings = nil
         isUpdatingStudySettings = false
         studySettingsErrorMessage = nil
@@ -669,6 +673,33 @@ final class StudyStore {
             markPrepared(cards: activeCards)
         }
         return true
+    }
+
+    func refreshOverview() async {
+        guard let userID = activeUserID else { return }
+        let activationGeneration = accountActivationGeneration
+        isRefreshingOverview = true
+        overviewRefreshErrorMessage = nil
+
+        defer {
+            if isCurrentActivation(userID, generation: activationGeneration) {
+                isRefreshingOverview = false
+            }
+        }
+
+        do {
+            let refreshed: StudyOverview = try await api.request("/api/study/overview")
+            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            let resolvedSettings = StudySettingsPolicy.settings(
+                from: refreshed,
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+            )
+            setOverview(StudySettingsPolicy.applying(resolvedSettings, to: refreshed))
+            studySettings = resolvedSettings
+        } catch {
+            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            overviewRefreshErrorMessage = error.localizedDescription
+        }
     }
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.

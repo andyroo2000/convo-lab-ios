@@ -4910,6 +4910,44 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewRefreshPublishesSeparateN5VocabularyAndGrammarMastery() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"dueCount":0,"newCount":0,"reviewCount":0,"newCardsPerDay":20,"jlptMastery":{"N5":{"vocabulary":{"masteryPercent":34,"covered":280,"total":684},"grammar":{"masteryPercent":21,"covered":29,"total":77}}}}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshOverview()
+
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.total, 684)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.masteryPercent, 21)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.total, 77)
+        XCTAssertFalse(store.isRefreshingOverview)
+        XCTAssertNil(store.overviewRefreshErrorMessage)
+    }
+
+    @MainActor
     func testSessionRefreshPreservesBudgetWhenReadinessBudgetIsAbsent() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let session = StudySession(
