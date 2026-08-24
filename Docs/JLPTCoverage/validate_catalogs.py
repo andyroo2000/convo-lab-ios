@@ -66,6 +66,11 @@ def main() -> None:
         "expected 700 photographed-book vocabulary candidates",
     )
     require(
+        len({row["expression"] for row in book_vocabulary})
+        == len(book_vocabulary),
+        "book vocabulary expressions must be unique",
+    )
+    require(
         all(row["review_status"] == "needs_review" for row in book_vocabulary),
         "book vocabulary must remain outside the denominator until reviewed",
     )

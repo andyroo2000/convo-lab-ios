@@ -21,6 +21,9 @@ GRAMMAR_URL = (
     "https://raw.githubusercontent.com/jkindrix/japanese-language-data/"
     f"{GRAMMAR_COMMIT}/data/grammar/grammar.json"
 )
+GRAMMAR_PATTERN_CORRECTIONS = {
+    "nanyoubi-day-of-week": "何曜日 / 曜日",
+}
 
 
 def fetch(url: str) -> str:
@@ -91,7 +94,9 @@ def write_grammar(output_directory: Path) -> int:
                 {
                     "concept_id": f"n5-grammar-{row['id']}",
                     "jlpt_level": "N5",
-                    "pattern": row["pattern"],
+                    "pattern": GRAMMAR_PATTERN_CORRECTIONS.get(
+                        row["id"], row["pattern"]
+                    ),
                     "meaning": row["meaning_en"],
                     "source": "Japanese Language Data",
                     "source_id": row["id"],

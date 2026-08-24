@@ -65,7 +65,7 @@ n5-grammar-location-nouns-ue-shita,N5,Noun + の + 上/下/中/前/後ろ/横/�
 n5-grammar-ikutsu-how-many,N5,いくつ (+ optional counter-specific form),how many / how old,Japanese Language Data,ikutsu-how-many,draft
 n5-grammar-ikura-how-much,N5,いくら,how much (price / quantity),Japanese Language Data,ikura-how-much,draft
 n5-grammar-nanji-what-time,N5,何時 (+ optional 〜分),what time / when (specific clock time),Japanese Language Data,nanji-what-time,draft
-n5-grammar-nanyoubi-day-of-week,N5,何曜日 / 曜日 system,what day of the week / days of the week,Japanese Language Data,nanyoubi-day-of-week,draft
+n5-grammar-nanyoubi-day-of-week,N5,何曜日 / 曜日,what day of the week / days of the week,Japanese Language Data,nanyoubi-day-of-week,draft
 n5-grammar-counter-ji-oclock,N5,Number + 時,o'clock (hour counter),Japanese Language Data,counter-ji-oclock,draft
 n5-grammar-counter-fun-minute,N5,Number + 分,minute (time / duration counter),Japanese Language Data,counter-fun-minute,draft
 n5-grammar-counter-sai-age,N5,Number + 歳 / 才,year of age (age counter),Japanese Language Data,counter-sai-age,draft
