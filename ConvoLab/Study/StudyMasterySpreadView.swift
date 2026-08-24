@@ -4,10 +4,10 @@ nonisolated struct StudyMasterySpreadEntry: Equatable, Identifiable, Sendable {
     let level: StudyMasteryLevel
     let count: Int
     let share: Double
+    let percentage: Int
 
     var id: StudyMasteryLevel { level }
     var title: String { level.rawValue.capitalized }
-    var percentage: Int { Int((share * 100).rounded()) }
 }
 
 nonisolated extension StudyMasterySpread {
@@ -28,13 +28,29 @@ nonisolated extension StudyMasterySpread {
             .burned: max(0, burned),
         ]
         let total = total
+        let levels = StudyMasteryLevel.allCases
+        let shares = levels.map { level in
+            total > 0 ? Double(counts[level] ?? 0) / Double(total) : 0
+        }
+        let exactPercentages = shares.map { $0 * 100 }
+        var percentages = exactPercentages.map { Int($0.rounded(.down)) }
+        let remaining = total > 0 ? 100 - percentages.reduce(0, +) : 0
+        let remainderOrder = exactPercentages.indices.sorted { left, right in
+            let leftRemainder = exactPercentages[left] - Double(percentages[left])
+            let rightRemainder = exactPercentages[right] - Double(percentages[right])
+            return leftRemainder == rightRemainder ? left < right : leftRemainder > rightRemainder
+        }
+        for index in remainderOrder.prefix(remaining) {
+            percentages[index] += 1
+        }
 
-        return StudyMasteryLevel.allCases.map { level in
+        return levels.enumerated().map { index, level in
             let count = counts[level] ?? 0
             return StudyMasterySpreadEntry(
                 level: level,
                 count: count,
-                share: total > 0 ? Double(count) / Double(total) : 0
+                share: shares[index],
+                percentage: percentages[index]
             )
         }
     }

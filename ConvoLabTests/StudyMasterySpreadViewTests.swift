@@ -43,4 +43,17 @@ final class StudyMasterySpreadViewTests: XCTestCase {
         XCTAssertEqual(spread.entries.map(\.count), [0, 4, 0, 0, 0])
         XCTAssertEqual(spread.entries.map(\.percentage), [0, 100, 0, 0, 0])
     }
+
+    func testDisplayedPercentagesUseLargestRemaindersToTotalOneHundred() {
+        let spread = StudyMasterySpread(
+            apprentice: 1,
+            guru: 1,
+            master: 1,
+            enlightened: 0,
+            burned: 0
+        )
+
+        XCTAssertEqual(spread.entries.map(\.percentage), [34, 33, 33, 0, 0])
+        XCTAssertEqual(spread.entries.map(\.percentage).reduce(0, +), 100)
+    }
 }
