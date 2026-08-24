@@ -6870,7 +6870,21 @@ final class StudyStoreTests: XCTestCase {
                 newCount: 0,
                 reviewCount: 1,
                 newCardsPerDay: 10,
-                newCardsAvailableToday: 0
+                newCardsAvailableToday: 0,
+                jlptMastery: StudyJLPTMastery(
+                    n5: StudyJLPTLevelMastery(
+                        vocabulary: StudyJLPTMasteryMetric(
+                            masteryPercent: 8,
+                            covered: 83,
+                            total: 684
+                        ),
+                        grammar: StudyJLPTMasteryMetric(
+                            masteryPercent: 46,
+                            covered: 36,
+                            total: 77
+                        )
+                    )
+                )
             ))
         ))
         try container.mainContext.save()
@@ -6898,6 +6912,8 @@ final class StudyStoreTests: XCTestCase {
             from: snapshot.payload
         )
         XCTAssertEqual(restored.dueCount, 0)
+        XCTAssertEqual(restored.jlptMastery?.n5.vocabulary.masteryPercent, 8)
+        XCTAssertEqual(restored.jlptMastery?.n5.grammar.masteryPercent, 46)
     }
 
     @MainActor

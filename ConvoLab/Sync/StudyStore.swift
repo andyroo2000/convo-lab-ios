@@ -2148,6 +2148,7 @@ final class StudyStore {
             lessonBatchSize: current.lessonBatchSize,
             reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
             masterySpread: current.masterySpread,
+            jlptMastery: current.jlptMastery,
             learningReadiness: current.learningReadiness
         ), persistImmediately: false)
     }
