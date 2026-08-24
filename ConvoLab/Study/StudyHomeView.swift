@@ -146,28 +146,8 @@ struct StudyHomeView: View {
     @ViewBuilder
     private var masterySpread: some View {
         if let spread = store.overview?.masterySpread {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Item Spread")
-                    .font(.headline)
-                masteryRow("Apprentice", count: spread.apprentice, color: .pink)
-                masteryRow("Guru", count: spread.guru, color: .purple)
-                masteryRow("Master", count: spread.master, color: .blue)
-                masteryRow("Enlightened", count: spread.enlightened, color: .orange)
-                masteryRow("Burned", count: spread.burned, color: .green)
-            }
-            .padding()
-            .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
+            StudyMasterySpreadView(spread: spread)
         }
-    }
-
-    private func masteryRow(_ title: String, count: Int, color: Color) -> some View {
-        HStack {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(title)
-            Spacer()
-            Text(count, format: .number).monospacedDigit()
-        }
-        .font(.subheadline)
     }
 
     private func readinessTitle(_ level: String) -> String {
