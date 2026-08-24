@@ -4922,7 +4922,7 @@ final class StudyStoreTests: XCTestCase {
                     headerFields: ["Content-Type": "application/json"]
                 )!,
                 Data(
-                    #"{"dueCount":0,"newCount":0,"reviewCount":0,"newCardsPerDay":20,"jlptMastery":{"N5":{"vocabulary":{"masteryPercent":34,"covered":280,"total":684},"grammar":{"masteryPercent":21,"covered":29,"total":77}}}}"#.utf8
+                    #"{"dueCount":0,"newCount":0,"reviewCount":0,"newCardsPerDay":20,"jlptMastery":{"N5":{"vocabulary":{"masteryPercent":34,"known":233,"matched":280,"covered":280,"total":684},"grammar":{"masteryPercent":21,"known":16,"matched":29,"covered":29,"total":77}}}}"#.utf8
                 )
             )
         }
@@ -4940,8 +4940,12 @@ final class StudyStoreTests: XCTestCase {
         await store.refreshOverview()
 
         XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.known, 233)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.matched, 280)
         XCTAssertEqual(store.overview?.jlptMastery?.n5.vocabulary.total, 684)
         XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.masteryPercent, 21)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.known, 16)
+        XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.matched, 29)
         XCTAssertEqual(store.overview?.jlptMastery?.n5.grammar.total, 77)
         XCTAssertFalse(store.isRefreshingOverview)
         XCTAssertNil(store.overviewRefreshErrorMessage)

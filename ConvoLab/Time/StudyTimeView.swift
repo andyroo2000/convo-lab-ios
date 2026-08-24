@@ -220,8 +220,8 @@ struct StudyTimeView: View {
                     Text("JLPT N5 Mastery")
                 } footer: {
                     Text(
-                        "A rough estimate based on matched cards and this app’s N5 catalog. "
-                            + "Vocabulary and grammar are scored separately."
+                        "Known means the strongest matched card is Guru or above. "
+                            + "Matched in your cards is a separate, rough coverage estimate against this app’s N5 catalog."
                     )
                 }
 
@@ -734,6 +734,23 @@ private struct JLPTMasteryMetricRow: View {
         min(max(metric.masteryPercent, 0), 100)
     }
 
+    private var matchedCount: Int {
+        min(max(metric.matched ?? metric.covered, 0), metric.total)
+    }
+
+    private var knownCount: Int? {
+        guard let known = metric.known else { return nil }
+        return min(max(known, 0), matchedCount)
+    }
+
+    private var accessibilitySummary: String {
+        let matched = "\(matchedCount) of \(metric.total) matched in your cards"
+        guard let knownCount else {
+            return "\(boundedPercent) percent, \(matched)"
+        }
+        return "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, \(matched)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -746,16 +763,19 @@ private struct JLPTMasteryMetricRow: View {
             }
             ProgressView(value: Double(boundedPercent), total: 100)
                 .tint(tint)
-            Text("\(metric.covered) of \(metric.total) catalog concepts represented")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                if let knownCount {
+                    Text("\(knownCount) of \(metric.total) known (Guru+)")
+                }
+                Text("\(matchedCount) of \(metric.total) matched in your cards")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("N5 \(title) mastery")
-        .accessibilityValue(
-            "\(boundedPercent) percent, \(metric.covered) of \(metric.total) concepts represented"
-        )
+        .accessibilityValue(accessibilitySummary)
     }
 }
 

@@ -96,8 +96,8 @@ final class StudySessionCountsTests: XCTestCase {
                   },
                   "jlptMastery": {
                     "N5": {
-                      "vocabulary": {"masteryPercent": 34, "covered": 280, "total": 684},
-                      "grammar": {"masteryPercent": 21, "covered": 29, "total": 77}
+                      "vocabulary": {"masteryPercent": 34, "known": 233, "matched": 280, "covered": 280, "total": 684},
+                      "grammar": {"masteryPercent": 21, "known": 16, "matched": 29, "covered": 29, "total": 77}
                     }
                   },
                   "learningReadiness": {
@@ -127,9 +127,13 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.known, 233)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.matched, 280)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.covered, 280)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.total, 684)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.masteryPercent, 21)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.known, 16)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.matched, 29)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.covered, 29)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.total, 77)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
@@ -157,6 +161,22 @@ final class StudySessionCountsTests: XCTestCase {
         )
         XCTAssertEqual(narrowOverview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
         XCTAssertEqual(narrowOverview.jlptMastery?.n5.grammar.masteryPercent, 21)
+    }
+
+    func testOverviewStillDecodesLegacyMasteryWithoutKnownOrMatchedCounts() throws {
+        let overview = try JSONDecoder().decode(
+            StudyOverview.self,
+            from: Data(
+                #"{"dueCount":0,"newCount":0,"reviewCount":0,"newCardsPerDay":20,"jlptMastery":{"N5":{"vocabulary":{"masteryPercent":8,"covered":83,"total":684},"grammar":{"masteryPercent":46,"covered":36,"total":77}}}}"#.utf8
+            )
+        )
+
+        XCTAssertNil(overview.jlptMastery?.n5.vocabulary.known)
+        XCTAssertNil(overview.jlptMastery?.n5.vocabulary.matched)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.covered, 83)
+        XCTAssertNil(overview.jlptMastery?.n5.grammar.known)
+        XCTAssertNil(overview.jlptMastery?.n5.grammar.matched)
+        XCTAssertEqual(overview.jlptMastery?.n5.grammar.covered, 36)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {
