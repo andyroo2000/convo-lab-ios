@@ -266,7 +266,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
             _ = requests.next()
             return Self.response(status: 500, request: request)
         }
-        let (service, _) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, _) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
 
         do {
             _ = try await service.regenerateImage(
@@ -291,6 +296,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
             XCTFail("Expected invalid placement")
         } catch is InvalidCardImagePlacementError {}
         XCTAssertEqual(requests.current, 0)
+        XCTAssertTrue(diagnosticsSink.events.isEmpty)
     }
 
     @MainActor

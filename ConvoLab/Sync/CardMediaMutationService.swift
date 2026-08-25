@@ -163,6 +163,11 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
+        let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
+            throw InvalidCardImagePromptError()
+        }
+        guard placement != .none else { throw InvalidCardImagePlacementError() }
         let diagnosticInterval = diagnostics.begin(.generation)
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
@@ -172,11 +177,6 @@ final class CardMediaMutationService {
             )
         }
         do {
-            let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
-                throw InvalidCardImagePromptError()
-            }
-            guard placement != .none else { throw InvalidCardImagePlacementError() }
             let operation = try beginOperation(for: currentCard, medium: .image)
             defer { finishOperation(operation) }
             // learning-os compatibility endpoint returns the card directly.
