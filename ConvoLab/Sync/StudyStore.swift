@@ -120,6 +120,10 @@ final class StudyStore {
     var knownKanjiVersion: Int { knownKanjiService.version }
     var wanikaniConnected: Bool { knownKanjiService.wanikaniConnected }
     var wanikaniLastSyncedAt: Date? { knownKanjiService.wanikaniLastSyncedAt }
+    var wanikaniReviewCount: Int? { knownKanjiService.wanikaniReviewCount }
+    var wanikaniReviewCountUpdatedAt: Date? {
+        knownKanjiService.wanikaniReviewCountUpdatedAt
+    }
     var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
     private(set) var resolvingPitchAccentCardIDs: Set<String> = []

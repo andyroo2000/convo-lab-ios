@@ -91,6 +91,7 @@ final class StudyTimeStore {
     private var storageWriteErrorOperation: StorageWriteOperation?
     private(set) var syncErrorMessage: String?
     private(set) var googleCalendarStatus: GoogleCalendarConnectionStatus?
+    private(set) var googleCalendarStatusRefreshedAt: Date?
     private(set) var googleCalendarIsLoading = false
     private(set) var googleCalendarIsWorking = false
     private(set) var googleCalendarErrorMessage: String?
@@ -147,6 +148,7 @@ final class StudyTimeStore {
         analyticsCacheGeneration += 1
         clearStorageWriteError()
         googleCalendarStatus = nil
+        googleCalendarStatusRefreshedAt = nil
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
@@ -189,6 +191,7 @@ final class StudyTimeStore {
         clearStorageWriteError()
         syncErrorMessage = nil
         googleCalendarStatus = nil
+        googleCalendarStatusRefreshedAt = nil
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
@@ -220,6 +223,7 @@ final class StudyTimeStore {
                   googleCalendarRequestGeneration == requestGeneration
             else { return }
             googleCalendarStatus = status
+            googleCalendarStatusRefreshedAt = now()
         } catch {
             guard activeUserID == requestedUserID,
                   googleCalendarRequestGeneration == requestGeneration

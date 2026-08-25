@@ -9,6 +9,7 @@ struct GoogleCalendarConnectionStatus: nonisolated Decodable, Equatable, Sendabl
     let connectedAt: Date?
     let lastSyncedAt: Date?
     let sync: GoogleCalendarSyncState?
+    let nextLesson: GoogleCalendarNextLesson?
 
     init(
         connected: Bool,
@@ -17,7 +18,8 @@ struct GoogleCalendarConnectionStatus: nonisolated Decodable, Equatable, Sendabl
         settings: GoogleCalendarSettings?,
         connectedAt: Date?,
         lastSyncedAt: Date?,
-        sync: GoogleCalendarSyncState? = nil
+        sync: GoogleCalendarSyncState? = nil,
+        nextLesson: GoogleCalendarNextLesson? = nil
     ) {
         self.connected = connected
         self.accountEmail = accountEmail
@@ -26,7 +28,14 @@ struct GoogleCalendarConnectionStatus: nonisolated Decodable, Equatable, Sendabl
         self.connectedAt = connectedAt
         self.lastSyncedAt = lastSyncedAt
         self.sync = sync
+        self.nextLesson = nextLesson
     }
+}
+
+struct GoogleCalendarNextLesson: nonisolated Decodable, Equatable, Sendable {
+    let title: String
+    let startsAt: Date
+    let endsAt: Date
 }
 
 enum GoogleCalendarSyncPhase: String, nonisolated Decodable, Equatable, Sendable {
