@@ -30,6 +30,8 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available
 
+      # The shared scheme includes both unit and native UI-test targets. Keeping one
+      # destination and serial execution also makes relaunch persistence deterministic.
       - name: Run simulator tests serially
         run: |
           set -euo pipefail

@@ -57,6 +57,23 @@ xcodebuild \
   build
 ```
 
+## Tests
+
+The shared `ConvoLab` scheme runs unit and native UI tests on an iOS simulator:
+
+```bash
+xcodebuild test \
+  -project ConvoLab.xcodeproj \
+  -scheme ConvoLab \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
+  -parallel-testing-enabled NO
+```
+
+UI tests launch through an isolated, Debug-only composition entry point. Fixture
+launches do not construct the production `AppModel`, open normal SwiftData stores,
+or register production audio services. The fixture entry point is compiled out of
+Release archives.
+
 ## Offline model
 
 The device stores cards, Daily Audio metadata, media-cache records, sync checkpoints, and
