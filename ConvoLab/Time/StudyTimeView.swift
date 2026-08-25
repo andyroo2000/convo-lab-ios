@@ -128,6 +128,7 @@ struct StudyTimeView: View {
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
+    @State private var isManualTimeEntryExpanded = false
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
         store.analytics?.range(selectedRange)
@@ -240,59 +241,6 @@ struct StudyTimeView: View {
                     }
                 }
 
-                Section("Timer") {
-                    Picker("Activity", selection: $selectedActivity) {
-                        ForEach([
-                            StudyActivityKind.cardCreation,
-                            .tv,
-                            .podcast,
-                            .reading,
-                            .conversation,
-                            .wanikaniReview,
-                            .other,
-                        ]) { activity in
-                            Text(activity.title).tag(activity)
-                        }
-                    }
-                    TextField("Source, show, or project (optional)", text: $timerName)
-                    if let active = store.active {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(active.name ?? active.activity.title)
-                                        .font(.headline)
-                                    Text(
-                                        Duration.seconds(
-                                            context.date.timeIntervalSince(active.startedAt)
-                                        ),
-                                        format: .time(pattern: .hourMinuteSecond)
-                                    )
-                                    .monospacedDigit()
-                                    .accessibilityHidden(true)
-                                }
-                                .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(active.name ?? active.activity.title)
-                                .accessibilityValue("Timer running")
-                                Spacer()
-                                Button("Stop", role: .destructive) { store.stop() }
-                                    .buttonStyle(.borderedProminent)
-                            }
-                        }
-                    } else {
-                        Button {
-                            store.start(
-                                activity: selectedActivity,
-                                source: .manual,
-                                name: timerName.nilIfBlank
-                            )
-                        } label: {
-                            Label("Start session", systemImage: "play.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ConvoLabTheme.navy)
-                    }
-                }
-
                 if let message = entryErrorMessage
                     ?? store.storageWriteErrorMessage
                     ?? store.syncErrorMessage
@@ -303,63 +251,7 @@ struct StudyTimeView: View {
                     }
                 }
 
-                Section(StudyTimeEditableEntries.sectionTitle) {
-                    if store.editableSessionsIsLoading, editableSessions.isEmpty {
-                        HStack {
-                            Spacer()
-                            ProgressView("Loading entries…")
-                            Spacer()
-                        }
-                    } else if let message = store.editableSessionsErrorMessage,
-                              editableSessions.isEmpty
-                    {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(message, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Button("Retry") {
-                                Task { await store.loadEditableSessions() }
-                            }
-                        }
-                    } else if editableSessions.isEmpty {
-                        ContentUnavailableView(
-                            StudyTimeEditableEntries.emptyTitle,
-                            systemImage: "clock.badge",
-                            description: Text(StudyTimeEditableEntries.emptyDescription)
-                        )
-                    }
-                    ForEach(editableSessions, id: \.stableID) { session in
-                        StudyTimeSessionRow(session: session)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editingSession = session }
-                            .swipeActions(allowsFullSwipe: false) {
-                                Button("Delete", role: .destructive) {
-                                    delete(session)
-                                }
-                                Button("Edit") {
-                                    editingSession = session
-                                }
-                                .tint(ConvoLabTheme.navy)
-                            }
-                    }
-                    if store.editableSessionsNextCursor != nil {
-                        Button {
-                            Task { await store.loadEditableSessions(reset: false) }
-                        } label: {
-                            HStack {
-                                Spacer()
-                                if store.editableSessionsIsLoading {
-                                    ProgressView()
-                                    Text("Loading…")
-                                } else {
-                                    Text("Load more entries")
-                                }
-                                Spacer()
-                            }
-                            .frame(minHeight: 44)
-                        }
-                        .disabled(store.editableSessionsIsLoading)
-                    }
-                }
+                manualTimeEntrySection
             }
             .navigationTitle("Study Time")
             .toolbar {
@@ -380,16 +272,185 @@ struct StudyTimeView: View {
             .refreshable {
                 async let studyTime: Void = store.synchronize()
                 async let recap: Void = store.loadWeeklyRecap(force: true)
-                async let entries: Void = store.loadEditableSessions()
                 async let mastery: Void = studyStore.refreshOverview()
-                _ = await (studyTime, recap, entries, mastery)
+                if isManualTimeEntryExpanded {
+                    async let entries: Void = store.loadEditableSessions()
+                    _ = await (studyTime, recap, mastery, entries)
+                } else {
+                    _ = await (studyTime, recap, mastery)
+                }
             }
             .task {
                 async let recap: Void = store.loadWeeklyRecap()
-                async let entries: Void = store.loadEditableSessions()
                 async let mastery: Void = studyStore.refreshOverview()
-                _ = await (recap, entries, mastery)
+                _ = await (recap, mastery)
             }
+            .onChange(of: isManualTimeEntryExpanded) { _, isExpanded in
+                guard isExpanded else { return }
+                Task { await store.loadEditableSessions() }
+            }
+        }
+    }
+
+    private var manualTimeEntrySection: some View {
+        Section {
+            Button {
+                if reduceMotion {
+                    isManualTimeEntryExpanded.toggle()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isManualTimeEntryExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack {
+                    Label("Manual Time Entry", systemImage: "clock.badge.plus")
+                        .font(.headline)
+                        .foregroundStyle(ConvoLabTheme.navy)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isManualTimeEntryExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isManualTimeEntryExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(
+                isManualTimeEntryExpanded
+                    ? "Hides the timer and editable entries"
+                    : "Shows the timer and editable entries"
+            )
+
+            if isManualTimeEntryExpanded {
+                timerRows
+                editableEntryRows
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var timerRows: some View {
+        Text("Timer")
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+
+        Picker("Activity", selection: $selectedActivity) {
+            ForEach([
+                StudyActivityKind.cardCreation,
+                .tv,
+                .podcast,
+                .reading,
+                .conversation,
+                .wanikaniReview,
+                .other,
+            ]) { activity in
+                Text(activity.title).tag(activity)
+            }
+        }
+        TextField("Source, show, or project (optional)", text: $timerName)
+        if let active = store.active {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(active.name ?? active.activity.title)
+                            .font(.headline)
+                        Text(
+                            Duration.seconds(
+                                context.date.timeIntervalSince(active.startedAt)
+                            ),
+                            format: .time(pattern: .hourMinuteSecond)
+                        )
+                        .monospacedDigit()
+                        .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(active.name ?? active.activity.title)
+                    .accessibilityValue("Timer running")
+                    Spacer()
+                    Button("Stop", role: .destructive) { store.stop() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+        } else {
+            Button {
+                store.start(
+                    activity: selectedActivity,
+                    source: .manual,
+                    name: timerName.nilIfBlank
+                )
+            } label: {
+                Label("Start session", systemImage: "play.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(ConvoLabTheme.navy)
+        }
+    }
+
+    @ViewBuilder
+    private var editableEntryRows: some View {
+        Text(StudyTimeEditableEntries.sectionTitle)
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+
+        if store.editableSessionsIsLoading, editableSessions.isEmpty {
+            HStack {
+                Spacer()
+                ProgressView("Loading entries…")
+                Spacer()
+            }
+        } else if let message = store.editableSessionsErrorMessage,
+                  editableSessions.isEmpty
+        {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Button("Retry") {
+                    Task { await store.loadEditableSessions() }
+                }
+            }
+        } else if editableSessions.isEmpty {
+            ContentUnavailableView(
+                StudyTimeEditableEntries.emptyTitle,
+                systemImage: "clock.badge",
+                description: Text(StudyTimeEditableEntries.emptyDescription)
+            )
+        }
+        ForEach(editableSessions, id: \.stableID) { session in
+            StudyTimeSessionRow(session: session)
+                .contentShape(Rectangle())
+                .onTapGesture { editingSession = session }
+                .swipeActions(allowsFullSwipe: false) {
+                    Button("Delete", role: .destructive) {
+                        delete(session)
+                    }
+                    Button("Edit") {
+                        editingSession = session
+                    }
+                    .tint(ConvoLabTheme.navy)
+                }
+        }
+        if store.editableSessionsNextCursor != nil {
+            Button {
+                Task { await store.loadEditableSessions(reset: false) }
+            } label: {
+                HStack {
+                    Spacer()
+                    if store.editableSessionsIsLoading {
+                        ProgressView()
+                        Text("Loading…")
+                    } else {
+                        Text("Load more entries")
+                    }
+                    Spacer()
+                }
+                .frame(minHeight: 44)
+            }
+            .disabled(store.editableSessionsIsLoading)
         }
     }
 

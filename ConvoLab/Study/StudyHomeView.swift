@@ -9,7 +9,7 @@ struct StudyHomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 18) {
+                LazyVStack(spacing: 18) {
                     todayPlan
                     learningReadiness
                     masterySpread
