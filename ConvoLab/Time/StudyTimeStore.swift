@@ -10,19 +10,19 @@ final class StudyTimeStore {
 
     private let api: APIClient
     private let mutationRepository: StudyTimeSessionMutationRepository
+    private let synchronizationCoordinator: StudyTimeSynchronizationCoordinator
+    private let insightsController: StudyTimeInsightsController
     private let googleCalendar: any GoogleCalendarConnectionServing
     private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
-    private let weeklyRecapService: any WeeklyStudyRecapServing
-    private let snapshotCache: any StudyTimeSnapshotCaching
     private let now: () -> Date
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var editableSessions: [StudyActivitySession] = []
     private(set) var editableSessionsNextCursor: String?
     private(set) var editableSessionsIsLoading = false
     private(set) var editableSessionsErrorMessage: String?
-    private(set) var analytics: StudyTimeAnalytics?
-    private(set) var analyticsCache: [String: StudyTimeAnalytics] = [:]
-    private(set) var analyticsCacheGeneration = 0
+    var analytics: StudyTimeAnalytics? { insightsController.analytics }
+    var analyticsCache: [String: StudyTimeAnalytics] { insightsController.analyticsCache }
+    var analyticsCacheGeneration: Int { insightsController.analyticsCacheGeneration }
     private(set) var active: ActiveSession?
     private(set) var storageWriteErrorMessage: String?
     private var storageWriteErrorOperation: StudyTimeStorageWriteOperation?
@@ -32,21 +32,11 @@ final class StudyTimeStore {
     private(set) var googleCalendarIsLoading = false
     private(set) var googleCalendarIsWorking = false
     private(set) var googleCalendarErrorMessage: String?
-    private(set) var weeklyRecap: WeeklyStudyRecap?
-    private(set) var weeklyRecapIsLoading = false
-    private(set) var weeklyRecapErrorMessage: String?
+    var weeklyRecap: WeeklyStudyRecap? { insightsController.weeklyRecap }
+    var weeklyRecapIsLoading: Bool { insightsController.weeklyRecapIsLoading }
+    var weeklyRecapErrorMessage: String? { insightsController.weeklyRecapErrorMessage }
     private var activeUserID: Int?
-    private var synchronizationTask: Task<Void, Never>?
-    private var synchronizingUserID: Int?
-    private var pendingPushTask: Task<Void, Never>?
-    private var pendingPushID: UUID?
-    private var pendingPushNeedsAnotherPass = false
-    private var localMutationGeneration = 0
-    private var analyticsRequestGeneration = 0
     private var googleCalendarRequestGeneration = 0
-    private var weeklyRecapRequestGeneration = 0
-    private var weeklyRecapRefreshedAt: Date?
-    private var requestedAnalyticsAnchor: Date?
 
     init(
         api: APIClient,
@@ -61,41 +51,43 @@ final class StudyTimeStore {
         now: @escaping () -> Date = { .now }
     ) {
         self.api = api
-        mutationRepository = StudyTimeSessionMutationRepository(
+        let mutationRepository = StudyTimeSessionMutationRepository(
             api: api,
             context: context,
             storageMode: storageMode,
             contextSaver: contextSaver,
             calendar: calendar
         )
+        self.mutationRepository = mutationRepository
+        let insightsController = StudyTimeInsightsController(
+            api: api,
+            weeklyRecapService: weeklyRecapService,
+            snapshotCache: snapshotCache,
+            now: now
+        )
+        self.insightsController = insightsController
+        synchronizationCoordinator = StudyTimeSynchronizationCoordinator(
+            api: api,
+            repository: mutationRepository,
+            insights: insightsController
+        )
         self.googleCalendar = googleCalendar ?? LiveGoogleCalendarConnectionService(api: api)
         self.googleCalendarAuthorizer = googleCalendarAuthorizer
             ?? LiveGoogleCalendarAuthorizer()
-        self.weeklyRecapService = weeklyRecapService ?? LiveWeeklyStudyRecapService(api: api)
-        self.snapshotCache = snapshotCache ?? UserDefaultsStudyTimeSnapshotCache()
         self.now = now
     }
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
-        localMutationGeneration += 1
-        analyticsRequestGeneration += 1
+        synchronizationCoordinator.activate(userID: userID)
+        insightsController.activate(userID: userID)
         googleCalendarRequestGeneration += 1
-        weeklyRecapRequestGeneration += 1
-        requestedAnalyticsAnchor = nil
-        analytics = nil
-        analyticsCache = [:]
-        analyticsCacheGeneration += 1
         clearStorageWriteError()
         googleCalendarStatus = nil
         googleCalendarStatusRefreshedAt = nil
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
-        weeklyRecap = nil
-        weeklyRecapErrorMessage = nil
-        weeklyRecapIsLoading = false
-        weeklyRecapRefreshedAt = nil
         activeUserID = userID
         loadLocalSessions(recoverAbandonedAutomatic: true)
         editableSessions = Array(
@@ -104,16 +96,12 @@ final class StudyTimeStore {
         editableSessionsNextCursor = nil
         editableSessionsErrorMessage = nil
         editableSessionsIsLoading = false
-        restoreSnapshot(userID: userID)
     }
 
     @discardableResult
     func deactivate(at date: Date = .now) async -> Bool {
-        localMutationGeneration += 1
-        analyticsRequestGeneration += 1
+        synchronizationCoordinator.markLocalMutation()
         googleCalendarRequestGeneration += 1
-        weeklyRecapRequestGeneration += 1
-        requestedAnalyticsAnchor = nil
         let didFinish = active.map {
             finish($0, at: date, enqueueSync: false)
         } ?? true
@@ -124,9 +112,8 @@ final class StudyTimeStore {
         editableSessionsNextCursor = nil
         editableSessionsErrorMessage = nil
         editableSessionsIsLoading = false
-        analytics = nil
-        analyticsCache = [:]
-        analyticsCacheGeneration += 1
+        synchronizationCoordinator.deactivate()
+        insightsController.deactivate()
         active = nil
         clearStorageWriteError()
         syncErrorMessage = nil
@@ -135,10 +122,6 @@ final class StudyTimeStore {
         googleCalendarErrorMessage = nil
         googleCalendarIsLoading = false
         googleCalendarIsWorking = false
-        weeklyRecap = nil
-        weeklyRecapErrorMessage = nil
-        weeklyRecapIsLoading = false
-        weeklyRecapRefreshedAt = nil
         // A failed finish leaves its open row durable. A later activate() will
         // reload that same session so callers can retry without duplication.
         return didFinish
@@ -193,32 +176,7 @@ final class StudyTimeStore {
         timeZone: String = TimeZone.autoupdatingCurrent.identifier,
         force: Bool = false
     ) async {
-        guard let requestedUserID = activeUserID, !weeklyRecapIsLoading else { return }
-        if !force, let weeklyRecapRefreshedAt {
-            let age = now().timeIntervalSince(weeklyRecapRefreshedAt)
-            if age >= 0, age < 15 * 60 {
-                return
-            }
-        }
-        weeklyRecapRequestGeneration += 1
-        let generation = weeklyRecapRequestGeneration
-        weeklyRecapIsLoading = true
-        weeklyRecapErrorMessage = nil
-        defer {
-            if activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation {
-                weeklyRecapIsLoading = false
-            }
-        }
-        do {
-            let value = try await weeklyRecapService.recap(timeZone: timeZone, weekStartsOn: 2)
-            guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
-            weeklyRecap = value
-            weeklyRecapRefreshedAt = now()
-            persistSnapshot(timeZone: timeZone)
-        } catch {
-            guard activeUserID == requestedUserID, weeklyRecapRequestGeneration == generation else { return }
-            weeklyRecapErrorMessage = "Couldn’t load your weekly recap. Pull to refresh and try again."
-        }
+        await insightsController.loadWeeklyRecap(timeZone: timeZone, force: force)
     }
 
     func loadEditableSessions(reset: Bool = true) async {
@@ -386,7 +344,7 @@ final class StudyTimeStore {
                 at: date,
                 userID: userID
             )
-            localMutationGeneration += 1
+            synchronizationCoordinator.markLocalMutation()
             active = result.active
             clearStorageWriteError(for: operation)
             if result.completedPreviousSession {
@@ -460,7 +418,7 @@ final class StudyTimeStore {
                 to: current,
                 userID: userID
             )
-            localMutationGeneration += 1
+            synchronizationCoordinator.markLocalMutation()
             active = current
             clearStorageWriteError(for: operation)
             return true
@@ -510,7 +468,7 @@ final class StudyTimeStore {
             setStorageWriteError(error, for: operation)
             throw error
         }
-        localMutationGeneration += 1
+        synchronizationCoordinator.markLocalMutation()
         clearStorageWriteError(for: operation)
         loadLocalSessions()
         if let completedSession = result.session {
@@ -556,7 +514,7 @@ final class StudyTimeStore {
             setStorageWriteError(error, for: operation)
             throw error.underlying
         }
-        localMutationGeneration += 1
+        synchronizationCoordinator.markLocalMutation()
         clearStorageWriteError(for: operation)
         loadLocalSessions()
         if let updatedSession = result.session {
@@ -588,7 +546,7 @@ final class StudyTimeStore {
             setStorageWriteError(error, for: operation)
             throw error.underlying
         }
-        localMutationGeneration += 1
+        synchronizationCoordinator.markLocalMutation()
         clearStorageWriteError(for: operation)
         loadLocalSessions()
         editableSessions = StudyTimeEditableSessionProjection.removing(
@@ -600,87 +558,23 @@ final class StudyTimeStore {
     }
 
     func synchronize() async {
-        guard let requestedUserID = activeUserID else { return }
-        if let synchronizationTask {
-            let inFlightUserID = synchronizingUserID
-            await synchronizationTask.value
-            guard activeUserID == requestedUserID else { return }
-            if inFlightUserID == requestedUserID {
-                return
-            }
-        }
-        guard activeUserID == requestedUserID else { return }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.performSynchronization(userID: requestedUserID)
-        }
-        synchronizationTask = task
-        synchronizingUserID = requestedUserID
-        await task.value
-        if synchronizingUserID == requestedUserID {
-            synchronizationTask = nil
-            synchronizingUserID = nil
-        }
-    }
-
-    private func performSynchronization(userID: Int) async {
-        analyticsRequestGeneration += 1
-        let analyticsGeneration = analyticsRequestGeneration
-        let analyticsAnchor = requestedAnalyticsAnchor ?? .now
-        invalidateAnalyticsCache()
-        await pushPending()
-        let pushFailure = syncErrorMessage
-        let to = Date.now.addingTimeInterval(60)
-        let from = to.addingTimeInterval(-93 * 86_400)
-        let requestMutationGeneration = localMutationGeneration
-        var failures = pushFailure.map { [$0] } ?? []
-        do {
-            let remote = try await api.request(
-                "/api/study/activity-sessions",
-                query: [
-                    URLQueryItem(name: "from", value: from.ISO8601Format()),
-                    URLQueryItem(name: "to", value: to.ISO8601Format()),
-                ],
-                response: [StudyActivitySession].self
-            )
-            if requestMutationGeneration == localMutationGeneration {
-                _ = try mutationRepository.mergeRemoteSessions(remote, userID: userID)
-                loadLocalSessions()
-            }
-        } catch {
-            failures.append(error.localizedDescription)
-        }
-        do {
-            let fetchedAnalytics = try await fetchAnalytics(anchorDate: analyticsAnchor)
-            if activeUserID == userID,
-               analyticsRequestGeneration == analyticsGeneration
-            {
-                analytics = fetchedAnalytics
-                analyticsCache[analyticsAnchorString(from: analyticsAnchor)] = fetchedAnalytics
-                analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
-                persistSnapshot()
-            }
-        } catch {
-            if analyticsRequestGeneration == analyticsGeneration {
-                failures.append(error.localizedDescription)
-            }
-        }
-        if activeUserID == userID {
-            syncErrorMessage = failures.first
-        }
+        guard let requestedUserID = activeUserID,
+              let outcome = await synchronizationCoordinator.synchronize(),
+              synchronizationCoordinator.isCurrent(userID: requestedUserID),
+              !outcome.becameStale
+        else { return }
+        applyLoadedSessions(outcome.loadedSessions)
+        syncErrorMessage = outcome.failureMessage
     }
 
     func deleteLocalData(userID: Int) throws {
-        localMutationGeneration += 1
-        snapshotCache.remove(userID: userID)
+        synchronizationCoordinator.markLocalMutation()
+        insightsController.deleteLocalData(userID: userID)
         try mutationRepository.deleteLocalData(userID: userID)
         if activeUserID == userID {
             sessions = []
             editableSessions = []
             editableSessionsNextCursor = nil
-            analytics = nil
-            analyticsCache = [:]
-            analyticsCacheGeneration += 1
             active = nil
         }
     }
@@ -720,7 +614,7 @@ final class StudyTimeStore {
             setStorageWriteError(error, for: operation)
             return false
         }
-        localMutationGeneration += 1
+        synchronizationCoordinator.markLocalMutation()
         active = nil
         clearStorageWriteError(for: operation)
         loadLocalSessions()
@@ -754,62 +648,13 @@ final class StudyTimeStore {
     }
 
     private func pushPending() async {
-        if let pendingPushTask {
-            pendingPushNeedsAnotherPass = true
-            await pendingPushTask.value
-            return
-        }
-        guard activeUserID != nil else { return }
-        let pushID = UUID()
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.drainPendingPushes()
-            if self.pendingPushID == pushID {
-                self.pendingPushTask = nil
-                self.pendingPushID = nil
-            }
-        }
-        pendingPushID = pushID
-        pendingPushTask = task
-        await task.value
-    }
-
-    private func drainPendingPushes() async {
-        repeat {
-            pendingPushNeedsAnotherPass = false
-            guard let userID = activeUserID else { return }
-            let mutationGeneration = localMutationGeneration
-            await performPushPending(
-                userID: userID,
-                mutationGeneration: mutationGeneration
-            )
-            if activeUserID != nil,
-               !isCurrentMutation(userID: userID, generation: mutationGeneration)
-            {
-                pendingPushNeedsAnotherPass = true
-            }
-        } while pendingPushNeedsAnotherPass
-    }
-
-    private func performPushPending(
-        userID: Int,
-        mutationGeneration: Int
-    ) async {
-        let result = await mutationRepository.pushPending(
-            userID: userID,
-            mutationGeneration: mutationGeneration
-        ) { [weak self] userID, generation in
-            self?.isCurrentMutation(userID: userID, generation: generation) == true
-        }
-        guard !result.becameStale,
-              isCurrentMutation(userID: userID, generation: mutationGeneration)
+        guard let requestedUserID = activeUserID,
+              let outcome = await synchronizationCoordinator.pushPending(),
+              synchronizationCoordinator.isCurrent(userID: requestedUserID),
+              !outcome.becameStale
         else { return }
-        syncErrorMessage = result.failures.first
-        loadLocalSessions()
-    }
-
-    private func isCurrentMutation(userID: Int, generation: Int) -> Bool {
-        activeUserID == userID && localMutationGeneration == generation
+        syncErrorMessage = outcome.failureMessage
+        applyLoadedSessions(outcome.loadedSessions)
     }
 
     private func loadLocalSessions(recoverAbandonedAutomatic: Bool = false) {
@@ -831,22 +676,25 @@ final class StudyTimeStore {
         }
     }
 
+    private func applyLoadedSessions(
+        _ loaded: StudyTimeSessionMutationRepository.LoadedSessions?
+    ) {
+        guard let loaded else { return }
+        sessions = loaded.sessions
+        active = loaded.active
+    }
+
     @discardableResult
     func loadAnalytics(anchorDate: Date) async -> Bool {
-        let loaded = await refreshAnalytics(anchorDate: anchorDate)
-        if loaded {
-            let confirmedAnchor = analytics
-                .flatMap { analyticsAnchorDate(from: $0.anchorDate) }
-                ?? anchorDate
-            requestedAnalyticsAnchor = Calendar.current.isDateInToday(confirmedAnchor)
-                ? nil
-                : confirmedAnchor
+        let result = await insightsController.loadAnalytics(anchorDate: anchorDate)
+        if let failure = result.failureMessage, syncErrorMessage == nil {
+            syncErrorMessage = failure
         }
-        return loaded
+        return result.loaded
     }
 
     func cachedAnalytics(anchorDate: Date) -> StudyTimeAnalytics? {
-        analyticsCache[analyticsAnchorString(from: anchorDate)]
+        insightsController.cachedAnalytics(anchorDate: anchorDate)
     }
 
     @discardableResult
@@ -854,164 +702,25 @@ final class StudyTimeStore {
         anchorDate: Date,
         reportFailure: Bool = false
     ) async -> Bool {
-        let key = analyticsAnchorString(from: anchorDate)
-        if analyticsCache[key] != nil {
-            return true
+        let result = await insightsController.prefetchAnalytics(anchorDate: anchorDate)
+        if reportFailure, let failure = result.failureMessage {
+            syncErrorMessage = failure
         }
-        guard let userID = activeUserID else { return false }
-        let cacheGeneration = analyticsCacheGeneration
-        do {
-            let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
-            guard activeUserID == userID,
-                  analyticsCacheGeneration == cacheGeneration
-            else {
-                return false
-            }
-            analyticsCache[key] = fetchedAnalytics
-            analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
-            return true
-        } catch {
-            if reportFailure,
-               activeUserID == userID,
-               analyticsCacheGeneration == cacheGeneration
-            {
-                syncErrorMessage = error.localizedDescription
-            }
-            return false
-        }
+        return result.loaded
     }
 
     @discardableResult
     func selectCachedAnalytics(anchorDate: Date) -> Bool {
-        let key = analyticsAnchorString(from: anchorDate)
-        guard let cached = analyticsCache[key] else { return false }
-        analyticsRequestGeneration += 1
-        analytics = cached
-        let confirmedAnchor = analyticsAnchorDate(from: cached.anchorDate) ?? anchorDate
-        requestedAnalyticsAnchor = Calendar.current.isDateInToday(confirmedAnchor)
-            ? nil
-            : confirmedAnchor
-        return true
+        insightsController.selectCachedAnalytics(anchorDate: anchorDate)
     }
 
     @discardableResult
     private func refreshAnalytics(anchorDate: Date? = nil) async -> Bool {
-        guard let userID = activeUserID else { return false }
-        let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor ?? .now
-        invalidateAnalyticsCache()
-        analyticsRequestGeneration += 1
-        let requestGeneration = analyticsRequestGeneration
-        do {
-            let fetchedAnalytics = try await fetchAnalytics(anchorDate: effectiveAnchor)
-            if activeUserID == userID,
-               analyticsRequestGeneration == requestGeneration
-            {
-                analytics = fetchedAnalytics
-                analyticsCache[analyticsAnchorString(from: effectiveAnchor)] = fetchedAnalytics
-                analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
-                persistSnapshot()
-                return true
-            }
-        } catch {
-            if activeUserID == userID,
-               analyticsRequestGeneration == requestGeneration,
-               syncErrorMessage == nil
-            {
-                syncErrorMessage = error.localizedDescription
-            }
+        let result = await insightsController.refreshAnalytics(anchorDate: anchorDate)
+        if let failure = result.failureMessage, syncErrorMessage == nil {
+            syncErrorMessage = failure
         }
-        return false
-    }
-
-    private func fetchAnalytics(anchorDate: Date = .now) async throws -> StudyTimeAnalytics {
-        let anchorDateString = analyticsAnchorString(from: anchorDate)
-
-        return try await api.request(
-            "/api/study/activity-analytics",
-            query: [
-                URLQueryItem(name: "timezone", value: TimeZone.current.identifier),
-                URLQueryItem(
-                    name: "weekStartsOn",
-                    value: "2"
-                ),
-                URLQueryItem(name: "anchorDate", value: anchorDateString),
-            ],
-            response: StudyTimeAnalytics.self
-        )
-    }
-
-    private func analyticsAnchorString(from anchorDate: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: anchorDate)
-    }
-
-    private func analyticsAnchorDate(from value: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: value)
-    }
-
-    private func invalidateAnalyticsCache() {
-        analyticsCache = [:]
-        analyticsCacheGeneration += 1
-    }
-
-    private func restoreSnapshot(userID: Int) {
-        let timeZone = TimeZone.autoupdatingCurrent.identifier
-        guard let snapshot = snapshotCache.load(userID: userID, timeZone: timeZone) else { return }
-        let age = now().timeIntervalSince(snapshot.savedAt)
-        guard age >= 0, age < 7 * 86_400 else { return }
-
-        if let cachedAnalytics = snapshot.analytics,
-           cachedAnalytics.anchorDate == analyticsAnchorString(from: now())
-        {
-            analytics = cachedAnalytics
-            analyticsCache[cachedAnalytics.anchorDate] = cachedAnalytics
-        }
-        if let cachedRecap = snapshot.weeklyRecap,
-           recapMatchesMostRecentCompletedWeek(cachedRecap, timeZone: timeZone)
-        {
-            weeklyRecap = cachedRecap
-            weeklyRecapRefreshedAt = snapshot.weeklyRecapRefreshedAt ?? snapshot.savedAt
-        }
-    }
-
-    private func persistSnapshot(
-        timeZone: String = TimeZone.autoupdatingCurrent.identifier
-    ) {
-        guard let userID = activeUserID else { return }
-        snapshotCache.save(
-            StudyTimeSnapshot(
-                savedAt: now(),
-                analytics: analytics,
-                weeklyRecap: weeklyRecap,
-                weeklyRecapRefreshedAt: weeklyRecapRefreshedAt
-            ),
-            userID: userID,
-            timeZone: timeZone
-        )
-    }
-
-    private func recapMatchesMostRecentCompletedWeek(
-        _ recap: WeeklyStudyRecap,
-        timeZone identifier: String
-    ) -> Bool {
-        guard let timeZone = TimeZone(identifier: identifier) else { return false }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        calendar.firstWeekday = 2
-        guard let currentWeekStart = calendar.dateInterval(
-            of: .weekOfYear,
-            for: now()
-        )?.start else { return false }
-        return abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
+        return result.loaded
     }
 
 }
