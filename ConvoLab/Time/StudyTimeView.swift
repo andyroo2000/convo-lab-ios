@@ -757,6 +757,7 @@ private struct JLPTMasteryLevelBand: View {
             .accessibilityLabel("\(level), \(caption)")
 
             Divider()
+                .accessibilityHidden(true)
             JLPTMasteryMetricRow(
                 level: level,
                 title: "Vocabulary",
@@ -765,6 +766,7 @@ private struct JLPTMasteryLevelBand: View {
                 showSourceBreakdown: true
             )
             Divider()
+                .accessibilityHidden(true)
             JLPTMasteryMetricRow(
                 level: level,
                 title: "Grammar",
