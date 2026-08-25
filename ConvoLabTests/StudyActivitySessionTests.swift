@@ -2207,6 +2207,7 @@ final class StudyActivitySessionTests: XCTestCase {
         }
 
         XCTAssertEqual(store.sessions.count, 3)
+        XCTAssertNil(store.storageWriteErrorMessage)
     }
 
     func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
@@ -2240,6 +2241,7 @@ final class StudyActivitySessionTests: XCTestCase {
         }
 
         XCTAssertEqual(store.sessions, [calendarSession])
+        XCTAssertNil(store.storageWriteErrorMessage)
     }
 
     func testCompletedEditIsNotOverwrittenByAStaleInFlightRefresh() async throws {

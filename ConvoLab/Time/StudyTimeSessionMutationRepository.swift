@@ -96,6 +96,14 @@ enum StudyTimeSessionMutationError: LocalizedError {
     }
 }
 
+struct StudyTimeMutationPersistenceError: LocalizedError {
+    let underlying: any Error
+
+    var errorDescription: String? {
+        underlying.localizedDescription
+    }
+}
+
 @MainActor
 final class StudyTimeSessionMutationRepository {
     struct LoadedSessions {
@@ -345,7 +353,7 @@ final class StudyTimeSessionMutationRepository {
                     end: previousSession.endedAt
                 )
             }
-            throw error
+            throw StudyTimeMutationPersistenceError(underlying: error)
         }
         return CompletedMutation(
             session: record.session,
@@ -367,7 +375,7 @@ final class StudyTimeSessionMutationRepository {
             try contextSaver.save()
         } catch {
             context.rollback()
-            throw error
+            throw StudyTimeMutationPersistenceError(underlying: error)
         }
     }
 

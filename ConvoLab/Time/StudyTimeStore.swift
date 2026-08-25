@@ -532,6 +532,9 @@ final class StudyTimeStore {
         duration: TimeInterval
     ) async throws -> String? {
         try mutationRepository.requirePersistentWrites()
+        guard session.isEditable else {
+            throw StudyTimeSessionMutationError.readOnlySession
+        }
         guard let userID = activeUserID else {
             throw StudyTimeSessionMutationError.sessionUnavailable
         }
@@ -548,10 +551,10 @@ final class StudyTimeStore {
                 duration: duration,
                 userID: userID
             )
-        } catch {
+        } catch let error as StudyTimeMutationPersistenceError {
             loadLocalSessions()
             setStorageWriteError(error, for: operation)
-            throw error
+            throw error.underlying
         }
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
@@ -569,6 +572,9 @@ final class StudyTimeStore {
 
     func delete(session: StudyActivitySession) async throws {
         try mutationRepository.requirePersistentWrites()
+        guard session.isEditable else {
+            throw StudyTimeSessionMutationError.readOnlySession
+        }
         guard let userID = activeUserID else {
             throw StudyTimeSessionMutationError.sessionUnavailable
         }
@@ -577,10 +583,10 @@ final class StudyTimeStore {
         )
         do {
             try mutationRepository.delete(session: session, userID: userID)
-        } catch {
+        } catch let error as StudyTimeMutationPersistenceError {
             loadLocalSessions()
             setStorageWriteError(error, for: operation)
-            throw error
+            throw error.underlying
         }
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
