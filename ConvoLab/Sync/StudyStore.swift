@@ -1663,6 +1663,21 @@ final class StudyStore {
         duration: Duration?,
         reviewedAt: Date = .now
     ) async -> String? {
+        await recordReviewResult(
+            card: card,
+            rating: rating,
+            duration: duration,
+            reviewedAt: reviewedAt
+        )?.eventID
+    }
+
+    @discardableResult
+    func recordReviewResult(
+        card: StudyCard,
+        rating: ReviewRating,
+        duration: Duration?,
+        reviewedAt: Date = .now
+    ) async -> StagedStudyReview? {
         guard let userID = activeUserID else { return nil }
         guard storageMode == .persistent else {
             storageWriteErrorMessage = StorageWriteUnavailableError(domain: .study)
@@ -1671,7 +1686,7 @@ final class StudyStore {
         }
         defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
-        var stagedEventID: String?
+        var stagedReview: StagedStudyReview?
         do {
             // Scheduling must succeed before the durable event is staged. If the
             // FSRS engine violates its rating-state contract, surface that error
@@ -1684,7 +1699,7 @@ final class StudyStore {
                 deviceID: deviceID,
                 queueIndex: cards.count
             )
-            stagedEventID = staged.eventID
+            stagedReview = staged
             let currentCard = staged.cardBefore
             let updatedCard = staged.cardAfter
             let identifiers = StudyCardIdentity.identifiers(for: currentCard)
@@ -1739,7 +1754,7 @@ final class StudyStore {
                 try await flushCardOutbox()
             }
             try await flushSchedulingOutboxes()
-            return staged.eventID
+            return staged
         } catch {
             var schedulerStateRecovered = false
             if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
@@ -1757,7 +1772,7 @@ final class StudyStore {
                     activationGeneration: activationGeneration
                 )
             }
-            return stagedEventID
+            return stagedReview
         }
     }
 
