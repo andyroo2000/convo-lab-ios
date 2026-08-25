@@ -160,6 +160,60 @@ struct SettingsView: View {
                                 )
                             )
                         }
+                        Toggle(
+                            "Daily vocabulary transfer",
+                            isOn: Binding(
+                                get: { model.study.wanikaniTransferBridgeEnabled },
+                                set: { enabled in
+                                    Task {
+                                        await model.study
+                                            .setWaniKaniTransferBridgeEnabled(enabled)
+                                    }
+                                }
+                            )
+                        )
+                        .disabled(model.study.isWaniKaniWorking)
+                        .accessibilityIdentifier("WaniKaniTransferBridgeToggle")
+                        .accessibilityHint(
+                            "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
+                        )
+                        Text(
+                            "Imports up to two recently passed vocabulary items each day as contextual sentence, cloze, listening, and production practice."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        if shouldShowWaniKaniTransferStatus {
+                            LabeledContent(
+                                "Vocabulary imported",
+                                value: model.study.wanikaniImportedVocabularyCount.formatted()
+                            )
+                            if model.study.wanikaniPendingVocabularyCount > 0 {
+                                LabeledContent(
+                                    "Imports in progress",
+                                    value: model.study.wanikaniPendingVocabularyCount.formatted()
+                                )
+                            }
+                            if model.study.wanikaniFailedVocabularyCount > 0 {
+                                LabeledContent("Imports needing retry") {
+                                    Text(
+                                        model.study.wanikaniFailedVocabularyCount.formatted()
+                                    )
+                                    .foregroundStyle(.red)
+                                }
+                                Text("Failed imports retry automatically during a future WaniKani sync.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let lastImportedAt = model.study.wanikaniLastImportedAt {
+                                LabeledContent(
+                                    "Last vocabulary import",
+                                    value: lastImportedAt.formatted(
+                                        date: .abbreviated,
+                                        time: .shortened
+                                    )
+                                )
+                            }
+                        }
                         Button("Sync WaniKani") {
                             Task { await model.study.syncWaniKani() }
                         }
@@ -192,7 +246,7 @@ struct SettingsView: View {
                     }
 
                     if model.study.isWaniKaniWorking {
-                        ProgressView("Updating WaniKani knowledge…")
+                        ProgressView("Updating WaniKani…")
                     }
                     if let error = model.study.wanikaniErrorMessage {
                         Label(error, systemImage: "exclamationmark.triangle")
@@ -367,6 +421,14 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private var shouldShowWaniKaniTransferStatus: Bool {
+        model.study.wanikaniTransferBridgeEnabled
+            || model.study.wanikaniImportedVocabularyCount > 0
+            || model.study.wanikaniPendingVocabularyCount > 0
+            || model.study.wanikaniFailedVocabularyCount > 0
+            || model.study.wanikaniLastImportedAt != nil
     }
 }
 

@@ -1348,21 +1348,40 @@ struct UpdateStudyCardRequest: Codable {
 
 struct KnownKanjiSnapshot: nonisolated Codable, Equatable, Sendable {
     struct WaniKaniStatus: nonisolated Codable, Equatable, Sendable {
+        struct TransferBridgeStatus: nonisolated Codable, Equatable, Sendable {
+            let enabled: Bool
+            let importedVocabularyCount: Int
+            let pendingVocabularyCount: Int
+            let failedVocabularyCount: Int
+            let lastImportedAt: Date?
+
+            static let disabled = TransferBridgeStatus(
+                enabled: false,
+                importedVocabularyCount: 0,
+                pendingVocabularyCount: 0,
+                failedVocabularyCount: 0,
+                lastImportedAt: nil
+            )
+        }
+
         let connected: Bool
         let lastSyncedAt: Date?
         let reviewCount: Int?
         let reviewCountUpdatedAt: Date?
+        let transferBridge: TransferBridgeStatus?
 
         init(
             connected: Bool,
             lastSyncedAt: Date?,
             reviewCount: Int? = nil,
-            reviewCountUpdatedAt: Date? = nil
+            reviewCountUpdatedAt: Date? = nil,
+            transferBridge: TransferBridgeStatus? = nil
         ) {
             self.connected = connected
             self.lastSyncedAt = lastSyncedAt
             self.reviewCount = reviewCount
             self.reviewCountUpdatedAt = reviewCountUpdatedAt
+            self.transferBridge = transferBridge
         }
     }
 
@@ -1374,6 +1393,10 @@ struct KnownKanjiSnapshot: nonisolated Codable, Equatable, Sendable {
 
 struct ConnectWaniKaniRequest: Encodable {
     let apiToken: String
+}
+
+struct UpdateWaniKaniTransferBridgeRequest: Encodable {
+    let enabled: Bool
 }
 
 struct WaniKaniSyncResult: nonisolated Decodable, Equatable, Sendable {
