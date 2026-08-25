@@ -112,6 +112,15 @@ enum StudyTimeEditableEntries {
     }
 }
 
+enum StudyTimeManualEntryLoading {
+    static func shouldRequestEntries(
+        isExpanded: Bool,
+        hasRequestedEntries: Bool
+    ) -> Bool {
+        isExpanded && !hasRequestedEntries
+    }
+}
+
 struct StudyTimeView: View {
     let store: StudyTimeStore
     let studyStore: StudyStore
@@ -287,7 +296,10 @@ struct StudyTimeView: View {
                 _ = await (recap, mastery)
             }
             .onChange(of: isManualTimeEntryExpanded) { _, isExpanded in
-                guard isExpanded, !hasRequestedEditableSessions else { return }
+                guard StudyTimeManualEntryLoading.shouldRequestEntries(
+                    isExpanded: isExpanded,
+                    hasRequestedEntries: hasRequestedEditableSessions
+                ) else { return }
                 hasRequestedEditableSessions = true
                 Task { await store.loadEditableSessions() }
             }

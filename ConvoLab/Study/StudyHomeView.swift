@@ -58,15 +58,17 @@ struct StudyHomeView: View {
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
-            .onAppear {
-                Task {
-                    // Cached state is already visible. Leave the first interaction window
-                    // free before starting non-urgent main-actor refresh coordination.
-                    try? await Task.sleep(for: .milliseconds(250))
-                    async let study: Void = refreshStudyIfNeeded()
-                    async let calendar: Void = refreshCalendarIfNeeded()
-                    _ = await (study, calendar)
+            .task {
+                // AppModel owns app-wide synchronization. This surface refresh can be
+                // cancelled on tab switches and restarted when Study appears again.
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
                 }
+                async let study: Void = refreshStudyIfNeeded()
+                async let calendar: Void = refreshCalendarIfNeeded()
+                _ = await (study, calendar)
             }
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
