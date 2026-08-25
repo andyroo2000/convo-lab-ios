@@ -380,7 +380,9 @@ extension StudyStoreTests {
         )
         let response = try StorageCodec.encoder.encode(["cards": [serverCard]])
         let client = makeClient { request in
-            XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
+            guard request.url?.path == "/api/study/cards/batch" else {
+                throw URLError(.notConnectedToInternet)
+            }
             XCTAssertEqual(request.httpMethod, "POST")
             let body = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
@@ -409,6 +411,19 @@ extension StudyStoreTests {
         XCTAssertEqual(resolved?.id, serverCardID)
         XCTAssertEqual(resolved?.promptText, serverCard.promptText)
         XCTAssertEqual(store.card(for: compactCard)?.id, serverCardID)
+
+        let editableCard = try XCTUnwrap(resolved)
+        try await store.updateCard(
+            editableCard,
+            prompt: "子猫",
+            reading: "こねこ",
+            answer: "kitten"
+        )
+        let updatedCard = try XCTUnwrap(store.card(for: compactCard))
+        XCTAssertEqual(updatedCard.promptText, "子猫")
+
+        try await store.deleteCard(updatedCard)
+        XCTAssertNil(store.card(for: compactCard))
     }
 
     @MainActor
@@ -461,12 +476,21 @@ extension StudyStoreTests {
     func testOptimisticCardEditsAndDeletesReconcileGroupedLearningItems() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "optimistic-card", expression: "古い")
+        let laterCard = makeCard(id: "optimistic-card-2", expression: "次")
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
                 userID: 1,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: laterCard,
+                userID: 1,
+                queueIndex: 1,
+                payload: try StorageCodec.encoder.encode(laterCard)
             )
         )
         try container.mainContext.save()
@@ -479,13 +503,22 @@ extension StudyStoreTests {
             meaning: card.answerText,
             variantKind: "sentence_text_recognition"
         )
+        let laterCompactCard = StudyLearningItemCard(
+            id: laterCard.id,
+            syncId: laterCard.reviewCardID,
+            noteId: laterCard.noteId,
+            cardType: laterCard.cardType,
+            displayText: laterCard.promptText,
+            meaning: laterCard.answerText,
+            variantKind: "word_recognition"
+        )
         let family = StudyLearningItem(
             id: "path:optimistic",
             groupId: "optimistic",
             representativeCard: compactCard,
             currentStageNumber: 1,
-            stageCount: 1,
-            cardCount: 1,
+            stageCount: 2,
+            cardCount: 2,
             retiredStageCount: 0,
             transferDemonstrated: false,
             stages: [
@@ -495,6 +528,13 @@ extension StudyStoreTests {
                     cardCount: 1,
                     representativeCard: compactCard,
                     cards: [compactCard]
+                ),
+                StudyLearningItemStage(
+                    number: 2,
+                    status: .locked,
+                    cardCount: 1,
+                    representativeCard: laterCompactCard,
+                    cards: [laterCompactCard]
                 )
             ]
         )
@@ -531,6 +571,59 @@ extension StudyStoreTests {
         let updatedCard = try XCTUnwrap(store.card(for: compactCard))
 
         try await store.deleteCard(updatedCard)
+
+        XCTAssertEqual(store.learningItems.count, 1)
+        XCTAssertEqual(store.learningItems.first?.currentStageNumber, 2)
+        XCTAssertEqual(store.learningItems.first?.stageCount, 1)
+        XCTAssertEqual(store.learningItems.first?.cardCount, 1)
+        XCTAssertEqual(store.learningItems.first?.stages.map(\.number), [2])
+    }
+
+    @MainActor
+    func testOptimisticEditRemovesLearningItemThatNoLongerMatchesSearch() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "searched-card", expression: "古い")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let item = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [card],
+                matching: "古い"
+            ).first
+        )
+        let page = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [item], limit: 20, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/learning-items" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    page
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshLearningItems(search: "古い")
+
+        try await store.updateCard(card, prompt: "新しい", reading: "", answer: "new")
 
         XCTAssertTrue(store.learningItems.isEmpty)
     }

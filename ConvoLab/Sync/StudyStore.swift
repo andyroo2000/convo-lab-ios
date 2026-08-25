@@ -1161,6 +1161,9 @@ final class StudyStore {
             throw CancellationError()
         }
         if let canonicalCard {
+            try upsertLocalCard(canonicalCard, markedDirty: false)
+            try context.save()
+            loadLibraryCards(userID: userID)
             allCards = StudyCardCatalogRepository.appendingUniqueCards(
                 [canonicalCard],
                 to: allCards
@@ -1185,6 +1188,9 @@ final class StudyStore {
             throw CancellationError()
         }
         if let canonicalCard {
+            try upsertLocalCard(canonicalCard, markedDirty: false)
+            try context.save()
+            loadLibraryCards(userID: userID)
             allCards = StudyCardCatalogRepository.appendingUniqueCards(
                 [canonicalCard],
                 to: allCards
@@ -1213,7 +1219,7 @@ final class StudyStore {
         addIfMissing: Bool = false
     ) {
         var foundExistingCard = false
-        learningItems = learningItems.map { item in
+        learningItems = learningItems.compactMap { item in
             let representativeCard = updatedLearningItemCard(
                 item.representativeCard,
                 from: card,
@@ -1238,7 +1244,7 @@ final class StudyStore {
                     }
                 )
             }
-            return StudyLearningItem(
+            let updatedItem = StudyLearningItem(
                 id: item.id,
                 groupId: item.groupId,
                 representativeCard: representativeCard,
@@ -1249,6 +1255,9 @@ final class StudyStore {
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
+            return learningItem(updatedItem, matches: learningItemsQuery)
+                ? updatedItem
+                : nil
         }
         guard addIfMissing,
               !foundExistingCard,
@@ -1258,6 +1267,15 @@ final class StudyStore {
               ).first
         else { return }
         learningItems.insert(standalone, at: 0)
+    }
+
+    private func learningItem(_ item: StudyLearningItem, matches query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        let cards = [item.representativeCard] + item.stages.flatMap(\.cards)
+        return cards.contains {
+            $0.displayText.localizedCaseInsensitiveContains(query)
+                || ($0.meaning?.localizedCaseInsensitiveContains(query) ?? false)
+        }
     }
 
     private func updatedLearningItemCard(
@@ -1311,17 +1329,24 @@ final class StudyStore {
                 card,
                 any: [item.representativeCard.id, item.representativeCard.syncId]
             ) ? stages[0].representativeCard : item.representativeCard
-            return StudyLearningItem(
+            let currentStageNumber = item.currentStageNumber.flatMap { currentNumber in
+                stages.contains { $0.number == currentNumber } ? currentNumber : nil
+            } ?? stages.first(where: { $0.status == .available })?.number
+                ?? stages.first?.number
+            let updatedItem = StudyLearningItem(
                 id: item.id,
                 groupId: item.groupId,
                 representativeCard: representativeCard,
-                currentStageNumber: item.currentStageNumber,
+                currentStageNumber: currentStageNumber,
                 stageCount: stages.count,
                 cardCount: stages.reduce(0) { $0 + $1.cardCount },
                 retiredStageCount: stages.filter { $0.status == .retired }.count,
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
+            return learningItem(updatedItem, matches: learningItemsQuery)
+                ? updatedItem
+                : nil
         }
     }
 
