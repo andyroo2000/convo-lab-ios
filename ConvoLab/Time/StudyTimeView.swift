@@ -129,6 +129,7 @@ struct StudyTimeView: View {
     @State private var timerName = ""
     @State private var entryErrorMessage: String?
     @State private var isManualTimeEntryExpanded = false
+    @State private var hasRequestedEditableSessions = false
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
         store.analytics?.range(selectedRange)
@@ -286,7 +287,8 @@ struct StudyTimeView: View {
                 _ = await (recap, mastery)
             }
             .onChange(of: isManualTimeEntryExpanded) { _, isExpanded in
-                guard isExpanded else { return }
+                guard isExpanded, !hasRequestedEditableSessions else { return }
+                hasRequestedEditableSessions = true
                 Task { await store.loadEditableSessions() }
             }
         }
@@ -337,6 +339,7 @@ struct StudyTimeView: View {
             .font(.caption.weight(.semibold))
             .textCase(.uppercase)
             .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
 
         Picker("Activity", selection: $selectedActivity) {
             ForEach([
@@ -396,6 +399,7 @@ struct StudyTimeView: View {
             .font(.caption.weight(.semibold))
             .textCase(.uppercase)
             .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
 
         if store.editableSessionsIsLoading, editableSessions.isEmpty {
             HStack {
