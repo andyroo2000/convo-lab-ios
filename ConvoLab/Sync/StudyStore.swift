@@ -1266,6 +1266,8 @@ final class StudyStore {
                   matching: learningItemsQuery
               ).first
         else { return }
+        // Keep optimistic/manual creations visible immediately. A later grouped
+        // refresh replaces this projection if the server assigned the card to a family.
         learningItems.insert(standalone, at: 0)
     }
 
@@ -1300,12 +1302,12 @@ final class StudyStore {
 
     private func removeFromLearningItems(_ card: StudyCard) {
         learningItems = learningItems.compactMap { item in
-            if item.groupId == nil,
-               StudyCardIdentity.matches(
+            if item.groupId == nil {
+                let isDeletedCard = StudyCardIdentity.matches(
                    card,
                    any: [item.representativeCard.id, item.representativeCard.syncId]
-               ) {
-                return nil
+                )
+                return isDeletedCard ? nil : item
             }
             let stages = item.stages.compactMap { stage -> StudyLearningItemStage? in
                 let cards = stage.cards.filter {

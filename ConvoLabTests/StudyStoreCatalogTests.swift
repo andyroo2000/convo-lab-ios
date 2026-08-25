@@ -477,6 +477,7 @@ extension StudyStoreTests {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "optimistic-card", expression: "古い")
         let laterCard = makeCard(id: "optimistic-card-2", expression: "次")
+        let standaloneCard = makeCard(id: "standalone-survivor", expression: "別")
         container.mainContext.insert(
             LocalCardRecord(
                 card: card,
@@ -491,6 +492,14 @@ extension StudyStoreTests {
                 userID: 1,
                 queueIndex: 1,
                 payload: try StorageCodec.encoder.encode(laterCard)
+            )
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: standaloneCard,
+                userID: 1,
+                queueIndex: 2,
+                payload: try StorageCodec.encoder.encode(standaloneCard)
             )
         )
         try container.mainContext.save()
@@ -538,8 +547,18 @@ extension StudyStoreTests {
                 )
             ]
         )
+        let standaloneItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [standaloneCard],
+                matching: ""
+            ).first
+        )
         let page = try StorageCodec.encoder.encode(
-            StudyLearningItemListResponse(items: [family], limit: 20, nextCursor: nil)
+            StudyLearningItemListResponse(
+                items: [family, standaloneItem],
+                limit: 20,
+                nextCursor: nil
+            )
         )
         let client = makeClient { request in
             if request.url?.path == "/api/study/learning-items" {
@@ -572,11 +591,12 @@ extension StudyStoreTests {
 
         try await store.deleteCard(updatedCard)
 
-        XCTAssertEqual(store.learningItems.count, 1)
+        XCTAssertEqual(store.learningItems.count, 2)
         XCTAssertEqual(store.learningItems.first?.currentStageNumber, 2)
         XCTAssertEqual(store.learningItems.first?.stageCount, 1)
         XCTAssertEqual(store.learningItems.first?.cardCount, 1)
         XCTAssertEqual(store.learningItems.first?.stages.map(\.number), [2])
+        XCTAssertTrue(store.learningItems.contains { $0.id == standaloneItem.id })
     }
 
     @MainActor
