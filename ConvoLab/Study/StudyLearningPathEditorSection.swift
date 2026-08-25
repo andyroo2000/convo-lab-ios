@@ -79,7 +79,7 @@ struct StudyLearningPathEditorSection: View {
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 3) {
-                        if pathCard.id.caseInsensitiveCompare(card.reviewCardID) == .orderedSame {
+                        if StudyCardIdentity.matches(card, any: [pathCard.id]) {
                             Text("Current")
                                 .font(.caption2.weight(.semibold))
                         }
@@ -137,6 +137,7 @@ struct StudyLearningPathEditorSection: View {
                         Image(systemName: "checkmark.circle.fill")
                     }
                 }
+                .accessibilityElement(children: .combine)
             }
             .buttonStyle(.plain)
         }
@@ -227,7 +228,7 @@ struct StudyLearningPathEditorSection: View {
     private func isTail(_ path: StudyLearningPath) -> Bool {
         path.stages.isEmpty
             || path.stages.last?.cards.contains(where: {
-                $0.id.caseInsensitiveCompare(card.reviewCardID) == .orderedSame
+                StudyCardIdentity.matches(card, any: [$0.id])
             }) == true
     }
 

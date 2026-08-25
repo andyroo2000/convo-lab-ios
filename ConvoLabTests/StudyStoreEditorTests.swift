@@ -558,6 +558,7 @@ extension StudyStoreTests {
         let container = try Persistence.makeContainer(inMemory: true)
         let predecessor = makeCard(
             id: "01J0000000000000000000000LP",
+            syncId: "01J0000000000000000000000LS",
             expression: "会社"
         )
         container.mainContext.insert(
@@ -571,7 +572,7 @@ extension StudyStoreTests {
         let pendingUpdate = PendingMutation(
             kind: "cardUpdate",
             userID: 1,
-            resourceID: predecessor.id,
+            resourceID: predecessor.reviewCardID,
             payload: try StorageCodec.encoder.encode(
                 UpdateStudyCardRequest(prompt: predecessor.prompt, answer: predecessor.answer)
             )
@@ -612,6 +613,7 @@ extension StudyStoreTests {
         )
         let successor = makeCard(
             id: "01J0000000000000000000000LR",
+            syncId: "01J0000000000000000000000LT",
             expression: "会社員"
         )
         container.mainContext.insert(
