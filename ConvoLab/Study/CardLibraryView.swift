@@ -391,7 +391,7 @@ struct CardLibraryView: View {
                     }
                 )
             ) {
-                ForEach(Array(item.stages.enumerated()), id: \.offset) { _, stage in
+                ForEach(item.stages) { stage in
                     learningStageRow(stage)
                 }
             } label: {
@@ -442,7 +442,7 @@ struct CardLibraryView: View {
 
     private func stageRail(_ item: StudyLearningItem) -> some View {
         HStack(spacing: 4) {
-            ForEach(Array(item.stages.enumerated()), id: \.offset) { _, stage in
+            ForEach(item.stages) { stage in
                 Capsule()
                     .fill(stageColor(stage.status))
                     .frame(height: 4)

@@ -789,12 +789,17 @@ struct StudyLearningItemCard: nonisolated Codable, Identifiable, Equatable, Send
     let variantKind: String?
 }
 
-struct StudyLearningItemStage: nonisolated Codable, Equatable, Sendable {
+struct StudyLearningItemStage: nonisolated Codable, Identifiable, Equatable, Sendable {
     let number: Int?
     let status: StudyLearningItemStageStatus?
     let cardCount: Int
     let representativeCard: StudyLearningItemCard
     let cards: [StudyLearningItemCard]
+
+    nonisolated var id: String {
+        number.map { "stage:\($0)" }
+            ?? "card:\(representativeCard.syncId.lowercased())"
+    }
 }
 
 struct StudyLearningItem: nonisolated Codable, Identifiable, Equatable, Sendable {
