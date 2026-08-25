@@ -126,6 +126,53 @@ final class KnownKanjiServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testUpdatesAndPersistsTheTransferBridgeStatus() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(
+            LocalKnownKanjiSnapshot(
+                userID: 7,
+                payload: Data(
+                    Self.snapshotJSON(version: 2, kanji: ["会"], connected: true).utf8
+                )
+            )
+        )
+        try container.mainContext.save()
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(request.url?.path, "/api/study/wanikani/transfer-bridge")
+            let body = try requestBody(request)
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Bool]
+            )
+            XCTAssertEqual(object["enabled"], true)
+            return Self.jsonResponse(
+                for: request,
+                body: #"{"version":2,"kanji":["会"],"manualKanji":[],"wanikani":{"connected":true,"lastSyncedAt":null,"transferBridge":{"enabled":true,"importedVocabularyCount":3,"pendingVocabularyCount":1,"failedVocabularyCount":2,"lastImportedAt":"2026-08-24T18:00:00Z"}}}"#
+            )
+        }
+        let service = KnownKanjiService(api: client, context: container.mainContext)
+        service.activate(userID: 7)
+
+        await service.setTransferBridgeEnabled(true)
+
+        XCTAssertNil(service.errorMessage)
+        XCTAssertFalse(service.isWorking)
+        XCTAssertTrue(service.transferBridgeStatus.enabled)
+        XCTAssertEqual(service.transferBridgeStatus.importedVocabularyCount, 3)
+        XCTAssertEqual(service.transferBridgeStatus.pendingVocabularyCount, 1)
+        XCTAssertEqual(service.transferBridgeStatus.failedVocabularyCount, 2)
+        XCTAssertNotNil(service.transferBridgeStatus.lastImportedAt)
+        let persisted = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalKnownKanjiSnapshot>()).first
+        )
+        let snapshot = try StorageCodec.decoder.decode(
+            KnownKanjiSnapshot.self,
+            from: persisted.payload
+        )
+        XCTAssertEqual(snapshot.wanikani.transferBridge, service.transferBridgeStatus)
+    }
+
+    @MainActor
     func testActivateLoadsOnlyTheSelectedUsersStoredSnapshot() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         container.mainContext.insert(

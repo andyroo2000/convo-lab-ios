@@ -45,6 +45,10 @@ final class KnownKanjiService {
         snapshot?.wanikani.reviewCountUpdatedAt
     }
 
+    var transferBridgeStatus: KnownKanjiSnapshot.WaniKaniStatus.TransferBridgeStatus {
+        snapshot?.wanikani.transferBridge ?? .disabled
+    }
+
     init(api: APIClient, context: ModelContext) {
         self.api = api
         self.context = context
@@ -121,6 +125,22 @@ final class KnownKanjiService {
             )
             guard isCurrent(operation) else { return }
             try await refresh(operation: operation)
+        } catch {
+            report(error, operation: operation)
+        }
+    }
+
+    func setTransferBridgeEnabled(_ enabled: Bool) async {
+        guard let operation = beginOperation() else { return }
+        defer { finishOperation(operation) }
+
+        do {
+            let updatedSnapshot: KnownKanjiSnapshot = try await api.request(
+                "/api/study/wanikani/transfer-bridge",
+                method: "PATCH",
+                body: UpdateWaniKaniTransferBridgeRequest(enabled: enabled)
+            )
+            try apply(updatedSnapshot, operation: operation)
         } catch {
             report(error, operation: operation)
         }

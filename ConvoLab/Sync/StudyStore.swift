@@ -194,6 +194,21 @@ final class StudyStore {
     var wanikaniReviewCountUpdatedAt: Date? {
         knownKanjiService.wanikaniReviewCountUpdatedAt
     }
+    var wanikaniTransferBridgeEnabled: Bool {
+        knownKanjiService.transferBridgeStatus.enabled
+    }
+    var wanikaniImportedVocabularyCount: Int {
+        knownKanjiService.transferBridgeStatus.importedVocabularyCount
+    }
+    var wanikaniPendingVocabularyCount: Int {
+        knownKanjiService.transferBridgeStatus.pendingVocabularyCount
+    }
+    var wanikaniFailedVocabularyCount: Int {
+        knownKanjiService.transferBridgeStatus.failedVocabularyCount
+    }
+    var wanikaniLastImportedAt: Date? {
+        knownKanjiService.transferBridgeStatus.lastImportedAt
+    }
     var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
     private(set) var resolvingPitchAccentCardIDs: Set<String> = []
@@ -1016,6 +1031,10 @@ final class StudyStore {
 
     func disconnectWaniKani() async {
         await knownKanjiService.disconnect()
+    }
+
+    func setWaniKaniTransferBridgeEnabled(_ enabled: Bool) async {
+        await knownKanjiService.setTransferBridgeEnabled(enabled)
     }
 
     @discardableResult
