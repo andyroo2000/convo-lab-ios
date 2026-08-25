@@ -503,9 +503,16 @@ struct StudyMasterySpread: nonisolated Codable, Equatable, Sendable {
 
 struct StudyJLPTMastery: nonisolated Codable, Equatable, Sendable {
     let n5: StudyJLPTLevelMastery
+    let n4: StudyJLPTLevelMastery?
+
+    init(n5: StudyJLPTLevelMastery, n4: StudyJLPTLevelMastery? = nil) {
+        self.n5 = n5
+        self.n4 = n4
+    }
 
     private enum CodingKeys: String, CodingKey {
         case n5 = "N5"
+        case n4 = "N4"
     }
 }
 
