@@ -21,7 +21,10 @@ final class AccountDeletionCleanupTests: XCTestCase {
 
         let failures = await coordinator.retryPendingCleanup()
 
-        XCTAssertEqual(probe.attempted.count, 4)
+        XCTAssertEqual(
+            probe.attempted.count,
+            AccountDeletionCleanupDomain.allCases.count
+        )
         XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy {
             probe.attempted.contains($0)
         })
@@ -185,14 +188,17 @@ final class AccountDeletionCleanupTests: XCTestCase {
             return XCTFail("Server-confirmed deletion must remain signed out")
         }
         let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
-        XCTAssertEqual(pending.count, AccountDeletionCleanupDomain.allCases.count)
+        let expectedPendingDomains = Set(AccountDeletionCleanupDomain.allCases)
+            .subtracting([.milestones])
+        XCTAssertEqual(pending.count, expectedPendingDomains.count)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertTrue(model.storageStatus.isDegraded)
         XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
-        XCTAssertTrue(AccountDeletionCleanupDomain.allCases.allSatisfy { domain in
+        XCTAssertTrue(expectedPendingDomains.allSatisfy { domain in
             pending.contains { $0.userID == user.id && $0.domain == domain }
         })
+        XCTAssertFalse(pending.contains { $0.domain == .milestones })
         await model.retryAccountDeletionCleanup()
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)

@@ -113,6 +113,34 @@ final class StudySessionWrapUpTests: XCTestCase {
         )
     }
 
+    func testSummaryCountsNetBurnedChangePerCard() {
+        let almostBurned = makeCard(id: "crossed", stability: 364)
+        let burned = makeCard(id: "crossed", stability: 365)
+        let regressedBurned = makeCard(id: "regressed", stability: 400)
+        let regressed = makeCard(id: "regressed", stability: 100)
+
+        let summary = StudySessionWrapUpSummary.build(
+            from: [
+                record(
+                    id: "1",
+                    card: almostBurned,
+                    cardAfter: burned,
+                    rating: .good,
+                    duration: 500
+                ),
+                record(
+                    id: "2",
+                    card: regressedBurned,
+                    cardAfter: regressed,
+                    rating: .again,
+                    duration: 500
+                ),
+            ]
+        )
+
+        XCTAssertEqual(summary.burnedCountChange, 0)
+    }
+
     private func record(
         id: String,
         card: StudyCard,

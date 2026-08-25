@@ -13,6 +13,7 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
+    let milestones: StudyMilestoneStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
     private(set) var isRetryingAccountDeletionCleanup = false
@@ -98,6 +99,7 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
+        let milestones = StudyMilestoneStore(defaults: accountDeletionCleanupDefaults)
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -105,6 +107,7 @@ final class AppModel {
         auth = makeAuthStore(api)
         self.mediaCache = mediaCache
         self.studyTime = studyTime
+        self.milestones = milestones
         self.storageStatus = storageStatus
         self.study = study
         // Daily Audio creation is server-first and downloaded media is a disposable
@@ -159,6 +162,10 @@ final class AppModel {
                     } catch {
                         return false
                     }
+                },
+                .milestones: { userID in
+                    milestones.deleteLocalData(userID: userID)
+                    return true
                 },
             ]
         )
@@ -238,6 +245,7 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
+        milestones.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         await auth.logout()
@@ -286,6 +294,7 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
+        milestones.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         await retryAccountDeletionCleanup()
@@ -323,6 +332,7 @@ final class AppModel {
         }
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
+        milestones.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()

@@ -132,7 +132,8 @@ private struct MainTabView: View {
                 StudyHomeView(
                     store: model.study,
                     player: model.studyAudioPlayer,
-                    timeStore: model.studyTime
+                    timeStore: model.studyTime,
+                    milestoneStore: model.milestones
                 )
             }
             Tab("Cards", systemImage: "square.and.pencil", value: MainTab.cards) {
