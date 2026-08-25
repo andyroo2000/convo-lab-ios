@@ -99,7 +99,7 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        let milestones = StudyMilestoneStore(defaults: accountDeletionCleanupDefaults)
+        let milestones = StudyMilestoneStore(api: api, defaults: accountDeletionCleanupDefaults)
 
         self.container = container
         studyTimeContainer = timeContainer

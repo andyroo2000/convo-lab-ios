@@ -1,6 +1,6 @@
 import Foundation
 
-enum StudyMilestoneID: String, Codable, CaseIterable, Sendable {
+enum StudyMilestoneID: String, nonisolated Codable, CaseIterable, Sendable {
     case burned100
     case burned500
     case burned1000
@@ -43,11 +43,21 @@ struct StudyMilestoneDefinition: Identifiable, Equatable, Sendable {
     let detail: String
 }
 
-struct StudyMilestoneAward: Identifiable, Codable, Equatable, Sendable {
+struct StudyMilestoneAward: nonisolated Codable, Identifiable, Equatable, Sendable {
     let id: StudyMilestoneID
     let earnedAt: Date
+    let presentedAt: Date?
 
     var definition: StudyMilestoneDefinition { id.definition }
+}
+
+struct StudyMilestoneSnapshot: nonisolated Codable, Equatable, Sendable {
+    let milestones: [StudyMilestoneAward]
+    let pendingMilestones: [StudyMilestoneAward]
+}
+
+private struct PresentStudyMilestonesRequest: nonisolated Encodable, Sendable {
+    let milestoneIds: [StudyMilestoneID]
 }
 
 struct StudyMilestoneCompletion: Identifiable, Equatable, Sendable {
@@ -63,7 +73,6 @@ final class StudyMilestoneStore {
     private struct ReviewSession: Codable, Equatable {
         let id: UUID
         let startedAt: Date
-        let initialBurnedCount: Int
         var records: [StudySessionReviewRecord]
         var newAwardIDs: [StudyMilestoneID]
         var isReadyForPresentation: Bool
@@ -73,10 +82,9 @@ final class StudyMilestoneStore {
     private struct PersistedState: Codable, Equatable {
         var earnedAwards: [StudyMilestoneAward] = []
         var activeSession: ReviewSession?
-        var hasSeededBurnedMilestones = false
-        var lastKnownBurnedCount = 0
     }
 
+    private let api: APIClient?
     private let defaults: UserDefaults
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -84,7 +92,8 @@ final class StudyMilestoneStore {
     private var activeUserID: Int?
     private var state = PersistedState()
 
-    init(defaults: UserDefaults = .standard) {
+    init(api: APIClient? = nil, defaults: UserDefaults = .standard) {
+        self.api = api
         self.defaults = defaults
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
@@ -105,8 +114,6 @@ final class StudyMilestoneStore {
             .sorted { $0.threshold < $1.threshold }
     }
 
-    var lastKnownBurnedCount: Int { state.lastKnownBurnedCount }
-
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         activeUserID = userID
@@ -118,14 +125,34 @@ final class StudyMilestoneStore {
         state = PersistedState()
     }
 
-    func beginReviewSession(
-        burnedCount: Int,
-        at startedAt: Date = .now
-    ) {
+    func synchronize() async throws -> StudyMilestoneSnapshot {
+        guard let api else {
+            return StudyMilestoneSnapshot(milestones: earnedAwards, pendingMilestones: [])
+        }
+        let snapshot: StudyMilestoneSnapshot = try await api.request(
+            "/api/study/milestones/evaluate",
+            method: "POST"
+        )
+        applyServerSnapshot(snapshot)
+        return snapshot
+    }
+
+    func acknowledgePresentation(_ ids: [StudyMilestoneID]) async throws {
+        guard !ids.isEmpty, let api else { return }
+        try await api.request(
+            "/api/study/milestones/present",
+            method: "POST",
+            body: PresentStudyMilestonesRequest(milestoneIds: ids)
+        )
+    }
+
+    func applyServerSnapshot(_ snapshot: StudyMilestoneSnapshot) {
+        state.earnedAwards = snapshot.milestones
+        persist()
+    }
+
+    func beginReviewSession(at startedAt: Date = .now) {
         guard activeUserID != nil else { return }
-        let burnedCount = max(0, burnedCount)
-        seedExistingMilestonesIfNeeded(burnedCount: burnedCount, at: startedAt)
-        state.lastKnownBurnedCount = burnedCount
 
         if state.activeSession?.isReadyForPresentation == true {
             persist()
@@ -135,7 +162,6 @@ final class StudyMilestoneStore {
         state.activeSession = ReviewSession(
             id: UUID(),
             startedAt: startedAt,
-            initialBurnedCount: burnedCount,
             records: [],
             newAwardIDs: [],
             isReadyForPresentation: false,
@@ -146,44 +172,31 @@ final class StudyMilestoneStore {
 
     func recordReview(_ record: StudySessionReviewRecord) {
         guard var session = state.activeSession, !session.isReadyForPresentation else { return }
-        let wasQualifyingForNewAward = !newMilestoneIDs(
-            forBurnedCount: state.lastKnownBurnedCount
-        ).isEmpty
         session.records.removeAll { $0.id == record.id }
         session.records.append(record)
         state.activeSession = session
-        updateLastKnownBurnedCount(for: session)
-        if wasQualifyingForNewAward
-            || !newMilestoneIDs(forBurnedCount: state.lastKnownBurnedCount).isEmpty
-        {
-            // Ordinary interrupted sessions are intentionally discarded, so avoid encoding
-            // their growing card history on every grade. Persist as soon as an award is at
-            // stake so a force-quit can still restore the complete celebration and wrap-up.
-            persist()
-        }
+        // The server owns award qualification, but this local record set is what lets a
+        // force-quit restore the matching wrap-up after the pending award is recovered.
+        persist()
     }
 
     func undoReview(eventID: String) {
         guard var session = state.activeSession, !session.isReadyForPresentation else { return }
-        let wasQualifyingForNewAward = !newMilestoneIDs(
-            forBurnedCount: state.lastKnownBurnedCount
-        ).isEmpty
         session.records.removeAll { $0.id == eventID }
         state.activeSession = session
-        updateLastKnownBurnedCount(for: session)
-        if wasQualifyingForNewAward
-            || !newMilestoneIDs(forBurnedCount: state.lastKnownBurnedCount).isEmpty
-        {
-            persist()
-        }
+        persist()
     }
 
-    func prepareCurrentSessionCompletion(at earnedAt: Date = .now) -> StudyMilestoneCompletion? {
-        prepareCompletion(requireNewAward: false, earnedAt: earnedAt)
+    func prepareCurrentSessionCompletion(
+        newAwards: [StudyMilestoneAward] = []
+    ) -> StudyMilestoneCompletion? {
+        prepareCompletion(newAwards: newAwards, requireNewAward: false)
     }
 
-    func prepareInterruptedCompletion(at earnedAt: Date = .now) -> StudyMilestoneCompletion? {
-        prepareCompletion(requireNewAward: true, earnedAt: earnedAt)
+    func prepareInterruptedCompletion(
+        newAwards: [StudyMilestoneAward] = []
+    ) -> StudyMilestoneCompletion? {
+        prepareCompletion(newAwards: newAwards, requireNewAward: true)
     }
 
     func markCelebrationPresented(sessionID: UUID) {
@@ -213,24 +226,24 @@ final class StudyMilestoneStore {
     }
 
     private func prepareCompletion(
-        requireNewAward: Bool,
-        earnedAt: Date
+        newAwards: [StudyMilestoneAward],
+        requireNewAward: Bool
     ) -> StudyMilestoneCompletion? {
         guard var session = state.activeSession, !session.records.isEmpty else { return nil }
 
         if !session.isReadyForPresentation {
-            let newIDs = newMilestoneIDs(for: session)
-            guard !requireNewAward || !newIDs.isEmpty else { return nil }
-
-            for id in newIDs {
-                state.earnedAwards.append(StudyMilestoneAward(id: id, earnedAt: earnedAt))
-            }
-            session.newAwardIDs = newIDs
+            guard !requireNewAward || !newAwards.isEmpty else { return nil }
             session.isReadyForPresentation = true
-            state.activeSession = session
-            updateLastKnownBurnedCount(for: session)
-            persist()
+            session.newAwardIDs = newAwards.map(\.id)
+        } else if session.newAwardIDs.isEmpty, !newAwards.isEmpty {
+            // A completion prepared offline can still pick up the award after the
+            // authoritative review state reaches the server. Once committed, keep it.
+            session.newAwardIDs = newAwards.map(\.id)
         }
+
+        mergeAwards(newAwards)
+        state.activeSession = session
+        persist()
 
         return completion(from: session)
     }
@@ -245,35 +258,12 @@ final class StudyMilestoneStore {
         )
     }
 
-    private func newMilestoneIDs(for session: ReviewSession) -> [StudyMilestoneID] {
-        let summary = StudySessionWrapUpSummary.build(from: session.records)
-        let burnedCount = max(0, session.initialBurnedCount + summary.burnedCountChange)
-        return newMilestoneIDs(forBurnedCount: burnedCount)
-    }
-
-    private func newMilestoneIDs(forBurnedCount burnedCount: Int) -> [StudyMilestoneID] {
-        let earnedIDs = Set(state.earnedAwards.map(\.id))
-        return StudyMilestoneID.allCases
-            .filter { !earnedIDs.contains($0) && burnedCount >= $0.definition.threshold }
-            .sorted { $0.definition.threshold < $1.definition.threshold }
-    }
-
-    private func seedExistingMilestonesIfNeeded(burnedCount: Int, at date: Date) {
-        guard !state.hasSeededBurnedMilestones else { return }
-        let existingIDs = Set(state.earnedAwards.map(\.id))
-        for id in StudyMilestoneID.allCases
-        where burnedCount >= id.definition.threshold && !existingIDs.contains(id) {
-            state.earnedAwards.append(StudyMilestoneAward(id: id, earnedAt: date))
+    private func mergeAwards(_ awards: [StudyMilestoneAward]) {
+        var awardsByID = Dictionary(uniqueKeysWithValues: state.earnedAwards.map { ($0.id, $0) })
+        for award in awards {
+            awardsByID[award.id] = award
         }
-        state.hasSeededBurnedMilestones = true
-    }
-
-    private func updateLastKnownBurnedCount(for session: ReviewSession) {
-        let summary = StudySessionWrapUpSummary.build(from: session.records)
-        state.lastKnownBurnedCount = max(
-            0,
-            session.initialBurnedCount + summary.burnedCountChange
-        )
+        state.earnedAwards = Array(awardsByID.values)
     }
 
     private func load(userID: Int) -> PersistedState {
