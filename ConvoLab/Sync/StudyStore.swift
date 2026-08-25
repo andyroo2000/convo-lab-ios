@@ -199,7 +199,9 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
+    private var reviewOutboxRevision = 0
     var pendingOfflineReviewCount: Int {
+        _ = reviewOutboxRevision
         guard activeUserID != nil else { return 0 }
         return (try? reviewOutbox.pendingDeliverableCount()) ?? 0
     }
@@ -1710,6 +1712,7 @@ final class StudyStore {
                 queueIndex: cards.count
             )
             stagedReview = staged
+            reviewOutboxRevision &+= 1
             let currentCard = staged.cardBefore
             let updatedCard = staged.cardAfter
             let identifiers = StudyCardIdentity.identifiers(for: currentCard)
@@ -1800,6 +1803,7 @@ final class StudyStore {
             throw DeletedCardUndoError()
         }
         if try reviewOutbox.stageRemoval(eventID: eventID) {
+            reviewOutboxRevision &+= 1
             // The view may hold a pre-reconciliation snapshot. For a locally
             // pending undo, preserve the latest local presentation while
             // restoring the scheduling state captured before the review.
@@ -2844,6 +2848,7 @@ final class StudyStore {
     }
 
     private func flushSchedulingOutboxes() async throws {
+        defer { reviewOutboxRevision &+= 1 }
         while true {
             let before = try reviewOutbox.pendingDeliverableCount()
                 + cardActionOutbox.pendingDeliverableCount()

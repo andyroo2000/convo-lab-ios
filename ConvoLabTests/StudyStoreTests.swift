@@ -7189,9 +7189,19 @@ final class StudyStoreTests: XCTestCase {
                     throw URLError(.notConnectedToInternet)
                 }
             )
+            XCTAssertEqual(store.pendingOfflineReviewCount, 0)
+            let countChanged = expectation(
+                description: "Pending offline review count observation changed"
+            )
+            withObservationTracking {
+                _ = store.pendingOfflineReviewCount
+            } onChange: {
+                countChanged.fulfill()
+            }
 
             await store.recordReview(card: card, rating: .good, duration: nil)
 
+            await fulfillment(of: [countChanged], timeout: 1)
             XCTAssertEqual(deliveryAttempts.current, 1)
             XCTAssertEqual(store.pendingOfflineReviewCount, 1)
         }
