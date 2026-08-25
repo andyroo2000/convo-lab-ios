@@ -26,6 +26,42 @@ final class StudyActivitySessionTests: XCTestCase {
         )
     }
 
+    func testInactiveUserCannotSilentlyEditOrDeleteSession() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let session = makeSession(source: .manual)
+
+        do {
+            _ = try await store.update(
+                session: session,
+                activity: .reading,
+                name: "Updated",
+                startedAt: session.startedAt,
+                duration: TimeInterval(session.durationMs) / 1_000
+            )
+            XCTFail("An inactive edit should fail instead of dismissing as successful")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This study entry is no longer available. Refresh and try again."
+            )
+        }
+
+        do {
+            try await store.delete(session: session)
+            XCTFail("An inactive delete should fail instead of reporting success")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "This study entry is no longer available. Refresh and try again."
+            )
+        }
+        retainSaveFixtures(container, store)
+    }
+
     // Confirmed with a weak saver and no unstructured task in the card-count
     // case: iOS 26 XCTest can double-free an injected SwiftData container at
     // method teardown. Keep this bounded set of six containers for the suite.
@@ -2171,6 +2207,7 @@ final class StudyActivitySessionTests: XCTestCase {
         }
 
         XCTAssertEqual(store.sessions.count, 3)
+        XCTAssertNil(store.storageWriteErrorMessage)
     }
 
     func testCalendarSessionWithoutALocalEventCannotSilentlyDiverge() async throws {
@@ -2204,6 +2241,7 @@ final class StudyActivitySessionTests: XCTestCase {
         }
 
         XCTAssertEqual(store.sessions, [calendarSession])
+        XCTAssertNil(store.storageWriteErrorMessage)
     }
 
     func testCompletedEditIsNotOverwrittenByAStaleInFlightRefresh() async throws {
