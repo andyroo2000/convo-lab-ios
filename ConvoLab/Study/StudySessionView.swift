@@ -165,7 +165,7 @@ struct StudySessionView: View {
                     ContentUnavailableView(
                         "Session complete",
                         systemImage: "checkmark.seal.fill",
-                        description: Text("Any offline reviews are safely queued for sync.")
+                        description: Text(offlineReviewCompletionMessage)
                     )
                 }
             }
@@ -323,6 +323,12 @@ struct StudySessionView: View {
         } message: {
             Text(cardActionErrorMessage ?? "The card’s review schedule could not be updated.")
         }
+    }
+
+    private var offlineReviewCompletionMessage: String {
+        let count = store.pendingOfflineReviewCount
+        guard count > 0 else { return "Your completed reviews are saved." }
+        return "\(count) offline \(count == 1 ? "review is" : "reviews are") safely queued for sync."
     }
 
     private func startTimeTracking() {

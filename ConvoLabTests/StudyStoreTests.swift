@@ -1042,6 +1042,10 @@ final class StudyStoreTests: XCTestCase {
         )
         XCTAssertEqual(pendingAfterFailure.map(\.resourceID), [clientDraftID])
         XCTAssertEqual(pendingAfterFailure.first?.attemptCount, 1)
+        XCTAssertEqual(
+            store.pendingManualDraftCreates.map(\.id),
+            [clientDraftID]
+        )
 
         let relaunchedStore = StudyStore(initialUserID: 1,
             api: client,
@@ -1111,6 +1115,11 @@ final class StudyStoreTests: XCTestCase {
             )
         )
         XCTAssertNotNil(pending.first?.lastError)
+        XCTAssertEqual(store.pendingManualDraftCreates.count, 1)
+        XCTAssertEqual(
+            store.pendingManualDraftCreates.first?.answer["expression"]?.stringValue,
+            "会社"
+        )
 
         try await store.retryPendingDraftCreates()
 
@@ -7089,7 +7098,9 @@ final class StudyStoreTests: XCTestCase {
             )
         )
         try container.mainContext.save()
+        let deliveryAttempts = LockedCounter()
         let client = makeClient { _ in
+            _ = deliveryAttempts.next()
             throw URLError(.notConnectedToInternet)
         }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
@@ -7100,11 +7111,14 @@ final class StudyStoreTests: XCTestCase {
         )
 
         await store.recordReview(card: card, rating: .good, duration: .milliseconds(750))
+        XCTAssertEqual(deliveryAttempts.current, 1)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 1)
         let relaunchedStore = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
             mediaCache: mediaCache
         )
+        XCTAssertEqual(relaunchedStore.pendingOfflineReviewCount, 1)
 
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertTrue(relaunchedStore.cards.isEmpty)
@@ -7128,6 +7142,80 @@ final class StudyStoreTests: XCTestCase {
             from: eventData
         )
         XCTAssertEqual(review.durationMilliseconds, 750)
+    }
+
+    @MainActor
+    func testInjectedReviewDeliveryFailurePreservesReviewAcrossRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(
+            path: "ConvoLabReviewOutbox-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appending(path: "ReviewOutbox.store")
+        let card = makeCard(
+            id: "01J000000000000000000000IF",
+            expression: "保留"
+        )
+        let deliveryAttempts = LockedCounter()
+
+        do {
+            let container = try Persistence.makeContainer(storeURL: storeURL)
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: 0,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+            try container.mainContext.save()
+            let client = makeClient { _ in
+                XCTFail("Injected delivery must replace the network boundary")
+                throw URLError(.unknown)
+            }
+            let mediaCache = MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+            let store = StudyStore(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext,
+                mediaCache: mediaCache,
+                reviewEventOutboxFlushOverride: {
+                    _ = deliveryAttempts.next()
+                    throw URLError(.notConnectedToInternet)
+                }
+            )
+
+            await store.recordReview(card: card, rating: .good, duration: nil)
+
+            XCTAssertEqual(deliveryAttempts.current, 1)
+            XCTAssertEqual(store.pendingOfflineReviewCount, 1)
+        }
+
+        let relaunchedContainer = try Persistence.makeContainer(storeURL: storeURL)
+        let relaunchedClient = makeClient { _ in
+            XCTFail("Relaunch construction must not perform delivery")
+            throw URLError(.unknown)
+        }
+        let relaunchedMediaCache = MediaCache(
+            initialUserID: 1,
+            api: relaunchedClient,
+            context: relaunchedContainer.mainContext
+        )
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: relaunchedClient,
+            context: relaunchedContainer.mainContext,
+            mediaCache: relaunchedMediaCache
+        )
+        XCTAssertEqual(relaunchedStore.pendingOfflineReviewCount, 1)
     }
 
     @MainActor

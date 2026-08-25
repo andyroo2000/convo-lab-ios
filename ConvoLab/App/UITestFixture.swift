@@ -6,6 +6,11 @@ import SwiftUI
 /// stores and dependencies without opening normal SwiftData stores or audio services.
 enum UITestFixture: String {
     case loginScreen = "login-screen"
+    case loginRestoration = "login-restoration"
+    case offlineReview = "offline-review"
+    case createCardRecovery = "create-card-recovery"
+    case dailyAudioPlayback = "daily-audio-playback"
+    case calendarConnection = "calendar-connection"
 
     static func fromProcessArguments(
         _ arguments: [String] = ProcessInfo.processInfo.arguments
@@ -24,6 +29,9 @@ struct UITestFixtureView: View {
         switch fixture {
         case .loginScreen:
             UITestLoginScreenFixture()
+        case .loginRestoration, .offlineReview, .createCardRecovery,
+             .dailyAudioPlayback, .calendarConnection:
+            UITestRealFlowFixtureView(fixture: fixture)
         }
     }
 }

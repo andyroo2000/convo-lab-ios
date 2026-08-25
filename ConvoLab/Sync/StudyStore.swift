@@ -122,6 +122,7 @@ final class StudyStore {
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let learningPathRepository: StudyLearningPathRepository
     private let dueActivationScheduler: any StudyDueActivationScheduling
+    private let reviewEventOutboxFlushOverride: (() async throws -> Void)?
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -171,6 +172,9 @@ final class StudyStore {
     private(set) var storageWriteErrorMessage: String?
     private(set) var failedStudyChanges: [FailedStudyChange] = []
     var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
+    var pendingManualDraftCreates: [CreateStudyManualCardDraftRequest] {
+        manualDraftOutbox.pendingCreateRequests()
+    }
     private(set) var overview: StudyOverview?
     private(set) var isRefreshingOverview = false
     private(set) var overviewRefreshErrorMessage: String?
@@ -195,6 +199,7 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
+    private(set) var pendingOfflineReviewCount = 0
     private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
@@ -217,6 +222,21 @@ final class StudyStore {
     func beginSessionFailureTracking() {
         sessionFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
+    }
+
+    private func refreshPendingOfflineReviewCount() {
+        guard let activeUserID else {
+            pendingOfflineReviewCount = 0
+            return
+        }
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == activeUserID
+                    && $0.kind == "review"
+                    && $0.lastError == nil
+            }
+        )
+        pendingOfflineReviewCount = (try? context.fetchCount(descriptor)) ?? 0
     }
 
     func beginLessonSessionPresentation() {
@@ -260,7 +280,8 @@ final class StudyStore {
             Date
         ) throws -> StudyCard = { card, rating, reviewedAt in
             try card.applyingReview(rating, at: reviewedAt)
-        }
+        },
+        reviewEventOutboxFlushOverride: (() async throws -> Void)? = nil
     ) {
         self.api = api
         self.context = context
@@ -269,6 +290,7 @@ final class StudyStore {
         self.mediaCache = mediaCache
         self.storageMode = storageMode
         self.dueActivationScheduler = dueActivationScheduler
+        self.reviewEventOutboxFlushOverride = reviewEventOutboxFlushOverride
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
@@ -317,6 +339,7 @@ final class StudyStore {
         sessionLoadingService.activate(userID: userID)
         syncCoordinator.activate(userID: userID)
         restorePendingReviewState()
+        refreshPendingOfflineReviewCount()
         reloadFailedStudyChanges()
         knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
@@ -379,6 +402,7 @@ final class StudyStore {
         retainedFailedCardIDs = []
         resolvedFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
+        pendingOfflineReviewCount = 0
         syncStatus = .idle
         lastSyncAt = nil
         lastSessionRefreshAt = nil
@@ -547,7 +571,10 @@ final class StudyStore {
         requestingPromptRetryOnOutboxFailure: Bool
     ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
-        defer { reloadFailedStudyChanges() }
+        defer {
+            refreshPendingOfflineReviewCount()
+            reloadFailedStudyChanges()
+        }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
@@ -1684,7 +1711,10 @@ final class StudyStore {
                 .localizedDescription
             return nil
         }
-        defer { reloadFailedStudyChanges() }
+        defer {
+            refreshPendingOfflineReviewCount()
+            reloadFailedStudyChanges()
+        }
         let activationGeneration = accountActivationGeneration
         var stagedReview: StagedStudyReview?
         do {
@@ -1700,6 +1730,9 @@ final class StudyStore {
                 queueIndex: cards.count
             )
             stagedReview = staged
+            // Publish the durable queue state before attempting the network flush.
+            // Session completion can render while that request is still in flight.
+            refreshPendingOfflineReviewCount()
             let currentCard = staged.cardBefore
             let updatedCard = staged.cardAfter
             let identifiers = StudyCardIdentity.identifiers(for: currentCard)
@@ -2837,7 +2870,11 @@ final class StudyStore {
                 + cardActionOutbox.pendingDeliverableCount()
             guard before > 0 else { return }
 
-            try await reviewOutbox.flush()
+            if let reviewEventOutboxFlushOverride {
+                try await reviewEventOutboxFlushOverride()
+            } else {
+                try await reviewOutbox.flush()
+            }
             try await flushCardActionOutbox()
 
             let after = try reviewOutbox.pendingDeliverableCount()

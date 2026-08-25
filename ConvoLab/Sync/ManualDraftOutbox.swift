@@ -146,6 +146,23 @@ final class ManualDraftOutbox {
         draftRevisions[draft.id, default: 0] += 1
     }
 
+    func pendingCreateRequests() -> [CreateStudyManualCardDraftRequest] {
+        guard let activeUserID else { return [] }
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == activeUserID
+                    && $0.kind == "draftCreate"
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        return ((try? context.fetch(descriptor)) ?? []).compactMap {
+            try? StorageCodec.decoder.decode(
+                CreateStudyManualCardDraftRequest.self,
+                from: $0.payload
+            )
+        }
+    }
+
     @discardableResult
     func stageCreate(
         _ request: CreateStudyManualCardDraftRequest
