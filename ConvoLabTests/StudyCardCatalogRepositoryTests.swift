@@ -2,6 +2,15 @@ import XCTest
 @testable import ConvoLab
 
 final class StudyCardCatalogRepositoryTests: XCTestCase {
+    func testUnknownLearningItemStageStatusDecodesSafely() throws {
+        let status = try JSONDecoder().decode(
+            StudyLearningItemStageStatus.self,
+            from: Data(#""future-stage""#.utf8)
+        )
+
+        XCTAssertEqual(status, .unknown)
+    }
+
     @MainActor
     func testRequestsPreserveCatalogCompatibilityContract() async throws {
         let queueItem = makeQueueItem(id: "queue-card")
@@ -17,6 +26,14 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
         let cardResponse = try StorageCodec.encoder.encode(
             StudyCardListResponse(items: [card], limit: 50, nextCursor: nil)
         )
+        let learningItem = makeLearningItem(id: "path:animals")
+        let learningItemResponse = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(
+                items: [learningItem],
+                limit: 20,
+                nextCursor: nil
+            )
+        )
         CatalogMockURLProtocol.handler = { request in
             let data: Data
             switch (request.url?.path, request.url?.query, request.httpMethod) {
@@ -28,6 +45,14 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
                 data = cardResponse
             case ("/api/study/cards", "cursor=card-next&per_page=50&q=%E7%8C%AB", "GET"):
                 data = cardResponse
+            case ("/api/study/learning-items", "per_page=20&q=%E7%8C%AB", "GET"):
+                data = learningItemResponse
+            case (
+                "/api/study/learning-items",
+                "cursor=path-next&per_page=20&q=%E7%8C%AB",
+                "GET"
+            ):
+                data = learningItemResponse
             case ("/api/study/new-queue/reorder", nil, "POST"):
                 let body = try JSONSerialization.jsonObject(with: requestBody(request))
                     as? [String: [String]]
@@ -60,6 +85,8 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
         _ = try await repository.newCardQueuePage(after: "queue-next")
         _ = try await repository.cardPage(matching: "猫")
         _ = try await repository.cardPage(matching: "猫", after: "card-next")
+        _ = try await repository.learningItemPage(matching: "猫")
+        _ = try await repository.learningItemPage(matching: "猫", after: "path-next")
         _ = try await repository.reorderNewCards(["second", "first"])
     }
 
@@ -80,6 +107,14 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
             to: [existingQueueItem]
         )
         XCTAssertEqual(queue.map(\.id), [existingQueueItem.id, newQueueItem.id])
+
+        let existingLearningItem = makeLearningItem(id: "PATH:animals")
+        let newLearningItem = makeLearningItem(id: "path:places")
+        let learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+            [makeLearningItem(id: "path:ANIMALS"), newLearningItem],
+            to: [existingLearningItem]
+        )
+        XCTAssertEqual(learningItems.map(\.id), [existingLearningItem.id, newLearningItem.id])
 
         let older = makeCard(id: "older", createdAt: Date(timeIntervalSince1970: 10))
         let replacement = makeCard(id: "card", createdAt: Date(timeIntervalSince1970: 20))
@@ -103,6 +138,15 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
             ),
             []
         )
+
+        let localFallback = makeCard(id: "local-card", syncId: "server-card")
+        let fallbackItems = StudyCardCatalogRepository.standaloneLearningItems(
+            from: [localFallback],
+            matching: "LOCAL-CARD"
+        )
+        XCTAssertEqual(fallbackItems.map(\.id), ["card:local-card"])
+        XCTAssertNil(fallbackItems.first?.groupId)
+        XCTAssertEqual(fallbackItems.first?.representativeCard.syncId, "server-card")
     }
 
     @MainActor
@@ -165,6 +209,38 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
             queuePosition: 1,
             createdAt: .now,
             updatedAt: .now
+        )
+    }
+
+    @MainActor
+    private func makeLearningItem(id: String) -> StudyLearningItem {
+        let card = StudyLearningItemCard(
+            id: "card-id",
+            syncId: "sync-id",
+            noteId: nil,
+            cardType: "recognition",
+            displayText: "猫",
+            meaning: "cat",
+            variantKind: "sentence_audio_recognition"
+        )
+        return StudyLearningItem(
+            id: id,
+            groupId: "animals",
+            representativeCard: card,
+            currentStageNumber: 1,
+            stageCount: 2,
+            cardCount: 2,
+            retiredStageCount: 0,
+            transferDemonstrated: false,
+            stages: [
+                StudyLearningItemStage(
+                    number: 1,
+                    status: .available,
+                    cardCount: 1,
+                    representativeCard: card,
+                    cards: [card]
+                ),
+            ]
         )
     }
 }

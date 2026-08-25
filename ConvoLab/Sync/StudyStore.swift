@@ -69,6 +69,7 @@ final class StudyStore {
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
+    @ObservationIgnored private var learningItemsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
@@ -101,6 +102,11 @@ final class StudyStore {
     private(set) var allCardsQuery = ""
     private(set) var isRefreshingAllCards = false
     private(set) var isLoadingMoreAllCards = false
+    private(set) var learningItems: [StudyLearningItem] = []
+    private(set) var learningItemsNextCursor: String?
+    private(set) var learningItemsQuery = ""
+    private(set) var isRefreshingLearningItems = false
+    private(set) var isLoadingMoreLearningItems = false
     private(set) var newCardQueue: [StudyNewCardQueueItem] = []
     private(set) var newCardQueueTotal = 0
     private(set) var newCardQueueNextCursor: String?
@@ -289,6 +295,12 @@ final class StudyStore {
         allCardsRefreshRevision += 1
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false
+        learningItems = []
+        learningItemsNextCursor = nil
+        learningItemsQuery = ""
+        learningItemsRefreshRevision += 1
+        isRefreshingLearningItems = false
+        isLoadingMoreLearningItems = false
         newCardQueue = []
         newCardQueueTotal = 0
         newCardQueueNextCursor = nil
@@ -1053,12 +1065,344 @@ final class StudyStore {
         allCardsNextCursor = response.nextCursor
     }
 
-    private func upsertAllCardsPresentation(_ card: StudyCard) {
+    func refreshLearningItems(search query: String = "") async throws {
+        guard let userID = activeUserID else { return }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        learningItemsRefreshRevision += 1
+        let refreshRevision = learningItemsRefreshRevision
+        learningItemsQuery = trimmedQuery
+        learningItemsNextCursor = nil
+        isRefreshingLearningItems = true
+        defer {
+            if activeUserID == userID, learningItemsRefreshRevision == refreshRevision {
+                isRefreshingLearningItems = false
+            }
+        }
+
+        do {
+            let response = try await cardCatalogRepository.learningItemPage(
+                matching: trimmedQuery
+            )
+            guard
+                activeUserID == userID,
+                learningItemsRefreshRevision == refreshRevision,
+                learningItemsQuery == trimmedQuery
+            else { return }
+            learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+                response.items,
+                to: []
+            )
+            reconcilePendingCardMutationsIntoLearningItems()
+            learningItemsNextCursor = response.nextCursor
+        } catch {
+            guard
+                activeUserID == userID,
+                learningItemsRefreshRevision == refreshRevision,
+                learningItemsQuery == trimmedQuery
+            else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
+            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+                from: libraryCards,
+                matching: trimmedQuery
+            )
+            learningItemsNextCursor = nil
+            throw error
+        }
+    }
+
+    func loadMoreLearningItems() async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = learningItemsNextCursor,
+            !isRefreshingLearningItems,
+            !isLoadingMoreLearningItems
+        else { return }
+        let refreshRevision = learningItemsRefreshRevision
+        let query = learningItemsQuery
+        isLoadingMoreLearningItems = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreLearningItems = false
+            }
+        }
+
+        let response = try await cardCatalogRepository.learningItemPage(
+            matching: query,
+            after: cursor
+        )
+        guard
+            activeUserID == userID,
+            learningItemsRefreshRevision == refreshRevision,
+            learningItemsNextCursor == cursor,
+            learningItemsQuery == query
+        else { return }
+        learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+            response.items,
+            to: learningItems
+        )
+        reconcilePendingCardMutationsIntoLearningItems()
+        learningItemsNextCursor = response.nextCursor
+    }
+
+    func card(for item: StudyLearningItemCard) -> StudyCard? {
+        let identifiers = [item.id, item.syncId]
+        return allCards.first { StudyCardIdentity.matches($0, any: identifiers) }
+            ?? libraryCards.first { StudyCardIdentity.matches($0, any: identifiers) }
+    }
+
+    func resolveCard(for item: StudyLearningItemCard) async throws -> StudyCard? {
+        if let localCard = card(for: item) {
+            return localCard
+        }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
+        let canonicalCard = try await fetchCanonicalCard(id: item.syncId)
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if let canonicalCard {
+            try upsertLocalCard(canonicalCard, markedDirty: false)
+            try context.save()
+            loadLibraryCards(userID: userID)
+            allCards = StudyCardCatalogRepository.appendingUniqueCards(
+                [canonicalCard],
+                to: allCards
+            )
+        }
+        return canonicalCard
+    }
+
+    func resolveCard(for item: StudyNewCardQueueItem) async throws -> StudyCard? {
+        let identifiers = [item.id]
+        if let localCard = allCards.first(where: {
+            StudyCardIdentity.matches($0, any: identifiers)
+        }) ?? libraryCards.first(where: {
+            StudyCardIdentity.matches($0, any: identifiers)
+        }) {
+            return localCard
+        }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
+        let canonicalCard = try await fetchCanonicalCard(id: item.id)
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if let canonicalCard {
+            try upsertLocalCard(canonicalCard, markedDirty: false)
+            try context.save()
+            loadLibraryCards(userID: userID)
+            allCards = StudyCardCatalogRepository.appendingUniqueCards(
+                [canonicalCard],
+                to: allCards
+            )
+        }
+        return canonicalCard
+    }
+
+    private func upsertAllCardsPresentation(
+        _ card: StudyCard,
+        addToLearningItemsIfMissing: Bool = false
+    ) {
         allCards = StudyCardCatalogRepository.upserting(
             card,
             into: allCards,
             matching: allCardsQuery
         )
+        reconcileLearningItems(
+            upserting: card,
+            addIfMissing: addToLearningItemsIfMissing
+        )
+    }
+
+    private func reconcileLearningItems(
+        upserting card: StudyCard,
+        addIfMissing: Bool = false
+    ) {
+        var foundExistingCard = false
+        learningItems = learningItems.compactMap { item in
+            let representativeCard = updatedLearningItemCard(
+                item.representativeCard,
+                from: card,
+                foundExistingCard: &foundExistingCard
+            )
+            let stages = item.stages.map { stage in
+                StudyLearningItemStage(
+                    number: stage.number,
+                    status: stage.status,
+                    cardCount: stage.cardCount,
+                    representativeCard: updatedLearningItemCard(
+                        stage.representativeCard,
+                        from: card,
+                        foundExistingCard: &foundExistingCard
+                    ),
+                    cards: stage.cards.map {
+                        updatedLearningItemCard(
+                            $0,
+                            from: card,
+                            foundExistingCard: &foundExistingCard
+                        )
+                    }
+                )
+            }
+            let updatedItem = StudyLearningItem(
+                id: item.id,
+                groupId: item.groupId,
+                representativeCard: representativeCard,
+                currentStageNumber: item.currentStageNumber,
+                stageCount: item.stageCount,
+                cardCount: item.cardCount,
+                retiredStageCount: item.retiredStageCount,
+                transferDemonstrated: item.transferDemonstrated,
+                stages: stages
+            )
+            return learningItem(updatedItem, matches: learningItemsQuery)
+                ? updatedItem
+                : nil
+        }
+        guard addIfMissing,
+              !foundExistingCard,
+              let standalone = StudyCardCatalogRepository.standaloneLearningItems(
+                  from: [card],
+                  matching: learningItemsQuery
+              ).first
+        else { return }
+        // Keep optimistic/manual creations visible immediately. A later grouped
+        // refresh replaces this projection if the server assigned the card to a family.
+        learningItems.insert(standalone, at: 0)
+    }
+
+    private func learningItem(_ item: StudyLearningItem, matches query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        let cards = [item.representativeCard] + item.stages.flatMap(\.cards)
+        return cards.contains {
+            $0.displayText.localizedCaseInsensitiveContains(query)
+                || ($0.meaning?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    private func reconcilePendingCardMutationsIntoLearningItems() {
+        removeStandaloneItemsDuplicatedByFamilies()
+        let pendingDeleteIdentifiers =
+            (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        if !pendingDeleteIdentifiers.isEmpty {
+            removeFromLearningItems(matching: pendingDeleteIdentifiers)
+        }
+        let pendingWriteIdentifiers =
+            (try? cardOutbox.pendingWriteIdentifiers()) ?? []
+        for card in libraryCards where StudyCardIdentity.matches(
+            card,
+            any: pendingWriteIdentifiers
+        ) {
+            reconcileLearningItems(upserting: card, addIfMissing: true)
+        }
+        removeStandaloneItemsDuplicatedByFamilies()
+    }
+
+    private func removeStandaloneItemsDuplicatedByFamilies() {
+        let familyCardIdentifiers = Set(
+            learningItems
+                .filter { $0.groupId != nil }
+                .flatMap { item in
+                    [item.representativeCard] + item.stages.flatMap(\.cards)
+                }
+                .flatMap { [$0.id.lowercased(), $0.syncId.lowercased()] }
+        )
+        guard !familyCardIdentifiers.isEmpty else { return }
+        learningItems.removeAll { item in
+            item.groupId == nil
+                && learningItemCard(
+                    item.representativeCard,
+                    matchesAny: familyCardIdentifiers
+                )
+        }
+    }
+
+    private func updatedLearningItemCard(
+        _ itemCard: StudyLearningItemCard,
+        from card: StudyCard,
+        foundExistingCard: inout Bool
+    ) -> StudyLearningItemCard {
+        guard StudyCardIdentity.matches(card, any: [itemCard.id, itemCard.syncId]) else {
+            return itemCard
+        }
+        foundExistingCard = true
+        return StudyLearningItemCard(
+            id: itemCard.id,
+            syncId: itemCard.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            displayText: card.promptText,
+            meaning: card.answerText,
+            variantKind: itemCard.variantKind
+        )
+    }
+
+    private func removeFromLearningItems(_ card: StudyCard) {
+        removeFromLearningItems(matching: Set([
+            card.id.lowercased(),
+            card.reviewCardID.lowercased(),
+        ]))
+    }
+
+    private func removeFromLearningItems(matching identifiers: Set<String>) {
+        learningItems = learningItems.compactMap { item in
+            if item.groupId == nil {
+                let isDeletedCard = learningItemCard(
+                    item.representativeCard,
+                    matchesAny: identifiers
+                )
+                return isDeletedCard ? nil : item
+            }
+            let stages = item.stages.compactMap { stage -> StudyLearningItemStage? in
+                let cards = stage.cards.filter {
+                    !learningItemCard($0, matchesAny: identifiers)
+                }
+                guard !cards.isEmpty else { return nil }
+                let representativeCard = learningItemCard(
+                    stage.representativeCard,
+                    matchesAny: identifiers
+                ) ? cards[0] : stage.representativeCard
+                return StudyLearningItemStage(
+                    number: stage.number,
+                    status: stage.status,
+                    cardCount: cards.count,
+                    representativeCard: representativeCard,
+                    cards: cards
+                )
+            }
+            guard !stages.isEmpty else { return nil }
+            let representativeCard = learningItemCard(
+                item.representativeCard,
+                matchesAny: identifiers
+            ) ? stages[0].representativeCard : item.representativeCard
+            let currentStageNumber = item.currentStageNumber.flatMap { currentNumber in
+                stages.contains { $0.number == currentNumber } ? currentNumber : nil
+            } ?? stages.first(where: { $0.status == .available })?.number
+            let updatedItem = StudyLearningItem(
+                id: item.id,
+                groupId: item.groupId,
+                representativeCard: representativeCard,
+                currentStageNumber: currentStageNumber,
+                stageCount: stages.count,
+                cardCount: stages.reduce(0) { $0 + $1.cardCount },
+                retiredStageCount: stages.filter { $0.status == .retired }.count,
+                transferDemonstrated: item.transferDemonstrated,
+                stages: stages
+            )
+            return learningItem(updatedItem, matches: learningItemsQuery)
+                ? updatedItem
+                : nil
+        }
+    }
+
+    private func learningItemCard(
+        _ card: StudyLearningItemCard,
+        matchesAny identifiers: Set<String>
+    ) -> Bool {
+        identifiers.contains(card.id.lowercased())
+            || identifiers.contains(card.syncId.lowercased())
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
@@ -1639,7 +1983,7 @@ final class StudyStore {
         try cardOutbox.stageCreate(cardID: id, request: projection.request)
         cards.append(optimistic)
         libraryCards.append(optimistic)
-        upsertAllCardsPresentation(optimistic)
+        upsertAllCardsPresentation(optimistic, addToLearningItemsIfMissing: true)
         try context.save()
 
         do {
@@ -1685,6 +2029,7 @@ final class StudyStore {
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
+        reconcileLearningItems(upserting: updated)
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1714,6 +2059,7 @@ final class StudyStore {
         cards.removeAll { $0.id == currentCard.id }
         libraryCards.removeAll { $0.id == currentCard.id }
         allCards.removeAll { $0.id == currentCard.id }
+        removeFromLearningItems(currentCard)
         try context.save()
         do {
             try await flushCardOutbox()
@@ -2548,7 +2894,7 @@ final class StudyStore {
         }
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
-        upsertAllCardsPresentation(card)
+        upsertAllCardsPresentation(card, addToLearningItemsIfMissing: true)
         try context.save()
         await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
     }

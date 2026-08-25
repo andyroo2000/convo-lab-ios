@@ -762,6 +762,64 @@ struct StudyCardListResponse: nonisolated Codable, Equatable, Sendable {
     let nextCursor: String?
 }
 
+enum StudyLearningItemStageStatus: String, nonisolated Codable, Equatable, Sendable {
+    case locked
+    case available
+    case retired
+    case unknown
+
+    nonisolated init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct StudyLearningItemCard: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let syncId: String
+    let noteId: String?
+    let cardType: String
+    let displayText: String
+    let meaning: String?
+    let variantKind: String?
+}
+
+struct StudyLearningItemStage: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let number: Int?
+    let status: StudyLearningItemStageStatus?
+    let cardCount: Int
+    let representativeCard: StudyLearningItemCard
+    let cards: [StudyLearningItemCard]
+
+    nonisolated var id: String {
+        number.map { "stage:\($0)" }
+            ?? "card:\(representativeCard.syncId.lowercased())"
+    }
+}
+
+struct StudyLearningItem: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let groupId: String?
+    let representativeCard: StudyLearningItemCard
+    let currentStageNumber: Int?
+    let stageCount: Int
+    let cardCount: Int
+    let retiredStageCount: Int
+    let transferDemonstrated: Bool
+    let stages: [StudyLearningItemStage]
+}
+
+struct StudyLearningItemListResponse: nonisolated Codable, Equatable, Sendable {
+    let items: [StudyLearningItem]
+    let limit: Int
+    let nextCursor: String?
+}
+
 struct ReorderStudyNewCardQueueRequest: Encodable, Equatable, Sendable {
     let cardIds: [String]
 }
