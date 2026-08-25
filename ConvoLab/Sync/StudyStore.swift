@@ -1,6 +1,47 @@
 import Foundation
 import SwiftData
 
+@MainActor
+protocol StudyDueActivationScheduling: AnyObject {
+    var now: Date { get }
+
+    func schedule(
+        at deadline: Date,
+        action: @escaping @MainActor @Sendable () -> Void
+    )
+
+    func cancel()
+}
+
+@MainActor
+final class RunLoopStudyDueActivationScheduler: StudyDueActivationScheduling {
+    private var timer: Timer?
+
+    var now: Date { .now }
+
+    func schedule(
+        at deadline: Date,
+        action: @escaping @MainActor @Sendable () -> Void
+    ) {
+        cancel()
+        let timer = Timer(
+            timeInterval: max(0, deadline.timeIntervalSince(now)),
+            repeats: false
+        ) { _ in
+            Task { @MainActor in
+                action()
+            }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
 @Observable
 final class StudyStore {
     private struct MissingLocalCardError: LocalizedError {
@@ -79,6 +120,7 @@ final class StudyStore {
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let learningPathRepository: StudyLearningPathRepository
+    private let dueActivationScheduler: any StudyDueActivationScheduling
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -96,7 +138,6 @@ final class StudyStore {
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
-    @ObservationIgnored private var offlineDueActivationTimer: Timer?
     @ObservationIgnored private var overviewSnapshot: LocalStudyOverviewSnapshot?
     @ObservationIgnored private var overviewSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var studySurfaceRevision = 0
@@ -182,8 +223,7 @@ final class StudyStore {
         studySurfaceRevision += 1
         lessonSessionIsPresented = true
         sessionLoadingService.invalidate()
-        offlineDueActivationTimer?.invalidate()
-        offlineDueActivationTimer = nil
+        dueActivationScheduler.cancel()
         cards = []
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
@@ -212,6 +252,7 @@ final class StudyStore {
         context: ModelContext,
         mediaCache: MediaCache,
         storageMode: StorageMode = .persistent,
+        dueActivationScheduler: any StudyDueActivationScheduling = RunLoopStudyDueActivationScheduler(),
         reviewProjection: @escaping (
             StudyCard,
             ReviewRating,
@@ -226,6 +267,7 @@ final class StudyStore {
         overviewContext.autosaveEnabled = false
         self.mediaCache = mediaCache
         self.storageMode = storageMode
+        self.dueActivationScheduler = dueActivationScheduler
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
@@ -284,8 +326,7 @@ final class StudyStore {
         studySettingsRefreshID = nil
         studySettingsUpdateID = nil
         overviewRefreshID = nil
-        offlineDueActivationTimer?.invalidate()
-        offlineDueActivationTimer = nil
+        dueActivationScheduler.cancel()
         overviewSnapshotSaveTask?.cancel()
         overviewSnapshotSaveTask = nil
         overviewSnapshot = nil
@@ -1530,10 +1571,11 @@ final class StudyStore {
     }
 
     func activateOfflineDueCards(
-        at date: Date = .now,
+        at date: Date? = nil,
         preservingCurrentOrder: Bool = true
     ) {
         guard let userID = activeUserID, !lessonSessionIsPresented else { return }
+        let activationDate = date ?? dueActivationScheduler.now
         let records = (try? context.fetch(
             FetchDescriptor<LocalCardRecord>(
                 predicate: #Predicate {
@@ -1559,7 +1601,7 @@ final class StudyStore {
         for card in libraryCards {
             guard
                 !StudyCardIdentity.matches(card, any: pendingDeleteIDs),
-                card.isEligibleForOfflineStudy(at: date)
+                card.isEligibleForOfflineStudy(at: activationDate)
             else {
                 continue
             }
@@ -3178,19 +3220,13 @@ final class StudyStore {
     }
 
     private func scheduleNextOfflineActivation() {
-        offlineDueActivationTimer?.invalidate()
+        dueActivationScheduler.cancel()
         guard !lessonSessionIsPresented, let dueAt = nextOfflineDueAt else {
-            offlineDueActivationTimer = nil
             return
         }
-        let timer = Timer(timeInterval: max(0, dueAt.timeIntervalSinceNow), repeats: false) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.activateOfflineDueCards()
-            }
+        dueActivationScheduler.schedule(at: dueAt) { [weak self, dueActivationScheduler] in
+            self?.activateOfflineDueCards(at: dueActivationScheduler.now)
         }
-        offlineDueActivationTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func handleSyncError(_ error: any Error) {
