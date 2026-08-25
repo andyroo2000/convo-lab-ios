@@ -995,5 +995,4 @@ struct WaniKaniSyncResult: nonisolated Decodable, Equatable, Sendable {
     let added: Int
     let effectiveTotal: Int
     let version: Int
-    let reviewCount: Int?
 }

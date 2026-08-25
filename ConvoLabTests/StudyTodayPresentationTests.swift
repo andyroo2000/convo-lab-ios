@@ -54,6 +54,29 @@ struct StudyTodayPresentationTests {
         )
     }
 
+    @Test func refreshesCalendarStatusWhenItIsStaleOrMissing() {
+        let now = Date(timeIntervalSince1970: 1_787_584_400)
+
+        #expect(
+            StudyTodayPresentation.shouldRefreshCalendar(
+                statusFetchedAt: nil,
+                relativeTo: now
+            )
+        )
+        #expect(
+            !StudyTodayPresentation.shouldRefreshCalendar(
+                statusFetchedAt: now.addingTimeInterval(-14 * 60),
+                relativeTo: now
+            )
+        )
+        #expect(
+            StudyTodayPresentation.shouldRefreshCalendar(
+                statusFetchedAt: now.addingTimeInterval(-15 * 60),
+                relativeTo: now
+            )
+        )
+    }
+
     @Test func describesTodayAndTomorrow() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

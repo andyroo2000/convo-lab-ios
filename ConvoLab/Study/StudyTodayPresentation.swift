@@ -31,6 +31,15 @@ nonisolated enum StudyTodayPresentation {
         return now.timeIntervalSince(reviewCountUpdatedAt) >= maxAge
     }
 
+    static func shouldRefreshCalendar(
+        statusFetchedAt: Date?,
+        relativeTo now: Date = .now,
+        maxAge: TimeInterval = 15 * 60
+    ) -> Bool {
+        guard let statusFetchedAt else { return true }
+        return now.timeIntervalSince(statusFetchedAt) >= maxAge
+    }
+
     static func lessonTiming(
         _ startsAt: Date,
         relativeTo now: Date = .now,

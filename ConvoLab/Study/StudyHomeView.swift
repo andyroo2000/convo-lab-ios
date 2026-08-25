@@ -5,6 +5,7 @@ struct StudyHomeView: View {
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
     @State private var showingFailedChanges = false
+    @State private var calendarStatusFetchedAt: Date? = nil
 
     var body: some View {
         NavigationStack {
@@ -41,7 +42,7 @@ struct StudyHomeView: View {
                         Task {
                             await store.synchronize()
                             await refreshWaniKaniIfNeeded(force: true)
-                            await timeStore?.loadGoogleCalendarConnection()
+                            await refreshCalendarIfNeeded(force: true)
                         }
                     } label: {
                         if store.syncStatus == .syncing {
@@ -56,7 +57,7 @@ struct StudyHomeView: View {
             .refreshable {
                 await store.synchronize()
                 await refreshWaniKaniIfNeeded(force: true)
-                await timeStore?.loadGoogleCalendarConnection()
+                await refreshCalendarIfNeeded(force: true)
             }
             .onAppear {
                 Task {
@@ -64,7 +65,7 @@ struct StudyHomeView: View {
                     await refreshWaniKaniIfNeeded()
                 }
                 Task {
-                    await timeStore?.loadGoogleCalendarConnection()
+                    await refreshCalendarIfNeeded()
                 }
             }
             .sheet(isPresented: $showingFailedChanges) {
@@ -208,6 +209,7 @@ struct StudyHomeView: View {
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(color, in: .rect(cornerRadius: 9))
+                .accessibilityHidden(true)
             Text(title)
                 .font(.subheadline.bold())
                 .foregroundStyle(ConvoLabTheme.navy)
@@ -276,6 +278,16 @@ struct StudyHomeView: View {
         ) else { return }
 
         await store.syncWaniKani()
+    }
+
+    private func refreshCalendarIfNeeded(force: Bool = false) async {
+        guard let timeStore else { return }
+        guard force || StudyTodayPresentation.shouldRefreshCalendar(
+            statusFetchedAt: calendarStatusFetchedAt
+        ) else { return }
+
+        await timeStore.loadGoogleCalendarConnection()
+        calendarStatusFetchedAt = .now
     }
 
     @ViewBuilder
