@@ -35,6 +35,12 @@ final class StudyStore {
         }
     }
 
+    private struct PendingLearningPathChangesError: LocalizedError {
+        var errorDescription: String? {
+            "Sync this card’s pending changes before editing its learning path."
+        }
+    }
+
     typealias AnswerAudioRegenerationResult = CardAnswerAudioRegenerationResult
     typealias ImageRegenerationResult = CardImageMutationResult
 
@@ -1076,7 +1082,8 @@ final class StudyStore {
     }
 
     func learningPath(for card: StudyCard) async throws -> StudyLearningPath {
-        try await learningPathRepository.learningPath(for: card.reviewCardID)
+        let currentCard = try await prepareLearningPathAccess(for: [card])[0]
+        return try await learningPathRepository.learningPath(for: currentCard.reviewCardID)
     }
 
     func searchLearningPathSuccessors(matching query: String) async throws -> [StudyCard] {
@@ -1090,9 +1097,10 @@ final class StudyStore {
         to predecessor: StudyCard,
         requirement: StudyLearningPathUnlockRequirement
     ) async throws -> StudyLearningPath {
+        let currentCards = try await prepareLearningPathAccess(for: [predecessor, successor])
         let path = try await learningPathRepository.linkSuccessor(
-            successor.reviewCardID,
-            to: predecessor.reviewCardID,
+            currentCards[1].reviewCardID,
+            to: currentCards[0].reviewCardID,
             requirement: requirement
         )
         try? await refreshLearningItems(search: learningItemsQuery)
@@ -2334,6 +2342,26 @@ final class StudyStore {
             throw PendingCardChangesError(medium: medium)
         }
         return currentCard
+    }
+
+    private func prepareLearningPathAccess(for cards: [StudyCard]) async throws -> [StudyCard] {
+        try requirePersistentWrites()
+        do {
+            try await flushCardOutbox()
+        } catch is QuarantinedCardMutationError {
+            // A rejected write for another card does not block these cards.
+        } catch {
+            markOutboxRetryNeeded(for: error)
+            throw error
+        }
+
+        return try cards.map { card in
+            let currentCard = try currentLocalCard(for: card)
+            guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
+                throw PendingLearningPathChangesError()
+            }
+            return currentCard
+        }
     }
 
     private func reconcileCardMedia(
