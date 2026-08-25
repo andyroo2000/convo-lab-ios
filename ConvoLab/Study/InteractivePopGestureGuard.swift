@@ -3,13 +3,14 @@ import UIKit
 
 struct InteractivePopGestureGuard: UIViewControllerRepresentable {
     let isDisabled: Bool
+    let onEscape: () -> Void
 
     func makeUIViewController(context _: Context) -> Controller {
-        Controller()
+        Controller(onEscape: onEscape)
     }
 
     func updateUIViewController(_ controller: Controller, context _: Context) {
-        controller.update(isDisabled: isDisabled)
+        controller.update(isDisabled: isDisabled, onEscape: onEscape)
     }
 
     static func dismantleUIViewController(_ controller: Controller, coordinator _: Void) {
@@ -20,6 +21,17 @@ struct InteractivePopGestureGuard: UIViewControllerRepresentable {
         private var isDisabled = false
         private weak var gestureRecognizer: UIGestureRecognizer?
         private var previouslyEnabled: Bool?
+        private var onEscape: () -> Void
+
+        init(onEscape: @escaping () -> Void) {
+            self.onEscape = onEscape
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) is unavailable")
+        }
 
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
@@ -36,8 +48,15 @@ struct InteractivePopGestureGuard: UIViewControllerRepresentable {
             super.viewWillDisappear(animated)
         }
 
-        func update(isDisabled: Bool) {
+        override func accessibilityPerformEscape() -> Bool {
+            guard isDisabled else { return super.accessibilityPerformEscape() }
+            onEscape()
+            return true
+        }
+
+        func update(isDisabled: Bool, onEscape: @escaping () -> Void) {
             self.isDisabled = isDisabled
+            self.onEscape = onEscape
             applyGestureState()
         }
 

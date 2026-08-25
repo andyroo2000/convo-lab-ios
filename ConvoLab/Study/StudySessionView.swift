@@ -115,7 +115,9 @@ struct StudySessionView: View {
         .padding()
         .paperBackground()
         .overlay {
-            InteractivePopGestureGuard(isDisabled: mode == .reviews)
+            InteractivePopGestureGuard(isDisabled: mode == .reviews) {
+                endReviewSession()
+            }
                 .frame(width: 0, height: 0)
         }
     }
@@ -998,7 +1000,7 @@ struct StudySessionView: View {
                             reviewedAt: reviewedAt
                         )
                     )
-                    if let record = sessionReviewRecords.last {
+                    if mode == .reviews, let record = sessionReviewRecords.last {
                         milestoneStore?.recordReview(record)
                     }
                 }
@@ -1110,7 +1112,9 @@ struct StudySessionView: View {
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 sessionReviewRecords.removeAll { $0.id == eventID }
-                milestoneStore?.undoReview(eventID: eventID)
+                if mode == .reviews {
+                    milestoneStore?.undoReview(eventID: eventID)
+                }
                 showingAnswer = true
                 resetCardTimer()
                 didAutoplayAnswerForCardID = nil
