@@ -1,0 +1,101 @@
+{
+    "schemaVersion": 1,
+    "contract": {
+        "id": "daily-audio-practice.v1",
+        "producer": "App\\Http\\Resources\\Study\\DailyAudioPracticeResource",
+        "canonicalRepository": "andyroo2000/learning-os"
+    },
+    "cases": [
+        {
+            "id": "ready-with-ready-and-skipped-tracks",
+            "description": "Ready practice preserves nested script, timing, metadata, and nullable skipped-track fields.",
+            "payload": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "userId": "20000000-0000-4000-8000-000000000001",
+                "practiceDate": "2026-08-24",
+                "status": "ready",
+                "targetDurationMinutes": 25,
+                "targetLanguage": "ja",
+                "nativeLanguage": "en",
+                "sourceCardIdsJson": [
+                    "card-a",
+                    "card-b"
+                ],
+                "selectionSummaryJson": {
+                    "dueCount": 1,
+                    "learningCount": 1
+                },
+                "errorMessage": null,
+                "createdAt": "2026-08-24T08:00:00.000Z",
+                "updatedAt": "2026-08-24T08:05:00.000Z",
+                "tracks": [
+                    {
+                        "id": "30000000-0000-4000-8000-000000000001",
+                        "practiceId": "10000000-0000-4000-8000-000000000001",
+                        "mode": "drill",
+                        "status": "ready",
+                        "title": "Recall drill",
+                        "sortOrder": 0,
+                        "scriptUnitsJson": [
+                            {
+                                "kind": "target_language",
+                                "text": "会社"
+                            }
+                        ],
+                        "audioUrl": "/audio/drill.mp3",
+                        "timingData": [
+                            {
+                                "startMs": 0,
+                                "endMs": 1200
+                            }
+                        ],
+                        "approxDurationSeconds": 120,
+                        "generationMetadataJson": {
+                            "voice": "fishaudio:nanami"
+                        },
+                        "errorMessage": null,
+                        "createdAt": "2026-08-24T08:01:00.000Z",
+                        "updatedAt": "2026-08-24T08:04:00.000Z"
+                    },
+                    {
+                        "id": "30000000-0000-4000-8000-000000000002",
+                        "practiceId": "10000000-0000-4000-8000-000000000001",
+                        "mode": "context",
+                        "status": "skipped",
+                        "title": "Context story",
+                        "sortOrder": 1,
+                        "scriptUnitsJson": null,
+                        "audioUrl": null,
+                        "timingData": null,
+                        "approxDurationSeconds": null,
+                        "generationMetadataJson": {
+                            "reason": "insufficient_cards"
+                        },
+                        "errorMessage": null,
+                        "createdAt": "2026-08-24T08:02:00.000Z",
+                        "updatedAt": "2026-08-24T08:03:00.000Z"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "error-without-tracks",
+            "description": "Error practice keeps nullable selection data and an empty loaded track list.",
+            "payload": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "userId": "20000000-0000-4000-8000-000000000001",
+                "practiceDate": "2026-08-25",
+                "status": "error",
+                "targetDurationMinutes": 30,
+                "targetLanguage": "ja",
+                "nativeLanguage": "en",
+                "sourceCardIdsJson": [],
+                "selectionSummaryJson": null,
+                "errorMessage": "Generation failed.",
+                "createdAt": "2026-08-25T09:00:00.000Z",
+                "updatedAt": "2026-08-25T09:01:00.000Z",
+                "tracks": []
+            }
+        }
+    ]
+}

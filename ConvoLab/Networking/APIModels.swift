@@ -1154,12 +1154,81 @@ struct DailyAudioScriptUnit: nonisolated Codable, Equatable, Sendable {
     let text: String?
     let reading: String?
     let translation: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, kind, text, reading, translation
+    }
+
+    nonisolated init(
+        type: String,
+        text: String?,
+        reading: String?,
+        translation: String?
+    ) {
+        self.type = type
+        self.text = text
+        self.reading = reading
+        self.translation = translation
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if let type = try values.decodeIfPresent(String.self, forKey: .type) {
+            self.type = type
+        } else {
+            let kind = try values.decode(String.self, forKey: .kind)
+            self.type = switch kind {
+            case "target_language": "L2"
+            case "native_language": "L1"
+            default: kind
+            }
+        }
+        text = try values.decodeIfPresent(String.self, forKey: .text)
+        reading = try values.decodeIfPresent(String.self, forKey: .reading)
+        translation = try values.decodeIfPresent(String.self, forKey: .translation)
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(type, forKey: .type)
+        try values.encodeIfPresent(text, forKey: .text)
+        try values.encodeIfPresent(reading, forKey: .reading)
+        try values.encodeIfPresent(translation, forKey: .translation)
+    }
 }
 
 struct DailyAudioTiming: nonisolated Codable, Equatable, Sendable {
     let unitIndex: Int
     let startTime: Double
     let endTime: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case unitIndex, startTime, endTime, startMs, endMs
+    }
+
+    nonisolated init(unitIndex: Int, startTime: Double, endTime: Double) {
+        self.unitIndex = unitIndex
+        self.startTime = startTime
+        self.endTime = endTime
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        unitIndex = try values.decodeIfPresent(Int.self, forKey: .unitIndex)
+            ?? decoder.codingPath.last?.intValue
+            ?? 0
+        startTime = try values.decodeIfPresent(Double.self, forKey: .startTime)
+            ?? values.decode(Double.self, forKey: .startMs)
+        endTime = try values.decodeIfPresent(Double.self, forKey: .endTime)
+            ?? values.decode(Double.self, forKey: .endMs)
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(unitIndex, forKey: .unitIndex)
+        try values.encode(startTime, forKey: .startTime)
+        try values.encode(endTime, forKey: .endTime)
+    }
 }
 
 struct CreateDailyAudioRequest: Encodable {

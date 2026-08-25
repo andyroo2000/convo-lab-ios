@@ -1,0 +1,1099 @@
+{
+    "schemaVersion": 1,
+    "contract": {
+        "id": "study-activity-analytics.v1",
+        "producer": "App\\Domain\\Study\\Actions\\BuildStudyActivityAnalyticsAction",
+        "canonicalRepository": "andyroo2000/learning-os"
+    },
+    "cases": [
+        {
+            "id": "cross-midnight-all-categories",
+            "description": "All categories plus cross-midnight and fractional allocation remainders.",
+            "payload": {
+                "generatedAt": "2026-07-28T16:00:00.000000Z",
+                "anchorDate": "2026-07-28",
+                "timezone": "America/New_York",
+                "ranges": [
+                    {
+                        "key": "today",
+                        "startsAt": "2026-07-28T04:00:00.000000Z",
+                        "endsAt": "2026-07-29T04:00:00.000000Z",
+                        "bucketUnit": "hour",
+                        "bucketStep": 1,
+                        "totalMs": 4801001,
+                        "categories": {
+                            "review": 1800000,
+                            "listen": 900001,
+                            "create": 1000,
+                            "immerse": 600000,
+                            "conversation": 1200000,
+                            "wanikani": 300000
+                        },
+                        "buckets": [
+                            {
+                                "startsAt": "2026-07-28T04:00:00.000000Z",
+                                "endsAt": "2026-07-28T05:00:00.000000Z",
+                                "totalMs": 2250001,
+                                "categories": {
+                                    "review": 1800000,
+                                    "listen": 450001,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T05:00:00.000000Z",
+                                "endsAt": "2026-07-28T06:00:00.000000Z",
+                                "totalMs": 450000,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 450000,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T06:00:00.000000Z",
+                                "endsAt": "2026-07-28T07:00:00.000000Z",
+                                "totalMs": 333,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 333,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T07:00:00.000000Z",
+                                "endsAt": "2026-07-28T08:00:00.000000Z",
+                                "totalMs": 334,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 334,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T08:00:00.000000Z",
+                                "endsAt": "2026-07-28T09:00:00.000000Z",
+                                "totalMs": 333,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 333,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T09:00:00.000000Z",
+                                "endsAt": "2026-07-28T10:00:00.000000Z",
+                                "totalMs": 600000,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 600000,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T10:00:00.000000Z",
+                                "endsAt": "2026-07-28T11:00:00.000000Z",
+                                "totalMs": 1200000,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 1200000,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T11:00:00.000000Z",
+                                "endsAt": "2026-07-28T12:00:00.000000Z",
+                                "totalMs": 300000,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 300000
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T12:00:00.000000Z",
+                                "endsAt": "2026-07-28T13:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T13:00:00.000000Z",
+                                "endsAt": "2026-07-28T14:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T14:00:00.000000Z",
+                                "endsAt": "2026-07-28T15:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T15:00:00.000000Z",
+                                "endsAt": "2026-07-28T16:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T16:00:00.000000Z",
+                                "endsAt": "2026-07-28T17:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T17:00:00.000000Z",
+                                "endsAt": "2026-07-28T18:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T18:00:00.000000Z",
+                                "endsAt": "2026-07-28T19:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T19:00:00.000000Z",
+                                "endsAt": "2026-07-28T20:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T20:00:00.000000Z",
+                                "endsAt": "2026-07-28T21:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T21:00:00.000000Z",
+                                "endsAt": "2026-07-28T22:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T22:00:00.000000Z",
+                                "endsAt": "2026-07-28T23:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T23:00:00.000000Z",
+                                "endsAt": "2026-07-29T00:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T00:00:00.000000Z",
+                                "endsAt": "2026-07-29T01:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T01:00:00.000000Z",
+                                "endsAt": "2026-07-29T02:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T02:00:00.000000Z",
+                                "endsAt": "2026-07-29T03:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T03:00:00.000000Z",
+                                "endsAt": "2026-07-29T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "key": "week",
+                        "startsAt": "2026-07-27T04:00:00.000000Z",
+                        "endsAt": "2026-08-03T04:00:00.000000Z",
+                        "bucketUnit": "day",
+                        "bucketStep": 1,
+                        "totalMs": 6601002,
+                        "categories": {
+                            "review": 3600001,
+                            "listen": 900001,
+                            "create": 1000,
+                            "immerse": 600000,
+                            "conversation": 1200000,
+                            "wanikani": 300000
+                        },
+                        "buckets": [
+                            {
+                                "startsAt": "2026-07-27T04:00:00.000000Z",
+                                "endsAt": "2026-07-28T04:00:00.000000Z",
+                                "totalMs": 1800001,
+                                "categories": {
+                                    "review": 1800001,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T04:00:00.000000Z",
+                                "endsAt": "2026-07-29T04:00:00.000000Z",
+                                "totalMs": 4801001,
+                                "categories": {
+                                    "review": 1800000,
+                                    "listen": 900001,
+                                    "create": 1000,
+                                    "immerse": 600000,
+                                    "conversation": 1200000,
+                                    "wanikani": 300000
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T04:00:00.000000Z",
+                                "endsAt": "2026-07-30T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-30T04:00:00.000000Z",
+                                "endsAt": "2026-07-31T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-31T04:00:00.000000Z",
+                                "endsAt": "2026-08-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-08-01T04:00:00.000000Z",
+                                "endsAt": "2026-08-02T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-08-02T04:00:00.000000Z",
+                                "endsAt": "2026-08-03T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "key": "month",
+                        "startsAt": "2026-07-01T04:00:00.000000Z",
+                        "endsAt": "2026-08-01T04:00:00.000000Z",
+                        "bucketUnit": "day",
+                        "bucketStep": 1,
+                        "totalMs": 6601002,
+                        "categories": {
+                            "review": 3600001,
+                            "listen": 900001,
+                            "create": 1000,
+                            "immerse": 600000,
+                            "conversation": 1200000,
+                            "wanikani": 300000
+                        },
+                        "buckets": [
+                            {
+                                "startsAt": "2026-07-01T04:00:00.000000Z",
+                                "endsAt": "2026-07-02T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-02T04:00:00.000000Z",
+                                "endsAt": "2026-07-03T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-03T04:00:00.000000Z",
+                                "endsAt": "2026-07-04T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-04T04:00:00.000000Z",
+                                "endsAt": "2026-07-05T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-05T04:00:00.000000Z",
+                                "endsAt": "2026-07-06T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-06T04:00:00.000000Z",
+                                "endsAt": "2026-07-07T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-07T04:00:00.000000Z",
+                                "endsAt": "2026-07-08T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-08T04:00:00.000000Z",
+                                "endsAt": "2026-07-09T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-09T04:00:00.000000Z",
+                                "endsAt": "2026-07-10T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-10T04:00:00.000000Z",
+                                "endsAt": "2026-07-11T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-11T04:00:00.000000Z",
+                                "endsAt": "2026-07-12T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-12T04:00:00.000000Z",
+                                "endsAt": "2026-07-13T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-13T04:00:00.000000Z",
+                                "endsAt": "2026-07-14T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-14T04:00:00.000000Z",
+                                "endsAt": "2026-07-15T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-15T04:00:00.000000Z",
+                                "endsAt": "2026-07-16T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-16T04:00:00.000000Z",
+                                "endsAt": "2026-07-17T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-17T04:00:00.000000Z",
+                                "endsAt": "2026-07-18T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-18T04:00:00.000000Z",
+                                "endsAt": "2026-07-19T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-19T04:00:00.000000Z",
+                                "endsAt": "2026-07-20T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-20T04:00:00.000000Z",
+                                "endsAt": "2026-07-21T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-21T04:00:00.000000Z",
+                                "endsAt": "2026-07-22T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-22T04:00:00.000000Z",
+                                "endsAt": "2026-07-23T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-23T04:00:00.000000Z",
+                                "endsAt": "2026-07-24T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-24T04:00:00.000000Z",
+                                "endsAt": "2026-07-25T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-25T04:00:00.000000Z",
+                                "endsAt": "2026-07-26T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-26T04:00:00.000000Z",
+                                "endsAt": "2026-07-27T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-27T04:00:00.000000Z",
+                                "endsAt": "2026-07-28T04:00:00.000000Z",
+                                "totalMs": 1800001,
+                                "categories": {
+                                    "review": 1800001,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T04:00:00.000000Z",
+                                "endsAt": "2026-07-29T04:00:00.000000Z",
+                                "totalMs": 4801001,
+                                "categories": {
+                                    "review": 1800000,
+                                    "listen": 900001,
+                                    "create": 1000,
+                                    "immerse": 600000,
+                                    "conversation": 1200000,
+                                    "wanikani": 300000
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-29T04:00:00.000000Z",
+                                "endsAt": "2026-07-30T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-30T04:00:00.000000Z",
+                                "endsAt": "2026-07-31T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-31T04:00:00.000000Z",
+                                "endsAt": "2026-08-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "key": "year",
+                        "startsAt": "2026-01-01T05:00:00.000000Z",
+                        "endsAt": "2027-01-01T05:00:00.000000Z",
+                        "bucketUnit": "month",
+                        "bucketStep": 1,
+                        "totalMs": 6601002,
+                        "categories": {
+                            "review": 3600001,
+                            "listen": 900001,
+                            "create": 1000,
+                            "immerse": 600000,
+                            "conversation": 1200000,
+                            "wanikani": 300000
+                        },
+                        "buckets": [
+                            {
+                                "startsAt": "2026-01-01T05:00:00.000000Z",
+                                "endsAt": "2026-02-01T05:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-02-01T05:00:00.000000Z",
+                                "endsAt": "2026-03-01T05:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-03-01T05:00:00.000000Z",
+                                "endsAt": "2026-04-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-04-01T04:00:00.000000Z",
+                                "endsAt": "2026-05-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-05-01T04:00:00.000000Z",
+                                "endsAt": "2026-06-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-06-01T04:00:00.000000Z",
+                                "endsAt": "2026-07-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-01T04:00:00.000000Z",
+                                "endsAt": "2026-08-01T04:00:00.000000Z",
+                                "totalMs": 6601002,
+                                "categories": {
+                                    "review": 3600001,
+                                    "listen": 900001,
+                                    "create": 1000,
+                                    "immerse": 600000,
+                                    "conversation": 1200000,
+                                    "wanikani": 300000
+                                }
+                            },
+                            {
+                                "startsAt": "2026-08-01T04:00:00.000000Z",
+                                "endsAt": "2026-09-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-09-01T04:00:00.000000Z",
+                                "endsAt": "2026-10-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-10-01T04:00:00.000000Z",
+                                "endsAt": "2026-11-01T04:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-11-01T04:00:00.000000Z",
+                                "endsAt": "2026-12-01T05:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-12-01T05:00:00.000000Z",
+                                "endsAt": "2027-01-01T05:00:00.000000Z",
+                                "totalMs": 0,
+                                "categories": {
+                                    "review": 0,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "key": "all",
+                        "startsAt": "2026-07-27T04:00:00.000000Z",
+                        "endsAt": "2026-07-28T16:00:00.000000Z",
+                        "bucketUnit": "day",
+                        "bucketStep": 1,
+                        "totalMs": 6601002,
+                        "categories": {
+                            "review": 3600001,
+                            "listen": 900001,
+                            "create": 1000,
+                            "immerse": 600000,
+                            "conversation": 1200000,
+                            "wanikani": 300000
+                        },
+                        "buckets": [
+                            {
+                                "startsAt": "2026-07-27T04:00:00.000000Z",
+                                "endsAt": "2026-07-28T04:00:00.000000Z",
+                                "totalMs": 1800001,
+                                "categories": {
+                                    "review": 1800001,
+                                    "listen": 0,
+                                    "create": 0,
+                                    "immerse": 0,
+                                    "conversation": 0,
+                                    "wanikani": 0
+                                }
+                            },
+                            {
+                                "startsAt": "2026-07-28T04:00:00.000000Z",
+                                "endsAt": "2026-07-28T16:00:00.000000Z",
+                                "totalMs": 4801001,
+                                "categories": {
+                                    "review": 1800000,
+                                    "listen": 900001,
+                                    "create": 1000,
+                                    "immerse": 600000,
+                                    "conversation": 1200000,
+                                    "wanikani": 300000
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}
