@@ -175,16 +175,37 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertTrue(failed.tracks.isEmpty)
     }
 
-    func testCanonicalDailyAudioTimingArrayInfersOrderedUnitIndexes() async throws {
-        let timings: [DailyAudioTiming] = try await decode(
-            payload: Data(#"[{"startMs":0,"endMs":1200},{"startMs":1200,"endMs":2450}]"#.utf8),
-            path: "/api/daily-audio-practice/fixture/timings"
+    func testCanonicalDailyAudioTimingsAlignWithNonMarkerScriptUnits() async throws {
+        let track: DailyAudioTrack = try await decode(
+            payload: Data(#"""
+            {
+              "id":"track-1","practiceId":"practice-1","mode":"drill","status":"ready",
+              "title":"Mixed script","sortOrder":0,
+              "scriptUnitsJson":[
+                {"kind":"marker","text":null},
+                {"kind":"native_language","text":"company"},
+                {"kind":"target_language","text":"会社"}
+              ],
+              "audioUrl":"/audio/mixed.mp3",
+              "timingData":[{"startMs":0,"endMs":1200},{"startMs":1200,"endMs":2450}],
+              "approxDurationSeconds":2.45,"updatedAt":"2026-08-24T08:04:00.000Z"
+            }
+            """#.utf8),
+            path: "/api/daily-audio-practice/fixture/track"
         )
 
-        XCTAssertEqual(timings, [
-            DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_200),
-            DailyAudioTiming(unitIndex: 1, startTime: 1_200, endTime: 2_450),
+        XCTAssertEqual(track.timingData, [
+            DailyAudioTiming(unitIndex: 1, startTime: 0, endTime: 1_200),
+            DailyAudioTiming(unitIndex: 2, startTime: 1_200, endTime: 2_450),
         ])
+        XCTAssertEqual(
+            DailyAudioTranscript.currentSpokenUnit(
+                in: track,
+                elapsedSeconds: 1.3,
+                durationSeconds: nil
+            )?.text,
+            "会社"
+        )
     }
 
     func testWeeklyRecapCasesDecodeThroughAPIClient() async throws {

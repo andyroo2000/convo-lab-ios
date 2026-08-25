@@ -1109,6 +1109,11 @@ struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
     let approxDurationSeconds: Double?
     let updatedAt: Date
 
+    private enum CodingKeys: String, CodingKey {
+        case id, practiceId, mode, status, title, sortOrder, scriptUnitsJson
+        case audioUrl, timingData, approxDurationSeconds, updatedAt
+    }
+
     var formattedDuration: String {
         guard let approxDurationSeconds,
               approxDurationSeconds.isFinite,
@@ -1146,6 +1151,86 @@ struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
         self.timingData = timingData
         self.approxDurationSeconds = approxDurationSeconds
         self.updatedAt = updatedAt
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        practiceId = try values.decode(String.self, forKey: .practiceId)
+        mode = try values.decode(String.self, forKey: .mode)
+        status = try values.decode(String.self, forKey: .status)
+        title = try values.decode(String.self, forKey: .title)
+        sortOrder = try values.decode(Int.self, forKey: .sortOrder)
+        scriptUnitsJson = try values.decodeIfPresent(
+            [DailyAudioScriptUnit].self,
+            forKey: .scriptUnitsJson
+        )
+        audioUrl = try values.decodeIfPresent(String.self, forKey: .audioUrl)
+        let decodedTimings = try values.decodeIfPresent(
+            [DailyAudioTiming].self,
+            forKey: .timingData
+        )
+        timingData = try Self.alignLegacyTimings(
+            decodedTimings,
+            with: scriptUnitsJson,
+            codingPath: values.codingPath + [CodingKeys.timingData]
+        )
+        approxDurationSeconds = try values.decodeIfPresent(
+            Double.self,
+            forKey: .approxDurationSeconds
+        )
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(practiceId, forKey: .practiceId)
+        try values.encode(mode, forKey: .mode)
+        try values.encode(status, forKey: .status)
+        try values.encode(title, forKey: .title)
+        try values.encode(sortOrder, forKey: .sortOrder)
+        try values.encodeIfPresent(scriptUnitsJson, forKey: .scriptUnitsJson)
+        try values.encodeIfPresent(audioUrl, forKey: .audioUrl)
+        try values.encodeIfPresent(timingData, forKey: .timingData)
+        try values.encodeIfPresent(approxDurationSeconds, forKey: .approxDurationSeconds)
+        try values.encode(updatedAt, forKey: .updatedAt)
+    }
+
+    private nonisolated static func alignLegacyTimings(
+        _ timings: [DailyAudioTiming]?,
+        with units: [DailyAudioScriptUnit]?,
+        codingPath: [any CodingKey]
+    ) throws -> [DailyAudioTiming]? {
+        guard let timings, timings.contains(where: { !$0.hasExplicitUnitIndex }) else {
+            return timings
+        }
+        guard let units else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: codingPath,
+                debugDescription: "Legacy timing data requires script units."
+            ))
+        }
+        let timedUnitIndexes = units.indices.filter { units[$0].type != "marker" }
+        let legacyTimings = timings.filter { !$0.hasExplicitUnitIndex }
+        guard legacyTimings.count <= timedUnitIndexes.count else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: codingPath,
+                debugDescription: "Legacy timing data exceeds non-marker script units."
+            ))
+        }
+
+        var legacyPosition = 0
+        return timings.map { timing in
+            guard !timing.hasExplicitUnitIndex else { return timing }
+            defer { legacyPosition += 1 }
+            return DailyAudioTiming(
+                unitIndex: timedUnitIndexes[legacyPosition],
+                startTime: timing.startTime,
+                endTime: timing.endTime,
+                hasExplicitUnitIndex: false
+            )
+        }
     }
 }
 
@@ -1201,24 +1286,29 @@ struct DailyAudioTiming: nonisolated Codable, Equatable, Sendable {
     let unitIndex: Int
     let startTime: Double
     let endTime: Double
+    fileprivate let hasExplicitUnitIndex: Bool
 
     private enum CodingKeys: String, CodingKey {
         case unitIndex, startTime, endTime, startMs, endMs
     }
 
-    nonisolated init(unitIndex: Int, startTime: Double, endTime: Double) {
+    nonisolated init(
+        unitIndex: Int,
+        startTime: Double,
+        endTime: Double,
+        hasExplicitUnitIndex: Bool = true
+    ) {
         self.unitIndex = unitIndex
         self.startTime = startTime
         self.endTime = endTime
+        self.hasExplicitUnitIndex = hasExplicitUnitIndex
     }
 
     nonisolated init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        // The canonical Daily Audio payload may omit unitIndex and uses the
-        // timing array's order to align entries with script units.
-        unitIndex = try values.decodeIfPresent(Int.self, forKey: .unitIndex)
-            ?? decoder.codingPath.last?.intValue
-            ?? 0
+        let explicitUnitIndex = try values.decodeIfPresent(Int.self, forKey: .unitIndex)
+        unitIndex = explicitUnitIndex ?? decoder.codingPath.last?.intValue ?? 0
+        hasExplicitUnitIndex = explicitUnitIndex != nil
         startTime = try values.decodeIfPresent(Double.self, forKey: .startTime)
             ?? values.decode(Double.self, forKey: .startMs)
         endTime = try values.decodeIfPresent(Double.self, forKey: .endTime)
@@ -1230,6 +1320,12 @@ struct DailyAudioTiming: nonisolated Codable, Equatable, Sendable {
         try values.encode(unitIndex, forKey: .unitIndex)
         try values.encode(startTime, forKey: .startTime)
         try values.encode(endTime, forKey: .endTime)
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.unitIndex == rhs.unitIndex
+            && lhs.startTime == rhs.startTime
+            && lhs.endTime == rhs.endTime
     }
 }
 
