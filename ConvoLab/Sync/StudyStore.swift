@@ -122,7 +122,9 @@ final class StudyStore {
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let learningPathRepository: StudyLearningPathRepository
     private let dueActivationScheduler: any StudyDueActivationScheduling
-    private let reviewEventOutboxFlushOverride: (() async throws -> Void)?
+#if DEBUG
+    private var reviewEventOutboxFlushOverride: (() async throws -> Void)?
+#endif
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -173,7 +175,8 @@ final class StudyStore {
     private(set) var failedStudyChanges: [FailedStudyChange] = []
     var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
     var pendingManualDraftCreates: [CreateStudyManualCardDraftRequest] {
-        manualDraftOutbox.pendingCreateRequests()
+        _ = manualDraftOutboxRevision
+        return manualDraftOutbox.pendingCreateRequests()
     }
     private(set) var overview: StudyOverview?
     private(set) var isRefreshingOverview = false
@@ -200,6 +203,7 @@ final class StudyStore {
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
     private var reviewOutboxRevision = 0
+    private var manualDraftOutboxRevision = 0
     var pendingOfflineReviewCount: Int {
         _ = reviewOutboxRevision
         guard activeUserID != nil else { return 0 }
@@ -270,8 +274,7 @@ final class StudyStore {
             Date
         ) throws -> StudyCard = { card, rating, reviewedAt in
             try card.applyingReview(rating, at: reviewedAt)
-        },
-        reviewEventOutboxFlushOverride: (() async throws -> Void)? = nil
+        }
     ) {
         self.api = api
         self.context = context
@@ -280,7 +283,6 @@ final class StudyStore {
         self.mediaCache = mediaCache
         self.storageMode = storageMode
         self.dueActivationScheduler = dueActivationScheduler
-        self.reviewEventOutboxFlushOverride = reviewEventOutboxFlushOverride
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
@@ -311,6 +313,36 @@ final class StudyStore {
         }
     }
 
+#if DEBUG
+    convenience init(
+        initialUserID: Int? = nil,
+        api: APIClient,
+        context: ModelContext,
+        mediaCache: MediaCache,
+        storageMode: StorageMode = .persistent,
+        dueActivationScheduler: any StudyDueActivationScheduling = RunLoopStudyDueActivationScheduler(),
+        reviewProjection: @escaping (
+            StudyCard,
+            ReviewRating,
+            Date
+        ) throws -> StudyCard = { card, rating, reviewedAt in
+            try card.applyingReview(rating, at: reviewedAt)
+        },
+        reviewEventOutboxFlushOverride: @escaping () async throws -> Void
+    ) {
+        self.init(
+            initialUserID: initialUserID,
+            api: api,
+            context: context,
+            mediaCache: mediaCache,
+            storageMode: storageMode,
+            dueActivationScheduler: dueActivationScheduler,
+            reviewProjection: reviewProjection
+        )
+        self.reviewEventOutboxFlushOverride = reviewEventOutboxFlushOverride
+    }
+#endif
+
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         deactivate()
@@ -324,6 +356,7 @@ final class StudyStore {
         cardOutbox.activate(userID: userID)
         cardActionOutbox.activate(userID: userID)
         manualDraftOutbox.activate(userID: userID)
+        manualDraftOutboxRevision &+= 1
         cardMediaService.activate(userID: userID)
         pitchAccentService.activate(userID: userID)
         sessionLoadingService.activate(userID: userID)
@@ -351,6 +384,7 @@ final class StudyStore {
         cardOutbox.deactivate()
         cardActionOutbox.deactivate()
         manualDraftOutbox.deactivate()
+        manualDraftOutboxRevision &+= 1
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
         sessionLoadingService.deactivate()
@@ -1899,6 +1933,7 @@ final class StudyStore {
         draft: StudyCardDraft,
         id: String = ClientIdentifier.ulid()
     ) async throws -> StudyManualCardDraft {
+        defer { manualDraftOutboxRevision &+= 1 }
         try requirePersistentWrites()
         guard activeUserID != nil else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
@@ -2854,11 +2889,15 @@ final class StudyStore {
                 + cardActionOutbox.pendingDeliverableCount()
             guard before > 0 else { return }
 
+#if DEBUG
             if let reviewEventOutboxFlushOverride {
                 try await reviewEventOutboxFlushOverride()
             } else {
                 try await reviewOutbox.flush()
             }
+#else
+            try await reviewOutbox.flush()
+#endif
             try await flushCardActionOutbox()
 
             let after = try reviewOutbox.pendingDeliverableCount()
@@ -3202,6 +3241,7 @@ final class StudyStore {
     }
 
     func retryPendingDraftCreates() async throws {
+        defer { manualDraftOutboxRevision &+= 1 }
         try requirePersistentWrites()
         try await manualDraftOutbox.retryPendingCreates()
     }

@@ -215,12 +215,19 @@ final class AppModel {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
+            async let draftCreateRetry: Void = retryPendingDraftCreates()
             async let dailyAudioRefresh: Void = dailyAudio.refreshIfNeeded(
                 maxAge: .seconds(60)
             )
             async let timeSync: Void = studyTime.synchronize()
             async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-            _ = await (studySync, dailyAudioRefresh, timeSync, weeklyRecap)
+            _ = await (
+                studySync,
+                draftCreateRetry,
+                dailyAudioRefresh,
+                timeSync,
+                weeklyRecap
+            )
         }
     }
 
@@ -319,9 +326,14 @@ final class AppModel {
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
+        async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-        _ = await (studySync, audioRefresh, timeSync, weeklyRecap)
+        _ = await (studySync, draftCreateRetry, audioRefresh, timeSync, weeklyRecap)
+    }
+
+    private func retryPendingDraftCreates() async {
+        try? await study.retryPendingDraftCreates()
     }
 }

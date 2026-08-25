@@ -139,32 +139,11 @@ private final class UITestRealFlowComposition: ObservableObject {
             mediaCache: mediaCache
         )
         let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
-        let recoveredDraft = store.pendingManualDraftCreates.first.map { request in
-            StudyManualCardDraft(
-                id: request.id,
-                status: "pending",
-                committedCardId: nil,
-                creationKind: request.creationKind,
-                cardType: request.cardType,
-                prompt: request.prompt,
-                answer: request.answer,
-                imagePlacement: request.imagePlacement,
-                imagePrompt: request.imagePrompt,
-                previewAudio: nil,
-                previewAudioRole: nil,
-                previewImage: nil,
-                errorMessage: nil,
-                createdAt: .distantPast,
-                updatedAt: .distantPast
-            )
-        }
         return (
-            AnyView(CardEditorView(
+            AnyView(CardLibraryView(
                 store: store,
                 player: player,
-                card: nil,
-                serverDraft: recoveredDraft,
-                initialCreationKind: .audioRecognition
+                timeStore: nil
             )),
             [container, api, mediaCache, store, player]
         )

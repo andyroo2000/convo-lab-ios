@@ -1052,7 +1052,9 @@ final class StudyStoreTests: XCTestCase {
             context: container.mainContext,
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
-        try await relaunchedStore.retryPendingDraftCreates()
+        async let firstRetry: Void = relaunchedStore.retryPendingDraftCreates()
+        async let duplicateRetry: Void = relaunchedStore.retryPendingDraftCreates()
+        _ = try await (firstRetry, duplicateRetry)
 
         XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
         XCTAssertTrue(

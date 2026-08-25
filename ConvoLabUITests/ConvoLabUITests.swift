@@ -66,6 +66,19 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testCreateCardDraftRecoversAcrossRelaunch() {
         let app = launchFixture("create-card-recovery", reset: true)
+        let create = app.buttons["Create Card"]
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        create.tap()
+        let cardType = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "Text recognition")
+        ).firstMatch
+        XCTAssertTrue(cardType.waitForExistence(timeout: 5))
+        cardType.tap()
+        let audioRecognition = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "Audio recognition")
+        ).firstMatch
+        XCTAssertTrue(audioRecognition.waitForExistence(timeout: 5))
+        audioRecognition.tap()
         let answer = app.textFields["Japanese answer"]
         XCTAssertTrue(answer.waitForExistence(timeout: 5))
         answer.tap()
@@ -84,6 +97,11 @@ final class ConvoLabUITests: XCTestCase {
 
         app.terminate()
         launchFixture("create-card-recovery", reset: false, application: app)
+        let recovery = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Resume audio recognition draft")
+        ).firstMatch
+        XCTAssertTrue(recovery.waitForExistence(timeout: 8))
+        recovery.tap()
         XCTAssertTrue(app.navigationBars["Review Draft"].waitForExistence(timeout: 8))
         for _ in 0..<3 {
             app.swipeDown()

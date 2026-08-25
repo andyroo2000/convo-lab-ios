@@ -5,8 +5,30 @@ import MediaPlayer
 
 @Observable
 final class AudioPlayer {
-    private let player: AVPlayer?
-    private let usesDeterministicBackend: Bool
+    private enum PlaybackBackend {
+        case avPlayer(AVPlayer)
+#if DEBUG
+        case deterministicUITest
+#endif
+    }
+
+    private let backend: PlaybackBackend
+    private var player: AVPlayer {
+        switch backend {
+        case let .avPlayer(player):
+            player
+#if DEBUG
+        case .deterministicUITest:
+            preconditionFailure("The deterministic UI-test backend has no AVPlayer")
+#endif
+        }
+    }
+    private var usesDeterministicBackend: Bool {
+#if DEBUG
+        if case .deterministicUITest = backend { return true }
+#endif
+        return false
+    }
     private var timeObserver: Any?
     private var currentTrackID: String?
     private var currentTitle = ""
@@ -41,8 +63,7 @@ final class AudioPlayer {
 
     init() {
         let player = AVPlayer()
-        self.player = player
-        usesDeterministicBackend = false
+        backend = .avPlayer(player)
         configureRemoteCommands()
         configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
@@ -52,8 +73,8 @@ final class AudioPlayer {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.elapsed = time.seconds.isFinite ? time.seconds : 0
-                self.duration = self.player?.currentItem?.duration.seconds.isFinite == true
-                    ? self.player?.currentItem?.duration.seconds ?? 0
+                self.duration = self.player.currentItem?.duration.seconds.isFinite == true
+                    ? self.player.currentItem?.duration.seconds ?? 0
                     : 0
                 self.persistPosition()
                 self.updateNowPlaying()
@@ -65,14 +86,13 @@ final class AudioPlayer {
     /// Test-only audio boundary. It exercises the production player state machine
     /// without registering remote commands, touching AVAudioSession, or decoding media.
     init(deterministicUITestBackend: Void) {
-        player = nil
-        usesDeterministicBackend = true
+        backend = .deterministicUITest
     }
 #endif
 
     isolated deinit {
-        if let timeObserver {
-            player?.removeTimeObserver(timeObserver)
+        if let timeObserver, case let .avPlayer(player) = backend {
+            player.removeTimeObserver(timeObserver)
         }
         let center = NotificationCenter.default
         if let interruptionObserver {
@@ -105,17 +125,17 @@ final class AudioPlayer {
         if currentTrackID != trackID {
             currentTrackID = trackID
             currentTitle = title
-            player?.replaceCurrentItem(with: AVPlayerItem(url: url))
+            player.replaceCurrentItem(with: AVPlayerItem(url: url))
             let saved = UserDefaults.standard.double(forKey: positionKey(trackID))
             if saved > 0 {
-                player?.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
+                player.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
             }
         }
         isPlaying = true
         if replacedPlayingTrack {
             onPlaybackStateChanged(true, currentTitle)
         }
-        player?.play()
+        player.play()
         updateNowPlaying()
     }
 
@@ -125,7 +145,7 @@ final class AudioPlayer {
             return
         }
         if isPlaying {
-            player?.pause()
+            player.pause()
             isPlaying = false
         } else {
             resumePlayback()
@@ -142,10 +162,10 @@ final class AudioPlayer {
             duration = 0
             return
         }
-        player?.pause()
+        player.pause()
         persistPosition()
         isPlaying = false
-        player?.replaceCurrentItem(with: nil)
+        player.replaceCurrentItem(with: nil)
         currentTrackID = nil
         currentTitle = ""
         elapsed = 0
@@ -158,7 +178,7 @@ final class AudioPlayer {
             elapsed = min(max(seconds, 0), duration)
             return
         }
-        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
     }
 
     func isCurrent(_ trackID: String) -> Bool {
@@ -202,7 +222,7 @@ final class AudioPlayer {
         }
         commands.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.player?.pause()
+                self?.player.pause()
                 self?.isPlaying = false
                 self?.updateNowPlaying()
             }
@@ -255,7 +275,7 @@ final class AudioPlayer {
             MainActor.assumeIsolated {
                 guard
                     let self,
-                    let currentItem = self.player?.currentItem,
+                    let currentItem = self.player.currentItem,
                     ObjectIdentifier(currentItem) == completedItemID
                 else {
                     return
@@ -272,14 +292,14 @@ final class AudioPlayer {
         switch type {
         case .began:
             wasPlayingBeforeInterruption = isPlaying
-            player?.pause()
+            player.pause()
             isPlaying = false
             updateNowPlaying()
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if wasPlayingBeforeInterruption, options.contains(.shouldResume) {
                 try? AVAudioSession.sharedInstance().setActive(true)
-                player?.play()
+                player.play()
                 isPlaying = true
             }
             wasPlayingBeforeInterruption = false
@@ -298,17 +318,17 @@ final class AudioPlayer {
         }
         // Do not unexpectedly continue spoken audio through the speaker when headphones
         // or another output route disappear.
-        player?.pause()
+        player.pause()
         isPlaying = false
         updateNowPlaying()
     }
 
     private func handlePlaybackCompletion() {
         if isRepeating {
-            player?.seek(to: .zero)
+            player.seek(to: .zero)
             elapsed = 0
             isPlaying = true
-            player?.play()
+            player.play()
             updateNowPlaying()
             return
         }
@@ -325,10 +345,10 @@ final class AudioPlayer {
         onWillStartPlayback()
         activateAudioSession()
         if duration > 0, elapsed >= duration - 0.25 {
-            player?.seek(to: .zero)
+            player.seek(to: .zero)
             elapsed = 0
         }
-        player?.play()
+        player.play()
         updateNowPlaying()
     }
 
