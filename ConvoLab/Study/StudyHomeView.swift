@@ -4,13 +4,25 @@ struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
+    let milestoneStore: StudyMilestoneStore
     @State private var showingFailedChanges = false
+    @State private var interruptedCompletion: StudyMilestoneCompletion?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
                     todayPlan
+                    if !milestoneStore.earnedAwards.isEmpty {
+                        NavigationLink {
+                            StudyMilestonesView(store: milestoneStore)
+                        } label: {
+                            StudyRecentMilestonesSection(
+                                awards: Array(milestoneStore.earnedAwards.prefix(3))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                     learningReadiness
                     masterySpread
                     readiness
@@ -59,6 +71,9 @@ struct StudyHomeView: View {
                 await refreshCalendarIfNeeded(force: true)
             }
             .task {
+                if interruptedCompletion == nil {
+                    interruptedCompletion = milestoneStore.prepareInterruptedCompletion()
+                }
                 // AppModel owns app-wide synchronization. This surface refresh can be
                 // cancelled on tab switches and restarted when Study appears again.
                 do {
@@ -72,6 +87,20 @@ struct StudyHomeView: View {
             }
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
+            }
+            .fullScreenCover(item: $interruptedCompletion, onDismiss: {
+                interruptedCompletion = nil
+            }) { completion in
+                NavigationStack {
+                    StudySessionView(
+                        store: store,
+                        player: player,
+                        mode: .reviews,
+                        timeStore: timeStore,
+                        milestoneStore: milestoneStore,
+                        restoredCompletion: completion
+                    )
+                }
             }
         }
     }
@@ -128,7 +157,8 @@ struct StudyHomeView: View {
                 store: store,
                 player: player,
                 mode: .reviews,
-                timeStore: timeStore
+                timeStore: timeStore,
+                milestoneStore: milestoneStore
             )
         } label: {
             HStack(spacing: 16) {
@@ -170,7 +200,8 @@ struct StudyHomeView: View {
                 store: store,
                 player: player,
                 mode: .lessons,
-                timeStore: timeStore
+                timeStore: timeStore,
+                milestoneStore: milestoneStore
             )
         } label: {
             todayTile(

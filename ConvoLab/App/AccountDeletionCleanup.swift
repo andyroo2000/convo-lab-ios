@@ -5,6 +5,7 @@ enum AccountDeletionCleanupDomain: String, CaseIterable, Hashable, Sendable {
     case dailyAudio
     case study
     case studyTime
+    case milestones
 }
 
 struct AccountDeletionCleanupItem: Hashable, Sendable {

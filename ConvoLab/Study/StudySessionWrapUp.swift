@@ -1,6 +1,6 @@
 import Foundation
 
-struct StudySessionReviewRecord: Identifiable, Equatable, Sendable {
+struct StudySessionReviewRecord: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let cardBefore: StudyCard
     let cardAfter: StudyCard?
@@ -51,11 +51,13 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
     let firstPassRecall: Double?
     let newlyStabilizedCards: [StudyCard]
     let toughestCards: [StudySessionToughCard]
+    let burnedCountChange: Int
 
     static func build(from records: [StudySessionReviewRecord]) -> Self {
         var firstAttempts: [String: StudySessionReviewRecord] = [:]
         var stabilized: [String: StudyCard] = [:]
         var aggregates: [String: StudySessionToughCard] = [:]
+        var burnedStates: [String: (initial: Bool, final: Bool)] = [:]
 
         let chronologicalRecords = records.sorted {
             if $0.reviewedAt != $1.reviewedAt { return $0.reviewedAt < $1.reviewedAt }
@@ -84,6 +86,13 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
 
         for record in chronologicalRecords {
             let identity = identity(for: record.cardBefore)
+            let wasBurned = record.cardBefore.fsrsMasteryLevel == .burned
+            let isBurned = (record.cardAfter ?? record.cardBefore).fsrsMasteryLevel == .burned
+            if let existing = burnedStates[identity] {
+                burnedStates[identity] = (initial: existing.initial, final: isBurned)
+            } else {
+                burnedStates[identity] = (initial: wasBurned, final: isBurned)
+            }
             // Recall measures established memories, not first exposure or learning steps.
             if firstAttempts[identity] == nil,
                ["review", "relearning"].contains(record.cardBefore.state.queueState)
@@ -134,7 +143,10 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
             newlyStabilizedCards: stabilized.values.sorted {
                 $0.promptText.localizedStandardCompare($1.promptText) == .orderedAscending
             },
-            toughestCards: selected.values.sorted(by: Self.isTougher).prefix(6).map(\.self)
+            toughestCards: selected.values.sorted(by: Self.isTougher).prefix(6).map(\.self),
+            burnedCountChange: burnedStates.values.reduce(into: 0) { result, state in
+                result += (state.final ? 1 : 0) - (state.initial ? 1 : 0)
+            }
         )
     }
 
