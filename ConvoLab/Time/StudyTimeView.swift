@@ -185,18 +185,22 @@ struct StudyTimeView: View {
                 }
 
                 Section {
-                    if let n5 = studyStore.overview?.jlptMastery?.n5 {
-                        JLPTMasteryMetricRow(
-                            title: "Vocabulary",
-                            metric: n5.vocabulary,
-                            tint: ConvoLabTheme.navy,
-                            showSourceBreakdown: true
-                        )
-                        JLPTMasteryMetricRow(
-                            title: "Grammar",
-                            metric: n5.grammar,
-                            tint: ConvoLabTheme.coral
-                        )
+                    if let mastery = studyStore.overview?.jlptMastery {
+                        VStack(spacing: 16) {
+                            JLPTMasteryLevelBand(
+                                level: "N5",
+                                caption: "Foundation",
+                                mastery: mastery.n5
+                            )
+                            if let n4 = mastery.n4 {
+                                JLPTMasteryLevelBand(
+                                    level: "N4",
+                                    caption: "Next step",
+                                    mastery: n4
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
                     } else if studyStore.isRefreshingOverview {
                         HStack {
                             Spacer()
@@ -218,7 +222,7 @@ struct StudyTimeView: View {
                         )
                     }
                 } header: {
-                    Text("JLPT N5 Mastery")
+                    Text("JLPT Mastery")
                 } footer: {
                     Text(
                         "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
@@ -726,7 +730,57 @@ struct StudyTimeView: View {
     }
 }
 
+private struct JLPTMasteryLevelBand: View {
+    let level: String
+    let caption: String
+    let mastery: StudyJLPTLevelMastery
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("JLPT LEVEL")
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.2)
+                        .foregroundStyle(ConvoLabTheme.coral)
+                    Text(level)
+                        .font(.title2.monospaced().weight(.black))
+                        .foregroundStyle(ConvoLabTheme.navy)
+                }
+                Spacer()
+                Text(caption.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+            JLPTMasteryMetricRow(
+                level: level,
+                title: "Vocabulary",
+                metric: mastery.vocabulary,
+                tint: ConvoLabTheme.navy,
+                showSourceBreakdown: true
+            )
+            Divider()
+            JLPTMasteryMetricRow(
+                level: level,
+                title: "Grammar",
+                metric: mastery.grammar,
+                tint: ConvoLabTheme.coral
+            )
+        }
+        .padding(16)
+        .background(ConvoLabTheme.navy.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(ConvoLabTheme.navy.opacity(0.10), lineWidth: 1)
+        }
+    }
+}
+
 private struct JLPTMasteryMetricRow: View {
+    let level: String
     let title: String
     let metric: StudyJLPTMasteryMetric
     let tint: Color
@@ -813,7 +867,7 @@ private struct JLPTMasteryMetricRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("N5 \(title) mastery")
+        .accessibilityLabel("\(level) \(title) mastery")
         .accessibilityValue(accessibilitySummary)
     }
 }

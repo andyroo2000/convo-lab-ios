@@ -98,6 +98,10 @@ final class StudySessionCountsTests: XCTestCase {
                     "N5": {
                       "vocabulary": {"masteryPercent": 34, "known": 250, "knownFromCards": 233, "knownFromWaniKani": 40, "knownFromBoth": 23, "matched": 280, "covered": 280, "total": 684},
                       "grammar": {"masteryPercent": 21, "known": 16, "knownFromCards": 16, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 29, "covered": 29, "total": 77}
+                    },
+                    "N4": {
+                      "vocabulary": {"masteryPercent": 18, "known": 115, "knownFromCards": 90, "knownFromWaniKani": 40, "knownFromBoth": 15, "matched": 130, "covered": 130, "total": 640},
+                      "grammar": {"masteryPercent": 9, "known": 8, "knownFromCards": 8, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 12, "covered": 12, "total": 89}
                     }
                   },
                   "learningReadiness": {
@@ -139,6 +143,12 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.matched, 29)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.covered, 29)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.total, 77)
+        XCTAssertEqual(overview.jlptMastery?.n4?.vocabulary.masteryPercent, 18)
+        XCTAssertEqual(overview.jlptMastery?.n4?.vocabulary.known, 115)
+        XCTAssertEqual(overview.jlptMastery?.n4?.vocabulary.knownFromWaniKani, 40)
+        XCTAssertEqual(overview.jlptMastery?.n4?.vocabulary.total, 640)
+        XCTAssertEqual(overview.jlptMastery?.n4?.grammar.masteryPercent, 9)
+        XCTAssertEqual(overview.jlptMastery?.n4?.grammar.total, 89)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")
         XCTAssertEqual(overview.learningReadiness?.projectedDailyReviewMinutes, 58)
@@ -180,6 +190,7 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertNil(overview.jlptMastery?.n5.grammar.known)
         XCTAssertNil(overview.jlptMastery?.n5.grammar.matched)
         XCTAssertEqual(overview.jlptMastery?.n5.grammar.covered, 36)
+        XCTAssertNil(overview.jlptMastery?.n4)
     }
 
     func testQueuedLessonCountIgnoresDailyGuidanceAllowance() {
