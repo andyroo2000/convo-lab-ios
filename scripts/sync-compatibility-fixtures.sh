@@ -5,10 +5,10 @@ set -euo pipefail
 
 readonly project_root="${0:A:h:h}"
 readonly provider_repository="${LEARNING_OS_REPOSITORY:-${project_root:h}/learning-os}"
-readonly provider_commit="d6aad389ad55afa0803e65c37eb38db3844a21b7"
+readonly provider_commit="c2ed3d75bbad869c6481e1c38368806ff931c689"
 readonly provider_root="tests/Fixtures/Compatibility"
 readonly destination_root="${project_root}/ConvoLabTests/Fixtures/Compatibility"
-readonly manifest_sha256="9307d9101632d48543a97825f525c2df5e61c351e6161e1747f620865ee1ef5a"
+readonly manifest_sha256="b47b88e44f4df0eb73ec18476d027f5b1e5b65762da8e319df7dff8ebad2f444"
 readonly -a fixture_files=(
     manifest-v1.json
     manifest-v1.sha256
@@ -22,6 +22,10 @@ readonly -a fixture_files=(
     daily-audio-practice-v1.sha256
     personal-weekly-recap-v1.json
     personal-weekly-recap-v1.sha256
+    known-kanji-v2.json
+    known-kanji-v2.sha256
+    wanikani-transfer-bridge-update-v1.json
+    wanikani-transfer-bridge-update-v1.sha256
 )
 
 usage() {

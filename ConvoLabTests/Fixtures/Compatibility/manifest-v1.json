@@ -40,6 +40,20 @@
       "checksumPath": "tests/Fixtures/Compatibility/personal-weekly-recap-v1.sha256",
       "sha256": "0c81e9495d703db1ded8e73d4cf46422f8ce21813fd5828635961758e7aa7d2b",
       "producer": "App\\Domain\\Study\\Actions\\BuildPersonalWeeklyRecapAction"
+    },
+    {
+      "id": "known-kanji.v2",
+      "path": "tests/Fixtures/Compatibility/known-kanji-v2.json",
+      "checksumPath": "tests/Fixtures/Compatibility/known-kanji-v2.sha256",
+      "sha256": "bb546274c903e9eb2578402b871f30294002e48487085b35e1cf5965c47827ac",
+      "producer": "App\\Domain\\Japanese\\Actions\\ShowKnownKanjiAction"
+    },
+    {
+      "id": "wanikani-transfer-bridge-update.v1",
+      "path": "tests/Fixtures/Compatibility/wanikani-transfer-bridge-update-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/wanikani-transfer-bridge-update-v1.sha256",
+      "sha256": "5c7d7e397a941a50737c846ced56cfca969486fd2a4ae2e12b49342d79b79c7d",
+      "producer": "App\\Http\\Controllers\\Api\\Study\\UpdateWaniKaniTransferBridgeController"
     }
   ]
 }

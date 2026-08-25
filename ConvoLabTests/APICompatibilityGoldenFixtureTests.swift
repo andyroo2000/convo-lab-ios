@@ -5,8 +5,8 @@ import XCTest
 
 @MainActor
 final class APICompatibilityGoldenFixtureTests: XCTestCase {
-    private static let providerCommit = "d6aad389ad55afa0803e65c37eb38db3844a21b7"
-    private static let manifestSHA256 = "9307d9101632d48543a97825f525c2df5e61c351e6161e1747f620865ee1ef5a"
+    private static let providerCommit = "c2ed3d75bbad869c6481e1c38368806ff931c689"
+    private static let manifestSHA256 = "b47b88e44f4df0eb73ec18476d027f5b1e5b65762da8e319df7dff8ebad2f444"
 
     private static let expectedFixtures: [String: ExpectedFixture] = [
         "study-card-summary.v1": .init(
@@ -33,6 +33,16 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
             file: "personal-weekly-recap-v1",
             sha256: "0c81e9495d703db1ded8e73d4cf46422f8ce21813fd5828635961758e7aa7d2b",
             producer: "App\\Domain\\Study\\Actions\\BuildPersonalWeeklyRecapAction"
+        ),
+        "known-kanji.v2": .init(
+            file: "known-kanji-v2",
+            sha256: "bb546274c903e9eb2578402b871f30294002e48487085b35e1cf5965c47827ac",
+            producer: "App\\Domain\\Japanese\\Actions\\ShowKnownKanjiAction"
+        ),
+        "wanikani-transfer-bridge-update.v1": .init(
+            file: "wanikani-transfer-bridge-update-v1",
+            sha256: "5c7d7e397a941a50737c846ced56cfca969486fd2a4ae2e12b49342d79b79c7d",
+            producer: "App\\Http\\Controllers\\Api\\Study\\UpdateWaniKaniTransferBridgeController"
         ),
     ]
 
@@ -252,6 +262,89 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         }
     }
 
+    func testKnownKanjiV2AndLegacyCasesDecodeThroughAPIClient() async throws {
+        let current: KnownKanjiSnapshot = try await decode(
+            fixture: "known-kanji-v2",
+            caseID: "connected-transfer-bridge",
+            path: "/api/study/known-kanji"
+        )
+        XCTAssertEqual(current.version, 42)
+        XCTAssertEqual(current.kanji, ["会", "橋", "社"])
+        XCTAssertEqual(current.manualKanji, ["会", "社"])
+        XCTAssertTrue(current.wanikani.connected)
+        XCTAssertEqual(current.wanikani.reviewCount, 17)
+        XCTAssertNotNil(current.wanikani.reviewCountUpdatedAt)
+        let transferBridge = try XCTUnwrap(current.wanikani.transferBridge)
+        XCTAssertTrue(transferBridge.enabled)
+        XCTAssertEqual(transferBridge.importedVocabularyCount, 1)
+        XCTAssertEqual(transferBridge.pendingVocabularyCount, 1)
+        XCTAssertEqual(transferBridge.failedVocabularyCount, 1)
+        XCTAssertNotNil(transferBridge.lastImportedAt)
+
+        let legacy: KnownKanjiSnapshot = try await decode(
+            fixture: "known-kanji-v2",
+            caseID: "legacy-connected",
+            path: "/api/study/known-kanji"
+        )
+        XCTAssertEqual(legacy.version, 42)
+        XCTAssertTrue(legacy.wanikani.connected)
+        XCTAssertNil(legacy.wanikani.reviewCount)
+        XCTAssertNil(legacy.wanikani.reviewCountUpdatedAt)
+        XCTAssertNil(legacy.wanikani.transferBridge)
+    }
+
+    func testWaniKaniTransferBridgeUpdateRequestAndResponseUseCanonicalContract() async throws {
+        let expectedRequest = try caseData(
+            fixture: "wanikani-transfer-bridge-update-v1",
+            caseID: "enable",
+            field: "request"
+        )
+        let response = try caseData(
+            fixture: "wanikani-transfer-bridge-update-v1",
+            caseID: "enable",
+            field: "response"
+        )
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            XCTAssertEqual(url.path, "/api/study/wanikani/transfer-bridge")
+            XCTAssertEqual(
+                try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Bool],
+                try JSONSerialization.jsonObject(with: expectedRequest) as? [String: Bool]
+            )
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                response
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let api = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+
+        let updated: KnownKanjiSnapshot = try await api.request(
+            "/api/study/wanikani/transfer-bridge",
+            method: "PATCH",
+            body: UpdateWaniKaniTransferBridgeRequest(enabled: true)
+        )
+
+        XCTAssertEqual(updated.version, 0)
+        XCTAssertTrue(updated.wanikani.connected)
+        let transferBridge = try XCTUnwrap(updated.wanikani.transferBridge)
+        XCTAssertTrue(transferBridge.enabled)
+        XCTAssertEqual(transferBridge.importedVocabularyCount, 0)
+        XCTAssertEqual(transferBridge.pendingVocabularyCount, 0)
+        XCTAssertEqual(transferBridge.failedVocabularyCount, 0)
+        XCTAssertNil(transferBridge.lastImportedAt)
+    }
+
     func testWeeklyRecapCasesDecodeThroughAPIClient() async throws {
         let empty: WeeklyStudyRecap = try await decode(
             fixture: "personal-weekly-recap-v1",
@@ -309,6 +402,10 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
     }
 
     private func payloadData(fixture: String, caseID: String) throws -> Data {
+        try caseData(fixture: fixture, caseID: caseID, field: "payload")
+    }
+
+    private func caseData(fixture: String, caseID: String, field: String) throws -> Data {
         let data = try fixtureData(named: fixture, extension: "json")
         let root = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -319,7 +416,7 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
             "Missing \(fixture) case \(caseID)"
         )
         return try JSONSerialization.data(
-            withJSONObject: try XCTUnwrap(fixtureCase["payload"]),
+            withJSONObject: try XCTUnwrap(fixtureCase[field]),
             options: [.sortedKeys]
         )
     }
