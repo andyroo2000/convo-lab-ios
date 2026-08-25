@@ -359,6 +359,11 @@ struct CardLibraryView: View {
                 } label: {
                     learningItemSummary(item)
                 }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        Task { await delete(item.representativeCard) }
+                    }
+                }
             } else {
                 learningItemSummary(item)
             }
@@ -440,6 +445,7 @@ struct CardLibraryView: View {
             HStack {
                 Image(systemName: stageIcon(stage.status))
                     .foregroundStyle(stageColor(stage.status))
+                    .accessibilityHidden(true)
                 Text(stage.number.map { "Stage \($0)" } ?? "Stage")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
@@ -450,19 +456,39 @@ struct CardLibraryView: View {
             ForEach(stage.cards) { itemCard in
                 if let card = store.card(for: itemCard),
                    StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                    Button {
-                        selectedCard = card
-                    } label: {
-                        learningItemCardRow(itemCard)
+                    HStack {
+                        Button {
+                            selectedCard = card
+                        } label: {
+                            learningItemCardRow(itemCard)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        Button(role: .destructive) {
+                            Task { await delete(card) }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete card")
                     }
-                    .buttonStyle(.plain)
                 } else if StudyCardDraft.CardType(rawValue: itemCard.cardType) != nil {
-                    Button {
-                        open(itemCard)
-                    } label: {
-                        learningItemCardRow(itemCard)
+                    HStack {
+                        Button {
+                            open(itemCard)
+                        } label: {
+                            learningItemCardRow(itemCard)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        Button(role: .destructive) {
+                            Task { await delete(itemCard) }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete card")
                     }
-                    .buttonStyle(.plain)
                 } else {
                     learningItemCardRow(itemCard)
                 }
@@ -526,6 +552,8 @@ struct CardLibraryView: View {
                 selectedCard = card
             } catch is CancellationError {
                 return
+            } catch let error as URLError where error.code == .cancelled {
+                return
             } catch {
                 cardLoadErrorMessage = error.localizedDescription
                 showingCardLoadError = true
@@ -537,6 +565,25 @@ struct CardLibraryView: View {
         do {
             try await store.deleteCard(card)
             try? await store.refreshLearningItems(search: searchText)
+        } catch {
+            deletionErrorMessage = error.localizedDescription
+            showingDeletionError = true
+        }
+    }
+
+    private func delete(_ itemCard: StudyLearningItemCard) async {
+        do {
+            guard let card = try await store.resolveCard(for: itemCard) else {
+                deletionErrorMessage = "This card is no longer available."
+                showingDeletionError = true
+                return
+            }
+            try await store.deleteCard(card)
+            try? await store.refreshLearningItems(search: searchText)
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
             deletionErrorMessage = error.localizedDescription
             showingDeletionError = true
