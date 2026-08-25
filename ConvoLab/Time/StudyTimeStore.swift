@@ -101,6 +101,7 @@ final class StudyTimeStore {
     @discardableResult
     func deactivate(at date: Date = .now) async -> Bool {
         synchronizationCoordinator.markLocalMutation()
+        insightsController.invalidateRequestsForDeactivation()
         googleCalendarRequestGeneration += 1
         let didFinish = active.map {
             finish($0, at: date, enqueueSync: false)

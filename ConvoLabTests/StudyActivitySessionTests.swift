@@ -2523,6 +2523,89 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(pushCount.current, 2)
     }
 
+    func testDeactivationInvalidatesAnalyticsBeforePendingPushSuspends() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let pendingSession = LocalStudyActivitySession(
+            session: makeSession(source: .manual),
+            userID: 42
+        )
+        pendingSession.syncPending = true
+        container.mainContext.insert(pendingSession)
+        try container.mainContext.save()
+
+        let (analyticsStarted, analyticsStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseAnalytics, releaseAnalyticsContinuation) = AsyncStream<Void>.makeStream()
+        let (pushStarted, pushStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releasePush, releasePushContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/api/study/activity-analytics"):
+                analyticsStartedContinuation.yield()
+                Task {
+                    do {
+                        var iterator = releaseAnalytics.makeAsyncIterator()
+                        _ = await iterator.next()
+                        completion(.success(try analyticsResponse(for: request)))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                }
+            case ("POST", "/api/study/activity-sessions/batch"):
+                pushStartedContinuation.yield()
+                Task {
+                    do {
+                        var iterator = releasePush.makeAsyncIterator()
+                        _ = await iterator.next()
+                        let json = try XCTUnwrap(
+                            JSONSerialization.jsonObject(
+                                with: requestBody(request)
+                            ) as? [String: Any]
+                        )
+                        let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                        completion(.success((
+                            HTTPURLResponse(
+                                url: try XCTUnwrap(request.url),
+                                statusCode: 200,
+                                httpVersion: nil,
+                                headerFields: ["Content-Type": "application/json"]
+                            )!,
+                            try JSONSerialization.data(withJSONObject: sessions)
+                        )))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                }
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = StudyTimeStore(
+            api: client,
+            context: container.mainContext,
+            snapshotCache: EmptyStudyTimeSnapshotCache()
+        )
+        store.activate(userID: 42)
+
+        let analyticsTask = Task {
+            await store.loadAnalytics(anchorDate: Date(timeIntervalSince1970: 1_753_732_800))
+        }
+        var analyticsStartedIterator = analyticsStarted.makeAsyncIterator()
+        _ = await analyticsStartedIterator.next()
+
+        let deactivationTask = Task { await store.deactivate() }
+        var pushStartedIterator = pushStarted.makeAsyncIterator()
+        _ = await pushStartedIterator.next()
+        releaseAnalyticsContinuation.yield()
+        _ = await analyticsTask.value
+
+        XCTAssertNil(store.analytics)
+        XCTAssertTrue(store.analyticsCache.isEmpty)
+
+        releasePushContinuation.yield()
+        let didDeactivate = await deactivationTask.value
+        XCTAssertTrue(didDeactivate)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
@@ -2546,6 +2629,13 @@ final class StudyActivitySessionTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
     }
+}
+
+@MainActor
+private final class EmptyStudyTimeSnapshotCache: StudyTimeSnapshotCaching {
+    func load(userID: Int, timeZone: String) -> StudyTimeSnapshot? { nil }
+    func save(_ snapshot: StudyTimeSnapshot, userID: Int, timeZone: String) {}
+    func remove(userID: Int) {}
 }
 
 @MainActor

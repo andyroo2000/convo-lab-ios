@@ -59,11 +59,17 @@ final class StudyTimeInsightsController {
         restoreSnapshot(userID: userID)
     }
 
-    func deactivate() {
+    func invalidateRequestsForDeactivation() {
         analyticsRequestGeneration += 1
         weeklyRecapRequestGeneration += 1
         requestedAnalyticsAnchor = nil
         activeUserID = nil
+    }
+
+    func deactivate() {
+        if activeUserID != nil {
+            invalidateRequestsForDeactivation()
+        }
         analytics = nil
         invalidateAnalyticsCache()
         weeklyRecap = nil
