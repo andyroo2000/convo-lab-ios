@@ -306,6 +306,112 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testCancelledLearningItemRefreshPreservesExistingGroupedResults() async throws {
+        let card = StudyLearningItemCard(
+            id: "client-sentence",
+            syncId: "server-sentence",
+            noteId: nil,
+            cardType: "recognition",
+            displayText: "会社で働いています。",
+            meaning: "I work at a company.",
+            variantKind: "sentence_audio_recognition"
+        )
+        let family = StudyLearningItem(
+            id: "path:company",
+            groupId: "company",
+            representativeCard: card,
+            currentStageNumber: 1,
+            stageCount: 1,
+            cardCount: 1,
+            retiredStageCount: 0,
+            transferDemonstrated: false,
+            stages: [
+                StudyLearningItemStage(
+                    number: 1,
+                    status: .available,
+                    cardCount: 1,
+                    representativeCard: card,
+                    cards: [card]
+                )
+            ]
+        )
+        CancellableLearningItemURLProtocol.configure(
+            response: try StorageCodec.encoder.encode(
+                StudyLearningItemListResponse(items: [family], limit: 20, nextCursor: nil)
+            )
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CancellableLearningItemURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshLearningItems()
+        let cancelledRefresh = Task { try await store.refreshLearningItems(search: "company") }
+        await waitUntil { CancellableLearningItemURLProtocol.hasPendingRequest }
+        XCTAssertTrue(CancellableLearningItemURLProtocol.hasPendingRequest)
+
+        cancelledRefresh.cancel()
+        try await cancelledRefresh.value
+
+        XCTAssertEqual(store.learningItems, [family])
+    }
+
+    @MainActor
+    func testResolveLearningItemCardFetchesMissingServerCardForEditing() async throws {
+        let serverCard = makeCard(id: "server-card", expression: "猫")
+        let serverCardID = serverCard.id
+        let compactCard = StudyLearningItemCard(
+            id: "client-card",
+            syncId: serverCardID,
+            noteId: serverCard.noteId,
+            cardType: serverCard.cardType,
+            displayText: "猫",
+            meaning: "cat",
+            variantKind: nil
+        )
+        let response = try StorageCodec.encoder.encode(["cards": [serverCard]])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(body["ids"] as? [String], [serverCardID])
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                response
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let resolved = try await store.resolveCard(for: compactCard)
+
+        XCTAssertEqual(resolved?.id, serverCardID)
+        XCTAssertEqual(resolved?.promptText, serverCard.promptText)
+        XCTAssertEqual(store.card(for: compactCard)?.id, serverCardID)
+    }
+
+    @MainActor
     func testNewCardQueueLoadMoreCannotAppendAfterNewerRefreshReusesCursor() async throws {
         func item(id: String) -> StudyNewCardQueueItem {
             StudyNewCardQueueItem(
@@ -744,5 +850,65 @@ extension StudyStoreTests {
 
         XCTAssertEqual(store.allCards.map(\.id), [refreshedCard.id])
         XCTAssertEqual(store.allCardsNextCursor, "shared")
+    }
+}
+
+final class CancellableLearningItemURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var responseData = Data()
+    nonisolated(unsafe) private static var requestCount = 0
+    nonisolated(unsafe) private static var pendingRequest: CancellableLearningItemURLProtocol?
+
+    static var hasPendingRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingRequest != nil
+    }
+
+    static func configure(response: Data) {
+        lock.lock()
+        responseData = response
+        requestCount = 0
+        pendingRequest = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.requestCount += 1
+        let shouldRespond = Self.requestCount == 1
+        let data = Self.responseData
+        if !shouldRespond {
+            Self.pendingRequest = self
+        }
+        Self.lock.unlock()
+
+        guard shouldRespond else { return }
+        respond(with: data)
+    }
+
+    override func stopLoading() {
+        Self.lock.lock()
+        if Self.pendingRequest === self {
+            Self.pendingRequest = nil
+        }
+        Self.lock.unlock()
+        client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+
+    private func respond(with data: Data) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }

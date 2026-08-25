@@ -20,6 +20,8 @@ struct CardLibraryView: View {
     @State private var selectedDraft: StudyManualCardDraft?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
+    @State private var showingCardLoadError = false
+    @State private var cardLoadErrorMessage = ""
     @State private var queueErrorMessage: String?
     @State private var expandedLearningItemIDs: Set<String> = []
 
@@ -97,6 +99,11 @@ struct CardLibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(deletionErrorMessage)
+            }
+            .alert("Could not open card", isPresented: $showingCardLoadError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(cardLoadErrorMessage)
             }
             .task {
                 try? await store.refreshManualDrafts()
@@ -229,7 +236,11 @@ struct CardLibraryView: View {
                         HStack {
                             Text("Cards")
                             Spacer()
-                            Text("\(store.learningItems.count.formatted()) learning items")
+                            Text(
+                                store.learningItemsNextCursor == nil
+                                    ? "\(store.learningItems.count.formatted()) learning items"
+                                    : "\(store.learningItems.count.formatted()) loaded"
+                            )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .textCase(nil)
@@ -340,6 +351,14 @@ struct CardLibraryView: View {
                         Task { await delete(card) }
                     }
                 }
+            } else if StudyCardDraft.CardType(
+                rawValue: item.representativeCard.cardType
+            ) != nil {
+                Button {
+                    open(item.representativeCard)
+                } label: {
+                    learningItemSummary(item)
+                }
             } else {
                 learningItemSummary(item)
             }
@@ -437,6 +456,13 @@ struct CardLibraryView: View {
                         learningItemCardRow(itemCard)
                     }
                     .buttonStyle(.plain)
+                } else if StudyCardDraft.CardType(rawValue: itemCard.cardType) != nil {
+                    Button {
+                        open(itemCard)
+                    } label: {
+                        learningItemCardRow(itemCard)
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     learningItemCardRow(itemCard)
                 }
@@ -487,6 +513,24 @@ struct CardLibraryView: View {
     private func refreshLearningItemsIfNeeded() {
         guard collectionMode == .all else { return }
         Task { try? await store.refreshLearningItems(search: searchText) }
+    }
+
+    private func open(_ itemCard: StudyLearningItemCard) {
+        Task {
+            do {
+                guard let card = try await store.resolveCard(for: itemCard) else {
+                    cardLoadErrorMessage = "This card is no longer available."
+                    showingCardLoadError = true
+                    return
+                }
+                selectedCard = card
+            } catch is CancellationError {
+                return
+            } catch {
+                cardLoadErrorMessage = error.localizedDescription
+                showingCardLoadError = true
+            }
+        }
     }
 
     private func delete(_ card: StudyCard) async {

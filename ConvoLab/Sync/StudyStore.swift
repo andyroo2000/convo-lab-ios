@@ -1099,14 +1099,14 @@ final class StudyStore {
                 learningItemsRefreshRevision == refreshRevision,
                 learningItemsQuery == trimmedQuery
             else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
             learningItems = StudyCardCatalogRepository.standaloneLearningItems(
                 from: libraryCards,
                 matching: trimmedQuery
             )
             learningItemsNextCursor = nil
-            if error is CancellationError || (error as? URLError)?.code == .cancelled {
-                return
-            }
             throw error
         }
     }
@@ -1148,6 +1148,25 @@ final class StudyStore {
         let identifiers = [item.id, item.syncId]
         return allCards.first { StudyCardIdentity.matches($0, any: identifiers) }
             ?? libraryCards.first { StudyCardIdentity.matches($0, any: identifiers) }
+    }
+
+    func resolveCard(for item: StudyLearningItemCard) async throws -> StudyCard? {
+        if let localCard = card(for: item) {
+            return localCard
+        }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
+        let canonicalCard = try await fetchCanonicalCard(id: item.syncId)
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if let canonicalCard {
+            allCards = StudyCardCatalogRepository.appendingUniqueCards(
+                [canonicalCard],
+                to: allCards
+            )
+        }
+        return canonicalCard
     }
 
     private func upsertAllCardsPresentation(_ card: StudyCard) {
