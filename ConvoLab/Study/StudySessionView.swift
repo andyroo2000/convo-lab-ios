@@ -15,7 +15,7 @@ struct StudySessionView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingAnswer = false
-    @State private var cardStartedAt = Date.now
+    @State private var cardTimer = StudySessionCardTimer(startedAt: .now)
     @State private var submittingReviewCardIDs: Set<String> = []
     @State private var answerAudioLocalURL: URL?
     @State private var didAttemptAnswerAudioLoad = false
@@ -214,6 +214,7 @@ struct StudySessionView: View {
             sessionReviewRecords = []
             practiceCards = nil
             practiceInitialCount = 0
+            resetCardTimer()
             if mode == .lessons {
                 store.beginLessonSessionPresentation()
                 await loadLessonBatch()
@@ -232,13 +233,15 @@ struct StudySessionView: View {
             }
             guard !isUndoing else { return }
             showingAnswer = false
-            cardStartedAt = .now
+            resetCardTimer()
             didAutoplayAnswerForCardID = nil
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 startTimeTracking()
+                cardTimer.resume(at: .now)
             } else {
+                cardTimer.pause(at: .now)
                 timeStore?.stop(activity: .cardReview, source: .automatic)
             }
         }
@@ -328,6 +331,10 @@ struct StudySessionView: View {
             source: .automatic,
             name: mode == .lessons ? "Lessons" : "Card reviews"
         )
+    }
+
+    private func resetCardTimer() {
+        cardTimer.reset(at: .now, isRunning: scenePhase == .active)
     }
 
     @ViewBuilder
@@ -586,7 +593,7 @@ struct StudySessionView: View {
         showingAnswer = false
         practiceInitialCount = cards.count
         practiceCards = cards
-        cardStartedAt = .now
+        resetCardTimer()
         didAutoplayAnswerForCardID = nil
     }
 
@@ -595,7 +602,7 @@ struct StudySessionView: View {
         showingAnswer = false
         practiceCards = nil
         practiceInitialCount = 0
-        cardStartedAt = .now
+        resetCardTimer()
         didAutoplayAnswerForCardID = nil
     }
 
@@ -813,7 +820,7 @@ struct StudySessionView: View {
                 )
                 showingAnswer = false
                 didAutoplayAnswerForCardID = nil
-                cardStartedAt = .now
+                resetCardTimer()
             } catch is CancellationError {
                 // Navigation or an account change cancelled this action.
             } catch let error as URLError where error.code == .cancelled {
@@ -841,7 +848,7 @@ struct StudySessionView: View {
                     to: practiceCards ?? []
                 )
                 showingAnswer = false
-                cardStartedAt = .now
+                resetCardTimer()
                 return
             }
             if mode == .lessons, rating == .again {
@@ -849,7 +856,7 @@ struct StudySessionView: View {
                 didAutoplayAnswerForCardID = nil
                 store.retryLessonCard(card)
                 showingAnswer = false
-                cardStartedAt = .now
+                resetCardTimer()
                 return
             }
             guard submittingReviewCardIDs.insert(card.id).inserted else { return }
@@ -857,7 +864,7 @@ struct StudySessionView: View {
             if rating == .again {
                 didAutoplayAnswerForCardID = nil
             }
-            let duration = reviewedAt.timeIntervalSince(cardStartedAt)
+            let duration = cardTimer.duration(at: reviewedAt)
             let durationMilliseconds = Int(duration * 1_000)
             Task {
                 let stagedReview = await store.recordReviewResult(
@@ -992,7 +999,7 @@ struct StudySessionView: View {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 sessionReviewRecords.removeAll { $0.id == eventID }
                 showingAnswer = true
-                cardStartedAt = .now
+                resetCardTimer()
                 didAutoplayAnswerForCardID = nil
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {

@@ -69,6 +69,35 @@ final class StudySessionWrapUpTests: XCTestCase {
         )
     }
 
+    func testSummaryMergesLocalAndServerIdentitiesForTheSameCard() {
+        let local = makeCard(id: "local", stability: 2)
+        let synchronized = makeCard(id: "local", syncId: "server", stability: 2)
+
+        let summary = StudySessionWrapUpSummary.build(
+            from: [
+                record(id: "1", card: local, rating: .again, duration: 1_000),
+                record(id: "2", card: synchronized, rating: .good, duration: 2_000),
+            ]
+        )
+
+        XCTAssertEqual(summary.toughestCards.count, 1)
+        XCTAssertEqual(summary.toughestCards.first?.missCount, 1)
+        XCTAssertEqual(summary.firstPassRecall, 0)
+    }
+
+    func testCardTimerExcludesTimeWhilePaused() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var timer = StudySessionCardTimer(startedAt: startedAt)
+
+        timer.pause(at: Date(timeIntervalSince1970: 105))
+        timer.resume(at: Date(timeIntervalSince1970: 1_005))
+
+        XCTAssertEqual(
+            timer.duration(at: Date(timeIntervalSince1970: 1_010)),
+            10
+        )
+    }
+
     private func record(
         id: String,
         card: StudyCard,
@@ -88,11 +117,13 @@ final class StudySessionWrapUpTests: XCTestCase {
 
     private func makeCard(
         id: String,
+        syncId: String? = nil,
         queueState: String = "review",
         stability: Double
     ) -> StudyCard {
         StudyCard(
             id: id,
+            syncId: syncId,
             noteId: nil,
             cardType: "recognition",
             prompt: .object(["cueText": .string(id)]),

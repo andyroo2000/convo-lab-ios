@@ -14,7 +14,36 @@ struct StudySessionToughCard: Identifiable, Equatable, Sendable {
     let missCount: Int
     let durationMilliseconds: Int
 
-    var id: String { card.reviewCardID.lowercased() }
+    var id: String { card.id.lowercased() }
+}
+
+struct StudySessionCardTimer: Equatable, Sendable {
+    private(set) var elapsed: TimeInterval = 0
+    private(set) var runningSince: Date?
+
+    init(startedAt: Date, isRunning: Bool = true) {
+        runningSince = isRunning ? startedAt : nil
+    }
+
+    mutating func reset(at date: Date, isRunning: Bool) {
+        elapsed = 0
+        runningSince = isRunning ? date : nil
+    }
+
+    mutating func pause(at date: Date) {
+        guard let runningSince else { return }
+        elapsed += max(0, date.timeIntervalSince(runningSince))
+        self.runningSince = nil
+    }
+
+    mutating func resume(at date: Date) {
+        guard runningSince == nil else { return }
+        runningSince = date
+    }
+
+    func duration(at date: Date) -> TimeInterval {
+        elapsed + (runningSince.map { max(0, date.timeIntervalSince($0)) } ?? 0)
+    }
 }
 
 struct StudySessionWrapUpSummary: Equatable, Sendable {
@@ -32,9 +61,29 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
             if $0.reviewedAt != $1.reviewedAt { return $0.reviewedAt < $1.reviewedAt }
             return $0.id < $1.id
         }
+        var identityGroups: [Set<String>] = []
+        for record in chronologicalRecords {
+            var identifiers = StudyCardIdentity.identifiers(for: record.cardBefore)
+            if let cardAfter = record.cardAfter {
+                identifiers.formUnion(StudyCardIdentity.identifiers(for: cardAfter))
+            }
+            let matchingIndices = identityGroups.indices.filter {
+                !identityGroups[$0].isDisjoint(with: identifiers)
+            }
+            for index in matchingIndices.reversed() {
+                identifiers.formUnion(identityGroups.remove(at: index))
+            }
+            identityGroups.append(identifiers)
+        }
+
+        func identity(for card: StudyCard) -> String {
+            let identifiers = StudyCardIdentity.identifiers(for: card)
+            return identityGroups.first { !$0.isDisjoint(with: identifiers) }?.min()
+                ?? card.reviewCardID.lowercased()
+        }
 
         for record in chronologicalRecords {
-            let identity = record.cardBefore.reviewCardID.lowercased()
+            let identity = identity(for: record.cardBefore)
             if firstAttempts[identity] == nil,
                ["review", "relearning"].contains(record.cardBefore.state.queueState)
             {
