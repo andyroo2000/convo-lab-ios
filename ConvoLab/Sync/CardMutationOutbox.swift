@@ -115,6 +115,18 @@ final class CardMutationOutbox {
         ).map { $0.resourceID.lowercased() })
     }
 
+    func pendingWriteIdentifiers() throws -> Set<String> {
+        guard let userID = activeUserID else { return [] }
+        return Set(try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
+                }
+            )
+        ).map { $0.resourceID.lowercased() })
+    }
+
     func hasPendingDelete(for card: StudyCard) throws -> Bool {
         StudyCardIdentity.matches(card, any: try pendingDeleteIdentifiers())
     }

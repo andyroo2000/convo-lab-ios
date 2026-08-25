@@ -1092,6 +1092,7 @@ final class StudyStore {
                 response.items,
                 to: []
             )
+            reconcilePendingCardMutationsIntoLearningItems()
             learningItemsNextCursor = response.nextCursor
         } catch {
             guard
@@ -1141,6 +1142,7 @@ final class StudyStore {
             response.items,
             to: learningItems
         )
+        reconcilePendingCardMutationsIntoLearningItems()
         learningItemsNextCursor = response.nextCursor
     }
 
@@ -1280,6 +1282,43 @@ final class StudyStore {
         }
     }
 
+    private func reconcilePendingCardMutationsIntoLearningItems() {
+        removeStandaloneItemsDuplicatedByFamilies()
+        let pendingDeleteIdentifiers =
+            (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        if !pendingDeleteIdentifiers.isEmpty {
+            removeFromLearningItems(matching: pendingDeleteIdentifiers)
+        }
+        let pendingWriteIdentifiers =
+            (try? cardOutbox.pendingWriteIdentifiers()) ?? []
+        for card in libraryCards where StudyCardIdentity.matches(
+            card,
+            any: pendingWriteIdentifiers
+        ) {
+            reconcileLearningItems(upserting: card, addIfMissing: true)
+        }
+        removeStandaloneItemsDuplicatedByFamilies()
+    }
+
+    private func removeStandaloneItemsDuplicatedByFamilies() {
+        let familyCardIdentifiers = Set(
+            learningItems
+                .filter { $0.groupId != nil }
+                .flatMap { item in
+                    [item.representativeCard] + item.stages.flatMap(\.cards)
+                }
+                .flatMap { [$0.id.lowercased(), $0.syncId.lowercased()] }
+        )
+        guard !familyCardIdentifiers.isEmpty else { return }
+        learningItems.removeAll { item in
+            item.groupId == nil
+                && learningItemCard(
+                    item.representativeCard,
+                    matchesAny: familyCardIdentifiers
+                )
+        }
+    }
+
     private func updatedLearningItemCard(
         _ itemCard: StudyLearningItemCard,
         from card: StudyCard,
@@ -1301,22 +1340,29 @@ final class StudyStore {
     }
 
     private func removeFromLearningItems(_ card: StudyCard) {
+        removeFromLearningItems(matching: Set([
+            card.id.lowercased(),
+            card.reviewCardID.lowercased(),
+        ]))
+    }
+
+    private func removeFromLearningItems(matching identifiers: Set<String>) {
         learningItems = learningItems.compactMap { item in
             if item.groupId == nil {
-                let isDeletedCard = StudyCardIdentity.matches(
-                   card,
-                   any: [item.representativeCard.id, item.representativeCard.syncId]
+                let isDeletedCard = learningItemCard(
+                    item.representativeCard,
+                    matchesAny: identifiers
                 )
                 return isDeletedCard ? nil : item
             }
             let stages = item.stages.compactMap { stage -> StudyLearningItemStage? in
                 let cards = stage.cards.filter {
-                    !StudyCardIdentity.matches(card, any: [$0.id, $0.syncId])
+                    !learningItemCard($0, matchesAny: identifiers)
                 }
                 guard !cards.isEmpty else { return nil }
-                let representativeCard = StudyCardIdentity.matches(
-                    card,
-                    any: [stage.representativeCard.id, stage.representativeCard.syncId]
+                let representativeCard = learningItemCard(
+                    stage.representativeCard,
+                    matchesAny: identifiers
                 ) ? cards[0] : stage.representativeCard
                 return StudyLearningItemStage(
                     number: stage.number,
@@ -1327,14 +1373,13 @@ final class StudyStore {
                 )
             }
             guard !stages.isEmpty else { return nil }
-            let representativeCard = StudyCardIdentity.matches(
-                card,
-                any: [item.representativeCard.id, item.representativeCard.syncId]
+            let representativeCard = learningItemCard(
+                item.representativeCard,
+                matchesAny: identifiers
             ) ? stages[0].representativeCard : item.representativeCard
             let currentStageNumber = item.currentStageNumber.flatMap { currentNumber in
                 stages.contains { $0.number == currentNumber } ? currentNumber : nil
             } ?? stages.first(where: { $0.status == .available })?.number
-                ?? stages.first?.number
             let updatedItem = StudyLearningItem(
                 id: item.id,
                 groupId: item.groupId,
@@ -1350,6 +1395,14 @@ final class StudyStore {
                 ? updatedItem
                 : nil
         }
+    }
+
+    private func learningItemCard(
+        _ card: StudyLearningItemCard,
+        matchesAny identifiers: Set<String>
+    ) -> Bool {
+        identifiers.contains(card.id.lowercased())
+            || identifiers.contains(card.syncId.lowercased())
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {

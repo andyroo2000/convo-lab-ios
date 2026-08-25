@@ -592,11 +592,102 @@ extension StudyStoreTests {
         try await store.deleteCard(updatedCard)
 
         XCTAssertEqual(store.learningItems.count, 2)
-        XCTAssertEqual(store.learningItems.first?.currentStageNumber, 2)
+        XCTAssertNil(store.learningItems.first?.currentStageNumber)
         XCTAssertEqual(store.learningItems.first?.stageCount, 1)
         XCTAssertEqual(store.learningItems.first?.cardCount, 1)
         XCTAssertEqual(store.learningItems.first?.stages.map(\.number), [2])
         XCTAssertTrue(store.learningItems.contains { $0.id == standaloneItem.id })
+    }
+
+    @MainActor
+    func testRefreshPreservesPendingLocalCardCreation() async throws {
+        let emptyPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [], limit: 20, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/learning-items" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    emptyPage
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.createCard(expression: "保留", reading: "ほりゅう", meaning: "pending")
+        let optimisticItem = try XCTUnwrap(store.learningItems.first)
+
+        try await store.refreshLearningItems()
+
+        XCTAssertEqual(store.learningItems.map(\.id), [optimisticItem.id])
+        XCTAssertEqual(store.learningItems.first?.representativeCard.displayText, "保留")
+    }
+
+    @MainActor
+    func testRefreshReconcilesPendingLocalCardEditAndDelete() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "pending-refresh-card", expression: "古い")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let staleItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [card],
+                matching: ""
+            ).first
+        )
+        let stalePage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [staleItem], limit: 20, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/learning-items" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    stalePage
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshLearningItems()
+        try await store.updateCard(card, prompt: "新しい", reading: "", answer: "new")
+
+        try await store.refreshLearningItems()
+
+        XCTAssertEqual(store.learningItems.first?.representativeCard.displayText, "新しい")
+        let updatedCard = try XCTUnwrap(store.card(for: staleItem.representativeCard))
+        try await store.deleteCard(updatedCard)
+
+        try await store.refreshLearningItems()
+
+        XCTAssertTrue(store.learningItems.isEmpty)
     }
 
     @MainActor
