@@ -55,13 +55,19 @@ final class CardMediaMutationService {
 
     private let api: APIClient
     private let mediaCache: MediaCache
+    private let diagnostics: NativeDiagnostics
     private var activeUserID: Int?
     private var generation = 0
     private var latestOperationIDs: [String: UUID] = [:]
 
-    init(api: APIClient, mediaCache: MediaCache) {
+    init(
+        api: APIClient,
+        mediaCache: MediaCache,
+        diagnostics: NativeDiagnostics = .shared
+    ) {
         self.api = api
         self.mediaCache = mediaCache
+        self.diagnostics = diagnostics
     }
 
     func activate(userID: Int) {
@@ -85,10 +91,10 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardAnswerAudioRegenerationResult {
-        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        let diagnosticInterval = diagnostics.begin(.generation)
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome
             )
@@ -152,10 +158,10 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
-        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        let diagnosticInterval = diagnostics.begin(.generation)
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome
             )
@@ -202,13 +208,13 @@ final class CardMediaMutationService {
         // User-supplied image uploads are media mutations, not generation. Their
         // bytes, filenames, and card identifiers intentionally stay outside diagnostics.
         guard placement != .none else { throw InvalidCardImagePlacementError() }
-        let diagnosticInterval = NativeDiagnostics.shared.begin(
+        let diagnosticInterval = diagnostics.begin(
             .mediaUpload,
             itemCount: 1
         )
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome,
                 itemCount: 1

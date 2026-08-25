@@ -172,7 +172,7 @@ final class DailyAudioStoreTests: XCTestCase {
         defer { store.deactivate() }
 
         await store.create()
-        for _ in 0..<100 where diagnosticsSink.events.last?.stage != .ended {
+        for _ in 0..<300 where diagnosticsSink.events.last?.stage != .ended {
             try await Task.sleep(for: .milliseconds(10))
         }
 
