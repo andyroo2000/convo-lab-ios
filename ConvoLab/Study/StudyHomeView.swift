@@ -255,11 +255,7 @@ struct StudyHomeView: View {
     }
 
     private var reviewTimeText: String {
-        StudyTodayPresentation.reviewTimeText(
-            reviewCount: reviewAvailableCount,
-            medianReviewDurationSeconds: store.overview?.learningReadiness?
-                .medianReviewDurationSeconds
-        )
+        StudyTodayPresentation.reviewTimeText(reviewCount: reviewAvailableCount)
     }
 
     private var totalCardCount: Int {

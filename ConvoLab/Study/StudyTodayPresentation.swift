@@ -1,28 +1,19 @@
 import Foundation
 
 nonisolated enum StudyTodayPresentation {
-    static func estimatedReviewMinutes(
-        reviewCount: Int,
-        medianReviewDurationSeconds: Double?
-    ) -> Int? {
-        guard reviewCount > 0,
-              let medianReviewDurationSeconds,
-              medianReviewDurationSeconds.isFinite,
-              medianReviewDurationSeconds > 0
-        else { return nil }
+    private static let reviewEstimateSecondsPerCard = 23.0
 
-        return max(1, Int(ceil(Double(reviewCount) * medianReviewDurationSeconds / 60)))
+    static func estimatedReviewMinutes(reviewCount: Int) -> Int? {
+        guard reviewCount > 0 else { return nil }
+
+        return max(1, Int(ceil(Double(reviewCount) * reviewEstimateSecondsPerCard / 60)))
     }
 
-    static func reviewTimeText(
-        reviewCount: Int,
-        medianReviewDurationSeconds: Double?
-    ) -> String {
+    static func reviewTimeText(reviewCount: Int) -> String {
         guard reviewCount > 0 else { return "All caught up" }
-        guard let minutes = estimatedReviewMinutes(
-            reviewCount: reviewCount,
-            medianReviewDurationSeconds: medianReviewDurationSeconds
-        ) else { return "Time estimate is calibrating" }
+        guard let minutes = estimatedReviewMinutes(reviewCount: reviewCount) else {
+            return "All caught up"
+        }
         return "About \(minutes) min"
     }
 
