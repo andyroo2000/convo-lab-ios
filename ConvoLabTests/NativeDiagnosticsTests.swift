@@ -65,9 +65,39 @@ final class NativeDiagnosticsTests: XCTestCase {
         XCTAssertTrue(manager.addedSubscriber === subscriber)
         XCTAssertTrue(manager.removedSubscriber === subscriber)
     }
+
+    @MainActor
+    func testAudioPlayerEmitsPairedLifecycleWithoutTrackMetadata() {
+        let sink = RecordingNativeDiagnosticsSink()
+        let diagnostics = NativeDiagnostics(sink: sink)
+        let playback = AudioPlaybackDiagnostics(diagnostics: diagnostics)
+
+        playback.start()
+        playback.interruptionBegan()
+        playback.interruptionEnded(willResume: true)
+        playback.stop(outcome: .succeeded)
+
+        XCTAssertEqual(
+            sink.events.map(\.stage),
+            [.began, .point, .point, .point, .ended, .point, .began, .point, .point, .ended]
+        )
+        XCTAssertEqual(
+            sink.events.filter { $0.reason == .interruptionBegan }.count,
+            1
+        )
+        XCTAssertEqual(
+            sink.events.filter { $0.reason == .interruptionEnded }.count,
+            1
+        )
+        XCTAssertEqual(sink.events.last?.outcome, .succeeded)
+        let description = String(describing: sink.events)
+        XCTAssertFalse(description.contains("private-track-id"))
+        XCTAssertFalse(description.contains("Private Lesson Title"))
+        XCTAssertFalse(description.contains("secret-audio"))
+    }
 }
 
-nonisolated private final class RecordingNativeDiagnosticsSink: NativeDiagnosticsSink,
+nonisolated final class RecordingNativeDiagnosticsSink: NativeDiagnosticsSink,
     @unchecked Sendable
 {
     private let lock = NSLock()

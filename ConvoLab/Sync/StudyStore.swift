@@ -125,6 +125,7 @@ final class StudyStore {
 #if DEBUG
     private var reviewEventOutboxFlushOverride: (() async throws -> Void)?
 #endif
+    private let diagnostics: NativeDiagnostics
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -268,6 +269,7 @@ final class StudyStore {
         mediaCache: MediaCache,
         storageMode: StorageMode = .persistent,
         dueActivationScheduler: any StudyDueActivationScheduling = RunLoopStudyDueActivationScheduler(),
+        diagnostics: NativeDiagnostics = .shared,
         reviewProjection: @escaping (
             StudyCard,
             ReviewRating,
@@ -283,6 +285,7 @@ final class StudyStore {
         self.mediaCache = mediaCache
         self.storageMode = storageMode
         self.dueActivationScheduler = dueActivationScheduler
+        self.diagnostics = diagnostics
         knownKanjiService = KnownKanjiService(api: api, context: context)
         let reviewOutbox = ReviewEventOutbox(api: api, context: context)
         self.reviewOutbox = reviewOutbox
@@ -593,10 +596,10 @@ final class StudyStore {
         requestingPromptRetryOnOutboxFailure: Bool
     ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
-        let diagnosticInterval = NativeDiagnostics.shared.begin(.synchronization)
+        let diagnosticInterval = diagnostics.begin(.synchronization)
         var diagnosticOutcome: NativeDiagnosticOutcome = .cancelled
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome
             )

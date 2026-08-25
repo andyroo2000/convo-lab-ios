@@ -28,6 +28,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         let lessonData = try sessionResponseData(cards: [deleted, survivor])
         let deletedSyncID = try XCTUnwrap(deleted.syncId)
         let paths = LockedRequestPaths()
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             paths.append(path)
@@ -64,7 +65,8 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
                 initialUserID: 1,
                 api: client,
                 context: container.mainContext
-            )
+            ),
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
         )
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
@@ -90,6 +92,25 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         guard case .failed = store.syncStatus else {
             return XCTFail("The later reserve failure should not undo tombstone pruning.")
         }
+        XCTAssertEqual(
+            diagnosticsSink.events.filter { $0.operation == .synchronization },
+            [
+                .init(
+                    operation: .synchronization,
+                    stage: .began,
+                    outcome: nil,
+                    reason: nil,
+                    itemCount: nil
+                ),
+                .init(
+                    operation: .synchronization,
+                    stage: .ended,
+                    outcome: .failed,
+                    reason: nil,
+                    itemCount: nil
+                ),
+            ]
+        )
     }
 
     @MainActor
@@ -356,6 +377,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         )
         let lessonData = try sessionResponseData(cards: [presentedLesson])
         let paths = LockedRequestPaths()
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             paths.append(path)
@@ -387,7 +409,8 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
                 initialUserID: 1,
                 api: client,
                 context: container.mainContext
-            )
+            ),
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
         )
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
@@ -425,6 +448,73 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         XCTAssertNil(records.first { $0.id == presentedLesson.id })
         XCTAssertEqual(Set(store.allCards.map(\.id)), Set([dirty.id, activeReview.id]))
         XCTAssertEqual(store.syncStatus, .idle)
+        XCTAssertEqual(
+            diagnosticsSink.events.filter { $0.operation == .synchronization }.last?.outcome,
+            .succeeded
+        )
+    }
+
+    @MainActor
+    func testDeactivationEndsInFlightSynchronizationDiagnosticsAsCancelled() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let gate = BlockingSyncRequestGate()
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                gate.block()
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
+
+        let synchronization = Task { await store.synchronize() }
+        let deadline = Date.now.addingTimeInterval(5)
+        while !gate.isBlocked, Date.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(gate.isBlocked)
+        store.deactivate()
+        gate.release()
+        await synchronization.value
+
+        XCTAssertEqual(
+            diagnosticsSink.events.filter { $0.operation == .synchronization },
+            [
+                .init(
+                    operation: .synchronization,
+                    stage: .began,
+                    outcome: nil,
+                    reason: nil,
+                    itemCount: nil
+                ),
+                .init(
+                    operation: .synchronization,
+                    stage: .ended,
+                    outcome: .cancelled,
+                    reason: nil,
+                    itemCount: nil
+                ),
+            ]
+        )
     }
 
     @MainActor
@@ -509,6 +599,25 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             )!,
             data
         )
+    }
+}
+
+private final class BlockingSyncRequestGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var blocked = false
+
+    var isBlocked: Bool {
+        lock.withLock { blocked }
+    }
+
+    func block() {
+        lock.withLock { blocked = true }
+        _ = semaphore.wait(timeout: .now() + 5)
+    }
+
+    func release() {
+        semaphore.signal()
     }
 }
 

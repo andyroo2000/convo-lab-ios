@@ -199,7 +199,21 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
+        // User-supplied image uploads are media mutations, not generation. Their
+        // bytes, filenames, and card identifiers intentionally stay outside diagnostics.
         guard placement != .none else { throw InvalidCardImagePlacementError() }
+        let diagnosticInterval = NativeDiagnostics.shared.begin(
+            .mediaUpload,
+            itemCount: 1
+        )
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome,
+                itemCount: 1
+            )
+        }
         let operation = try beginOperation(for: currentCard, medium: .image)
         defer { finishOperation(operation) }
         let serverCard: StudyCard = try await api.upload(
@@ -212,7 +226,7 @@ final class CardMediaMutationService {
             timeout: 120
         )
         try ensureActive(operation)
-        return try await reconcileImage(
+        let result = try await reconcileImage(
             currentCard: currentCard,
             serverCard: serverCard,
             placement: placement,
@@ -221,6 +235,8 @@ final class CardMediaMutationService {
             hasPendingWrite: hasPendingWrite,
             onReconciled: onReconciled
         )
+        diagnosticOutcome = .succeeded
+        return result
     }
 
     private func reconcileImage(

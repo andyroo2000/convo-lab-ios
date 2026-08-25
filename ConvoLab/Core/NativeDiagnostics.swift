@@ -5,6 +5,7 @@ import OSLog
 nonisolated enum NativeDiagnosticOperation: String, Sendable {
     case synchronization
     case mediaPreparation
+    case mediaUpload
     case generation
     case backgroundPlayback
     case metrics
@@ -154,6 +155,7 @@ nonisolated final class NativeDiagnostics: Sendable {
         switch operation {
         case .synchronization: syncLog
         case .mediaPreparation: mediaLog
+        case .mediaUpload: mediaLog
         case .generation: generationLog
         case .backgroundPlayback: playbackLog
         case .metrics: metricsLog
@@ -164,6 +166,7 @@ nonisolated final class NativeDiagnostics: Sendable {
         switch operation {
         case .synchronization: syncLogger
         case .mediaPreparation: mediaLogger
+        case .mediaUpload: mediaLogger
         case .generation: generationLogger
         case .backgroundPlayback: playbackLogger
         case .metrics: metricsLogger
@@ -202,6 +205,16 @@ nonisolated final class NativeDiagnostics: Sendable {
                 type,
                 log: log,
                 name: "Media Preparation",
+                signpostID: interval.signpostID,
+                "outcome=%{public}@ count=%{public}d",
+                outcome,
+                count
+            )
+        case .mediaUpload:
+            os_signpost(
+                type,
+                log: log,
+                name: "Media Upload",
                 signpostID: interval.signpostID,
                 "outcome=%{public}@ count=%{public}d",
                 outcome,
