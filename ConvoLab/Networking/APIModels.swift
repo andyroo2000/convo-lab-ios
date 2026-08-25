@@ -762,6 +762,48 @@ struct StudyCardListResponse: nonisolated Codable, Equatable, Sendable {
     let nextCursor: String?
 }
 
+enum StudyLearningItemStageStatus: String, nonisolated Codable, Equatable, Sendable {
+    case locked
+    case available
+    case retired
+}
+
+struct StudyLearningItemCard: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let syncId: String
+    let noteId: String?
+    let cardType: String
+    let displayText: String
+    let meaning: String?
+    let variantKind: String?
+}
+
+struct StudyLearningItemStage: nonisolated Codable, Equatable, Sendable {
+    let number: Int?
+    let status: StudyLearningItemStageStatus?
+    let cardCount: Int
+    let representativeCard: StudyLearningItemCard
+    let cards: [StudyLearningItemCard]
+}
+
+struct StudyLearningItem: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let groupId: String?
+    let representativeCard: StudyLearningItemCard
+    let currentStageNumber: Int?
+    let stageCount: Int
+    let cardCount: Int
+    let retiredStageCount: Int
+    let transferDemonstrated: Bool
+    let stages: [StudyLearningItemStage]
+}
+
+struct StudyLearningItemListResponse: nonisolated Codable, Equatable, Sendable {
+    let items: [StudyLearningItem]
+    let limit: Int
+    let nextCursor: String?
+}
+
 struct ReorderStudyNewCardQueueRequest: Encodable, Equatable, Sendable {
     let cardIds: [String]
 }

@@ -187,6 +187,125 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testLearningItemLibraryLoadsWholeFamiliesAcrossCursorPagesWithoutDuplicates() async throws {
+        let sentence = StudyLearningItemCard(
+            id: "client-sentence",
+            syncId: "server-sentence",
+            noteId: nil,
+            cardType: "recognition",
+            displayText: "会社で働いています。",
+            meaning: "I work at a company.",
+            variantKind: "sentence_audio_recognition"
+        )
+        let word = StudyLearningItemCard(
+            id: "client-word",
+            syncId: "server-word",
+            noteId: nil,
+            cardType: "recognition",
+            displayText: "会社",
+            meaning: "company",
+            variantKind: "word_audio_recognition"
+        )
+        let family = StudyLearningItem(
+            id: "path:company",
+            groupId: "company",
+            representativeCard: sentence,
+            currentStageNumber: 1,
+            stageCount: 2,
+            cardCount: 2,
+            retiredStageCount: 0,
+            transferDemonstrated: false,
+            stages: [
+                StudyLearningItemStage(
+                    number: 1,
+                    status: .available,
+                    cardCount: 1,
+                    representativeCard: sentence,
+                    cards: [sentence]
+                ),
+                StudyLearningItemStage(
+                    number: 2,
+                    status: .locked,
+                    cardCount: 1,
+                    representativeCard: word,
+                    cards: [word]
+                ),
+            ]
+        )
+        let standalone = StudyLearningItem(
+            id: "card:cat",
+            groupId: nil,
+            representativeCard: StudyLearningItemCard(
+                id: "cat",
+                syncId: "cat",
+                noteId: nil,
+                cardType: "recognition",
+                displayText: "猫",
+                meaning: "cat",
+                variantKind: nil
+            ),
+            currentStageNumber: nil,
+            stageCount: 1,
+            cardCount: 1,
+            retiredStageCount: 0,
+            transferDemonstrated: false,
+            stages: []
+        )
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(
+                items: [family],
+                limit: 20,
+                nextCursor: "items-2"
+            )
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(
+                items: [family, standalone],
+                limit: 20,
+                nextCursor: nil
+            )
+        )
+        let client = makeClient { request in
+            let data: Data
+            switch request.url?.query {
+            case "per_page=20&q=animal":
+                data = firstPage
+            case "cursor=items-2&per_page=20&q=animal":
+                data = secondPage
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.refreshLearningItems(search: "animal")
+        try await store.loadMoreLearningItems()
+
+        XCTAssertEqual(store.learningItems.map { $0.id }, [family.id, standalone.id])
+        XCTAssertEqual(
+            store.learningItems.first?.stages.map { $0.status },
+            [StudyLearningItemStageStatus.available, .locked]
+        )
+        XCTAssertNil(store.learningItemsNextCursor)
+    }
+
+    @MainActor
     func testNewCardQueueLoadMoreCannotAppendAfterNewerRefreshReusesCursor() async throws {
         func item(id: String) -> StudyNewCardQueueItem {
             StudyNewCardQueueItem(

@@ -69,6 +69,7 @@ final class StudyStore {
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
+    @ObservationIgnored private var learningItemsRefreshRevision = 0
     @ObservationIgnored private var newCardQueueRefreshRevision = 0
     @ObservationIgnored private var newCardQueueReorderToken: UUID?
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
@@ -101,6 +102,11 @@ final class StudyStore {
     private(set) var allCardsQuery = ""
     private(set) var isRefreshingAllCards = false
     private(set) var isLoadingMoreAllCards = false
+    private(set) var learningItems: [StudyLearningItem] = []
+    private(set) var learningItemsNextCursor: String?
+    private(set) var learningItemsQuery = ""
+    private(set) var isRefreshingLearningItems = false
+    private(set) var isLoadingMoreLearningItems = false
     private(set) var newCardQueue: [StudyNewCardQueueItem] = []
     private(set) var newCardQueueTotal = 0
     private(set) var newCardQueueNextCursor: String?
@@ -289,6 +295,12 @@ final class StudyStore {
         allCardsRefreshRevision += 1
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false
+        learningItems = []
+        learningItemsNextCursor = nil
+        learningItemsQuery = ""
+        learningItemsRefreshRevision += 1
+        isRefreshingLearningItems = false
+        isLoadingMoreLearningItems = false
         newCardQueue = []
         newCardQueueTotal = 0
         newCardQueueNextCursor = nil
@@ -1051,6 +1063,91 @@ final class StudyStore {
             to: allCards
         )
         allCardsNextCursor = response.nextCursor
+    }
+
+    func refreshLearningItems(search query: String = "") async throws {
+        guard let userID = activeUserID else { return }
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        learningItemsRefreshRevision += 1
+        let refreshRevision = learningItemsRefreshRevision
+        learningItemsQuery = trimmedQuery
+        learningItemsNextCursor = nil
+        isRefreshingLearningItems = true
+        defer {
+            if activeUserID == userID, learningItemsRefreshRevision == refreshRevision {
+                isRefreshingLearningItems = false
+            }
+        }
+
+        do {
+            let response = try await cardCatalogRepository.learningItemPage(
+                matching: trimmedQuery
+            )
+            guard
+                activeUserID == userID,
+                learningItemsRefreshRevision == refreshRevision,
+                learningItemsQuery == trimmedQuery
+            else { return }
+            learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+                response.items,
+                to: []
+            )
+            learningItemsNextCursor = response.nextCursor
+        } catch {
+            guard
+                activeUserID == userID,
+                learningItemsRefreshRevision == refreshRevision,
+                learningItemsQuery == trimmedQuery
+            else { return }
+            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+                from: libraryCards,
+                matching: trimmedQuery
+            )
+            learningItemsNextCursor = nil
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return
+            }
+            throw error
+        }
+    }
+
+    func loadMoreLearningItems() async throws {
+        guard
+            let userID = activeUserID,
+            let cursor = learningItemsNextCursor,
+            !isRefreshingLearningItems,
+            !isLoadingMoreLearningItems
+        else { return }
+        let refreshRevision = learningItemsRefreshRevision
+        let query = learningItemsQuery
+        isLoadingMoreLearningItems = true
+        defer {
+            if activeUserID == userID {
+                isLoadingMoreLearningItems = false
+            }
+        }
+
+        let response = try await cardCatalogRepository.learningItemPage(
+            matching: query,
+            after: cursor
+        )
+        guard
+            activeUserID == userID,
+            learningItemsRefreshRevision == refreshRevision,
+            learningItemsNextCursor == cursor,
+            learningItemsQuery == query
+        else { return }
+        learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+            response.items,
+            to: learningItems
+        )
+        learningItemsNextCursor = response.nextCursor
+    }
+
+    func card(for item: StudyLearningItemCard) -> StudyCard? {
+        let identifiers = [item.id, item.syncId]
+        return allCards.first { StudyCardIdentity.matches($0, any: identifiers) }
+            ?? libraryCards.first { StudyCardIdentity.matches($0, any: identifiers) }
     }
 
     private func upsertAllCardsPresentation(_ card: StudyCard) {

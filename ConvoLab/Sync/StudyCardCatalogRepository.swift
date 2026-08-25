@@ -31,6 +31,21 @@ struct StudyCardCatalogRepository {
         return try await api.request("/api/study/cards", query: queryItems)
     }
 
+    func learningItemPage(
+        matching query: String,
+        after cursor: String? = nil
+    ) async throws -> StudyLearningItemListResponse {
+        var queryItems: [URLQueryItem] = []
+        if let cursor {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        queryItems.append(URLQueryItem(name: "per_page", value: "20"))
+        if !query.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
+        }
+        return try await api.request("/api/study/learning-items", query: queryItems)
+    }
+
     func reorderNewCards(_ cardIDs: [String]) async throws -> StudyNewCardQueueResponse {
         try await api.request(
             "/api/study/new-queue/reorder",
@@ -59,6 +74,41 @@ struct StudyCardCatalogRepository {
         to existing: [StudyNewCardQueueItem]
     ) -> [StudyNewCardQueueItem] {
         appendingUnique(incoming, to: existing, identifiedBy: \.id)
+    }
+
+    static func appendingUniqueLearningItems(
+        _ incoming: [StudyLearningItem],
+        to existing: [StudyLearningItem]
+    ) -> [StudyLearningItem] {
+        appendingUnique(incoming, to: existing, identifiedBy: \.id)
+    }
+
+    static func standaloneLearningItems(
+        from cards: [StudyCard],
+        matching query: String
+    ) -> [StudyLearningItem] {
+        self.cards(cards, matching: query).map { card in
+            let compactCard = StudyLearningItemCard(
+                id: card.id,
+                syncId: card.reviewCardID,
+                noteId: card.noteId,
+                cardType: card.cardType,
+                displayText: card.promptText,
+                meaning: card.answerText,
+                variantKind: nil
+            )
+            return StudyLearningItem(
+                id: "card:\(card.id)",
+                groupId: nil,
+                representativeCard: compactCard,
+                currentStageNumber: nil,
+                stageCount: 1,
+                cardCount: 1,
+                retiredStageCount: 0,
+                transferDemonstrated: false,
+                stages: []
+            )
+        }
     }
 
     static func cards(_ cards: [StudyCard], matching query: String) -> [StudyCard] {

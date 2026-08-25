@@ -21,6 +21,7 @@ struct CardLibraryView: View {
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
     @State private var queueErrorMessage: String?
+    @State private var expandedLearningItemIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -65,7 +66,7 @@ struct CardLibraryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingCreate) {
+            .sheet(isPresented: $showingCreate, onDismiss: refreshLearningItemsIfNeeded) {
                 CardEditorView(
                     store: store,
                     player: player,
@@ -74,7 +75,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedCard) { card in
+            .sheet(item: $selectedCard, onDismiss: refreshLearningItemsIfNeeded) { card in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -83,7 +84,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedDraft) { draft in
+            .sheet(item: $selectedDraft, onDismiss: refreshLearningItemsIfNeeded) { draft in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -105,7 +106,7 @@ struct CardLibraryView: View {
                 guard collectionMode == .all else { return }
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                try? await store.refreshAllCards(search: searchText)
+                try? await store.refreshLearningItems(search: searchText)
             }
             .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
                 while !Task.isCancelled,
@@ -121,7 +122,7 @@ struct CardLibraryView: View {
                 await store.synchronize()
                 try? await store.refreshNewCardQueue()
                 if collectionMode == .all {
-                    try? await store.refreshAllCards(search: searchText)
+                    try? await store.refreshLearningItems(search: searchText)
                 }
             }
         }
@@ -211,31 +212,16 @@ struct CardLibraryView: View {
                     }
                 }
 
-                if !store.allCards.isEmpty {
+                if !store.learningItems.isEmpty {
                     Section {
-                        ForEach(store.allCards) { card in
-                            Group {
-                                if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                                    Button {
-                                        selectedCard = card
-                                    } label: {
-                                        cardRow(card)
-                                    }
-                                } else {
-                                    cardRow(card)
-                                }
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) {
-                                    Task { await delete(card) }
-                                }
-                            }
+                        ForEach(store.learningItems) { item in
+                            learningItemRow(item)
                             .task {
-                                guard card.id == store.allCards.last?.id else { return }
-                                try? await store.loadMoreAllCards()
+                                guard item.id == store.learningItems.last?.id else { return }
+                                try? await store.loadMoreLearningItems()
                             }
                         }
-                        if store.isLoadingMoreAllCards {
+                        if store.isLoadingMoreLearningItems {
                             ProgressView()
                                 .frame(maxWidth: .infinity)
                         }
@@ -243,7 +229,7 @@ struct CardLibraryView: View {
                         HStack {
                             Text("Cards")
                             Spacer()
-                            Text("\(totalCardCount.formatted()) total")
+                            Text("\(store.learningItems.count.formatted()) learning items")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .textCase(nil)
@@ -260,11 +246,11 @@ struct CardLibraryView: View {
                     description: Text("New cards waiting to be introduced appear here.")
                 )
             } else if collectionMode == .all,
-                      store.allCards.isEmpty,
+                      store.learningItems.isEmpty,
                       store.manualDrafts.isEmpty {
                 if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView(
-                        store.isRefreshingAllCards ? "Loading cards…" : "No cards",
+                        store.isRefreshingLearningItems ? "Loading cards…" : "No cards",
                         systemImage: "rectangle.stack",
                         description: Text("Sync or create a card to begin.")
                     )
@@ -273,11 +259,6 @@ struct CardLibraryView: View {
                 }
             }
         }
-    }
-
-    private var totalCardCount: Int {
-        store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
-            ?? store.libraryCards.count
     }
 
     private func card(for item: StudyNewCardQueueItem) -> StudyCard? {
@@ -344,23 +325,174 @@ struct CardLibraryView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func cardRow(_ card: StudyCard) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(card.promptText)
-                .font(.headline)
-                .foregroundStyle(ConvoLabTheme.navy)
-            Text(card.answerText)
-                .lineLimit(2)
-                .foregroundStyle(.secondary)
-            Text(card.cardType.capitalized)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+    @ViewBuilder
+    private func learningItemRow(_ item: StudyLearningItem) -> some View {
+        if item.groupId == nil {
+            if let card = store.card(for: item.representativeCard),
+               StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                Button {
+                    selectedCard = card
+                } label: {
+                    learningItemSummary(item)
+                }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        Task { await delete(card) }
+                    }
+                }
+            } else {
+                learningItemSummary(item)
+            }
+        } else {
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { expandedLearningItemIDs.contains(item.id) },
+                    set: { isExpanded in
+                        if isExpanded {
+                            expandedLearningItemIDs.insert(item.id)
+                        } else {
+                            expandedLearningItemIDs.remove(item.id)
+                        }
+                    }
+                )
+            ) {
+                ForEach(Array(item.stages.enumerated()), id: \.offset) { _, stage in
+                    learningStageRow(stage)
+                }
+            } label: {
+                learningItemSummary(item)
+            }
         }
+    }
+
+    private func learningItemSummary(_ item: StudyLearningItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(item.representativeCard.displayText)
+                    .font(.headline)
+                    .foregroundStyle(ConvoLabTheme.navy)
+                Spacer(minLength: 8)
+                if item.transferDemonstrated {
+                    Label("Transfer", systemImage: "checkmark.circle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                }
+            }
+            if let meaning = item.representativeCard.meaning, !meaning.isEmpty {
+                Text(meaning)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
+            if item.groupId != nil {
+                HStack(spacing: 8) {
+                    Label("Learning path", systemImage: "square.stack.3d.up")
+                    if let currentStage = item.currentStageNumber {
+                        Text("Stage \(currentStage) of \(item.stageCount)")
+                    } else {
+                        Text("\(item.stageCount) stages")
+                    }
+                    Text("\(item.cardCount) cards")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                stageRail(item)
+            } else {
+                Text(item.representativeCard.cardType.capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func stageRail(_ item: StudyLearningItem) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(item.stages.enumerated()), id: \.offset) { _, stage in
+                Capsule()
+                    .fill(stageColor(stage.status))
+                    .frame(height: 4)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func learningStageRow(_ stage: StudyLearningItemStage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: stageIcon(stage.status))
+                    .foregroundStyle(stageColor(stage.status))
+                Text(stage.number.map { "Stage \($0)" } ?? "Stage")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(stageStatusText(stage.status))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(stage.cards) { itemCard in
+                if let card = store.card(for: itemCard),
+                   StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                    Button {
+                        selectedCard = card
+                    } label: {
+                        learningItemCardRow(itemCard)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    learningItemCardRow(itemCard)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func learningItemCardRow(_ card: StudyLearningItemCard) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(card.displayText)
+                .foregroundStyle(ConvoLabTheme.navy)
+            if let meaning = card.meaning, !meaning.isEmpty {
+                Text(meaning)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, 26)
+    }
+
+    private func stageColor(_ status: StudyLearningItemStageStatus?) -> Color {
+        switch status {
+        case .available: ConvoLabTheme.navy
+        case .retired: .green
+        case .locked, nil: .gray.opacity(0.45)
+        }
+    }
+
+    private func stageIcon(_ status: StudyLearningItemStageStatus?) -> String {
+        switch status {
+        case .available: "play.circle.fill"
+        case .retired: "checkmark.circle.fill"
+        case .locked, nil: "lock.circle.fill"
+        }
+    }
+
+    private func stageStatusText(_ status: StudyLearningItemStageStatus?) -> String {
+        switch status {
+        case .available: "Available"
+        case .retired: "Retired"
+        case .locked: "Locked"
+        case nil: "Stage"
+        }
+    }
+
+    private func refreshLearningItemsIfNeeded() {
+        guard collectionMode == .all else { return }
+        Task { try? await store.refreshLearningItems(search: searchText) }
     }
 
     private func delete(_ card: StudyCard) async {
         do {
             try await store.deleteCard(card)
+            try? await store.refreshLearningItems(search: searchText)
         } catch {
             deletionErrorMessage = error.localizedDescription
             showingDeletionError = true
