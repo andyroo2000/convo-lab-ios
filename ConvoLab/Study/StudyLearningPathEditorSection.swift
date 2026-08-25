@@ -181,6 +181,7 @@ struct StudyLearningPathEditorSection: View {
         } catch is CancellationError {
             return
         } catch {
+            hasRequestedPath = false
             errorMessage = error.localizedDescription
         }
     }
