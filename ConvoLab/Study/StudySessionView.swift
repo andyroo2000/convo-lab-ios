@@ -832,6 +832,7 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
+            guard showingAnswer else { return }
             if practiceMode {
                 player.stop()
                 didAutoplayAnswerForCardID = nil
