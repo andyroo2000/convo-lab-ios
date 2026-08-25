@@ -222,6 +222,18 @@ final class MediaCache {
         let operationGeneration = ownershipGeneration
         let uniqueURLs = Array(Set(urls))
         let uncachedURLs = uniqueURLs.filter { localURL(for: $0) == nil }
+        let diagnosticInterval = NativeDiagnostics.shared.begin(
+            .mediaPreparation,
+            itemCount: uncachedURLs.count
+        )
+        var diagnosticOutcome: NativeDiagnosticOutcome = .cancelled
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome,
+                itemCount: uncachedURLs.count
+            )
+        }
         let batchable = uncachedURLs.compactMap { url -> (url: URL, id: String)? in
             guard let id = Self.studyMediaID(for: url) else { return nil }
             return (url, id)
@@ -307,6 +319,7 @@ final class MediaCache {
                 // Preparation is best effort. The owning screen can still stream while online.
             }
         }
+        diagnosticOutcome = .succeeded
     }
 
     private static func studyMediaID(for url: URL) -> String? {

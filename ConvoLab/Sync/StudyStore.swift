@@ -593,6 +593,14 @@ final class StudyStore {
         requestingPromptRetryOnOutboxFailure: Bool
     ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.synchronization)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .cancelled
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
@@ -648,6 +656,7 @@ final class StudyStore {
             case .checkpointReset:
                 checkpointWasReset = true
             case .discardedStaleResponse:
+                diagnosticOutcome = .discarded
                 return
             }
         } catch {
@@ -687,6 +696,7 @@ final class StudyStore {
             outboxRetryRevision += 1
         }
         if let firstError {
+            diagnosticOutcome = .failed
             handleSyncError(
                 firstError,
                 for: userID,
@@ -699,6 +709,7 @@ final class StudyStore {
                 lastSyncAt = completedAt
             }
             syncStatus = .idle
+            diagnosticOutcome = .succeeded
         }
     }
 
@@ -2009,6 +2020,14 @@ final class StudyStore {
         draft: StudyCardDraft,
         previewImage: JSONValue?
     ) async throws -> DraftPreviewAudioResult {
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
@@ -2036,6 +2055,7 @@ final class StudyStore {
             userID,
             generation: activationGeneration
         ) else { throw CancellationError() }
+        diagnosticOutcome = .succeeded
         return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
     }
 
@@ -2045,6 +2065,14 @@ final class StudyStore {
         previewAudio: JSONValue?,
         previewAudioRole: String?
     ) async throws -> DraftPreviewImageResult {
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
@@ -2071,6 +2099,7 @@ final class StudyStore {
             generation: activationGeneration
         ) else { throw CancellationError() }
         let refreshed = try await fetchManualDraft(id: updated.id)
+        diagnosticOutcome = .succeeded
         return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
     }
 

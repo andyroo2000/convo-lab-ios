@@ -85,6 +85,14 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardAnswerAudioRegenerationResult {
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         let operation = try beginOperation(for: currentCard, medium: .answerAudio)
         defer { finishOperation(operation) }
         let request = RegenerateAnswerAudioRequest(
@@ -132,6 +140,7 @@ final class CardMediaMutationService {
         )
         try ensureActive(operation)
         try onReconciled(updated, pendingWrite, serverUpdatedAt)
+        diagnosticOutcome = .succeeded
         return CardAnswerAudioRegenerationResult(card: updated, localURL: localURL)
     }
 
@@ -143,6 +152,14 @@ final class CardMediaMutationService {
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
             throw InvalidCardImagePromptError()
@@ -161,7 +178,7 @@ final class CardMediaMutationService {
             timeout: 180
         )
         try ensureActive(operation)
-        return try await reconcileImage(
+        let result = try await reconcileImage(
             currentCard: currentCard,
             serverCard: serverCard,
             placement: placement,
@@ -170,6 +187,8 @@ final class CardMediaMutationService {
             hasPendingWrite: hasPendingWrite,
             onReconciled: onReconciled
         )
+        diagnosticOutcome = .succeeded
+        return result
     }
 
     func uploadImage(

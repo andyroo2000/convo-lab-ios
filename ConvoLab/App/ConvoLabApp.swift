@@ -5,11 +5,15 @@ import SwiftData
 struct ConvoLabApp: App {
     @State private var model: AppModel?
     @Environment(\.scenePhase) private var scenePhase
+    private let metricDiagnostics: MetricDiagnosticsSubscriber
 #if DEBUG
     private let fixture: UITestFixture?
 #endif
 
     init() {
+        let metricDiagnostics = MetricDiagnosticsSubscriber()
+        metricDiagnostics.start()
+        self.metricDiagnostics = metricDiagnostics
 #if DEBUG
         let fixture = UITestFixture.fromProcessArguments()
         self.fixture = fixture
@@ -48,10 +52,22 @@ struct ConvoLabApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
+                        if model.audioPlayer.isPlaying {
+                            NativeDiagnostics.shared.record(
+                                .backgroundPlayback,
+                                reason: .applicationForegrounded
+                            )
+                        }
                         Task {
                             await model.applicationDidBecomeActive()
                         }
                     } else {
+                        if phase == .background, model.audioPlayer.isPlaying {
+                            NativeDiagnostics.shared.record(
+                                .backgroundPlayback,
+                                reason: .applicationBackgrounded
+                            )
+                        }
                         model.study.persistCachedState()
                         model.studyTime.stopForegroundAutomaticTracking()
                     }

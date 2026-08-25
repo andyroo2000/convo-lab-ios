@@ -38,6 +38,7 @@ final class AudioPlayer {
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var completionObserver: NSObjectProtocol?
+    @ObservationIgnored private var playbackDiagnosticInterval: NativeDiagnosticInterval?
 
     private(set) var isPlaying = false {
         didSet {
@@ -91,6 +92,12 @@ final class AudioPlayer {
 #endif
 
     isolated deinit {
+        if let playbackDiagnosticInterval {
+            NativeDiagnostics.shared.end(
+                playbackDiagnosticInterval,
+                outcome: .cancelled
+            )
+        }
         if let timeObserver, case let .avPlayer(player) = backend {
             player.removeTimeObserver(timeObserver)
         }
@@ -132,6 +139,7 @@ final class AudioPlayer {
             }
         }
         isPlaying = true
+        beginPlaybackDiagnosticsIfNeeded()
         if replacedPlayingTrack {
             onPlaybackStateChanged(true, currentTitle)
         }
@@ -147,6 +155,7 @@ final class AudioPlayer {
         if isPlaying {
             player.pause()
             isPlaying = false
+            endPlaybackDiagnostics(outcome: .succeeded)
         } else {
             resumePlayback()
         }
@@ -171,6 +180,7 @@ final class AudioPlayer {
         elapsed = 0
         duration = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        endPlaybackDiagnostics(outcome: .succeeded)
     }
 
     func seek(to seconds: Double) {
@@ -224,6 +234,7 @@ final class AudioPlayer {
             Task { @MainActor [weak self] in
                 self?.player.pause()
                 self?.isPlaying = false
+                self?.endPlaybackDiagnostics(outcome: .succeeded)
                 self?.updateNowPlaying()
             }
             return .success
@@ -291,16 +302,26 @@ final class AudioPlayer {
         }
         switch type {
         case .began:
+            NativeDiagnostics.shared.record(
+                .backgroundPlayback,
+                reason: .interruptionBegan
+            )
             wasPlayingBeforeInterruption = isPlaying
             player.pause()
             isPlaying = false
+            endPlaybackDiagnostics(outcome: .cancelled)
             updateNowPlaying()
         case .ended:
+            NativeDiagnostics.shared.record(
+                .backgroundPlayback,
+                reason: .interruptionEnded
+            )
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if wasPlayingBeforeInterruption, options.contains(.shouldResume) {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 player.play()
                 isPlaying = true
+                beginPlaybackDiagnosticsIfNeeded()
             }
             wasPlayingBeforeInterruption = false
             updateNowPlaying()
@@ -320,6 +341,11 @@ final class AudioPlayer {
         // or another output route disappear.
         player.pause()
         isPlaying = false
+        NativeDiagnostics.shared.record(
+            .backgroundPlayback,
+            reason: .outputRouteLost
+        )
+        endPlaybackDiagnostics(outcome: .cancelled)
         updateNowPlaying()
     }
 
@@ -338,6 +364,7 @@ final class AudioPlayer {
             UserDefaults.standard.removeObject(forKey: positionKey(currentTrackID))
         }
         updateNowPlaying()
+        endPlaybackDiagnostics(outcome: .succeeded)
     }
 
     private func resumePlayback() {
@@ -349,7 +376,27 @@ final class AudioPlayer {
             elapsed = 0
         }
         player.play()
+        beginPlaybackDiagnosticsIfNeeded()
         updateNowPlaying()
+    }
+
+    private func beginPlaybackDiagnosticsIfNeeded() {
+        guard playbackDiagnosticInterval == nil else { return }
+        playbackDiagnosticInterval = NativeDiagnostics.shared.begin(.backgroundPlayback)
+        NativeDiagnostics.shared.record(
+            .backgroundPlayback,
+            reason: .playbackStarted
+        )
+    }
+
+    private func endPlaybackDiagnostics(outcome: NativeDiagnosticOutcome) {
+        guard let playbackDiagnosticInterval else { return }
+        self.playbackDiagnosticInterval = nil
+        NativeDiagnostics.shared.record(
+            .backgroundPlayback,
+            reason: .playbackStopped
+        )
+        NativeDiagnostics.shared.end(playbackDiagnosticInterval, outcome: outcome)
     }
 
     private func persistPosition() {

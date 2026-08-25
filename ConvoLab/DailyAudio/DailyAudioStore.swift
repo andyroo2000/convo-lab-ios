@@ -266,6 +266,14 @@ final class DailyAudioStore {
             return
         }
         let operationGeneration = activationGeneration
+        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
+        defer {
+            NativeDiagnostics.shared.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome
+            )
+        }
         isLoading = true
         clearError(from: .create)
         defer {
@@ -302,12 +310,14 @@ final class DailyAudioStore {
             generationStartWasInterrupted = false
             beginGenerationPollingIfNeeded()
             clearError(from: .create)
+            diagnosticOutcome = .succeeded
         } catch {
             guard isCurrentActivation(
                 userID,
                 generation: operationGeneration
             ) else { return }
             if Self.isCancellation(error) {
+                diagnosticOutcome = .cancelled
                 generationStartWasInterrupted = true
                 setError("Generation was interrupted. You can retry it.", from: .create)
             } else {
