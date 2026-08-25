@@ -9,7 +9,7 @@ struct StudyHomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 18) {
+                VStack(spacing: 18) {
                     todayPlan
                     learningReadiness
                     masterySpread
@@ -58,14 +58,17 @@ struct StudyHomeView: View {
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
-            .onAppear {
-                Task {
-                    await store.synchronizeIfNeeded(maxAge: .seconds(60))
-                    await refreshWaniKaniIfNeeded()
+            .task {
+                // Cached state is already visible. Leave the first interaction window
+                // free before starting non-urgent main-actor refresh coordination.
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
                 }
-                Task {
-                    await refreshCalendarIfNeeded()
-                }
+                async let study: Void = refreshStudyIfNeeded()
+                async let calendar: Void = refreshCalendarIfNeeded()
+                _ = await (study, calendar)
             }
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
@@ -270,6 +273,12 @@ struct StudyHomeView: View {
         ) else { return }
 
         await store.syncWaniKani()
+    }
+
+    private func refreshStudyIfNeeded() async {
+        await store.synchronizeIfNeeded(maxAge: .seconds(60))
+        guard !Task.isCancelled else { return }
+        await refreshWaniKaniIfNeeded()
     }
 
     private func refreshCalendarIfNeeded(force: Bool = false) async {
