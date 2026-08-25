@@ -3,6 +3,55 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 
+final class AudioPlaybackDiagnostics {
+    private let diagnostics: NativeDiagnostics
+    private var interval: NativeDiagnosticInterval?
+    private var interruptionWasActive = false
+
+    init(diagnostics: NativeDiagnostics) {
+        self.diagnostics = diagnostics
+    }
+
+    func start() {
+        guard interval == nil else { return }
+        interval = diagnostics.begin(.backgroundPlayback)
+        diagnostics.record(.backgroundPlayback, reason: .playbackStarted)
+    }
+
+    func stop(outcome: NativeDiagnosticOutcome) {
+        guard let interval else { return }
+        self.interval = nil
+        diagnostics.record(.backgroundPlayback, reason: .playbackStopped)
+        diagnostics.end(interval, outcome: outcome)
+    }
+
+    func interruptionBegan() {
+        guard interval != nil else { return }
+        interruptionWasActive = true
+        diagnostics.record(.backgroundPlayback, reason: .interruptionBegan)
+        stop(outcome: .cancelled)
+    }
+
+    func interruptionEnded(willResume: Bool) {
+        guard interruptionWasActive else { return }
+        interruptionWasActive = false
+        diagnostics.record(.backgroundPlayback, reason: .interruptionEnded)
+        if willResume { start() }
+    }
+
+    func outputRouteWasLost() {
+        guard interval != nil else { return }
+        diagnostics.record(.backgroundPlayback, reason: .outputRouteLost)
+        stop(outcome: .cancelled)
+    }
+
+    deinit {
+        if let interval {
+            diagnostics.end(interval, outcome: .cancelled)
+        }
+    }
+}
+
 @Observable
 final class AudioPlayer {
     private enum PlaybackBackend {
@@ -29,6 +78,7 @@ final class AudioPlayer {
 #endif
         return false
     }
+    private let playbackDiagnostics: AudioPlaybackDiagnostics
     private var timeObserver: Any?
     private var currentTrackID: String?
     private var currentTitle = ""
@@ -61,9 +111,10 @@ final class AudioPlayer {
         !current
     }
 
-    init() {
+    init(diagnostics: NativeDiagnostics = .shared) {
         let player = AVPlayer()
         backend = .avPlayer(player)
+        playbackDiagnostics = AudioPlaybackDiagnostics(diagnostics: diagnostics)
         configureRemoteCommands()
         configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
@@ -85,8 +136,12 @@ final class AudioPlayer {
 #if DEBUG
     /// Test-only audio boundary. It exercises the production player state machine
     /// without registering remote commands, touching AVAudioSession, or decoding media.
-    init(deterministicUITestBackend: Void) {
+    init(
+        deterministicUITestBackend: Void,
+        diagnostics: NativeDiagnostics = .shared
+    ) {
         backend = .deterministicUITest
+        playbackDiagnostics = AudioPlaybackDiagnostics(diagnostics: diagnostics)
     }
 #endif
 
@@ -132,6 +187,7 @@ final class AudioPlayer {
             }
         }
         isPlaying = true
+        beginPlaybackDiagnosticsIfNeeded()
         if replacedPlayingTrack {
             onPlaybackStateChanged(true, currentTitle)
         }
@@ -147,6 +203,7 @@ final class AudioPlayer {
         if isPlaying {
             player.pause()
             isPlaying = false
+            endPlaybackDiagnostics(outcome: .succeeded)
         } else {
             resumePlayback()
         }
@@ -171,6 +228,7 @@ final class AudioPlayer {
         elapsed = 0
         duration = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        endPlaybackDiagnostics(outcome: .succeeded)
     }
 
     func seek(to seconds: Double) {
@@ -224,6 +282,7 @@ final class AudioPlayer {
             Task { @MainActor [weak self] in
                 self?.player.pause()
                 self?.isPlaying = false
+                self?.endPlaybackDiagnostics(outcome: .succeeded)
                 self?.updateNowPlaying()
             }
             return .success
@@ -292,11 +351,19 @@ final class AudioPlayer {
         switch type {
         case .began:
             wasPlayingBeforeInterruption = isPlaying
+            if wasPlayingBeforeInterruption {
+                playbackDiagnostics.interruptionBegan()
+            }
             player.pause()
             isPlaying = false
             updateNowPlaying()
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
+            if wasPlayingBeforeInterruption {
+                playbackDiagnostics.interruptionEnded(
+                    willResume: options.contains(.shouldResume)
+                )
+            }
             if wasPlayingBeforeInterruption, options.contains(.shouldResume) {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 player.play()
@@ -318,8 +385,12 @@ final class AudioPlayer {
         }
         // Do not unexpectedly continue spoken audio through the speaker when headphones
         // or another output route disappear.
+        let wasPlaying = isPlaying
         player.pause()
         isPlaying = false
+        if wasPlaying {
+            playbackDiagnostics.outputRouteWasLost()
+        }
         updateNowPlaying()
     }
 
@@ -338,6 +409,7 @@ final class AudioPlayer {
             UserDefaults.standard.removeObject(forKey: positionKey(currentTrackID))
         }
         updateNowPlaying()
+        endPlaybackDiagnostics(outcome: .succeeded)
     }
 
     private func resumePlayback() {
@@ -349,7 +421,16 @@ final class AudioPlayer {
             elapsed = 0
         }
         player.play()
+        beginPlaybackDiagnosticsIfNeeded()
         updateNowPlaying()
+    }
+
+    private func beginPlaybackDiagnosticsIfNeeded() {
+        playbackDiagnostics.start()
+    }
+
+    private func endPlaybackDiagnostics(outcome: NativeDiagnosticOutcome) {
+        playbackDiagnostics.stop(outcome: outcome)
     }
 
     private func persistPosition() {

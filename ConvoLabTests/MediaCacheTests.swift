@@ -39,7 +39,13 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let urls = (0..<45).map { offset in
             let id = ClientIdentifier.ulid(
                 date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
@@ -68,6 +74,8 @@ final class MediaCacheTests: XCTestCase {
         }
 
         await cache.prepare(urls: urls + additionalURLs, category: "offline-study")
+        // Repeating an already-complete preparation must not emit an empty interval.
+        await cache.prepare(urls: urls + additionalURLs, category: "offline-study")
 
         XCTAssertEqual(
             paths.values,
@@ -79,6 +87,70 @@ final class MediaCacheTests: XCTestCase {
             try container.mainContext.fetchCount(FetchDescriptor<CachedMediaRecord>()),
             50
         )
+        XCTAssertEqual(
+            diagnosticsSink.events,
+            [
+                .init(
+                    operation: .mediaPreparation,
+                    stage: .began,
+                    outcome: nil,
+                    reason: nil,
+                    itemCount: 45
+                ),
+                .init(
+                    operation: .mediaPreparation,
+                    stage: .ended,
+                    outcome: .succeeded,
+                    reason: nil,
+                    itemCount: 45
+                ),
+                .init(
+                    operation: .mediaPreparation,
+                    stage: .began,
+                    outcome: nil,
+                    reason: nil,
+                    itemCount: 5
+                ),
+                .init(
+                    operation: .mediaPreparation,
+                    stage: .ended,
+                    outcome: .succeeded,
+                    reason: nil,
+                    itemCount: 5
+                ),
+            ]
+        )
+    }
+
+    @MainActor
+    func testPreparationFailureEmitsPairedFailedDiagnostics() async throws {
+        MockURLProtocol.handler = { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
+        let id = ClientIdentifier.ulid()
+
+        await cache.prepare(
+            urls: [URL(string: "/api/study/media/\(id)")!],
+            category: "offline-study"
+        )
+
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .failed)
+        XCTAssertEqual(diagnosticsSink.events.last?.itemCount, 1)
     }
 
     @MainActor
@@ -103,7 +175,13 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let urls = (0..<20).map { offset in
             let id = ClientIdentifier.ulid(
                 date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
@@ -116,6 +194,8 @@ final class MediaCacheTests: XCTestCase {
 
         XCTAssertEqual(requestCounter.current, 1)
         XCTAssertTrue(cache.cachedKeys(for: urls).isEmpty)
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .discarded)
     }
 
     @MainActor

@@ -4,6 +4,8 @@ import XCTest
 @testable import ConvoLab
 
 final class CardMediaMutationServiceTests: XCTestCase {
+    private struct ReconciliationFailure: Error {}
+
     override func tearDown() {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = nil
@@ -43,7 +45,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
                 request: request
             )
         }
-        let (service, cache) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, cache) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let remoteURL = URL(string: "https://learning-os.example/api/study/media/audio-a")!
         let staleURL = try await cache.download(remoteURL, category: "active-study")
         XCTAssertEqual(try String(contentsOf: staleURL, encoding: .utf8), "stale-audio")
@@ -70,6 +77,9 @@ final class CardMediaMutationServiceTests: XCTestCase {
         XCTAssertEqual(result.card.answer["answerAudio"], audio)
         XCTAssertEqual(reconciled, result.card)
         XCTAssertEqual(try String(contentsOf: result.localURL, encoding: .utf8), "fresh-audio")
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.operation, .generation)
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .succeeded)
     }
 
     @MainActor
@@ -138,7 +148,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
             }
             return Self.response(status: 200, data: Data("uploaded".utf8), request: request)
         }
-        let (service, _) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, _) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
 
         let result = try await service.uploadImage(
             currentCard: card,
@@ -150,6 +165,49 @@ final class CardMediaMutationServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.card.prompt["cueImage"], image)
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.operation, .mediaUpload)
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .succeeded)
+    }
+
+    @MainActor
+    func testUploadReconciliationFailureEmitsPairedFailedDiagnostics() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "card-upload-failure", expression: "upload")
+        let image: JSONValue = .object(["url": .string("/api/study/media/uploaded-failure")])
+        let server = replacing(
+            card,
+            prompt: card.prompt.replacingObjectValues(["cueImage": image])
+        )
+        let data = try StorageCodec.encoder.encode(server)
+        let client = makeClient { request in
+            if request.url?.path.hasSuffix("/image") == true {
+                return Self.response(status: 200, data: data, request: request)
+            }
+            return Self.response(status: 200, data: Data("uploaded".utf8), request: request)
+        }
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, _) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
+
+        do {
+            _ = try await service.uploadImage(
+                currentCard: card,
+                jpegData: Data("jpeg-bytes".utf8),
+                placement: .prompt,
+                latestCard: { card },
+                hasPendingWrite: { _ in false },
+                onReconciled: { _, _, _ in throw ReconciliationFailure() }
+            )
+            XCTFail("Expected reconciliation failure")
+        } catch is ReconciliationFailure {}
+
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.operation, .mediaUpload)
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .failed)
     }
 
     @MainActor
@@ -208,7 +266,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
             _ = requests.next()
             return Self.response(status: 500, request: request)
         }
-        let (service, _) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, _) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
 
         do {
             _ = try await service.regenerateImage(
@@ -233,6 +296,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
             XCTFail("Expected invalid placement")
         } catch is InvalidCardImagePlacementError {}
         XCTAssertEqual(requests.current, 0)
+        XCTAssertTrue(diagnosticsSink.events.isEmpty)
     }
 
     @MainActor
@@ -248,7 +312,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
                 request: request
             )
         }
-        let (service, _) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, _) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let reconcileCount = LockedCounter()
         let operation = {
             try await service.regenerateAnswerAudio(
@@ -265,6 +334,14 @@ final class CardMediaMutationServiceTests: XCTestCase {
         do { _ = try await operation(); XCTFail("Expected rejection") }
         catch let APIClientError.rejected(status, _) { XCTAssertEqual(status, 422) }
         XCTAssertEqual(reconcileCount.current, 0)
+        XCTAssertEqual(
+            diagnosticsSink.events.map(\.stage),
+            [.began, .ended, .began, .ended]
+        )
+        XCTAssertEqual(
+            diagnosticsSink.events.compactMap(\.outcome),
+            [.failed, .failed]
+        )
     }
 
     @MainActor
@@ -292,7 +369,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
                 }
             }
         }
-        let (service, cache) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, cache) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let reconciled = LockedCounter()
         let operation = Task {
             try await service.regenerateAnswerAudio(
@@ -312,6 +394,8 @@ final class CardMediaMutationServiceTests: XCTestCase {
         do { _ = try await operation.value; XCTFail("Expected cancellation") }
         catch is CancellationError {}
         XCTAssertEqual(reconciled.current, 0)
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .cancelled)
         XCTAssertTrue(
             try container.mainContext.fetch(FetchDescriptor<CachedMediaRecord>()).isEmpty
         )
@@ -410,14 +494,20 @@ final class CardMediaMutationServiceTests: XCTestCase {
     @MainActor
     private func makeService(
         container: ModelContainer,
-        client: APIClient
+        client: APIClient,
+        diagnostics: NativeDiagnostics = .shared
     ) -> (CardMediaMutationService, MediaCache) {
         let cache = MediaCache(
             initialUserID: 1,
             api: client,
-            context: container.mainContext
+            context: container.mainContext,
+            diagnostics: diagnostics
         )
-        let service = CardMediaMutationService(api: client, mediaCache: cache)
+        let service = CardMediaMutationService(
+            api: client,
+            mediaCache: cache,
+            diagnostics: diagnostics
+        )
         service.activate(userID: 1)
         return (service, cache)
     }

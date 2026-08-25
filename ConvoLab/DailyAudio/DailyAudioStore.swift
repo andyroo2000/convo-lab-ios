@@ -14,6 +14,8 @@ final class DailyAudioStore {
     private let api: APIClient
     private let context: ModelContext
     private let mediaCache: MediaCache
+    private let diagnostics: NativeDiagnostics
+    private let generationPollingInitialDelay: TimeInterval
     @ObservationIgnored private var activeUserID: Int?
     @ObservationIgnored private var activationGeneration = 0
     @ObservationIgnored private var generationPollingTask: Task<Void, Never>?
@@ -46,11 +48,15 @@ final class DailyAudioStore {
         initialUserID: Int? = nil,
         api: APIClient,
         context: ModelContext,
-        mediaCache: MediaCache
+        mediaCache: MediaCache,
+        diagnostics: NativeDiagnostics = .shared,
+        generationPollingInitialDelay: TimeInterval = 5
     ) {
         self.api = api
         self.context = context
         self.mediaCache = mediaCache
+        self.diagnostics = diagnostics
+        self.generationPollingInitialDelay = generationPollingInitialDelay
         if let initialUserID {
             activate(userID: initialUserID)
         }
@@ -708,23 +714,56 @@ final class DailyAudioStore {
         }
         let operationGeneration = activationGeneration
         let pollingID = UUID()
+        var generatingPracticeIDs = Set(
+            practices.lazy.filter { $0.status == "generating" }.map(\.id)
+        )
+        let diagnosticInterval = diagnostics.begin(
+            .generation,
+            itemCount: generatingPracticeIDs.count
+        )
+        let pollingDiagnostics = diagnostics
         generationPollingID = pollingID
         generationPollingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else {
+                pollingDiagnostics.end(
+                    diagnosticInterval,
+                    outcome: .cancelled
+                )
+                return
+            }
             defer {
+                let diagnosticOutcome: NativeDiagnosticOutcome
+                if Task.isCancelled
+                    || !isCurrentActivation(userID, generation: operationGeneration)
+                {
+                    diagnosticOutcome = .cancelled
+                } else if practices.contains(where: {
+                    generatingPracticeIDs.contains($0.id) && $0.status == "failed"
+                }) {
+                    diagnosticOutcome = .failed
+                } else {
+                    diagnosticOutcome = .succeeded
+                }
+                pollingDiagnostics.end(
+                    diagnosticInterval,
+                    outcome: diagnosticOutcome
+                )
                 if generationPollingID == pollingID {
                     generationPollingTask = nil
                     generationPollingID = nil
                 }
             }
-            var delay: TimeInterval = 5
+            var delay = generationPollingInitialDelay
             while !Task.isCancelled,
                   isCurrentActivation(userID, generation: operationGeneration),
                   practices.contains(where: { $0.status == "generating" }) {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 let refreshed = await refresh(showsErrors: false)
-                delay = refreshed ? 5 : min(delay * 2, 60)
+                generatingPracticeIDs.formUnion(
+                    practices.lazy.filter { $0.status == "generating" }.map(\.id)
+                )
+                delay = refreshed ? generationPollingInitialDelay : min(max(delay * 2, 1), 60)
             }
         }
     }

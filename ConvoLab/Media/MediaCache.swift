@@ -14,6 +14,7 @@ final class MediaCache {
     private let context: ModelContext
     private let rootURL: URL
     private let accountDeletionFileRemoval: AccountDeletionFileRemoval
+    private let diagnostics: NativeDiagnostics
 
     private(set) var activeDownloads = 0
     @ObservationIgnored private var activeUserID: Int?
@@ -25,10 +26,12 @@ final class MediaCache {
         initialUserID: Int? = nil,
         api: APIClient,
         context: ModelContext,
+        diagnostics: NativeDiagnostics = .shared,
         accountDeletionFileRemoval: @escaping AccountDeletionFileRemoval = MediaCache.removeFileOffMain
     ) {
         self.api = api
         self.context = context
+        self.diagnostics = diagnostics
         self.accountDeletionFileRemoval = accountDeletionFileRemoval
         let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -222,6 +225,20 @@ final class MediaCache {
         let operationGeneration = ownershipGeneration
         let uniqueURLs = Array(Set(urls))
         let uncachedURLs = uniqueURLs.filter { localURL(for: $0) == nil }
+        guard !uncachedURLs.isEmpty else { return }
+        let diagnosticInterval = diagnostics.begin(
+            .mediaPreparation,
+            itemCount: uncachedURLs.count
+        )
+        var diagnosticOutcome: NativeDiagnosticOutcome = .cancelled
+        defer {
+            diagnostics.end(
+                diagnosticInterval,
+                outcome: diagnosticOutcome,
+                itemCount: uncachedURLs.count
+            )
+        }
+        var encounteredFailure = false
         let batchable = uncachedURLs.compactMap { url -> (url: URL, id: String)? in
             guard let id = Self.studyMediaID(for: url) else { return nil }
             return (url, id)
@@ -282,6 +299,7 @@ final class MediaCache {
             } catch {
                 // Other transient batch failures retain the individual-download
                 // fallback so preparation remains best effort.
+                encounteredFailure = true
             }
             guard isCurrentOperation(
                 userID: userID,
@@ -305,7 +323,17 @@ final class MediaCache {
                 _ = try await download(url, category: category)
             } catch {
                 // Preparation is best effort. The owning screen can still stream while online.
+                encounteredFailure = true
             }
+        }
+        let allDeferred = Set(uncachedURLs.map(Self.stableCacheKey(for:)))
+            .isSubset(of: deferredBatchKeys)
+        diagnosticOutcome = if allDeferred {
+            .discarded
+        } else if encounteredFailure {
+            .failed
+        } else {
+            .succeeded
         }
     }
 
