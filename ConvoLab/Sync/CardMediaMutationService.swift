@@ -100,55 +100,55 @@ final class CardMediaMutationService {
             )
         }
         do {
-        let operation = try beginOperation(for: currentCard, medium: .answerAudio)
-        defer { finishOperation(operation) }
-        let request = RegenerateAnswerAudioRequest(
-            answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
-            answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
-        )
-        // learning-os compatibility endpoint returns the card directly, without
-        // the data envelope used by newer API endpoints.
-        let serverCard: StudyCard = try await api.request(
-            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-answer-audio",
-            method: "POST",
-            body: request,
-            timeout: 180
-        )
-        try ensureActive(operation)
-        guard
-            let generatedAudio = serverCard.answer["answerAudio"],
-            let remoteURL = serverCard.audioURL
-        else {
-            throw MissingGeneratedCardAudioError()
-        }
-        let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
-        try ensureActive(operation)
+            let operation = try beginOperation(for: currentCard, medium: .answerAudio)
+            defer { finishOperation(operation) }
+            let request = RegenerateAnswerAudioRequest(
+                answerAudioVoiceId: voiceID.nilIfTrimmedEmpty,
+                answerAudioTextOverride: textOverride.nilIfTrimmedEmpty
+            )
+            // learning-os compatibility endpoint returns the card directly, without
+            // the data envelope used by newer API endpoints.
+            let serverCard: StudyCard = try await api.request(
+                "/api/study/cards/\(currentCard.reviewCardID)/regenerate-answer-audio",
+                method: "POST",
+                body: request,
+                timeout: 180
+            )
+            try ensureActive(operation)
+            guard
+                let generatedAudio = serverCard.answer["answerAudio"],
+                let remoteURL = serverCard.audioURL
+            else {
+                throw MissingGeneratedCardAudioError()
+            }
+            let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+            try ensureActive(operation)
 
-        // Once the server and cache have changed, always reconcile local card
-        // metadata even if the editor that initiated the request was dismissed.
-        let latest = try latestCard()
-        let pendingWrite = try hasPendingWrite(latest.id)
-        let serverUpdatedAt = max(latest.updatedAt, serverCard.updatedAt)
-        let updated = StudyCardEditorProjection.reconcilingMedia(
-            latest: latest,
-            serverCard: serverCard,
-            prompt: latest.prompt,
-            answer: latest.answer.replacingObjectValues([
-                "answerAudio": generatedAudio,
-                "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
-                    ?? request.answerAudioVoiceId.map(JSONValue.string)
-                    ?? .null,
-                "answerAudioTextOverride": serverCard.answer["answerAudioTextOverride"]
-                    ?? request.answerAudioTextOverride.map(JSONValue.string)
-                    ?? .null,
-            ]),
-            answerAudioSource: serverCard.answerAudioSource ?? latest.answerAudioSource,
-            updatedAt: serverUpdatedAt
-        )
-        try ensureActive(operation)
-        try onReconciled(updated, pendingWrite, serverUpdatedAt)
-        diagnosticOutcome = .succeeded
-        return CardAnswerAudioRegenerationResult(card: updated, localURL: localURL)
+            // Once the server and cache have changed, always reconcile local card
+            // metadata even if the editor that initiated the request was dismissed.
+            let latest = try latestCard()
+            let pendingWrite = try hasPendingWrite(latest.id)
+            let serverUpdatedAt = max(latest.updatedAt, serverCard.updatedAt)
+            let updated = StudyCardEditorProjection.reconcilingMedia(
+                latest: latest,
+                serverCard: serverCard,
+                prompt: latest.prompt,
+                answer: latest.answer.replacingObjectValues([
+                    "answerAudio": generatedAudio,
+                    "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]
+                        ?? request.answerAudioVoiceId.map(JSONValue.string)
+                        ?? .null,
+                    "answerAudioTextOverride": serverCard.answer["answerAudioTextOverride"]
+                        ?? request.answerAudioTextOverride.map(JSONValue.string)
+                        ?? .null,
+                ]),
+                answerAudioSource: serverCard.answerAudioSource ?? latest.answerAudioSource,
+                updatedAt: serverUpdatedAt
+            )
+            try ensureActive(operation)
+            try onReconciled(updated, pendingWrite, serverUpdatedAt)
+            diagnosticOutcome = .succeeded
+            return CardAnswerAudioRegenerationResult(card: updated, localURL: localURL)
         } catch {
             diagnosticOutcome = .classifying(error)
             throw error
@@ -172,35 +172,35 @@ final class CardMediaMutationService {
             )
         }
         do {
-        let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
-            throw InvalidCardImagePromptError()
-        }
-        guard placement != .none else { throw InvalidCardImagePlacementError() }
-        let operation = try beginOperation(for: currentCard, medium: .image)
-        defer { finishOperation(operation) }
-        // learning-os compatibility endpoint returns the card directly.
-        let serverCard: StudyCard = try await api.request(
-            "/api/study/cards/\(currentCard.reviewCardID)/regenerate-image",
-            method: "POST",
-            body: RegenerateImageRequest(
-                imagePrompt: imagePrompt,
-                imageRole: placement.rawValue
-            ),
-            timeout: 180
-        )
-        try ensureActive(operation)
-        let result = try await reconcileImage(
-            currentCard: currentCard,
-            serverCard: serverCard,
-            placement: placement,
-            operation: operation,
-            latestCard: latestCard,
-            hasPendingWrite: hasPendingWrite,
-            onReconciled: onReconciled
-        )
-        diagnosticOutcome = .succeeded
-        return result
+            let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
+                throw InvalidCardImagePromptError()
+            }
+            guard placement != .none else { throw InvalidCardImagePlacementError() }
+            let operation = try beginOperation(for: currentCard, medium: .image)
+            defer { finishOperation(operation) }
+            // learning-os compatibility endpoint returns the card directly.
+            let serverCard: StudyCard = try await api.request(
+                "/api/study/cards/\(currentCard.reviewCardID)/regenerate-image",
+                method: "POST",
+                body: RegenerateImageRequest(
+                    imagePrompt: imagePrompt,
+                    imageRole: placement.rawValue
+                ),
+                timeout: 180
+            )
+            try ensureActive(operation)
+            let result = try await reconcileImage(
+                currentCard: currentCard,
+                serverCard: serverCard,
+                placement: placement,
+                operation: operation,
+                latestCard: latestCard,
+                hasPendingWrite: hasPendingWrite,
+                onReconciled: onReconciled
+            )
+            diagnosticOutcome = .succeeded
+            return result
         } catch {
             diagnosticOutcome = .classifying(error)
             throw error
@@ -231,29 +231,29 @@ final class CardMediaMutationService {
             )
         }
         do {
-        let operation = try beginOperation(for: currentCard, medium: .image)
-        defer { finishOperation(operation) }
-        let serverCard: StudyCard = try await api.upload(
-            "/api/study/cards/\(currentCard.reviewCardID)/image",
-            fields: ["imageRole": placement.rawValue],
-            fileData: jpegData,
-            fileField: "image",
-            fileName: "iphone-photo.jpg",
-            mimeType: "image/jpeg",
-            timeout: 120
-        )
-        try ensureActive(operation)
-        let result = try await reconcileImage(
-            currentCard: currentCard,
-            serverCard: serverCard,
-            placement: placement,
-            operation: operation,
-            latestCard: latestCard,
-            hasPendingWrite: hasPendingWrite,
-            onReconciled: onReconciled
-        )
-        diagnosticOutcome = .succeeded
-        return result
+            let operation = try beginOperation(for: currentCard, medium: .image)
+            defer { finishOperation(operation) }
+            let serverCard: StudyCard = try await api.upload(
+                "/api/study/cards/\(currentCard.reviewCardID)/image",
+                fields: ["imageRole": placement.rawValue],
+                fileData: jpegData,
+                fileField: "image",
+                fileName: "iphone-photo.jpg",
+                mimeType: "image/jpeg",
+                timeout: 120
+            )
+            try ensureActive(operation)
+            let result = try await reconcileImage(
+                currentCard: currentCard,
+                serverCard: serverCard,
+                placement: placement,
+                operation: operation,
+                latestCard: latestCard,
+                hasPendingWrite: hasPendingWrite,
+                onReconciled: onReconciled
+            )
+            diagnosticOutcome = .succeeded
+            return result
         } catch {
             diagnosticOutcome = .classifying(error)
             throw error

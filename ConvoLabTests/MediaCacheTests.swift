@@ -74,6 +74,7 @@ final class MediaCacheTests: XCTestCase {
         }
 
         await cache.prepare(urls: urls + additionalURLs, category: "offline-study")
+        // Repeating an already-complete preparation must not emit an empty interval.
         await cache.prepare(urls: urls + additionalURLs, category: "offline-study")
 
         XCTAssertEqual(

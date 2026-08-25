@@ -2032,35 +2032,39 @@ final class StudyStore {
             )
         }
         do {
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let updated = try await updateManualDraft(
-            serverDraft,
-            draft: draft,
-            previewImage: previewImage
-        )
-        let response: StudyCardDraftPreviewAudioResponse = try await api.request(
-            "/api/study/card-drafts/\(updated.id)/preview-audio",
-            method: "POST",
-            timeout: 180
-        )
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        let refreshed = try await fetchManualDraft(id: updated.id)
-        let localURL: URL?
-        if let remoteURL = response.previewAudio?.mediaURLs.first {
-            localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
-        } else {
-            localURL = nil
-        }
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        diagnosticOutcome = .succeeded
-        return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
+            guard let userID = activeUserID else { throw CancellationError() }
+            let activationGeneration = accountActivationGeneration
+            let updated = try await updateManualDraft(
+                serverDraft,
+                draft: draft,
+                previewImage: previewImage
+            )
+            let response: StudyCardDraftPreviewAudioResponse = try await api.request(
+                "/api/study/card-drafts/\(updated.id)/preview-audio",
+                method: "POST",
+                timeout: 180
+            )
+            guard
+                isCurrentActivation(
+                    userID,
+                    generation: activationGeneration
+                )
+            else { throw CancellationError() }
+            let refreshed = try await fetchManualDraft(id: updated.id)
+            let localURL: URL?
+            if let remoteURL = response.previewAudio?.mediaURLs.first {
+                localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+            } else {
+                localURL = nil
+            }
+            guard
+                isCurrentActivation(
+                    userID,
+                    generation: activationGeneration
+                )
+            else { throw CancellationError() }
+            diagnosticOutcome = .succeeded
+            return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
         } catch {
             diagnosticOutcome = .classifying(error)
             throw error
@@ -2082,34 +2086,38 @@ final class StudyStore {
             )
         }
         do {
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let updated = try await updateManualDraft(
-            serverDraft,
-            draft: draft,
-            previewAudio: previewAudio,
-            previewAudioRole: previewAudioRole
-        )
-        let response: StudyCardDraftImageResponse = try await api.request(
-            "/api/study/card-drafts/\(updated.id)/preview-image",
-            method: "POST",
-            timeout: 180
-        )
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        guard let remoteURL = response.previewImage.mediaURLs.first else {
-            throw MissingGeneratedCardImageError()
-        }
-        let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        let refreshed = try await fetchManualDraft(id: updated.id)
-        diagnosticOutcome = .succeeded
-        return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
+            guard let userID = activeUserID else { throw CancellationError() }
+            let activationGeneration = accountActivationGeneration
+            let updated = try await updateManualDraft(
+                serverDraft,
+                draft: draft,
+                previewAudio: previewAudio,
+                previewAudioRole: previewAudioRole
+            )
+            let response: StudyCardDraftImageResponse = try await api.request(
+                "/api/study/card-drafts/\(updated.id)/preview-image",
+                method: "POST",
+                timeout: 180
+            )
+            guard
+                isCurrentActivation(
+                    userID,
+                    generation: activationGeneration
+                )
+            else { throw CancellationError() }
+            guard let remoteURL = response.previewImage.mediaURLs.first else {
+                throw MissingGeneratedCardImageError()
+            }
+            let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
+            guard
+                isCurrentActivation(
+                    userID,
+                    generation: activationGeneration
+                )
+            else { throw CancellationError() }
+            let refreshed = try await fetchManualDraft(id: updated.id)
+            diagnosticOutcome = .succeeded
+            return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
         } catch {
             diagnosticOutcome = .classifying(error)
             throw error
