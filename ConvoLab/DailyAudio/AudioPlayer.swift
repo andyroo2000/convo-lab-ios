@@ -5,7 +5,30 @@ import MediaPlayer
 
 @Observable
 final class AudioPlayer {
-    private let player = AVPlayer()
+    private enum PlaybackBackend {
+        case avPlayer(AVPlayer)
+#if DEBUG
+        case deterministicUITest
+#endif
+    }
+
+    private let backend: PlaybackBackend
+    private var player: AVPlayer {
+        switch backend {
+        case let .avPlayer(player):
+            player
+#if DEBUG
+        case .deterministicUITest:
+            preconditionFailure("The deterministic UI-test backend has no AVPlayer")
+#endif
+        }
+    }
+    private var usesDeterministicBackend: Bool {
+#if DEBUG
+        if case .deterministicUITest = backend { return true }
+#endif
+        return false
+    }
     private var timeObserver: Any?
     private var currentTrackID: String?
     private var currentTitle = ""
@@ -39,6 +62,8 @@ final class AudioPlayer {
     }
 
     init() {
+        let player = AVPlayer()
+        backend = .avPlayer(player)
         configureRemoteCommands()
         configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
@@ -57,8 +82,16 @@ final class AudioPlayer {
         }
     }
 
+#if DEBUG
+    /// Test-only audio boundary. It exercises the production player state machine
+    /// without registering remote commands, touching AVAudioSession, or decoding media.
+    init(deterministicUITestBackend: Void) {
+        backend = .deterministicUITest
+    }
+#endif
+
     isolated deinit {
-        if let timeObserver {
+        if let timeObserver, case let .avPlayer(player) = backend {
             player.removeTimeObserver(timeObserver)
         }
         let center = NotificationCenter.default
@@ -75,6 +108,14 @@ final class AudioPlayer {
 
     func play(url: URL, trackID: String, title: String) {
         onWillStartPlayback()
+        if usesDeterministicBackend {
+            currentTrackID = trackID
+            currentTitle = title
+            elapsed = 0
+            duration = 60
+            isPlaying = true
+            return
+        }
         activateAudioSession()
         let replacedPlayingTrack = Self.replacesPlayingTrack(
             isPlaying: isPlaying,
@@ -99,6 +140,10 @@ final class AudioPlayer {
     }
 
     func toggle() {
+        if usesDeterministicBackend {
+            isPlaying.toggle()
+            return
+        }
         if isPlaying {
             player.pause()
             isPlaying = false
@@ -109,6 +154,14 @@ final class AudioPlayer {
     }
 
     func stop() {
+        if usesDeterministicBackend {
+            isPlaying = false
+            currentTrackID = nil
+            currentTitle = ""
+            elapsed = 0
+            duration = 0
+            return
+        }
         player.pause()
         persistPosition()
         isPlaying = false
@@ -121,6 +174,10 @@ final class AudioPlayer {
     }
 
     func seek(to seconds: Double) {
+        if usesDeterministicBackend {
+            elapsed = min(max(seconds, 0), duration)
+            return
+        }
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
     }
 

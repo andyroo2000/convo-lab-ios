@@ -14,6 +14,7 @@ struct CardEditorView: View {
     let card: StudyCard?
     let serverDraft: StudyManualCardDraft?
     let timeStore: StudyTimeStore?
+    private let isRecoveringPendingCreate: Bool
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var draft: StudyCardDraft
@@ -52,6 +53,9 @@ struct CardEditorView: View {
         player: StudyAudioPlayer,
         card: StudyCard?,
         serverDraft: StudyManualCardDraft?,
+        initialCreationKind: StudyCardCreationKind? = nil,
+        initialDraft: StudyCardDraft? = nil,
+        initialClientDraftID: String? = nil,
         timeStore: StudyTimeStore? = nil
     ) {
         self.store = store
@@ -59,19 +63,39 @@ struct CardEditorView: View {
         self.card = card
         self.serverDraft = serverDraft
         self.timeStore = timeStore
-        let initialDraft = if let card {
+        var resolvedInitialDraft = if let card {
             StudyCardDraft(card: card)
         } else if let serverDraft {
             StudyCardDraft(manualDraft: serverDraft)
+        } else if let initialDraft {
+            initialDraft
         } else {
             StudyCardDraft()
         }
-        _draft = State(initialValue: initialDraft)
-        _clientDraftID = State(initialValue: serverDraft?.id ?? ClientIdentifier.ulid())
-        _creationKind = State(initialValue: serverDraft?.creationKind ?? .textRecognition)
+        let resolvedCreationKind = serverDraft?.creationKind
+            ?? initialCreationKind
+            ?? .textRecognition
+        if card == nil, serverDraft == nil {
+            resolvedInitialDraft.cardType = resolvedCreationKind.cardType
+            resolvedInitialDraft.isAudioLedPrompt = resolvedCreationKind == .audioRecognition
+            resolvedInitialDraft.isMediaLedPrompt = [.audioRecognition, .productionImage]
+                .contains(resolvedCreationKind)
+            resolvedInitialDraft.imagePlacement = resolvedCreationKind.defaultImagePlacement
+        }
+        _draft = State(initialValue: resolvedInitialDraft)
+        _clientDraftID = State(
+            initialValue: serverDraft?.id
+                ?? initialClientDraftID
+                ?? ClientIdentifier.ulid()
+        )
+        _creationKind = State(initialValue: resolvedCreationKind)
         _previewAudio = State(initialValue: serverDraft?.previewAudio)
         _previewAudioRole = State(initialValue: serverDraft?.previewAudioRole)
         _previewImage = State(initialValue: serverDraft?.previewImage)
+        isRecoveringPendingCreate = card == nil
+            && serverDraft == nil
+            && initialDraft != nil
+            && initialClientDraftID != nil
     }
 
     var body: some View {
@@ -188,6 +212,7 @@ struct CardEditorView: View {
                 if let errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
+                        .accessibilityIdentifier("card-editor-error")
                 }
                 if card != nil {
                     Section {
@@ -219,7 +244,11 @@ struct CardEditorView: View {
                 }
             }
             .navigationTitle(
-                card != nil ? "Edit Card" : serverDraft != nil ? "Review Draft" : "New Card"
+                card != nil
+                    ? "Edit Card"
+                    : serverDraft != nil
+                    ? "Review Draft"
+                    : isRecoveringPendingCreate ? "Resume Draft" : "New Card"
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

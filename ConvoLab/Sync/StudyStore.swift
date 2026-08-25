@@ -122,6 +122,9 @@ final class StudyStore {
     private let cardCatalogRepository: StudyCardCatalogRepository
     private let learningPathRepository: StudyLearningPathRepository
     private let dueActivationScheduler: any StudyDueActivationScheduling
+#if DEBUG
+    private var reviewEventOutboxFlushOverride: (() async throws -> Void)?
+#endif
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -171,6 +174,10 @@ final class StudyStore {
     private(set) var storageWriteErrorMessage: String?
     private(set) var failedStudyChanges: [FailedStudyChange] = []
     var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
+    var pendingManualDraftCreates: [CreateStudyManualCardDraftRequest] {
+        _ = manualDraftOutboxRevision
+        return manualDraftOutbox.pendingCreateRequests()
+    }
     private(set) var overview: StudyOverview?
     private(set) var isRefreshingOverview = false
     private(set) var overviewRefreshErrorMessage: String?
@@ -195,6 +202,13 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
+    private var reviewOutboxRevision = 0
+    private var manualDraftOutboxRevision = 0
+    var pendingOfflineReviewCount: Int {
+        _ = reviewOutboxRevision
+        guard activeUserID != nil else { return 0 }
+        return (try? reviewOutbox.pendingDeliverableCount()) ?? 0
+    }
     private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
@@ -299,6 +313,36 @@ final class StudyStore {
         }
     }
 
+#if DEBUG
+    convenience init(
+        initialUserID: Int? = nil,
+        api: APIClient,
+        context: ModelContext,
+        mediaCache: MediaCache,
+        storageMode: StorageMode = .persistent,
+        dueActivationScheduler: any StudyDueActivationScheduling = RunLoopStudyDueActivationScheduler(),
+        reviewProjection: @escaping (
+            StudyCard,
+            ReviewRating,
+            Date
+        ) throws -> StudyCard = { card, rating, reviewedAt in
+            try card.applyingReview(rating, at: reviewedAt)
+        },
+        reviewEventOutboxFlushOverride: @escaping () async throws -> Void
+    ) {
+        self.init(
+            initialUserID: initialUserID,
+            api: api,
+            context: context,
+            mediaCache: mediaCache,
+            storageMode: storageMode,
+            dueActivationScheduler: dueActivationScheduler,
+            reviewProjection: reviewProjection
+        )
+        self.reviewEventOutboxFlushOverride = reviewEventOutboxFlushOverride
+    }
+#endif
+
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         deactivate()
@@ -312,6 +356,7 @@ final class StudyStore {
         cardOutbox.activate(userID: userID)
         cardActionOutbox.activate(userID: userID)
         manualDraftOutbox.activate(userID: userID)
+        manualDraftOutboxRevision &+= 1
         cardMediaService.activate(userID: userID)
         pitchAccentService.activate(userID: userID)
         sessionLoadingService.activate(userID: userID)
@@ -339,6 +384,7 @@ final class StudyStore {
         cardOutbox.deactivate()
         cardActionOutbox.deactivate()
         manualDraftOutbox.deactivate()
+        manualDraftOutboxRevision &+= 1
         cardMediaService.deactivate()
         pitchAccentService.deactivate()
         sessionLoadingService.deactivate()
@@ -1700,6 +1746,7 @@ final class StudyStore {
                 queueIndex: cards.count
             )
             stagedReview = staged
+            reviewOutboxRevision &+= 1
             let currentCard = staged.cardBefore
             let updatedCard = staged.cardAfter
             let identifiers = StudyCardIdentity.identifiers(for: currentCard)
@@ -1790,6 +1837,7 @@ final class StudyStore {
             throw DeletedCardUndoError()
         }
         if try reviewOutbox.stageRemoval(eventID: eventID) {
+            reviewOutboxRevision &+= 1
             // The view may hold a pre-reconciliation snapshot. For a locally
             // pending undo, preserve the latest local presentation while
             // restoring the scheduling state captured before the review.
@@ -1885,6 +1933,7 @@ final class StudyStore {
         draft: StudyCardDraft,
         id: String = ClientIdentifier.ulid()
     ) async throws -> StudyManualCardDraft {
+        defer { manualDraftOutboxRevision &+= 1 }
         try requirePersistentWrites()
         guard activeUserID != nil else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
@@ -2430,7 +2479,9 @@ final class StudyStore {
         try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         guard failedStudyChangeOperationIDs.insert(id).inserted else { return }
-        defer { failedStudyChangeOperationIDs.remove(id) }
+        defer {
+            failedStudyChangeOperationIDs.remove(id)
+        }
         let activationGeneration = accountActivationGeneration
         guard let mutation = try failedMutation(id: id, userID: userID),
               let kind = mutation.studyMutationKind
@@ -2832,12 +2883,21 @@ final class StudyStore {
     }
 
     private func flushSchedulingOutboxes() async throws {
+        defer { reviewOutboxRevision &+= 1 }
         while true {
             let before = try reviewOutbox.pendingDeliverableCount()
                 + cardActionOutbox.pendingDeliverableCount()
             guard before > 0 else { return }
 
+#if DEBUG
+            if let reviewEventOutboxFlushOverride {
+                try await reviewEventOutboxFlushOverride()
+            } else {
+                try await reviewOutbox.flush()
+            }
+#else
             try await reviewOutbox.flush()
+#endif
             try await flushCardActionOutbox()
 
             let after = try reviewOutbox.pendingDeliverableCount()
@@ -3181,6 +3241,7 @@ final class StudyStore {
     }
 
     func retryPendingDraftCreates() async throws {
+        defer { manualDraftOutboxRevision &+= 1 }
         try requirePersistentWrites()
         try await manualDraftOutbox.retryPendingCreates()
     }
@@ -3189,6 +3250,7 @@ final class StudyStore {
         userID: Int,
         activationGeneration: Int
     ) async throws {
+        defer { manualDraftOutboxRevision &+= 1 }
         try await manualDraftOutbox.retryPendingMutations { [weak self] card in
             guard let self, self.isCurrentActivation(
                 userID,

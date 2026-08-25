@@ -40,6 +40,9 @@ final class AppModel {
         },
         makeAPIClient: (URL) -> APIClient = { APIClient(baseURL: $0) },
         makeAuthStore: (APIClient) -> AuthStore = { AuthStore(api: $0) },
+        makeStudyTimeStore: ((APIClient, ModelContext, StorageMode) -> StudyTimeStore)? = nil,
+        makeAudioPlayer: () -> AudioPlayer = { AudioPlayer() },
+        makeStudyAudioPlayer: ((AudioPlayer) -> StudyAudioPlayer)? = nil,
         accountDeletionCleanupDefaults: UserDefaults = .standard
     ) {
         let container: ModelContainer
@@ -78,11 +81,12 @@ final class AppModel {
         )
         let api = makeAPIClient(configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
-        let studyTime = StudyTimeStore(
-            api: api,
-            context: timeContainer.mainContext,
-            storageMode: studyTimeStorageMode
-        )
+        let studyTime = makeStudyTimeStore?(api, timeContainer.mainContext, studyTimeStorageMode)
+            ?? StudyTimeStore(
+                api: api,
+                context: timeContainer.mainContext,
+                storageMode: studyTimeStorageMode
+            )
         let study = StudyStore(
             api: api,
             context: container.mainContext,
@@ -158,12 +162,13 @@ final class AppModel {
                 },
             ]
         )
-        let audioPlayer = AudioPlayer()
-        let studyAudioPlayer = StudyAudioPlayer(
-            isLongFormAudioPlaying: { [weak audioPlayer] in
-                audioPlayer?.isPlaying == true
-            }
-        )
+        let audioPlayer = makeAudioPlayer()
+        let studyAudioPlayer = makeStudyAudioPlayer?(audioPlayer)
+            ?? StudyAudioPlayer(
+                isLongFormAudioPlaying: { [weak audioPlayer] in
+                    audioPlayer?.isPlaying == true
+                }
+            )
         audioPlayer.setPlaybackStartHandler { [weak studyAudioPlayer] in
             studyAudioPlayer?.stop()
         }
@@ -210,12 +215,19 @@ final class AppModel {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
+            async let draftCreateRetry: Void = retryPendingDraftCreates()
             async let dailyAudioRefresh: Void = dailyAudio.refreshIfNeeded(
                 maxAge: .seconds(60)
             )
             async let timeSync: Void = studyTime.synchronize()
             async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-            _ = await (studySync, dailyAudioRefresh, timeSync, weeklyRecap)
+            _ = await (
+                studySync,
+                draftCreateRetry,
+                dailyAudioRefresh,
+                timeSync,
+                weeklyRecap
+            )
         }
     }
 
@@ -314,9 +326,16 @@ final class AppModel {
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
+        async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-        _ = await (studySync, audioRefresh, timeSync, weeklyRecap)
+        _ = await (studySync, draftCreateRetry, audioRefresh, timeSync, weeklyRecap)
+    }
+
+    private func retryPendingDraftCreates() async {
+        // A freshness-throttled study sync can skip its outbox work. Foregrounding
+        // still retries durable creates so offline drafts do not wait for a full sync.
+        try? await study.retryPendingDraftCreates()
     }
 }

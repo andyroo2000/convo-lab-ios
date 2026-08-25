@@ -3,6 +3,11 @@ import SwiftUI
 struct CardLibraryView: View {
     private static let maximumReorderableCards = 100
 
+    private struct PendingCreateSelection: Identifiable {
+        let request: CreateStudyManualCardDraftRequest
+        var id: String { request.id }
+    }
+
     private enum CollectionMode: String, CaseIterable, Identifiable {
         case queue = "Queue"
         case all = "All Cards"
@@ -18,6 +23,7 @@ struct CardLibraryView: View {
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
     @State private var selectedDraft: StudyManualCardDraft?
+    @State private var selectedPendingCreate: PendingCreateSelection?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
     @State private var showingCardLoadError = false
@@ -95,6 +101,19 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
+            .sheet(item: $selectedPendingCreate) { selection in
+                let request = selection.request
+                CardEditorView(
+                    store: store,
+                    player: player,
+                    card: nil,
+                    serverDraft: nil,
+                    initialCreationKind: request.creationKind,
+                    initialDraft: recoveredCardDraft(for: request),
+                    initialClientDraftID: request.id,
+                    timeStore: timeStore
+                )
+            }
             .alert("Could not delete card", isPresented: $showingDeletionError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -138,6 +157,22 @@ struct CardLibraryView: View {
     @ViewBuilder
     private var cardList: some View {
         List {
+            if !store.pendingManualDraftCreates.isEmpty {
+                Section("Card creation recovery") {
+                    ForEach(store.pendingManualDraftCreates, id: \.id) { request in
+                        Button {
+                            selectedPendingCreate = PendingCreateSelection(request: request)
+                        } label: {
+                            Label(
+                                "Resume \(request.creationKind.title.lowercased()) draft",
+                                systemImage: "arrow.clockwise.circle"
+                            )
+                        }
+                        .accessibilityIdentifier("pending-card-create-\(request.id)")
+                    }
+                }
+            }
+
             if collectionMode == .queue {
                 if let queueErrorMessage {
                     Text(queueErrorMessage)
@@ -256,7 +291,9 @@ struct CardLibraryView: View {
             }
         }
         .overlay {
-            if collectionMode == .queue, store.newCardQueue.isEmpty {
+            if collectionMode == .queue,
+               store.newCardQueue.isEmpty,
+               store.pendingManualDraftCreates.isEmpty {
                 ContentUnavailableView(
                     store.isRefreshingNewCardQueue ? "Loading queue…" : "Queue is empty",
                     systemImage: "text.line.first.and.arrowtriangle.forward",
@@ -264,7 +301,8 @@ struct CardLibraryView: View {
                 )
             } else if collectionMode == .all,
                       store.learningItems.isEmpty,
-                      store.manualDrafts.isEmpty {
+                      store.manualDrafts.isEmpty,
+                      store.pendingManualDraftCreates.isEmpty {
                 if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView(
                         store.isRefreshingLearningItems ? "Loading cards…" : "No cards",
@@ -276,6 +314,28 @@ struct CardLibraryView: View {
                 }
             }
         }
+    }
+
+    private func recoveredCardDraft(
+        for request: CreateStudyManualCardDraftRequest
+    ) -> StudyCardDraft {
+        StudyCardDraft(manualDraft: StudyManualCardDraft(
+            id: request.id,
+            status: "pending",
+            committedCardId: nil,
+            creationKind: request.creationKind,
+            cardType: request.cardType,
+            prompt: request.prompt,
+            answer: request.answer,
+            imagePlacement: request.imagePlacement,
+            imagePrompt: request.imagePrompt,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .distantPast,
+            updatedAt: .distantPast
+        ))
     }
 
     private func card(for item: StudyNewCardQueueItem) -> StudyCard? {
