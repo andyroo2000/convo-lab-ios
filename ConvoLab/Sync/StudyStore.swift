@@ -72,6 +72,7 @@ final class StudyStore {
     private let syncCoordinator: StudySyncCoordinator
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
+    private let learningPathRepository: StudyLearningPathRepository
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -241,6 +242,7 @@ final class StudyStore {
         )
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
+        learningPathRepository = StudyLearningPathRepository(api: api)
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -1071,6 +1073,30 @@ final class StudyStore {
             to: allCards
         )
         allCardsNextCursor = response.nextCursor
+    }
+
+    func learningPath(for card: StudyCard) async throws -> StudyLearningPath {
+        try await learningPathRepository.learningPath(for: card.reviewCardID)
+    }
+
+    func searchLearningPathSuccessors(matching query: String) async throws -> [StudyCard] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+        return try await cardCatalogRepository.cardPage(matching: trimmedQuery).items
+    }
+
+    func linkLearningPathSuccessor(
+        _ successor: StudyCard,
+        to predecessor: StudyCard,
+        requirement: StudyLearningPathUnlockRequirement
+    ) async throws -> StudyLearningPath {
+        let path = try await learningPathRepository.linkSuccessor(
+            successor.reviewCardID,
+            to: predecessor.reviewCardID,
+            requirement: requirement
+        )
+        try? await refreshLearningItems(search: learningItemsQuery)
+        return path
     }
 
     func refreshLearningItems(search query: String = "") async throws {

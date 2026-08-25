@@ -167,6 +167,10 @@ struct CardEditorView: View {
                         TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
                             .lineLimit(2...6)
                     }
+
+                    if let card {
+                        StudyLearningPathEditorSection(store: store, card: card)
+                    }
                 }
                 .disabled(isDraftCommitPending)
 

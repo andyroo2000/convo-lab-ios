@@ -779,6 +779,125 @@ enum StudyLearningItemStageStatus: String, nonisolated Codable, Equatable, Senda
     }
 }
 
+enum StudyLearningPathUnlockRequirement: String, nonisolated Codable, Equatable, Sendable {
+    case successfulRetrieval = "successful_retrieval"
+    case guru
+    case master
+    case unknown
+
+    nonisolated init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    static var selectableCases: [Self] {
+        [.successfulRetrieval, .guru, .master]
+    }
+
+    var title: String {
+        switch self {
+        case .successfulRetrieval: "2 successful reviews"
+        case .guru: "Guru"
+        case .master: "Master"
+        case .unknown: "Unknown"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .successfulRetrieval:
+            "Unlock after two Good or Easy reviews."
+        case .guru:
+            "Unlock once this card reaches Guru and the next review is Good or Easy."
+        case .master:
+            "Unlock once this card reaches Master and the next review is Good or Easy."
+        case .unknown:
+            "This path uses a requirement added by a newer version of ConvoLab."
+        }
+    }
+}
+
+struct StudyLearningPathCard: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let id: String
+    let sourceNoteId: String?
+    let cardType: String
+    let frontText: String?
+    let backText: String?
+    let promptJSON: JSONValue?
+    let answerJSON: JSONValue?
+    let variantStage: Int?
+    let variantStatus: StudyLearningItemStageStatus?
+    let variantUnlockRequirement: StudyLearningPathUnlockRequirement?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sourceNoteId = "source_note_id"
+        case cardType = "card_type"
+        case frontText = "front_text"
+        case backText = "back_text"
+        case promptJSON = "prompt_json"
+        case answerJSON = "answer_json"
+        case variantStage = "variant_stage"
+        case variantStatus = "variant_status"
+        case variantUnlockRequirement = "variant_unlock_requirement"
+    }
+
+    var displayText: String {
+        promptJSON?.firstNonEmptyString(
+            for: ["clozeDisplayText", "cueText", "clozeText", "text"]
+        ) ?? normalized(frontText) ?? id
+    }
+
+    var meaning: String? {
+        answerJSON?.firstNonEmptyString(
+            for: ["meaning", "translation", "sentenceEn", "text"]
+        ) ?? normalized(backText)
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+struct StudyLearningPathStage: nonisolated Codable, Identifiable, Equatable, Sendable {
+    let number: Int?
+    let cards: [StudyLearningPathCard]
+
+    nonisolated var id: String {
+        number.map { "stage:\($0)" }
+            ?? "cards:\(cards.map(\.id).joined(separator: ","))"
+    }
+}
+
+struct StudyLearningPath: nonisolated Codable, Equatable, Sendable {
+    let groupId: String?
+    let anchorCardId: String
+    let stages: [StudyLearningPathStage]
+
+    enum CodingKeys: String, CodingKey {
+        case groupId = "group_id"
+        case anchorCardId = "anchor_card_id"
+        case stages
+    }
+}
+
+struct LinkStudyLearningPathSuccessorRequest: Encodable, Equatable, Sendable {
+    let successorCardId: String
+    let unlockRequirement: StudyLearningPathUnlockRequirement
+
+    enum CodingKeys: String, CodingKey {
+        case successorCardId = "successor_card_id"
+        case unlockRequirement = "unlock_requirement"
+    }
+}
+
 struct StudyLearningItemCard: nonisolated Codable, Identifiable, Equatable, Sendable {
     let id: String
     let syncId: String
