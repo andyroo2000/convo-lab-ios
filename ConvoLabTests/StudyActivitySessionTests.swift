@@ -2831,6 +2831,51 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertEqual(synchronizationOutcome?.shouldApply, true)
     }
 
+    func testSynchronizationSurfacesFailureAfterConcurrentLocalMutation() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let (getStarted, getStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseGet, releaseGetContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            guard request.httpMethod == "GET",
+                  request.url?.path == "/api/study/activity-sessions"
+            else {
+                completion(.failure(URLError(.badURL)))
+                return
+            }
+            getStartedContinuation.yield()
+            Task {
+                var iterator = releaseGet.makeAsyncIterator()
+                _ = await iterator.next()
+                completion(.success((
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"Synchronization unavailable"}"#.utf8)
+                )))
+            }
+        }
+        let store = StudyTimeStore(
+            api: client,
+            context: container.mainContext,
+            snapshotCache: EmptyStudyTimeSnapshotCache()
+        )
+        store.activate(userID: 42)
+
+        let synchronization = Task { await store.synchronize() }
+        var getStartedIterator = getStarted.makeAsyncIterator()
+        _ = await getStartedIterator.next()
+        try store.deleteLocalData(userID: 42)
+        releaseGetContinuation.yield()
+        await synchronization.value
+
+        XCTAssertNotNil(store.syncErrorMessage)
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertNil(store.active)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler

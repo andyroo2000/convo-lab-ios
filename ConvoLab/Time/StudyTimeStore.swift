@@ -562,10 +562,11 @@ final class StudyTimeStore {
         guard let requestedUserID = activeUserID,
               let outcome = await synchronizationCoordinator.synchronize(),
               synchronizationCoordinator.isCurrent(userID: requestedUserID),
-              !outcome.becameStale,
               outcome.shouldApply
         else { return }
-        applyLoadedSessions(outcome.loadedSessions)
+        if !outcome.becameStale {
+            applyLoadedSessions(outcome.loadedSessions)
+        }
         syncErrorMessage = outcome.failureMessage
     }
 

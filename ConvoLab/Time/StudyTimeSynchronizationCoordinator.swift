@@ -173,7 +173,7 @@ final class StudyTimeSynchronizationCoordinator {
         guard isCurrent(context) else {
             return SynchronizationOutcome(
                 loadedSessions: nil,
-                failureMessage: nil,
+                failureMessage: failures.first,
                 becameStale: true,
                 shouldApply: true
             )
