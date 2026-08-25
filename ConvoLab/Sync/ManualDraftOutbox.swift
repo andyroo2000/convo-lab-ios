@@ -152,6 +152,7 @@ final class ManualDraftOutbox {
             predicate: #Predicate {
                 $0.userID == activeUserID
                     && $0.kind == "draftCreate"
+                    && $0.lastError == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )

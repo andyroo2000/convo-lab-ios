@@ -1115,11 +1115,7 @@ final class StudyStoreTests: XCTestCase {
             )
         )
         XCTAssertNotNil(pending.first?.lastError)
-        XCTAssertEqual(store.pendingManualDraftCreates.count, 1)
-        XCTAssertEqual(
-            store.pendingManualDraftCreates.first?.answer["expression"]?.stringValue,
-            "会社"
-        )
+        XCTAssertTrue(store.pendingManualDraftCreates.isEmpty)
 
         try await store.retryPendingDraftCreates()
 
