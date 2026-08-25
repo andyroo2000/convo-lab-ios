@@ -436,9 +436,8 @@ final class DailyAudioStoreTests: XCTestCase {
                     """.utf8
                 )
             } else {
-                let requestBody = try XCTUnwrap(request.httpBody)
                 let payload = try XCTUnwrap(
-                    JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
                 )
                 XCTAssertEqual(payload["targetDurationMinutes"] as? Int, 45)
                 body = Data(practiceJSON.utf8)
