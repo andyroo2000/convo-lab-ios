@@ -107,105 +107,117 @@ struct StudySessionView: View {
         return Double(practiceInitialCount - practiceCards.count) / Double(practiceInitialCount)
     }
 
-    var body: some View {
+    private var sessionContent: some View {
         VStack(spacing: 10) {
-            if currentMilestoneAward == nil {
-                ProgressView(value: displayedProgress)
-                    .tint(.green)
-                    .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
-
-                masteryFeedbackLane
-            }
-
-            if let award = currentMilestoneAward {
-                StudyMilestoneAwardView(award: award) {
-                    advanceMilestoneAward()
-                }
-            } else if mode == .lessons, lessonPreview {
-                lessonPreviewContent
-            } else if displayingCompletion, !practiceMode {
-                wrapUpContent
-            } else if practiceComplete {
-                practiceCompleteContent
-            } else if let card {
-                if practiceMode {
-                    Text("Practice only · results won’t affect your review schedule")
-                        .font(.caption.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(ConvoLabTheme.cyan.opacity(0.16), in: .capsule)
-                        .accessibilityIdentifier("StudyPracticeModeBanner")
-                }
-                let presentation = card.presentation
-                VStack {
-                    Spacer()
-
-                    if showingAnswer {
-                        answerFace(presentation.back, card: card)
-                    } else {
-                        promptFace(presentation.front, cardID: card.id)
-                    }
-
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if showingAnswer {
-                    gradeButtons(card: card)
-                } else {
-                    Button("Show Answer") {
-                        player.stop()
-                        if !practiceMode {
-                            pushUndo(.reveal(cardID: card.id))
-                        }
-                        showingAnswer = true
-                        autoplayAnswerAudioIfReady(cardID: card.id)
-                        Task {
-                            await store.resolvePitchAccent(for: card)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ConvoLabTheme.navy)
-                    .controlSize(.large)
-                }
-            } else {
-                if mode == .lessons {
-                    ContentUnavailableView {
-                        Label("Lesson complete", systemImage: "checkmark.seal.fill")
-                    } description: {
-                        Text("This batch is now in FSRS learning.")
-                    } actions: {
-                        Button("Learn Another Batch") {
-                            Task { await loadLessonBatch() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                    }
-                } else if store.sessionCounts.hasRemainingReviews {
-                    ContentUnavailableView {
-                        Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
-                    } description: {
-                        Text("Load the next study batch to keep going.")
-                    } actions: {
-                        Button("Load Next Study Batch") {
-                            Task { await store.loadNextReviewBatch() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ConvoLabTheme.navy)
-                        .disabled(store.syncStatus == .syncing)
-                    }
-                } else {
-                    ContentUnavailableView(
-                        "Session complete",
-                        systemImage: "checkmark.seal.fill",
-                        description: Text(offlineReviewCompletionMessage)
-                    )
-                }
-            }
+            sessionProgressContent
+            activeSessionContent
         }
         .padding()
         .paperBackground()
+        .overlay {
+            InteractivePopGestureGuard(isDisabled: mode == .reviews)
+                .frame(width: 0, height: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var sessionProgressContent: some View {
+        if currentMilestoneAward == nil {
+            ProgressView(value: displayedProgress)
+                .tint(.green)
+                .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
+            masteryFeedbackLane
+        }
+    }
+
+    @ViewBuilder
+    private var activeSessionContent: some View {
+        if let award = currentMilestoneAward {
+            StudyMilestoneAwardView(award: award) {
+                advanceMilestoneAward()
+            }
+        } else if mode == .lessons, lessonPreview {
+            lessonPreviewContent
+        } else if displayingCompletion, !practiceMode {
+            wrapUpContent
+        } else if practiceComplete {
+            practiceCompleteContent
+        } else if let card {
+            if practiceMode {
+                Text("Practice only · results won’t affect your review schedule")
+                    .font(.caption.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(ConvoLabTheme.cyan.opacity(0.16), in: .capsule)
+                    .accessibilityIdentifier("StudyPracticeModeBanner")
+            }
+            let presentation = card.presentation
+            VStack {
+                Spacer()
+                if showingAnswer {
+                    answerFace(presentation.back, card: card)
+                } else {
+                    promptFace(presentation.front, cardID: card.id)
+                }
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if showingAnswer {
+                gradeButtons(card: card)
+            } else {
+                Button("Show Answer") {
+                    player.stop()
+                    if !practiceMode {
+                        pushUndo(.reveal(cardID: card.id))
+                    }
+                    showingAnswer = true
+                    autoplayAnswerAudioIfReady(cardID: card.id)
+                    Task {
+                        await store.resolvePitchAccent(for: card)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ConvoLabTheme.navy)
+                .controlSize(.large)
+            }
+        } else if mode == .lessons {
+            ContentUnavailableView {
+                Label("Lesson complete", systemImage: "checkmark.seal.fill")
+            } description: {
+                Text("This batch is now in FSRS learning.")
+            } actions: {
+                Button("Learn Another Batch") {
+                    Task { await loadLessonBatch() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+        } else if store.sessionCounts.hasRemainingReviews {
+            ContentUnavailableView {
+                Label("More cards are ready", systemImage: "rectangle.stack.badge.plus")
+            } description: {
+                Text("Load the next study batch to keep going.")
+            } actions: {
+                Button("Load Next Study Batch") {
+                    Task { await store.loadNextReviewBatch() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ConvoLabTheme.navy)
+                .disabled(store.syncStatus == .syncing)
+            }
+        } else {
+            ContentUnavailableView(
+                "Session complete",
+                systemImage: "checkmark.seal.fill",
+                description: Text(offlineReviewCompletionMessage)
+            )
+        }
+    }
+
+    var body: some View {
+        sessionContent
         .background {
             ShakeDetector(
                 isEnabled: editingCard == nil && !practiceMode && !displayingCompletion
