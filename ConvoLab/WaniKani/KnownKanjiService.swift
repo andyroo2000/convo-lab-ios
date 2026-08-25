@@ -37,6 +37,14 @@ final class KnownKanjiService {
         snapshot?.wanikani.lastSyncedAt
     }
 
+    var wanikaniReviewCount: Int? {
+        snapshot?.wanikani.reviewCount
+    }
+
+    var wanikaniReviewCountUpdatedAt: Date? {
+        snapshot?.wanikani.reviewCountUpdatedAt
+    }
+
     init(api: APIClient, context: ModelContext) {
         self.api = api
         self.context = context

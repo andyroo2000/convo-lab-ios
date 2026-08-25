@@ -10,8 +10,7 @@ struct StudyHomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    header
-                    studyActions
+                    todayPlan
                     learningReadiness
                     masterySpread
                     readiness
@@ -39,7 +38,11 @@ struct StudyHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await store.synchronize() }
+                        Task {
+                            await store.synchronize()
+                            await refreshWaniKaniIfNeeded(force: true)
+                            await timeStore?.loadGoogleCalendarConnection()
+                        }
                     } label: {
                         if store.syncStatus == .syncing {
                             ProgressView()
@@ -52,10 +55,16 @@ struct StudyHomeView: View {
             }
             .refreshable {
                 await store.synchronize()
+                await refreshWaniKaniIfNeeded(force: true)
+                await timeStore?.loadGoogleCalendarConnection()
             }
             .onAppear {
                 Task {
                     await store.synchronizeIfNeeded(maxAge: .seconds(60))
+                    await refreshWaniKaniIfNeeded()
+                }
+                Task {
+                    await timeStore?.loadGoogleCalendarConnection()
                 }
             }
             .sheet(isPresented: $showingFailedChanges) {
@@ -64,55 +73,209 @@ struct StudyHomeView: View {
         }
     }
 
-    private var studyActions: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                NavigationLink {
-                    StudySessionView(
-                        store: store,
-                        player: player,
-                        mode: .reviews,
-                        timeStore: timeStore
-                    )
-                } label: {
-                    Label("Reviews", systemImage: "rectangle.stack.fill")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(ConvoLabTheme.navy)
-                .disabled(
-                    store.sessionCounts.reviewRemaining == 0
-                        && store.sessionCounts.failedDue == 0
-                )
+    private var todayPlan: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Today")
+                .font(.caption2.bold())
+                .tracking(1.8)
+                .foregroundStyle(ConvoLabTheme.navy.opacity(0.62))
+                .padding(.leading, 4)
 
-                NavigationLink {
-                    StudySessionView(
-                        store: store,
-                        player: player,
-                        mode: .lessons,
-                        timeStore: timeStore
-                    )
-                } label: {
-                    Label("Lessons", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .disabled(store.sessionCounts.newRemaining == 0)
-            }
+            VStack(spacing: 0) {
+                reviewAction
 
-            NavigationLink {
-                WaniKaniBrowserView(timeStore: timeStore)
-            } label: {
-                Label("WaniKani Reviews", systemImage: "character.ja")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                HStack(spacing: 0) {
+                    lessonAction
+                    Divider()
+                    waniKaniAction
+                }
+                .fixedSize(horizontal: false, vertical: true)
+
+                if let timeStore,
+                   let nextLesson = timeStore.googleCalendarStatus?.nextLesson
+                {
+                    Divider()
+                    NavigationLink {
+                        StudyTimeView(store: timeStore, studyStore: store)
+                    } label: {
+                        nextLessonLabel(nextLesson)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(ConvoLabTheme.coral)
+            .background(.white.opacity(0.82))
+            .clipShape(.rect(cornerRadius: 22))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(ConvoLabTheme.navy.opacity(0.1), lineWidth: 1)
+            }
+            .shadow(color: ConvoLabTheme.navy.opacity(0.08), radius: 12, y: 5)
+
+            Text("\(totalCardCount.formatted()) cards total")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 4)
         }
+    }
+
+    private var reviewAction: some View {
+        NavigationLink {
+            StudySessionView(
+                store: store,
+                player: player,
+                mode: .reviews,
+                timeStore: timeStore
+            )
+        } label: {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("ConvoLab reviews")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(ConvoLabTheme.cream.opacity(0.8))
+                    Text(StudyTodayPresentation.reviewCountText(reviewAvailableCount))
+                        .font(.title.bold())
+                        .foregroundStyle(ConvoLabTheme.cream)
+                    Text(reviewTimeText)
+                        .font(.footnote)
+                        .foregroundStyle(ConvoLabTheme.cream.opacity(0.72))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "play.fill")
+                    .font(.title3.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+                    .frame(width: 54, height: 54)
+                    .background(ConvoLabTheme.cream, in: .circle)
+                    .shadow(color: .black.opacity(0.16), radius: 7, y: 3)
+                    .accessibilityHidden(true)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 128, alignment: .leading)
+            .background(ConvoLabTheme.navy)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(reviewAvailableCount == 0)
+        .accessibilityLabel(
+            "ConvoLab reviews, \(StudyTodayPresentation.reviewCountText(reviewAvailableCount)), \(reviewTimeText)"
+        )
+    }
+
+    private var lessonAction: some View {
+        NavigationLink {
+            StudySessionView(
+                store: store,
+                player: player,
+                mode: .lessons,
+                timeStore: timeStore
+            )
+        } label: {
+            todayTile(
+                title: "Lessons",
+                detail: StudyTodayPresentation.newCardCountText(store.sessionCounts.newRemaining),
+                systemImage: "book.closed.fill",
+                color: .green
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(store.sessionCounts.newRemaining == 0)
+    }
+
+    private var waniKaniAction: some View {
+        NavigationLink {
+            WaniKaniBrowserView(timeStore: timeStore)
+        } label: {
+            todayTile(
+                title: "WaniKani",
+                detail: store.wanikaniReviewCount.map(StudyTodayPresentation.reviewCountText)
+                    ?? "Open reviews",
+                systemImage: "character.ja",
+                color: ConvoLabTheme.coral
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func todayTile(
+        title: String,
+        detail: String,
+        systemImage: String,
+        color: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.subheadline.bold())
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(color, in: .rect(cornerRadius: 9))
+            Text(title)
+                .font(.subheadline.bold())
+                .foregroundStyle(ConvoLabTheme.navy)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 116, alignment: .leading)
+        .padding(16)
+        .contentShape(.rect)
+    }
+
+    private func nextLessonLabel(_ lesson: GoogleCalendarNextLesson) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar")
+                .font(.body.bold())
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(ConvoLabTheme.cyan, in: .rect(cornerRadius: 12))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Next lesson")
+                    .font(.caption2.bold())
+                    .textCase(.uppercase)
+                    .tracking(1)
+                    .foregroundStyle(.secondary)
+                Text(lesson.title)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(StudyTodayPresentation.lessonTiming(lesson.startsAt))
+                .font(.caption.bold())
+                .foregroundStyle(ConvoLabTheme.navy)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(14)
+        .contentShape(.rect)
+    }
+
+    private var reviewAvailableCount: Int {
+        store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining
+    }
+
+    private var reviewTimeText: String {
+        if let minutes = StudyTodayPresentation.estimatedReviewMinutes(
+            reviewCount: reviewAvailableCount,
+            medianReviewDurationSeconds: store.overview?.learningReadiness?
+                .medianReviewDurationSeconds
+        ) {
+            return "About \(minutes) min"
+        }
+        return "Time estimate is calibrating"
+    }
+
+    private var totalCardCount: Int {
+        store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
+            ?? store.libraryCards.count
+    }
+
+    private func refreshWaniKaniIfNeeded(force: Bool = false) async {
+        guard store.wanikaniConnected else { return }
+        guard force || StudyTodayPresentation.shouldRefreshWaniKani(
+            reviewCountUpdatedAt: store.wanikaniReviewCountUpdatedAt
+        ) else { return }
+
+        await store.syncWaniKani()
     }
 
     @ViewBuilder
@@ -194,20 +357,6 @@ struct StudyHomeView: View {
         return "\(recallText) About \(projectedMinutes) min/day are scheduled, \(-headroomMinutes) min over your \(budgetMinutes)-minute review budget."
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            metric(
-                title: "Due",
-                value: store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining
-            )
-            metric(
-                title: "Total",
-                value: store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
-                    ?? store.libraryCards.count
-            )
-        }
-    }
-
     private var readiness: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -278,18 +427,4 @@ struct StudyHomeView: View {
         }
     }
 
-    private func metric(title: String, value: Int) -> some View {
-        VStack(spacing: 3) {
-            Text(value, format: .number)
-                .font(.title.bold())
-                .foregroundStyle(ConvoLabTheme.navy)
-            Text(title.uppercased())
-                .font(.caption2.bold())
-                .tracking(1.2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical)
-        .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
-    }
 }

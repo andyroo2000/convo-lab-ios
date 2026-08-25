@@ -965,6 +965,20 @@ struct KnownKanjiSnapshot: nonisolated Codable, Equatable, Sendable {
     struct WaniKaniStatus: nonisolated Codable, Equatable, Sendable {
         let connected: Bool
         let lastSyncedAt: Date?
+        let reviewCount: Int?
+        let reviewCountUpdatedAt: Date?
+
+        init(
+            connected: Bool,
+            lastSyncedAt: Date?,
+            reviewCount: Int? = nil,
+            reviewCountUpdatedAt: Date? = nil
+        ) {
+            self.connected = connected
+            self.lastSyncedAt = lastSyncedAt
+            self.reviewCount = reviewCount
+            self.reviewCountUpdatedAt = reviewCountUpdatedAt
+        }
     }
 
     let version: Int
@@ -981,4 +995,5 @@ struct WaniKaniSyncResult: nonisolated Decodable, Equatable, Sendable {
     let added: Int
     let effectiveTotal: Int
     let version: Int
+    let reviewCount: Int?
 }
