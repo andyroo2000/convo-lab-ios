@@ -208,6 +208,50 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         )
     }
 
+    func testLegacyDailyAudioTimingWithoutScriptDropsTrackHighlighting() async throws {
+        let track: DailyAudioTrack = try await decode(
+            payload: Data(#"""
+            {
+              "id":"track-2","practiceId":"practice-1","mode":"context","status":"ready",
+              "title":"Partial track","sortOrder":1,"scriptUnitsJson":null,
+              "audioUrl":"/audio/partial.mp3","timingData":[{"startMs":0,"endMs":1200}],
+              "approxDurationSeconds":1.2,"updatedAt":"2026-08-24T08:04:00.000Z"
+            }
+            """#.utf8),
+            path: "/api/daily-audio-practice/fixture/partial-track"
+        )
+
+        XCTAssertNil(track.scriptUnitsJson)
+        XCTAssertNil(track.timingData)
+    }
+
+    func testDailyAudioTrackRejectsMixedExplicitAndLegacyTimingIndexes() async throws {
+        let payload = Data(#"""
+        {
+          "id":"track-3","practiceId":"practice-1","mode":"drill","status":"ready",
+          "title":"Mixed timing formats","sortOrder":2,
+          "scriptUnitsJson":[{"type":"L1","text":"company"},{"type":"L2","text":"会社"}],
+          "audioUrl":"/audio/mixed.mp3",
+          "timingData":[
+            {"unitIndex":0,"startTime":0,"endTime":1200},
+            {"startMs":1200,"endMs":2450}
+          ],
+          "approxDurationSeconds":2.45,"updatedAt":"2026-08-24T08:04:00.000Z"
+        }
+        """#.utf8)
+
+        do {
+            let _: DailyAudioTrack = try await decode(
+                payload: payload,
+                path: "/api/daily-audio-practice/fixture/mixed-timing-formats"
+            )
+            XCTFail("Expected mixed timing formats to be rejected.")
+        } catch APIClientError.decoding(path: let path, details: let details) {
+            XCTAssertEqual(path, "/api/daily-audio-practice/fixture/mixed-timing-formats")
+            XCTAssertTrue(details.contains("timingData"))
+        }
+    }
+
     func testWeeklyRecapCasesDecodeThroughAPIClient() async throws {
         let empty: WeeklyStudyRecap = try await decode(
             fixture: "personal-weekly-recap-v1",

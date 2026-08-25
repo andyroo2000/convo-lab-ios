@@ -1,4 +1,5 @@
 #!/bin/zsh
+# Requires zsh for path modifiers and process substitution on macOS CI.
 
 set -euo pipefail
 

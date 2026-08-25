@@ -1205,15 +1205,15 @@ struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
         guard let timings, timings.contains(where: { !$0.hasExplicitUnitIndex }) else {
             return timings
         }
-        guard let units else {
+        guard timings.allSatisfy({ !$0.hasExplicitUnitIndex }) else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: codingPath,
-                debugDescription: "Legacy timing data requires script units."
+                debugDescription: "Timing data cannot mix explicit and legacy unit indexes."
             ))
         }
+        guard let units else { return nil }
         let timedUnitIndexes = units.indices.filter { units[$0].type != "marker" }
-        let legacyTimings = timings.filter { !$0.hasExplicitUnitIndex }
-        guard legacyTimings.count <= timedUnitIndexes.count else {
+        guard timings.count <= timedUnitIndexes.count else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: codingPath,
                 debugDescription: "Legacy timing data exceeds non-marker script units."
