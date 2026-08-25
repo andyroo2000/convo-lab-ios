@@ -167,6 +167,7 @@ final class CardMutationOutbox {
                         && ($0.kind == "cardCreate"
                             || $0.kind == "cardUpdate"
                             || $0.kind == "cardDelete"
+                            || $0.kind == "cardAction"
                             || $0.kind == "review")
                 }
             )

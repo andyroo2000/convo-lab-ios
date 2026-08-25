@@ -1034,7 +1034,7 @@ enum StudyCardSetDueMode: String, nonisolated Codable, Sendable {
     case customDate = "custom_date"
 }
 
-struct StudyCardActionRequest: Encodable, Sendable {
+struct StudyCardActionRequest: Codable, Equatable, Sendable {
     let action: StudyCardActionName
     let mode: StudyCardSetDueMode?
     let dueAt: Date?

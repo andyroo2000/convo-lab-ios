@@ -8263,9 +8263,21 @@ final class StudyStoreTests: XCTestCase {
             JSONSerialization.jsonObject(with: bodies.values[0]) as? [String: Any]
         )
         XCTAssertEqual(tomorrow["action"] as? String, "set_due")
-        XCTAssertEqual(tomorrow["mode"] as? String, "tomorrow")
-        XCTAssertEqual(tomorrow["timeZone"] as? String, "America/New_York")
-        XCTAssertNil(tomorrow["dueAt"])
+        XCTAssertEqual(tomorrow["mode"] as? String, "custom_date")
+        XCTAssertNil(tomorrow["timeZone"])
+        let tomorrowDueAt = try XCTUnwrap(tomorrow["dueAt"] as? String)
+        let parsedTomorrowDueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: tomorrowDueAt))
+        var newYorkCalendar = Calendar(identifier: .gregorian)
+        newYorkCalendar.timeZone = newYork
+        XCTAssertEqual(newYorkCalendar.component(.hour, from: parsedTomorrowDueAt), 9)
+        XCTAssertEqual(
+            newYorkCalendar.dateComponents(
+                [.day],
+                from: newYorkCalendar.startOfDay(for: .now),
+                to: newYorkCalendar.startOfDay(for: parsedTomorrowDueAt)
+            ).day,
+            1
+        )
         let custom = try XCTUnwrap(
             JSONSerialization.jsonObject(with: bodies.values[1]) as? [String: Any]
         )
@@ -8299,8 +8311,8 @@ final class StudyStoreTests: XCTestCase {
                 JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
             )
             XCTAssertEqual(payload["action"] as? String, "set_due")
-            XCTAssertEqual(payload["mode"] as? String, "now")
-            XCTAssertNil(payload["dueAt"])
+            XCTAssertEqual(payload["mode"] as? String, "custom_date")
+            XCTAssertNotNil(payload["dueAt"] as? String)
             XCTAssertNil(payload["timeZone"])
             return Self.response(data: responseData)
         }
@@ -8376,6 +8388,420 @@ final class StudyStoreTests: XCTestCase {
             )
         )
         XCTAssertEqual(pendingUpdates.count, 1)
+    }
+
+    @MainActor
+    func testCardActionPersistsOfflineAndReplaysAfterStoreRestart() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q1",
+            expression: "Queue offline",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let offlineClient = makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let firstStore = makeStore(container: container, client: offlineClient, userID: 1)
+
+        let optimistic = try await firstStore.performCardAction(.suspend, on: card)
+
+        XCTAssertEqual(optimistic.state.queueState, "suspended")
+        XCTAssertTrue(firstStore.cards.isEmpty)
+        var pending = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "cardAction" }
+            )
+        )
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.attemptCount, 1)
+        firstStore.deactivate()
+
+        let serverCard = replacingSchedule(
+            card,
+            queueState: "suspended",
+            dueAt: card.state.dueAt
+        )
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: serverCard,
+            overview: actionOverview(dueCount: 0, reviewCount: 0)
+        ))
+        let paths = LockedRequestPaths()
+        let onlineClient = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path.hasSuffix("/actions") {
+                return Self.response(data: responseData)
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let restoredStore = makeStore(container: container, client: onlineClient, userID: 1)
+        XCTAssertEqual(restoredStore.libraryCards.first?.state.queueState, "suspended")
+
+        await restoredStore.synchronize()
+
+        XCTAssertTrue(paths.values.contains { $0.hasSuffix("/actions") })
+        pending = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "cardAction" }
+            )
+        )
+        XCTAssertTrue(pending.isEmpty)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertNil(record.locallyUpdatedAt)
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(StudyCard.self, from: record.payload).state.queueState,
+            "suspended"
+        )
+    }
+
+    @MainActor
+    func testCardActionLostResponseRetriesTheSameAbsoluteDueRequest() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q2",
+            expression: "Retry exactly",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let dueAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let serverCard = replacingSchedule(card, queueState: "review", dueAt: dueAt)
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: serverCard,
+            overview: actionOverview(dueCount: 0, reviewCount: 1)
+        ))
+        let attempts = LockedCounter()
+        let bodies = LockedRequestBodies()
+        let client = makeClient { request in
+            guard request.url?.path.hasSuffix("/actions") == true else {
+                throw URLError(.notConnectedToInternet)
+            }
+            bodies.append(try requestBody(request))
+            if attempts.next() == 1 {
+                throw URLError(.timedOut)
+            }
+            return Self.response(data: responseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        _ = try await store.performCardAction(
+            .setDue,
+            on: card,
+            mode: .customDate,
+            dueAt: dueAt
+        )
+        await store.synchronize()
+
+        XCTAssertEqual(bodies.values.count, 2)
+        XCTAssertEqual(
+            try StorageCodec.decoder.decode(
+                StudyCardActionRequest.self,
+                from: bodies.values[0]
+            ),
+            try StorageCodec.decoder.decode(
+                StudyCardActionRequest.self,
+                from: bodies.values[1]
+            )
+        )
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: bodies.values[0]) as? [String: Any]
+        )
+        XCTAssertEqual(payload["mode"] as? String, "custom_date")
+        XCTAssertEqual(
+            ISO8601Milliseconds.date(from: try XCTUnwrap(payload["dueAt"] as? String)),
+            dueAt
+        )
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "cardAction" }
+                )
+            ),
+            0
+        )
+    }
+
+    @MainActor
+    func testPendingReviewDrainsBeforeLaterQueuedCardAction() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q3",
+            expression: "Keep order",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let reviewEvent = ReviewBatchRequest.Event(
+            id: "01J00000000000000000000E1",
+            cardID: card.reviewCardID,
+            rating: .good,
+            reviewedAt: .now,
+            durationMilliseconds: 900,
+            clientEventID: "01J00000000000000000000E1",
+            deviceID: "test-device",
+            clientCreatedAt: .now
+        )
+        container.mainContext.insert(PendingMutation(
+            kind: "review",
+            userID: 1,
+            resourceID: card.id,
+            payload: try StorageCodec.encoder.encode(PendingReviewPayload(
+                event: reviewEvent,
+                cardBefore: PendingReviewCardState(card: card)
+            ))
+        ))
+        try container.mainContext.save()
+        let serverCard = replacingSchedule(
+            card,
+            queueState: "suspended",
+            dueAt: card.state.dueAt
+        )
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: serverCard,
+            overview: actionOverview(dueCount: 0, reviewCount: 0)
+        ))
+        let online = LockedCounter()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if online.current == 0 {
+                throw URLError(.notConnectedToInternet)
+            }
+            if path == "/api/card-review-events/batch" {
+                return Self.response(data: Data())
+            }
+            if path.hasSuffix("/actions") {
+                return Self.response(data: responseData)
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        _ = try await store.performCardAction(.suspend, on: card)
+        XCTAssertFalse(paths.values.contains { $0.hasSuffix("/actions") })
+        _ = online.next()
+        await store.synchronize()
+
+        let deliveredWrites = paths.values.filter {
+            $0 == "/api/card-review-events/batch" || $0.hasSuffix("/actions")
+        }
+        XCTAssertEqual(Array(deliveredWrites.suffix(2)), [
+            "/api/card-review-events/batch",
+            "/api/study/cards/\(card.reviewCardID)/actions",
+        ])
+    }
+
+    @MainActor
+    func testReviewAfterOfflineCardActionIsQueuedAndDeliveredAfterTheAction() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q6",
+            expression: "Grade after action",
+            queueState: "suspended",
+            dueAt: nil,
+            scheduler: .object(["state": .number(2)])
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let unsuspended = replacingSchedule(
+            card,
+            queueState: "review",
+            dueAt: .now
+        )
+        let actionResponseData = try StorageCodec.encoder.encode(
+            StudyCardActionResponse(
+                card: unsuspended,
+                overview: actionOverview(dueCount: 1, reviewCount: 1)
+            )
+        )
+        let online = LockedCounter()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            guard online.current > 0 else {
+                throw URLError(.notConnectedToInternet)
+            }
+            if path.hasSuffix("/actions") {
+                return Self.response(data: actionResponseData)
+            }
+            if path == "/api/card-review-events/batch" {
+                return Self.response(data: Data())
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let optimisticAction = try await store.performCardAction(.unsuspend, on: card)
+        let eventID = await store.recordReview(
+            card: optimisticAction,
+            rating: .good,
+            duration: .seconds(1)
+        )
+
+        XCTAssertNotNil(eventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        let queuedKinds = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.kind == "cardAction" || $0.kind == "review"
+                },
+                sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
+            )
+        ).map(\.kind)
+        XCTAssertEqual(queuedKinds, ["cardAction", "review"])
+
+        _ = online.next()
+        await store.synchronize()
+
+        let deliveredWrites = paths.values.filter {
+            $0.hasSuffix("/actions") || $0 == "/api/card-review-events/batch"
+        }
+        XCTAssertEqual(Array(deliveredWrites.suffix(2)), [
+            "/api/study/cards/\(card.reviewCardID)/actions",
+            "/api/card-review-events/batch",
+        ])
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate {
+                        $0.kind == "cardAction" || $0.kind == "review"
+                    }
+                )
+            ),
+            0
+        )
+    }
+
+    @MainActor
+    func testEarlierEditAcknowledgementPreservesLaterQueuedActionProjection() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q4",
+            expression: "Original",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let editedServerCard = makeCard(
+            id: card.id,
+            expression: "Edited",
+            queueState: "review",
+            dueAt: card.state.dueAt
+        )
+        let editedServerData = try StorageCodec.encoder.encode(editedServerCard)
+        let phase = LockedCounter()
+        let client = makeClient { request in
+            guard phase.current > 0 else {
+                throw URLError(.notConnectedToInternet)
+            }
+            if request.httpMethod == "PATCH" {
+                return Self.response(data: editedServerData)
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+        try await store.updateCard(
+            card,
+            prompt: "Edited",
+            reading: "",
+            answer: "meaning"
+        )
+        _ = phase.next()
+
+        let optimistic = try await store.performCardAction(.suspend, on: card)
+
+        XCTAssertEqual(optimistic.promptText, "Edited")
+        XCTAssertEqual(optimistic.state.queueState, "suspended")
+        XCTAssertEqual(try persistedCard(in: container).state.queueState, "suspended")
+        let pendingKinds = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>()
+        ).map(\.kind)
+        XCTAssertEqual(pendingKinds, ["cardAction"])
+    }
+
+    @MainActor
+    func testMultipleOfflineCardActionsReplayInOrderAndKeepNewestProjection() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q5",
+            expression: "Ordered actions",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let futureDueAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let suspended = replacingSchedule(
+            card,
+            queueState: "suspended",
+            dueAt: card.state.dueAt
+        )
+        let rescheduled = replacingSchedule(
+            card,
+            queueState: "review",
+            dueAt: futureDueAt
+        )
+        let suspendedResponseData = try StorageCodec.encoder.encode(
+            StudyCardActionResponse(
+                card: suspended,
+                overview: actionOverview(dueCount: 0, reviewCount: 0)
+            )
+        )
+        let rescheduledResponseData = try StorageCodec.encoder.encode(
+            StudyCardActionResponse(
+                card: rescheduled,
+                overview: actionOverview(dueCount: 0, reviewCount: 1)
+            )
+        )
+        let online = LockedCounter()
+        let deliveredBodies = LockedRequestBodies()
+        let client = makeClient { request in
+            guard request.url?.path.hasSuffix("/actions") == true,
+                  online.current > 0
+            else {
+                throw URLError(.notConnectedToInternet)
+            }
+            let body = try requestBody(request)
+            deliveredBodies.append(body)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            return Self.response(data: payload["action"] as? String == "suspend"
+                ? suspendedResponseData
+                : rescheduledResponseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let firstProjection = try await store.performCardAction(.suspend, on: card)
+        let latestProjection = try await store.performCardAction(
+            .setDue,
+            on: firstProjection,
+            mode: .customDate,
+            dueAt: futureDueAt
+        )
+        XCTAssertEqual(latestProjection.state.queueState, "review")
+        XCTAssertEqual(latestProjection.state.dueAt, futureDueAt)
+        _ = online.next()
+
+        await store.synchronize()
+
+        let deliveredActions = try deliveredBodies.values.map {
+            try StorageCodec.decoder.decode(StudyCardActionRequest.self, from: $0).action
+        }
+        XCTAssertEqual(deliveredActions, [.suspend, .setDue])
+        XCTAssertEqual(try persistedCard(in: container).state.dueAt, futureDueAt)
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "cardAction" }
+                )
+            ),
+            0
+        )
     }
 
     @MainActor
