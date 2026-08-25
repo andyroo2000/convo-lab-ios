@@ -39,6 +39,7 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
+    @State private var isPreparingCompletion = false
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
 
@@ -116,7 +117,7 @@ struct StudySessionView: View {
         .paperBackground()
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
-                endReviewSession()
+                Task { await endReviewSession() }
             }
                 .frame(width: 0, height: 0)
         }
@@ -139,6 +140,9 @@ struct StudySessionView: View {
                 advanceMilestoneAward()
             }
             .id(award.id)
+        } else if isPreparingCompletion {
+            ProgressView("Preparing your wrap-up…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .lessons, lessonPreview {
             lessonPreviewContent
         } else if displayingCompletion, !practiceMode {
@@ -247,7 +251,7 @@ struct StudySessionView: View {
             {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("End session") {
-                        endReviewSession()
+                        Task { await endReviewSession() }
                     }
                     .disabled(
                         !submittingReviewCardIDs.isEmpty
@@ -301,12 +305,13 @@ struct StudySessionView: View {
             } else {
                 store.beginSessionFailureTracking()
                 _ = try? await store.refreshSession()
-                milestoneStore?.beginReviewSession(burnedCount: currentBurnedCount)
+                _ = try? await milestoneStore?.synchronize()
+                milestoneStore?.beginReviewSession()
             }
         }
         .onChange(of: reviewSessionComplete) { _, isComplete in
             guard isComplete, sessionCompletion == nil else { return }
-            prepareSessionCompletion()
+            Task { await prepareSessionCompletion() }
         }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
@@ -1114,6 +1119,7 @@ struct StudySessionView: View {
                 sessionReviewRecords.removeAll { $0.id == eventID }
                 if mode == .reviews {
                     milestoneStore?.undoReview(eventID: eventID)
+                    _ = try? await milestoneStore?.synchronize()
                 }
                 showingAnswer = true
                 resetCardTimer()
@@ -1138,11 +1144,6 @@ struct StudySessionView: View {
         return "Plays downloaded study audio."
     }
 
-    private var currentBurnedCount: Int {
-        store.overview?.masterySpread?.burned
-            ?? store.libraryCards.filter { $0.fsrsMasteryLevel == .burned }.count
-    }
-
     private func advanceMilestoneAward() {
         guard let completion = sessionCompletion else { return }
         if currentAwardIndex + 1 < completion.newAwards.count {
@@ -1151,21 +1152,35 @@ struct StudySessionView: View {
         }
         celebrationPresented = true
         milestoneStore?.markCelebrationPresented(sessionID: completion.id)
+        Task {
+            try? await milestoneStore?.acknowledgePresentation(
+                completion.newAwards.map(\.id)
+            )
+        }
+        if completion.records.isEmpty {
+            dismiss()
+        }
     }
 
-    private func endReviewSession() {
+    private func endReviewSession() async {
         player.stop()
         guard !sessionReviewRecords.isEmpty else {
             milestoneStore?.cancelCurrentSession()
             dismiss()
             return
         }
-        prepareSessionCompletion()
+        await prepareSessionCompletion()
     }
 
-    private func prepareSessionCompletion() {
+    private func prepareSessionCompletion() async {
+        guard !isPreparingCompletion else { return }
+        isPreparingCompletion = true
+        defer { isPreparingCompletion = false }
         sessionWasEnded = true
-        sessionCompletion = milestoneStore?.prepareCurrentSessionCompletion()
+        let snapshot = try? await milestoneStore?.synchronize()
+        sessionCompletion = milestoneStore?.prepareCurrentSessionCompletion(
+            newAwards: snapshot?.pendingMilestones ?? []
+        )
         currentAwardIndex = 0
         celebrationPresented = sessionCompletion?.celebrationPresented ?? true
     }

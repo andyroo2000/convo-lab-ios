@@ -52,6 +52,7 @@ struct StudyHomeView: View {
                     Button {
                         Task {
                             await store.synchronize()
+                            _ = try? await milestoneStore.synchronize()
                             await refreshWaniKaniIfNeeded(force: true)
                             await refreshCalendarIfNeeded(force: true)
                         }
@@ -67,12 +68,28 @@ struct StudyHomeView: View {
             }
             .refreshable {
                 await store.synchronize()
+                _ = try? await milestoneStore.synchronize()
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
             .task {
                 if interruptedCompletion == nil {
-                    interruptedCompletion = milestoneStore.prepareInterruptedCompletion()
+                    let snapshot = try? await milestoneStore.synchronize()
+                    let pendingAwards = snapshot?.pendingMilestones ?? []
+                    let restored = milestoneStore.prepareInterruptedCompletion(
+                        newAwards: pendingAwards
+                    ) ?? (pendingAwards.isEmpty ? nil : StudyMilestoneCompletion(
+                        id: UUID(),
+                        records: [],
+                        newAwards: pendingAwards,
+                        celebrationPresented: false
+                    ))
+                    interruptedCompletion = restored
+                    if restored?.celebrationPresented == true, !pendingAwards.isEmpty {
+                        try? await milestoneStore.acknowledgePresentation(
+                            pendingAwards.map(\.id)
+                        )
+                    }
                 }
                 // AppModel owns app-wide synchronization. This surface refresh can be
                 // cancelled on tab switches and restarted when Study appears again.

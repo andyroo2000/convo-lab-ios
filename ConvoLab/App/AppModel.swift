@@ -99,7 +99,7 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        let milestones = StudyMilestoneStore(defaults: accountDeletionCleanupDefaults)
+        let milestones = StudyMilestoneStore(api: api, defaults: accountDeletionCleanupDefaults)
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -340,12 +340,17 @@ final class AppModel {
         async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-        _ = await (studySync, draftCreateRetry, audioRefresh, timeSync, weeklyRecap)
+        async let milestoneSync: Void = synchronizeMilestones()
+        _ = await (studySync, draftCreateRetry, audioRefresh, timeSync, weeklyRecap, milestoneSync)
     }
 
     private func retryPendingDraftCreates() async {
         // A freshness-throttled study sync can skip its outbox work. Foregrounding
         // still retries durable creates so offline drafts do not wait for a full sync.
         try? await study.retryPendingDraftCreates()
+    }
+
+    private func synchronizeMilestones() async {
+        _ = try? await milestones.synchronize()
     }
 }
