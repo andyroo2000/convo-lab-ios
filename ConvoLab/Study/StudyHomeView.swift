@@ -58,14 +58,17 @@ struct StudyHomeView: View {
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
-            .onAppear {
-                Task {
-                    await store.synchronizeIfNeeded(maxAge: .seconds(60))
-                    await refreshWaniKaniIfNeeded()
+            .task {
+                // AppModel owns app-wide synchronization. This surface refresh can be
+                // cancelled on tab switches and restarted when Study appears again.
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
                 }
-                Task {
-                    await refreshCalendarIfNeeded()
-                }
+                async let study: Void = refreshStudyIfNeeded()
+                async let calendar: Void = refreshCalendarIfNeeded()
+                _ = await (study, calendar)
             }
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
@@ -270,6 +273,12 @@ struct StudyHomeView: View {
         ) else { return }
 
         await store.syncWaniKani()
+    }
+
+    private func refreshStudyIfNeeded() async {
+        await store.synchronizeIfNeeded(maxAge: .seconds(60))
+        guard !Task.isCancelled else { return }
+        await refreshWaniKaniIfNeeded()
     }
 
     private func refreshCalendarIfNeeded(force: Bool = false) async {

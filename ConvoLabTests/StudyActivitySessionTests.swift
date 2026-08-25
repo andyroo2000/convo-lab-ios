@@ -5,6 +5,27 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
+    func testManualEntryRequestsEditableSessionsOnlyOnFirstExpansion() {
+        XCTAssertFalse(
+            StudyTimeManualEntryLoading.shouldRequestEntries(
+                isExpanded: false,
+                hasRequestedEntries: false
+            )
+        )
+        XCTAssertTrue(
+            StudyTimeManualEntryLoading.shouldRequestEntries(
+                isExpanded: true,
+                hasRequestedEntries: false
+            )
+        )
+        XCTAssertFalse(
+            StudyTimeManualEntryLoading.shouldRequestEntries(
+                isExpanded: true,
+                hasRequestedEntries: true
+            )
+        )
+    }
+
     // Confirmed with a weak saver and no unstructured task in the card-count
     // case: iOS 26 XCTest can double-free an injected SwiftData container at
     // method teardown. Keep this bounded set of six containers for the suite.
