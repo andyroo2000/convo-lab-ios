@@ -29,6 +29,21 @@ final class StudySessionWrapUpTests: XCTestCase {
         XCTAssertEqual(summary.newlyStabilizedCards.map(\.id), ["stable"])
     }
 
+    func testNewlyStabilizedExcludesCardThatEndsSessionBelowThreshold() {
+        let below = makeCard(id: "regressed", stability: 6.5)
+        let above = makeCard(id: "regressed", stability: 8)
+        let regressed = makeCard(id: "regressed", stability: 5)
+
+        let summary = StudySessionWrapUpSummary.build(
+            from: [
+                record(id: "1", card: below, cardAfter: above, rating: .good, duration: 900),
+                record(id: "2", card: above, cardAfter: regressed, rating: .again, duration: 700),
+            ]
+        )
+
+        XCTAssertTrue(summary.newlyStabilizedCards.isEmpty)
+    }
+
     func testFirstPassRecallUsesReviewTimeWhenAsyncResultsArriveOutOfOrder() {
         let card = makeCard(id: "ordered", stability: 2)
         let summary = StudySessionWrapUpSummary.build(

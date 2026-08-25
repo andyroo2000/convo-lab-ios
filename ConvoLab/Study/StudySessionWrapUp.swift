@@ -84,17 +84,21 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
 
         for record in chronologicalRecords {
             let identity = identity(for: record.cardBefore)
+            // Recall measures established memories, not first exposure or learning steps.
             if firstAttempts[identity] == nil,
                ["review", "relearning"].contains(record.cardBefore.state.queueState)
             {
                 firstAttempts[identity] = record
             }
 
-            if (record.cardBefore.fsrsStability ?? 0) < 7,
-               let cardAfter = record.cardAfter,
-               (cardAfter.fsrsStability ?? 0) >= 7
-            {
-                stabilized[identity] = cardAfter
+            if let cardAfter = record.cardAfter {
+                if (cardAfter.fsrsStability ?? 0) < 7 {
+                    stabilized.removeValue(forKey: identity)
+                } else if (record.cardBefore.fsrsStability ?? 0) < 7
+                            || stabilized[identity] != nil
+                {
+                    stabilized[identity] = cardAfter
+                }
             }
 
             let existing = aggregates[identity]
