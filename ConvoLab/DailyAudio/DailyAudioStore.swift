@@ -20,6 +20,7 @@ final class DailyAudioStore {
     @ObservationIgnored private var generationPollingID: UUID?
     @ObservationIgnored private var errorSource: ErrorSource?
     @ObservationIgnored private var pendingAutomaticDownloadIDs: Set<String> = []
+    @ObservationIgnored private var automaticDownloadReservationID: String?
 
     private(set) var practices: [DailyAudioPractice] = []
     private(set) var isLoading = false
@@ -38,7 +39,7 @@ final class DailyAudioStore {
     }
 
     var isPracticeDownloadInProgress: Bool {
-        !practiceDownloadProgress.isEmpty
+        automaticDownloadReservationID != nil || !practiceDownloadProgress.isEmpty
     }
 
     init(
@@ -72,6 +73,7 @@ final class DailyAudioStore {
         downloadingTrackIDs = []
         practiceDownloadProgress = [:]
         pendingAutomaticDownloadIDs = []
+        automaticDownloadReservationID = nil
         loadLocal(userID: userID)
         total = practices.count
         refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
@@ -97,6 +99,7 @@ final class DailyAudioStore {
         downloadingTrackIDs = []
         practiceDownloadProgress = [:]
         pendingAutomaticDownloadIDs = []
+        automaticDownloadReservationID = nil
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -318,9 +321,14 @@ final class DailyAudioStore {
             let userID = activeUserID,
             practices.contains(where: { $0.id == practice.id }),
             practiceDownloadProgress.isEmpty,
+            automaticDownloadReservationID == nil
+                || automaticDownloadReservationID == practice.id,
             !isDownloaded(practice)
         else {
             return
+        }
+        if automaticDownloadReservationID == practice.id {
+            automaticDownloadReservationID = nil
         }
         let operationGeneration = activationGeneration
         let downloadableTracks = downloadableTracks(in: practice)
@@ -566,7 +574,10 @@ final class DailyAudioStore {
     }
 
     private func beginNextAutomaticDownloadIfNeeded() {
-        guard practiceDownloadProgress.isEmpty else { return }
+        guard
+            automaticDownloadReservationID == nil,
+            practiceDownloadProgress.isEmpty
+        else { return }
         while let practiceID = pendingAutomaticDownloadIDs.first {
             pendingAutomaticDownloadIDs.remove(practiceID)
             guard let practice = practices.first(where: {
@@ -575,8 +586,14 @@ final class DailyAudioStore {
             else {
                 continue
             }
+            automaticDownloadReservationID = practice.id
             Task { @MainActor [weak self] in
-                await self?.download(practice)
+                guard let self else { return }
+                await self.download(practice)
+                if self.automaticDownloadReservationID == practice.id {
+                    self.automaticDownloadReservationID = nil
+                }
+                self.beginNextAutomaticDownloadIfNeeded()
             }
             return
         }

@@ -473,9 +473,11 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
-    func testReadyGenerationAutomaticallyDownloadsForOffline() async throws {
+    func testAutomaticDownloadReservesSlotBeforeManualDownloadCanStart() async throws {
         let practiceID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e9"
         let trackID = "4aa076b2-1bc7-45a8-b7b4-12b74dcbd463"
+        let manualPracticeID = "39ac4e14-b8b0-482c-8831-a3c1cb1987ea"
+        let manualTrackID = "4aa076b2-1bc7-45a8-b7b4-12b74dcbd464"
         let oldDate = Date(timeIntervalSince1970: 2_000)
         let newDate = Date(timeIntervalSince1970: 3_000)
         let draftTrack = DailyAudioTrack(
@@ -520,13 +522,35 @@ final class DailyAudioStoreTests: XCTestCase {
             updatedAt: newDate,
             tracks: [readyTrack]
         )
+        let manualTrack = DailyAudioTrack(
+            id: manualTrackID,
+            practiceId: manualPracticeID,
+            mode: "drill",
+            status: "ready",
+            title: "Earlier Drills",
+            sortOrder: 0,
+            audioUrl: "/api/daily-audio-practice/\(manualPracticeID)/tracks/\(manualTrackID)/audio",
+            approxDurationSeconds: 1_800,
+            updatedAt: oldDate
+        )
+        let manualPractice = DailyAudioPractice(
+            id: manualPracticeID,
+            practiceDate: "2026-08-24",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: oldDate,
+            updatedAt: oldDate,
+            tracks: [manualTrack]
+        )
         let responseData = try StorageCodec.encoder.encode(DailyAudioPracticePage(
-            items: [readyPractice],
-            total: 1,
+            items: [readyPractice, manualPractice],
+            total: 2,
             limit: 14,
             nextCursor: nil
         ))
-        let audioRequestCount = LockedCounter()
+        let automaticRequestCount = LockedCounter()
+        let manualRequestCount = LockedCounter()
         let client = makeClient { request in
             if request.url?.path == "/api/daily-audio-practice" {
                 return (
@@ -539,11 +563,15 @@ final class DailyAudioStoreTests: XCTestCase {
                     responseData
                 )
             }
-            XCTAssertEqual(
-                request.url?.path,
-                "/api/daily-audio-practice/\(practiceID)/tracks/\(trackID)/audio"
-            )
-            _ = audioRequestCount.next()
+            if request.url?.path == "/api/daily-audio-practice/\(practiceID)/tracks/\(trackID)/audio" {
+                _ = automaticRequestCount.next()
+            } else {
+                XCTAssertEqual(
+                    request.url?.path,
+                    "/api/daily-audio-practice/\(manualPracticeID)/tracks/\(manualTrackID)/audio"
+                )
+                _ = manualRequestCount.next()
+            }
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -560,6 +588,11 @@ final class DailyAudioStoreTests: XCTestCase {
             userID: 1,
             payload: try StorageCodec.encoder.encode(generatingPractice)
         ))
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: manualPractice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(manualPractice)
+        ))
         try container.mainContext.save()
         let store = DailyAudioStore(
             initialUserID: 1,
@@ -575,13 +608,17 @@ final class DailyAudioStoreTests: XCTestCase {
 
         let didRefresh = await store.refresh()
         XCTAssertTrue(didRefresh)
+        XCTAssertTrue(store.isPracticeDownloadInProgress)
+        await store.download(manualPractice)
         for _ in 0..<100 where !store.isDownloaded(readyTrack) {
             try await Task.sleep(for: .milliseconds(10))
         }
 
         XCTAssertTrue(store.isDownloaded(readyTrack))
         XCTAssertTrue(store.isDownloaded(readyPractice))
-        XCTAssertEqual(audioRequestCount.current, 1)
+        XCTAssertFalse(store.isDownloaded(manualTrack))
+        XCTAssertEqual(automaticRequestCount.current, 1)
+        XCTAssertEqual(manualRequestCount.current, 0)
         XCTAssertNil(store.errorMessage)
     }
 
