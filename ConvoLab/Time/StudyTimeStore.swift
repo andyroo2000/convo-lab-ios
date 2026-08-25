@@ -447,7 +447,13 @@ final class StudyTimeStore {
             clientSessionID: current.clientSessionID,
             count: count
         )
-        guard let userID = activeUserID else { return false }
+        guard let userID = activeUserID else {
+            setStorageWriteError(
+                StudyTimeSessionMutationError.sessionUnavailable,
+                for: operation
+            )
+            return false
+        }
         do {
             current = try mutationRepository.addCreatedCards(
                 count,
@@ -526,7 +532,9 @@ final class StudyTimeStore {
         duration: TimeInterval
     ) async throws -> String? {
         try mutationRepository.requirePersistentWrites()
-        guard let userID = activeUserID else { return nil }
+        guard let userID = activeUserID else {
+            throw StudyTimeSessionMutationError.sessionUnavailable
+        }
         let operation = StorageWriteOperation.update(
             clientSessionID: session.clientSessionId
         )
@@ -561,7 +569,9 @@ final class StudyTimeStore {
 
     func delete(session: StudyActivitySession) async throws {
         try mutationRepository.requirePersistentWrites()
-        guard let userID = activeUserID else { return }
+        guard let userID = activeUserID else {
+            throw StudyTimeSessionMutationError.sessionUnavailable
+        }
         let operation = StorageWriteOperation.delete(
             clientSessionID: session.clientSessionId
         )
@@ -678,7 +688,13 @@ final class StudyTimeStore {
         let operation = StorageWriteOperation.finish(
             clientSessionID: current.clientSessionID
         )
-        guard let userID = activeUserID else { return false }
+        guard let userID = activeUserID else {
+            setStorageWriteError(
+                StudyTimeSessionMutationError.sessionUnavailable,
+                for: operation
+            )
+            return false
+        }
         let completedSession: StudyActivitySession?
         do {
             completedSession = try mutationRepository.finish(
