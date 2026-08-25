@@ -104,9 +104,9 @@ final class StudyStore {
         case failed(String)
     }
 
-    private let api: APIClient
+    let api: APIClient
     let context: ModelContext
-    private let overviewContext: ModelContext
+    let overviewContext: ModelContext
     private let mediaCache: MediaCache
     private let knownKanjiService: KnownKanjiService
     private let reviewOutbox: ReviewEventOutbox
@@ -135,21 +135,21 @@ final class StudyStore {
     @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored var activeUserID: Int?
     @ObservationIgnored var accountActivationGeneration = 0
-    @ObservationIgnored private var studySettingsMutationRevision = 0
-    @ObservationIgnored private var studySettingsRefreshID: UUID?
-    @ObservationIgnored private var studySettingsUpdateID: UUID?
-    @ObservationIgnored private var overviewRefreshID: UUID?
+    @ObservationIgnored var studySettingsMutationRevision = 0
+    @ObservationIgnored var studySettingsRefreshID: UUID?
+    @ObservationIgnored var studySettingsUpdateID: UUID?
+    @ObservationIgnored var overviewRefreshID: UUID?
     @ObservationIgnored private var newlyFailedCardIDs: Set<String> = []
     @ObservationIgnored private var retainedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var resolvedFailedCardIDs: Set<String> = []
     @ObservationIgnored private var sessionFailureWasPresentByEventID: [String: Bool] = [:]
-    @ObservationIgnored private var overviewSnapshot: LocalStudyOverviewSnapshot?
-    @ObservationIgnored private var overviewSnapshotSaveTask: Task<Void, Never>?
+    @ObservationIgnored var overviewSnapshot: LocalStudyOverviewSnapshot?
+    @ObservationIgnored var overviewSnapshotSaveTask: Task<Void, Never>?
     @ObservationIgnored private var studySurfaceRevision = 0
     // Session freshness suppresses redundant UI refreshes. A failed mutation
     // outbox receives one prompt retry before returning to that throttle; the
     // read-only refresh domains use the ordinary max-age cadence.
-    @ObservationIgnored private var lastSessionRefreshAt: Date?
+    @ObservationIgnored var lastSessionRefreshAt: Date?
     @ObservationIgnored private var outboxRetryRevision = 0
     @ObservationIgnored private var consumedOutboxRetryRevision = 0
     @ObservationIgnored private var failedStudyChangeOperationIDs: Set<String> = []
@@ -179,12 +179,12 @@ final class StudyStore {
         _ = manualDraftOutboxRevision
         return manualDraftOutbox.pendingCreateRequests()
     }
-    private(set) var overview: StudyOverview?
-    private(set) var isRefreshingOverview = false
-    private(set) var overviewRefreshErrorMessage: String?
-    private(set) var studySettings: StudySettings?
-    private(set) var isUpdatingStudySettings = false
-    private(set) var studySettingsErrorMessage: String?
+    var overview: StudyOverview?
+    var isRefreshingOverview = false
+    var overviewRefreshErrorMessage: String?
+    var studySettings: StudySettings?
+    var isUpdatingStudySettings = false
+    var studySettingsErrorMessage: String?
     var knownKanji: Set<Character> { knownKanjiService.knownKanji }
     var manualKnownKanji: Set<Character> { knownKanjiService.manualKnownKanji }
     var knownKanjiVersion: Int { knownKanjiService.version }
@@ -198,7 +198,7 @@ final class StudyStore {
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
     private(set) var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
-    private(set) var lastSyncAt: Date?
+    var lastSyncAt: Date?
     private(set) var sessionInitialCardCount = 0
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
@@ -818,50 +818,6 @@ final class StudyStore {
         return true
     }
 
-    func refreshOverview() async {
-        guard let userID = activeUserID else { return }
-        let activationGeneration = accountActivationGeneration
-        let settingsMutationRevision = studySettingsMutationRevision
-        let refreshID = UUID()
-        overviewRefreshID = refreshID
-        isRefreshingOverview = true
-        overviewRefreshErrorMessage = nil
-
-        defer {
-            if isCurrentActivation(userID, generation: activationGeneration),
-               overviewRefreshID == refreshID {
-                isRefreshingOverview = false
-            }
-        }
-
-        do {
-            let refreshed: StudyOverview = try await api.request("/api/study/overview")
-            guard isCurrentActivation(userID, generation: activationGeneration),
-                  overviewRefreshID == refreshID else { return }
-            let responseSettings = StudySettingsPolicy.settings(
-                from: refreshed,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
-            )
-            let canPublishResponseSettings = studySettingsMutationRevision
-                == settingsMutationRevision
-            let appliedSettings = canPublishResponseSettings
-                ? responseSettings
-                : studySettings ?? responseSettings
-            setOverview(StudySettingsPolicy.applying(
-                appliedSettings,
-                to: refreshed,
-                preservingJLPTMasteryFrom: overview
-            ))
-            if canPublishResponseSettings {
-                studySettings = responseSettings
-            }
-        } catch {
-            guard isCurrentActivation(userID, generation: activationGeneration),
-                  overviewRefreshID == refreshID else { return }
-            overviewRefreshErrorMessage = error.localizedDescription
-        }
-    }
-
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
     func refreshSessionPreservingActiveLessons() async throws -> Bool {
@@ -951,116 +907,6 @@ final class StudyStore {
         }
         let retryCard = cards.remove(at: index)
         cards.append(retryCard)
-    }
-
-    func refreshStudySettings() async {
-        guard let userID = activeUserID else { return }
-        let activationGeneration = accountActivationGeneration
-        let mutationRevision = studySettingsMutationRevision
-        let refreshID = UUID()
-        studySettingsRefreshID = refreshID
-        do {
-            let response: StudySettings = try await api.request("/api/study/settings")
-            guard isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ), studySettingsRefreshID == refreshID,
-               studySettingsMutationRevision == mutationRevision
-            else { return }
-            let resolvedResponse = StudySettingsPolicy.resolving(
-                response,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
-            )
-            studySettings = resolvedResponse
-            if let current = overview {
-                setOverview(StudySettingsPolicy.applying(resolvedResponse, to: current))
-            }
-            studySettingsErrorMessage = nil
-        } catch {
-            guard isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ), studySettingsRefreshID == refreshID,
-               studySettingsMutationRevision == mutationRevision
-            else { return }
-            studySettingsErrorMessage = error.localizedDescription
-        }
-    }
-
-    @discardableResult
-    func updateNewCardsPerDay(_ value: Int) async -> Bool {
-        await updateStudySettings(
-            newCardsPerDay: value,
-            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5
-        )
-    }
-
-    @discardableResult
-    func updateStudySettings(
-        newCardsPerDay: Int,
-        lessonBatchSize: Int,
-        reviewTimeBudgetMinutes: Int? = nil
-    ) async -> Bool {
-        guard
-            let userID = activeUserID,
-            StudySettingsPolicy.accepts(
-                newCardsPerDay: newCardsPerDay,
-                lessonBatchSize: lessonBatchSize,
-                reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
-            )
-        else { return false }
-        let activationGeneration = accountActivationGeneration
-        studySettingsMutationRevision += 1
-        let updateID = UUID()
-        studySettingsUpdateID = updateID
-        isUpdatingStudySettings = true
-        studySettingsErrorMessage = nil
-        defer {
-            if isCurrentActivation(userID, generation: activationGeneration),
-               studySettingsUpdateID == updateID
-            {
-                isUpdatingStudySettings = false
-                studySettingsUpdateID = nil
-            }
-        }
-
-        do {
-            let response: StudySettings = try await api.request(
-                "/api/study/settings",
-                method: "PATCH",
-                body: UpdateStudySettingsRequest(
-                    newCardsPerDay: newCardsPerDay,
-                    lessonBatchSize: lessonBatchSize,
-                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
-                )
-            )
-            guard isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ), studySettingsUpdateID == updateID else { return false }
-            studySettingsMutationRevision += 1
-            let resolvedResponse = StudySettingsPolicy.resolving(
-                response,
-                requestedReviewTimeBudget: reviewTimeBudgetMinutes,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
-            )
-            studySettings = resolvedResponse
-            if let current = overview {
-                setOverview(StudySettingsPolicy.applying(resolvedResponse, to: current))
-            }
-            // The server may now admit a different set of new cards and build a
-            // different offline reserve. Force the next Study-page entry to refresh.
-            lastSyncAt = nil
-            lastSessionRefreshAt = nil
-            return true
-        } catch {
-            guard isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ), studySettingsUpdateID == updateID else { return false }
-            studySettingsErrorMessage = error.localizedDescription
-            return false
-        }
     }
 
     private func refreshOfflineReserve(
@@ -1356,7 +1202,7 @@ final class StudyStore {
         )
     }
 
-    private func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
+    func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {
         StudySettingsPolicy.resolvedReviewTimeBudget(
             responseOverview: responseOverview,
             settings: studySettings,
@@ -2843,88 +2689,6 @@ final class StudyStore {
 
     func loadLibraryCards(userID: Int) {
         libraryCards = (try? localCardRepository.libraryCards(userID: userID)) ?? []
-    }
-
-    private func loadCachedOverview(userID: Int) {
-        var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
-            predicate: #Predicate { $0.userID == userID }
-        )
-        descriptor.fetchLimit = 1
-        guard let snapshot = try? overviewContext.fetch(descriptor).first else { return }
-        overviewSnapshot = snapshot
-        guard let cachedOverview = try? StorageCodec.decoder.decode(
-                StudyOverview.self,
-                from: snapshot.payload
-            ) else { return }
-
-        overview = cachedOverview
-        studySettings = StudySettingsPolicy.settings(
-            from: cachedOverview,
-            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes ?? 90
-        )
-    }
-
-    private func setOverview(
-        _ value: StudyOverview,
-        persistImmediately: Bool = true
-    ) {
-        overview = value
-        guard let userID = activeUserID else { return }
-
-        do {
-            let payload = try StorageCodec.encoder.encode(value)
-            let snapshot: LocalStudyOverviewSnapshot
-            if let overviewSnapshot, overviewSnapshot.userID == userID {
-                snapshot = overviewSnapshot
-            } else {
-                var descriptor = FetchDescriptor<LocalStudyOverviewSnapshot>(
-                    predicate: #Predicate { $0.userID == userID }
-                )
-                descriptor.fetchLimit = 1
-                if let existing = try overviewContext.fetch(descriptor).first {
-                    snapshot = existing
-                } else {
-                    snapshot = LocalStudyOverviewSnapshot(userID: userID, payload: payload)
-                    overviewContext.insert(snapshot)
-                }
-                overviewSnapshot = snapshot
-            }
-            snapshot.payload = payload
-            snapshot.updatedAt = .now
-            if persistImmediately {
-                persistPendingOverviewSnapshot()
-            } else {
-                scheduleOverviewSnapshotSave()
-            }
-        } catch {
-            // The snapshot is a disposable presentation cache. Study cards and
-            // queued reviews remain durable even if this best-effort save fails.
-            overviewContext.rollback()
-            overviewSnapshot = nil
-        }
-    }
-
-    private func scheduleOverviewSnapshotSave() {
-        overviewSnapshotSaveTask?.cancel()
-        overviewSnapshotSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
-            self?.persistPendingOverviewSnapshot()
-        }
-    }
-
-    private func persistPendingOverviewSnapshot() {
-        overviewSnapshotSaveTask?.cancel()
-        overviewSnapshotSaveTask = nil
-        guard overviewContext.hasChanges else { return }
-        do {
-            try overviewContext.save()
-        } catch {
-            // This dedicated context contains only the disposable presentation
-            // snapshot, so rollback can never discard cards or outbox mutations.
-            overviewContext.rollback()
-            overviewSnapshot = nil
-        }
     }
 
     private func scheduleNextOfflineActivation() {
