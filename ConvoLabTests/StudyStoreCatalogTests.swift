@@ -1035,10 +1035,12 @@ final class CancellableLearningItemURLProtocol: URLProtocol, @unchecked Sendable
 
     override func stopLoading() {
         Self.lock.lock()
-        if Self.pendingRequest === self {
+        let wasPending = Self.pendingRequest === self
+        if wasPending {
             Self.pendingRequest = nil
         }
         Self.lock.unlock()
+        guard wasPending else { return }
         client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
     }
 
