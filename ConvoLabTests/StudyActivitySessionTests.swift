@@ -2606,6 +2606,140 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertTrue(didDeactivate)
     }
 
+    func testJoinedSynchronizationDoesNotReturnTheLeadersOutcome() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let (getStarted, getStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseGet, releaseGetContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/api/study/activity-sessions"):
+                getStartedContinuation.yield()
+                Task {
+                    var iterator = releaseGet.makeAsyncIterator()
+                    _ = await iterator.next()
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data("[]".utf8)
+                    )))
+                }
+            case ("GET", "/api/study/activity-analytics"):
+                do {
+                    completion(.success(try analyticsResponse(for: request)))
+                } catch {
+                    completion(.failure(error))
+                }
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let insights = StudyTimeInsightsController(
+            api: client,
+            snapshotCache: EmptyStudyTimeSnapshotCache()
+        )
+        let coordinator = StudyTimeSynchronizationCoordinator(
+            api: client,
+            repository: StudyTimeSessionMutationRepository(
+                api: client,
+                context: container.mainContext,
+                storageMode: .persistent,
+                contextSaver: nil,
+                calendar: nil
+            ),
+            insights: insights
+        )
+        insights.activate(userID: 42)
+        coordinator.activate(userID: 42)
+
+        let leader = Task { await coordinator.synchronize() }
+        var getStartedIterator = getStarted.makeAsyncIterator()
+        _ = await getStartedIterator.next()
+        let joiner = Task { await coordinator.synchronize() }
+        await Task.yield()
+        releaseGetContinuation.yield()
+
+        let leaderOutcome = await leader.value
+        let joinedOutcome = await joiner.value
+        XCTAssertNotNil(leaderOutcome)
+        XCTAssertNil(joinedOutcome)
+    }
+
+    func testJoinedPendingPushDoesNotReturnTheLeadersOutcome() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let pendingSession = LocalStudyActivitySession(
+            session: makeSession(source: .manual),
+            userID: 42
+        )
+        pendingSession.syncPending = true
+        container.mainContext.insert(pendingSession)
+        try container.mainContext.save()
+        let (pushStarted, pushStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releasePush, releasePushContinuation) = AsyncStream<Void>.makeStream()
+        let client = makeDeferredClient { request, completion in
+            guard request.httpMethod == "POST",
+                  request.url?.path == "/api/study/activity-sessions/batch"
+            else {
+                completion(.failure(URLError(.badURL)))
+                return
+            }
+            pushStartedContinuation.yield()
+            Task {
+                var iterator = releasePush.makeAsyncIterator()
+                _ = await iterator.next()
+                do {
+                    let json = try XCTUnwrap(
+                        JSONSerialization.jsonObject(with: requestBody(request))
+                            as? [String: Any]
+                    )
+                    let sessions = try XCTUnwrap(json["sessions"] as? [[String: Any]])
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: try XCTUnwrap(request.url),
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        try JSONSerialization.data(withJSONObject: sessions)
+                    )))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+        let insights = StudyTimeInsightsController(
+            api: client,
+            snapshotCache: EmptyStudyTimeSnapshotCache()
+        )
+        let coordinator = StudyTimeSynchronizationCoordinator(
+            api: client,
+            repository: StudyTimeSessionMutationRepository(
+                api: client,
+                context: container.mainContext,
+                storageMode: .persistent,
+                contextSaver: nil,
+                calendar: nil
+            ),
+            insights: insights
+        )
+        coordinator.activate(userID: 42)
+
+        let leader = Task { await coordinator.pushPending() }
+        var pushStartedIterator = pushStarted.makeAsyncIterator()
+        _ = await pushStartedIterator.next()
+        let joiner = Task { await coordinator.pushPending() }
+        await Task.yield()
+        releasePushContinuation.yield()
+
+        let leaderOutcome = await leader.value
+        let joinedOutcome = await joiner.value
+        XCTAssertNotNil(leaderOutcome)
+        XCTAssertNil(joinedOutcome)
+    }
+
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler

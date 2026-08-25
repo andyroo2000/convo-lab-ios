@@ -77,7 +77,7 @@ final class ConvoLabUITests: XCTestCase {
         let audioRecognition = app.descendants(matching: .any).matching(
             NSPredicate(format: "label == %@", "Audio recognition")
         ).firstMatch
-        XCTAssertTrue(audioRecognition.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForHittable(audioRecognition, timeout: 20))
         audioRecognition.tap()
         let answer = app.textFields["Japanese answer"]
         XCTAssertTrue(answer.waitForExistence(timeout: 5))
@@ -178,6 +178,20 @@ final class ConvoLabUITests: XCTestCase {
                 .firstMatch.exists
         )
         XCTAssertTrue(app.buttons["Calendar Settings"].exists)
+    }
+
+    @MainActor
+    private func waitForHittable(
+        _ element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        XCTWaiter.wait(
+            for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == 1 AND hittable == 1"),
+                object: element
+            )],
+            timeout: timeout
+        ) == .completed
     }
 
     @MainActor

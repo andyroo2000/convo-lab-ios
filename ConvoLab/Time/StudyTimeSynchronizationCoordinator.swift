@@ -65,7 +65,8 @@ final class StudyTimeSynchronizationCoordinator {
     func pushPending() async -> PushOutcome? {
         if let pendingPushTask {
             pendingPushNeedsAnotherPass = true
-            return await pendingPushTask.value
+            _ = await pendingPushTask.value
+            return nil
         }
         guard activeUserID != nil else { return nil }
         let pushID = UUID()
@@ -93,9 +94,9 @@ final class StudyTimeSynchronizationCoordinator {
         guard let requestedUserID = activeUserID else { return nil }
         if let synchronizationTask {
             let inFlightUserID = synchronizingUserID
-            let outcome = await synchronizationTask.value
+            _ = await synchronizationTask.value
             guard activeUserID == requestedUserID else { return nil }
-            if inFlightUserID == requestedUserID { return outcome }
+            if inFlightUserID == requestedUserID { return nil }
         }
         guard activeUserID == requestedUserID else { return nil }
         let task = Task { [weak self] in
