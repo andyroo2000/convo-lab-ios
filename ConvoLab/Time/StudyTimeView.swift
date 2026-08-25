@@ -753,6 +753,8 @@ private struct JLPTMasteryLevelBand: View {
                     .tracking(0.8)
                     .foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(level), \(caption)")
 
             Divider()
             JLPTMasteryMetricRow(
