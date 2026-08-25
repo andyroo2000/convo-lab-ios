@@ -779,7 +779,7 @@ enum StudyLearningItemStageStatus: String, nonisolated Codable, Equatable, Senda
     }
 }
 
-enum StudyLearningPathUnlockRequirement: String, nonisolated Codable, Equatable, Sendable {
+enum StudyLearningPathUnlockRequirement: String, nonisolated Codable, Equatable, Hashable, Sendable {
     case successfulRetrieval = "successful_retrieval"
     case guru
     case master

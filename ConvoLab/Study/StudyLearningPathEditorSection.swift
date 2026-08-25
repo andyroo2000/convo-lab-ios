@@ -95,6 +95,7 @@ struct StudyLearningPathEditorSection: View {
                         }
                     }
                 }
+                .accessibilityElement(children: .combine)
             }
         }
     }
