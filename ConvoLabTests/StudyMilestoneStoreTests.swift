@@ -74,6 +74,20 @@ final class StudyMilestoneStoreTests: XCTestCase {
         XCTAssertTrue(restored.newAwards.isEmpty)
     }
 
+    func testUndoingAQualifyingReviewRetractsInterruptedRecovery() throws {
+        let defaults = try makeDefaults()
+        var store = makeStore(defaults: defaults)
+        store.activate(userID: 7)
+        store.beginReviewSession(burnedCount: 99)
+        store.recordReview(burnedRecord(id: "review-1"))
+        store.undoReview(eventID: "review-1")
+
+        store = makeStore(defaults: defaults)
+        store.activate(userID: 7)
+
+        XCTAssertNil(store.prepareInterruptedCompletion())
+    }
+
     func testExistingMilestonesAreBackfilledWithoutCelebration() throws {
         let defaults = try makeDefaults()
         let store = makeStore(defaults: defaults)

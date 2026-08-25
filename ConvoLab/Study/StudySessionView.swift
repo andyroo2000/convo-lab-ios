@@ -136,6 +136,7 @@ struct StudySessionView: View {
             StudyMilestoneAwardView(award: award) {
                 advanceMilestoneAward()
             }
+            .id(award.id)
         } else if mode == .lessons, lessonPreview {
             lessonPreviewContent
         } else if displayingCompletion, !practiceMode {

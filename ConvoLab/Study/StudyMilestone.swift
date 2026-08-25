@@ -146,19 +146,36 @@ final class StudyMilestoneStore {
 
     func recordReview(_ record: StudySessionReviewRecord) {
         guard var session = state.activeSession, !session.isReadyForPresentation else { return }
+        let wasQualifyingForNewAward = !newMilestoneIDs(
+            forBurnedCount: state.lastKnownBurnedCount
+        ).isEmpty
         session.records.removeAll { $0.id == record.id }
         session.records.append(record)
         state.activeSession = session
         updateLastKnownBurnedCount(for: session)
-        persist()
+        if wasQualifyingForNewAward
+            || !newMilestoneIDs(forBurnedCount: state.lastKnownBurnedCount).isEmpty
+        {
+            // Ordinary interrupted sessions are intentionally discarded, so avoid encoding
+            // their growing card history on every grade. Persist as soon as an award is at
+            // stake so a force-quit can still restore the complete celebration and wrap-up.
+            persist()
+        }
     }
 
     func undoReview(eventID: String) {
         guard var session = state.activeSession, !session.isReadyForPresentation else { return }
+        let wasQualifyingForNewAward = !newMilestoneIDs(
+            forBurnedCount: state.lastKnownBurnedCount
+        ).isEmpty
         session.records.removeAll { $0.id == eventID }
         state.activeSession = session
         updateLastKnownBurnedCount(for: session)
-        persist()
+        if wasQualifyingForNewAward
+            || !newMilestoneIDs(forBurnedCount: state.lastKnownBurnedCount).isEmpty
+        {
+            persist()
+        }
     }
 
     func prepareCurrentSessionCompletion(at earnedAt: Date = .now) -> StudyMilestoneCompletion? {
@@ -231,6 +248,10 @@ final class StudyMilestoneStore {
     private func newMilestoneIDs(for session: ReviewSession) -> [StudyMilestoneID] {
         let summary = StudySessionWrapUpSummary.build(from: session.records)
         let burnedCount = max(0, session.initialBurnedCount + summary.burnedCountChange)
+        return newMilestoneIDs(forBurnedCount: burnedCount)
+    }
+
+    private func newMilestoneIDs(forBurnedCount burnedCount: Int) -> [StudyMilestoneID] {
         let earnedIDs = Set(state.earnedAwards.map(\.id))
         return StudyMilestoneID.allCases
             .filter { !earnedIDs.contains($0) && burnedCount >= $0.definition.threshold }
