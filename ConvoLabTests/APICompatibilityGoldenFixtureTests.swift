@@ -175,6 +175,18 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertTrue(failed.tracks.isEmpty)
     }
 
+    func testCanonicalDailyAudioTimingArrayInfersOrderedUnitIndexes() async throws {
+        let timings: [DailyAudioTiming] = try await decode(
+            payload: Data(#"[{"startMs":0,"endMs":1200},{"startMs":1200,"endMs":2450}]"#.utf8),
+            path: "/api/daily-audio-practice/fixture/timings"
+        )
+
+        XCTAssertEqual(timings, [
+            DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_200),
+            DailyAudioTiming(unitIndex: 1, startTime: 1_200, endTime: 2_450),
+        ])
+    }
+
     func testWeeklyRecapCasesDecodeThroughAPIClient() async throws {
         let empty: WeeklyStudyRecap = try await decode(
             fixture: "personal-weekly-recap-v1",
@@ -202,6 +214,13 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         path: String
     ) async throws -> Response {
         let payload = try payloadData(fixture: fixture, caseID: caseID)
+        return try await decode(payload: payload, path: path)
+    }
+
+    private func decode<Response: Decodable & Sendable>(
+        payload: Data,
+        path: String
+    ) async throws -> Response {
         MockURLProtocol.handler = { request in
             let url = try XCTUnwrap(request.url)
             XCTAssertEqual(url.path, path)

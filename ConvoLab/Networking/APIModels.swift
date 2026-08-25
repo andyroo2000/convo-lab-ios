@@ -1214,6 +1214,8 @@ struct DailyAudioTiming: nonisolated Codable, Equatable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        // The canonical Daily Audio payload may omit unitIndex and uses the
+        // timing array's order to align entries with script units.
         unitIndex = try values.decodeIfPresent(Int.self, forKey: .unitIndex)
             ?? decoder.codingPath.last?.intValue
             ?? 0
