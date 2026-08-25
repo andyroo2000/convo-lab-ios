@@ -4,6 +4,44 @@ import SwiftData
 import XCTest
 @testable import ConvoLab
 
+@MainActor
+private final class TestStudyDueActivationScheduler: StudyDueActivationScheduling {
+    private(set) var now: Date
+    private(set) var deadline: Date?
+    private(set) var scheduleCount = 0
+    private(set) var cancelCount = 0
+    private var action: (@MainActor @Sendable () -> Void)?
+
+    init(now: Date) {
+        self.now = now
+    }
+
+    func schedule(
+        at deadline: Date,
+        action: @escaping @MainActor @Sendable () -> Void
+    ) {
+        scheduleCount += 1
+        self.deadline = deadline
+        self.action = action
+    }
+
+    func cancel() {
+        cancelCount += 1
+        deadline = nil
+        action = nil
+    }
+
+    @discardableResult
+    func fire() -> Bool {
+        guard let deadline, let action else { return false }
+        now = deadline
+        self.deadline = nil
+        self.action = nil
+        action()
+        return true
+    }
+}
+
 final class StudyStoreTests: XCTestCase {
     @MainActor
     func testAudioRecognitionDraftCommitEmbedsPromptAudioAndPersistsCanonicalCard() async throws {
@@ -2013,7 +2051,8 @@ final class StudyStoreTests: XCTestCase {
     @MainActor
     func testDueActivationTimerReactivatesCardWhileStoreRemainsOpen() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let dueAt = Date.now.addingTimeInterval(1.5)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let dueAt = now.addingTimeInterval(90)
         let card = makeCard(
             id: "01J00000000000000000000017",
             expression: "時間",
@@ -2030,18 +2069,112 @@ final class StudyStoreTests: XCTestCase {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let scheduler = TestStudyDueActivationScheduler(now: now)
         let store = StudyStore(initialUserID: 1,
             api: client,
             context: container.mainContext,
-            mediaCache: mediaCache
+            mediaCache: mediaCache,
+            dueActivationScheduler: scheduler
         )
 
         XCTAssertTrue(store.cards.isEmpty)
-        for _ in 0..<30 where store.cards.isEmpty {
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        XCTAssertEqual(scheduler.deadline, dueAt)
+        XCTAssertTrue(scheduler.fire())
 
         XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertNil(scheduler.deadline)
+        store.deactivate()
+        await Task.yield()
+    }
+
+    @MainActor
+    func testDueActivationReplacesScheduleAndDeactivateCancelsIt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let firstDueAt = now.addingTimeInterval(60)
+        let secondDueAt = now.addingTimeInterval(120)
+        for (id, dueAt) in [("first", firstDueAt), ("second", secondDueAt)] {
+            let card = makeCard(id: id, expression: id, dueAt: dueAt)
+            let record = LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+            record.isInActiveSession = false
+            container.mainContext.insert(record)
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let scheduler = TestStudyDueActivationScheduler(now: now)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            dueActivationScheduler: scheduler
+        )
+
+        XCTAssertEqual(scheduler.deadline, firstDueAt)
+        XCTAssertTrue(scheduler.fire())
+        XCTAssertEqual(store.cards.map(\.id), ["first"])
+        XCTAssertEqual(scheduler.deadline, secondDueAt)
+        XCTAssertEqual(scheduler.scheduleCount, 2)
+
+        let cancelCount = scheduler.cancelCount
+        store.deactivate()
+
+        XCTAssertNil(scheduler.deadline)
+        XCTAssertGreaterThan(scheduler.cancelCount, cancelCount)
+        XCTAssertFalse(scheduler.fire())
+        XCTAssertTrue(store.cards.isEmpty)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testLessonPresentationSuspendsAndRestoresDueActivationSchedule() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let dueAt = now.addingTimeInterval(60)
+        let card = makeCard(id: "lesson-transition", expression: "授業", dueAt: dueAt)
+        let record = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.isInActiveSession = false
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let scheduler = TestStudyDueActivationScheduler(now: now)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            dueActivationScheduler: scheduler
+        )
+
+        XCTAssertEqual(scheduler.deadline, dueAt)
+        store.beginLessonSessionPresentation()
+        XCTAssertNil(scheduler.deadline)
+        XCTAssertFalse(scheduler.fire())
+
+        store.endLessonSessionPresentation()
+        XCTAssertEqual(scheduler.deadline, dueAt)
+        XCTAssertTrue(scheduler.fire())
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        store.deactivate()
+        await Task.yield()
     }
 
     @MainActor
