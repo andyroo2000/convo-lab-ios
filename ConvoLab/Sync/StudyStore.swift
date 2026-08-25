@@ -1082,7 +1082,7 @@ final class StudyStore {
     }
 
     func learningPath(for card: StudyCard) async throws -> StudyLearningPath {
-        let currentCard = try await prepareLearningPathAccess(for: [card])[0]
+        let currentCard = try await prepareLearningPathAccess(for: card)
         return try await learningPathRepository.learningPath(for: currentCard.reviewCardID)
     }
 
@@ -1097,10 +1097,15 @@ final class StudyStore {
         to predecessor: StudyCard,
         requirement: StudyLearningPathUnlockRequirement
     ) async throws -> StudyLearningPath {
-        let currentCards = try await prepareLearningPathAccess(for: [predecessor, successor])
+        let currentPredecessor = try await prepareLearningPathAccess(for: predecessor)
+        for identifier in StudyCardIdentity.identifiers(for: successor) {
+            guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
+                throw PendingLearningPathChangesError()
+            }
+        }
         let path = try await learningPathRepository.linkSuccessor(
-            currentCards[1].reviewCardID,
-            to: currentCards[0].reviewCardID,
+            successor.reviewCardID,
+            to: currentPredecessor.reviewCardID,
             requirement: requirement
         )
         try? await refreshLearningItems(search: learningItemsQuery)
@@ -2344,7 +2349,7 @@ final class StudyStore {
         return currentCard
     }
 
-    private func prepareLearningPathAccess(for cards: [StudyCard]) async throws -> [StudyCard] {
+    private func prepareLearningPathAccess(for card: StudyCard) async throws -> StudyCard {
         try requirePersistentWrites()
         do {
             try await flushCardOutbox()
@@ -2355,13 +2360,13 @@ final class StudyStore {
             throw error
         }
 
-        return try cards.map { card in
-            let currentCard = try currentLocalCard(for: card)
-            guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
+        let currentCard = try currentLocalCard(for: card)
+        for identifier in StudyCardIdentity.identifiers(for: currentCard) {
+            guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
                 throw PendingLearningPathChangesError()
             }
-            return currentCard
         }
+        return currentCard
     }
 
     private func reconcileCardMedia(
