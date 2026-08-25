@@ -154,6 +154,12 @@ struct CardLibraryView: View {
                                 } label: {
                                     queueRow(item, number: index + 1)
                                 }
+                            } else if StudyCardDraft.CardType(rawValue: item.cardType) != nil {
+                                Button {
+                                    open(item)
+                                } label: {
+                                    queueRow(item, number: index + 1)
+                                }
                             } else {
                                 queueRow(item, number: index + 1)
                             }
@@ -366,6 +372,11 @@ struct CardLibraryView: View {
                 }
             } else {
                 learningItemSummary(item)
+                    .swipeActions {
+                        Button("Delete", role: .destructive) {
+                            Task { await delete(item.representativeCard) }
+                        }
+                    }
             }
         } else {
             DisclosureGroup(
@@ -490,7 +501,17 @@ struct CardLibraryView: View {
                         .accessibilityLabel("Delete card")
                     }
                 } else {
-                    learningItemCardRow(itemCard)
+                    HStack {
+                        learningItemCardRow(itemCard)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button(role: .destructive) {
+                            Task { await delete(itemCard) }
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete card")
+                    }
                 }
             }
         }
@@ -538,7 +559,33 @@ struct CardLibraryView: View {
 
     private func refreshLearningItemsIfNeeded() {
         guard collectionMode == .all else { return }
-        Task { try? await store.refreshLearningItems(search: searchText) }
+        let loadedItemCount = store.learningItems.count
+        Task {
+            try? await store.refreshLearningItems(
+                search: searchText,
+                minimumItemCount: loadedItemCount
+            )
+        }
+    }
+
+    private func open(_ item: StudyNewCardQueueItem) {
+        Task {
+            do {
+                guard let card = try await store.resolveCard(for: item) else {
+                    cardLoadErrorMessage = "This card is no longer available."
+                    showingCardLoadError = true
+                    return
+                }
+                selectedCard = card
+            } catch is CancellationError {
+                return
+            } catch let error as URLError where error.code == .cancelled {
+                return
+            } catch {
+                cardLoadErrorMessage = error.localizedDescription
+                showingCardLoadError = true
+            }
+        }
     }
 
     private func open(_ itemCard: StudyLearningItemCard) {
@@ -562,9 +609,13 @@ struct CardLibraryView: View {
     }
 
     private func delete(_ card: StudyCard) async {
+        let loadedItemCount = store.learningItems.count
         do {
             try await store.deleteCard(card)
-            try? await store.refreshLearningItems(search: searchText)
+            try? await store.refreshLearningItems(
+                search: searchText,
+                minimumItemCount: loadedItemCount
+            )
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {
@@ -576,6 +627,7 @@ struct CardLibraryView: View {
     }
 
     private func delete(_ itemCard: StudyLearningItemCard) async {
+        let loadedItemCount = store.learningItems.count
         do {
             guard let card = try await store.resolveCard(for: itemCard) else {
                 deletionErrorMessage = "This card is no longer available."
@@ -583,7 +635,10 @@ struct CardLibraryView: View {
                 return
             }
             try await store.deleteCard(card)
-            try? await store.refreshLearningItems(search: searchText)
+            try? await store.refreshLearningItems(
+                search: searchText,
+                minimumItemCount: loadedItemCount
+            )
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {

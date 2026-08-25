@@ -303,6 +303,11 @@ extension StudyStoreTests {
             [StudyLearningItemStageStatus.available, .locked]
         )
         XCTAssertNil(store.learningItemsNextCursor)
+
+        try await store.refreshLearningItems(search: "animal", minimumItemCount: 2)
+
+        XCTAssertEqual(store.learningItems.map(\.id), [family.id, standalone.id])
+        XCTAssertNil(store.learningItemsNextCursor)
     }
 
     @MainActor

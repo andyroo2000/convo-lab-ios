@@ -1065,7 +1065,10 @@ final class StudyStore {
         allCardsNextCursor = response.nextCursor
     }
 
-    func refreshLearningItems(search query: String = "") async throws {
+    func refreshLearningItems(
+        search query: String = "",
+        minimumItemCount: Int = 0
+    ) async throws {
         guard let userID = activeUserID else { return }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         learningItemsRefreshRevision += 1
@@ -1083,16 +1086,37 @@ final class StudyStore {
             let response = try await cardCatalogRepository.learningItemPage(
                 matching: trimmedQuery
             )
+            var refreshedItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+                response.items,
+                to: []
+            )
+            var nextCursor = response.nextCursor
+            var requestedCursors = Set<String>()
+            while refreshedItems.count < minimumItemCount,
+                  let cursor = nextCursor,
+                  requestedCursors.insert(cursor).inserted {
+                guard
+                    activeUserID == userID,
+                    learningItemsRefreshRevision == refreshRevision,
+                    learningItemsQuery == trimmedQuery
+                else { return }
+                let nextResponse = try await cardCatalogRepository.learningItemPage(
+                    matching: trimmedQuery,
+                    after: cursor
+                )
+                refreshedItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+                    nextResponse.items,
+                    to: refreshedItems
+                )
+                nextCursor = nextResponse.nextCursor
+            }
             guard
                 activeUserID == userID,
                 learningItemsRefreshRevision == refreshRevision,
                 learningItemsQuery == trimmedQuery
             else { return }
-            learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
-                response.items,
-                to: []
-            )
-            learningItemsNextCursor = response.nextCursor
+            learningItems = refreshedItems
+            learningItemsNextCursor = nextCursor
         } catch {
             guard
                 activeUserID == userID,
@@ -1157,6 +1181,30 @@ final class StudyStore {
         guard let userID = activeUserID else { return nil }
         let activationGeneration = accountActivationGeneration
         let canonicalCard = try await fetchCanonicalCard(id: item.syncId)
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if let canonicalCard {
+            allCards = StudyCardCatalogRepository.appendingUniqueCards(
+                [canonicalCard],
+                to: allCards
+            )
+        }
+        return canonicalCard
+    }
+
+    func resolveCard(for item: StudyNewCardQueueItem) async throws -> StudyCard? {
+        let identifiers = [item.id]
+        if let localCard = allCards.first(where: {
+            StudyCardIdentity.matches($0, any: identifiers)
+        }) ?? libraryCards.first(where: {
+            StudyCardIdentity.matches($0, any: identifiers)
+        }) {
+            return localCard
+        }
+        guard let userID = activeUserID else { return nil }
+        let activationGeneration = accountActivationGeneration
+        let canonicalCard = try await fetchCanonicalCard(id: item.id)
         guard isCurrentActivation(userID, generation: activationGeneration) else {
             throw CancellationError()
         }
