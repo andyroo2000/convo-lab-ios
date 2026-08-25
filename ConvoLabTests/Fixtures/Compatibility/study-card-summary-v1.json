@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "id": "study-card-summary.v1",
+    "producer": "App\\Http\\Resources\\Study\\StudyCardSummaryResource",
+    "canonicalRepository": "andyroo2000/learning-os"
+  },
+  "cases": [
+    {
+      "id": "native-defaults",
+      "description": "Native card with fallback text payloads and every nullable compatibility field present.",
+      "payload": {
+        "id": "01J60000000000000000000001",
+        "syncId": "01J60000000000000000000001",
+        "noteId": null,
+        "cardType": "recognition",
+        "prompt": {"type": "text", "text": "聞く"},
+        "answer": {"type": "text", "text": "to listen"},
+        "state": {
+          "dueAt": null,
+          "introducedAt": null,
+          "failedAt": null,
+          "queueState": "new",
+          "scheduler": null,
+          "source": {
+            "noteId": null,
+            "noteGuid": null,
+            "cardId": null,
+            "deckId": null,
+            "deckName": null,
+            "notetypeId": null,
+            "notetypeName": null,
+            "templateOrd": null,
+            "templateName": null,
+            "queue": null,
+            "type": null,
+            "due": null,
+            "ivl": null,
+            "factor": null,
+            "reps": null,
+            "lapses": null,
+            "left": null,
+            "odue": null,
+            "odid": null
+          },
+          "rawFsrs": null
+        },
+        "masteryLevel": "apprentice",
+        "variantGroupId": null,
+        "variantSentenceId": null,
+        "variantKind": null,
+        "variantStage": null,
+        "variantStatus": null,
+        "variantUnlockedAt": null,
+        "variantRetiredAt": null,
+        "answerAudioSource": "missing",
+        "createdAt": "2026-08-20T10:11:12.000Z",
+        "updatedAt": "2026-08-20T10:11:13.000Z"
+      }
+    },
+    {
+      "id": "imported-progression",
+      "description": "Imported progression card with rich source, scheduler, media, and lifecycle metadata.",
+      "payload": {
+        "id": "c358732a-2cd0-4b18-9cce-c474297863f9",
+        "syncId": "01J60000000000000000000002",
+        "noteId": "9e33f12d-cf38-409b-bbf1-6fddd9977576",
+        "cardType": "production",
+        "prompt": {"type": "text", "text": "company"},
+        "answer": {"type": "text", "text": "会社", "answerAudio": {"url": "/media/company.mp3", "source": "imported"}},
+        "state": {
+          "dueAt": "2026-09-01T12:00:00.000Z",
+          "introducedAt": "2026-07-01T08:30:00.000Z",
+          "failedAt": "2026-07-02T09:45:00.000Z",
+          "queueState": "review",
+          "scheduler": {"stability": 45.5, "difficulty": 3.25, "reps": 12},
+          "source": {
+            "noteId": "501",
+            "noteGuid": "anki-guid",
+            "cardId": "701",
+            "deckId": "801",
+            "deckName": "Japanese",
+            "notetypeId": "601",
+            "notetypeName": "Japanese - Vocab",
+            "templateOrd": 1,
+            "templateName": "Production",
+            "queue": 2,
+            "type": 2,
+            "due": 12,
+            "ivl": 30,
+            "factor": 2500,
+            "reps": 7,
+            "lapses": 1,
+            "left": 0,
+            "odue": 4,
+            "odid": "901"
+          },
+          "rawFsrs": {"stability": 4.2, "retrievability": null}
+        },
+        "masteryLevel": "master",
+        "variantGroupId": "vocab-company",
+        "variantSentenceId": "sentence-company-1",
+        "variantKind": "sentence_text_recognition",
+        "variantStage": 3,
+        "variantStatus": "available",
+        "variantUnlockedAt": "2026-07-03T10:00:00.000Z",
+        "variantRetiredAt": "2026-08-03T10:00:00.000Z",
+        "answerAudioSource": "imported",
+        "createdAt": "2026-06-01T01:02:03.000Z",
+        "updatedAt": "2026-08-21T04:05:06.000Z"
+      }
+    }
+  ]
+}

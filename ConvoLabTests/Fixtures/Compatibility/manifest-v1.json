@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "authority": {
+    "repository": "andyroo2000/learning-os",
+    "manifest": "tests/Fixtures/Compatibility/manifest-v1.json",
+    "productionRuntimeLoadsFixtures": false
+  },
+  "fixtures": [
+    {
+      "id": "study-card-summary.v1",
+      "path": "tests/Fixtures/Compatibility/study-card-summary-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/study-card-summary-v1.sha256",
+      "sha256": "8be018c25fc3bb661abb1a88b92e6f54e1d9026913a5882c6b524e1da111811a",
+      "producer": "App\\Http\\Resources\\Study\\StudyCardSummaryResource"
+    },
+    {
+      "id": "google-calendar-connection.v1",
+      "path": "tests/Fixtures/Compatibility/google-calendar-connection-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/google-calendar-connection-v1.sha256",
+      "sha256": "1b4aae07eca4b171cca63fb3f212b66e30eb794a6cd8bfa68dd4ed8f888d6a6d",
+      "producer": "App\\Domain\\Calendar\\Actions\\ShowGoogleCalendarConnectionAction"
+    },
+    {
+      "id": "study-activity-analytics.v1",
+      "path": "tests/Fixtures/Compatibility/study-activity-analytics-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/study-activity-analytics-v1.sha256",
+      "sha256": "139ebccb5a1a7d68ab8ed4be2d0f8c7a96bd9d9be35a5ccfdb59f53c61ce8418",
+      "producer": "App\\Domain\\Study\\Actions\\BuildStudyActivityAnalyticsAction"
+    },
+    {
+      "id": "daily-audio-practice.v1",
+      "path": "tests/Fixtures/Compatibility/daily-audio-practice-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/daily-audio-practice-v1.sha256",
+      "sha256": "ad4e45a304e743f04b8f2e8d492917ea844ed3df599e0e7dfae1552e2fb6dcf1",
+      "producer": "App\\Http\\Resources\\Study\\DailyAudioPracticeResource"
+    },
+    {
+      "id": "personal-weekly-recap.v1",
+      "path": "tests/Fixtures/Compatibility/personal-weekly-recap-v1.json",
+      "checksumPath": "tests/Fixtures/Compatibility/personal-weekly-recap-v1.sha256",
+      "sha256": "0c81e9495d703db1ded8e73d4cf46422f8ce21813fd5828635961758e7aa7d2b",
+      "producer": "App\\Domain\\Study\\Actions\\BuildPersonalWeeklyRecapAction"
+    }
+  ]
+}

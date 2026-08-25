@@ -1,0 +1,77 @@
+{
+    "schemaVersion": 1,
+    "contract": {
+        "id": "personal-weekly-recap.v1",
+        "producer": "App\\Domain\\Study\\Actions\\BuildPersonalWeeklyRecapAction",
+        "canonicalRepository": "andyroo2000/learning-os"
+    },
+    "cases": [
+        {
+            "id": "empty-completed-week",
+            "description": "Empty weeks preserve null recall and best-day values.",
+            "payload": {
+                "generatedAt": "2026-08-12T16:00:00.000000Z",
+                "week": {
+                    "startsAt": "2026-08-02T04:00:00.000000Z",
+                    "endsAt": "2026-08-09T04:00:00.000000Z",
+                    "totalMs": 0,
+                    "activeDays": 0,
+                    "categories": {
+                        "review": 0,
+                        "listen": 0,
+                        "create": 0,
+                        "immerse": 0,
+                        "conversation": 0,
+                        "wanikani": 0
+                    },
+                    "reviewCount": 0,
+                    "recallRate": null,
+                    "newCardsIntroduced": 0,
+                    "bestDay": null
+                },
+                "previousWeek": {
+                    "totalMs": 0,
+                    "activeDays": 0,
+                    "reviewCount": 0,
+                    "recallRate": null,
+                    "newCardsIntroduced": 0
+                }
+            }
+        },
+        {
+            "id": "owned-study-review-and-introduction-metrics",
+            "description": "Completed and previous weeks include category totals, recall, introductions, and best day.",
+            "payload": {
+                "generatedAt": "2026-08-12T16:00:00.000000Z",
+                "week": {
+                    "startsAt": "2026-08-02T04:00:00.000000Z",
+                    "endsAt": "2026-08-09T04:00:00.000000Z",
+                    "totalMs": 5400000,
+                    "activeDays": 2,
+                    "categories": {
+                        "review": 3600000,
+                        "listen": 0,
+                        "create": 0,
+                        "immerse": 0,
+                        "conversation": 1800000,
+                        "wanikani": 0
+                    },
+                    "reviewCount": 2,
+                    "recallRate": 0.5,
+                    "newCardsIntroduced": 2,
+                    "bestDay": {
+                        "date": "2026-08-03",
+                        "totalMs": 3600000
+                    }
+                },
+                "previousWeek": {
+                    "totalMs": 900000,
+                    "activeDays": 1,
+                    "reviewCount": 1,
+                "recallRate": 1.0,
+                    "newCardsIntroduced": 1
+                }
+            }
+        }
+    ]
+}

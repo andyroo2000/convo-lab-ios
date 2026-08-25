@@ -1,0 +1,56 @@
+{
+    "schemaVersion": 1,
+    "contract": {
+        "id": "google-calendar-connection.v1",
+        "producer": "App\\Domain\\Calendar\\Actions\\ShowGoogleCalendarConnectionAction",
+        "canonicalRepository": "andyroo2000/learning-os"
+    },
+    "cases": [
+        {
+            "id": "disconnected",
+            "description": "Disconnected state keeps every nullable field present.",
+            "payload": {
+                "connected": false,
+                "accountEmail": null,
+                "scopes": [],
+                "settings": null,
+                "connectedAt": null,
+                "lastSyncedAt": null,
+                "sync": null,
+                "nextLesson": null
+            }
+        },
+        {
+            "id": "connected-with-next-lesson",
+            "description": "Connected state includes settings, failed sync diagnostics, and the next matched lesson.",
+            "payload": {
+                "connected": true,
+                "accountEmail": "andrew@example.com",
+                "scopes": [
+                    "calendar.readonly"
+                ],
+                "settings": {
+                    "calendarIds": [
+                        "primary"
+                    ],
+                    "titleMatchTerms": [
+                        "iTalki"
+                    ],
+                    "syncEnabled": true
+                },
+                "connectedAt": "2026-08-15T14:00:00Z",
+                "lastSyncedAt": "2026-08-24T17:45:12Z",
+                "sync": {
+                    "status": "failed",
+                    "errorCode": "provider_unavailable",
+                    "statusAt": "2026-08-24T17:46:13Z"
+                },
+                "nextLesson": {
+                    "title": "iTalki with Yuki",
+                    "startsAt": "2026-08-24T19:00:00Z",
+                    "endsAt": "2026-08-24T20:00:00Z"
+                }
+            }
+        }
+    ]
+}
