@@ -5,6 +5,7 @@ struct StudyLearningPathEditorSection: View {
     let card: StudyCard
 
     @State private var path: StudyLearningPath?
+    @State private var hasRequestedPath = false
     @State private var searchText = ""
     @State private var searchResults: [StudyCard] = []
     @State private var selectedSuccessor: StudyCard?
@@ -22,7 +23,14 @@ struct StudyLearningPathEditorSection: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            if isLoading, path == nil {
+            if !hasRequestedPath {
+                Button {
+                    hasRequestedPath = true
+                    Task { await loadPath() }
+                } label: {
+                    Label("View or edit learning path", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+            } else if isLoading, path == nil {
                 ProgressView("Loading path…")
             } else if let path {
                 if path.stages.isEmpty {
@@ -55,9 +63,6 @@ struct StudyLearningPathEditorSection: View {
                 Text(errorMessage)
                     .foregroundStyle(.red)
             }
-        }
-        .task(id: card.reviewCardID) {
-            await loadPath()
         }
     }
 
