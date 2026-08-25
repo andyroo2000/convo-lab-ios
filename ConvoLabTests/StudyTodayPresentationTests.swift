@@ -24,6 +24,27 @@ struct StudyTodayPresentationTests {
         )
     }
 
+    @Test func distinguishesCaughtUpReviewsFromACalibratingEstimate() {
+        #expect(
+            StudyTodayPresentation.reviewTimeText(
+                reviewCount: 0,
+                medianReviewDurationSeconds: nil
+            ) == "All caught up"
+        )
+        #expect(
+            StudyTodayPresentation.reviewTimeText(
+                reviewCount: 14,
+                medianReviewDurationSeconds: nil
+            ) == "Time estimate is calibrating"
+        )
+        #expect(
+            StudyTodayPresentation.reviewTimeText(
+                reviewCount: 14,
+                medianReviewDurationSeconds: 25
+            ) == "About 6 min"
+        )
+    }
+
     @Test func formatsSingularAndPluralCounts() {
         #expect(StudyTodayPresentation.reviewCountText(1) == "1 review")
         #expect(StudyTodayPresentation.reviewCountText(14) == "14 reviews")

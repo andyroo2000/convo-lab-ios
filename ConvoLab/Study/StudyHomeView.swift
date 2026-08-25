@@ -5,7 +5,6 @@ struct StudyHomeView: View {
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
     @State private var showingFailedChanges = false
-    @State private var calendarStatusFetchedAt: Date? = nil
 
     var body: some View {
         NavigationStack {
@@ -256,14 +255,11 @@ struct StudyHomeView: View {
     }
 
     private var reviewTimeText: String {
-        if let minutes = StudyTodayPresentation.estimatedReviewMinutes(
+        StudyTodayPresentation.reviewTimeText(
             reviewCount: reviewAvailableCount,
             medianReviewDurationSeconds: store.overview?.learningReadiness?
                 .medianReviewDurationSeconds
-        ) {
-            return "About \(minutes) min"
-        }
-        return "Time estimate is calibrating"
+        )
     }
 
     private var totalCardCount: Int {
@@ -283,11 +279,10 @@ struct StudyHomeView: View {
     private func refreshCalendarIfNeeded(force: Bool = false) async {
         guard let timeStore else { return }
         guard force || StudyTodayPresentation.shouldRefreshCalendar(
-            statusFetchedAt: calendarStatusFetchedAt
+            statusFetchedAt: timeStore.googleCalendarStatusRefreshedAt
         ) else { return }
 
         await timeStore.loadGoogleCalendarConnection()
-        calendarStatusFetchedAt = .now
     }
 
     @ViewBuilder

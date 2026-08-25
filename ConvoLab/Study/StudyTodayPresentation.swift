@@ -14,6 +14,18 @@ nonisolated enum StudyTodayPresentation {
         return max(1, Int(ceil(Double(reviewCount) * medianReviewDurationSeconds / 60)))
     }
 
+    static func reviewTimeText(
+        reviewCount: Int,
+        medianReviewDurationSeconds: Double?
+    ) -> String {
+        guard reviewCount > 0 else { return "All caught up" }
+        guard let minutes = estimatedReviewMinutes(
+            reviewCount: reviewCount,
+            medianReviewDurationSeconds: medianReviewDurationSeconds
+        ) else { return "Time estimate is calibrating" }
+        return "About \(minutes) min"
+    }
+
     static func reviewCountText(_ count: Int) -> String {
         "\(count.formatted()) \(count == 1 ? "review" : "reviews")"
     }

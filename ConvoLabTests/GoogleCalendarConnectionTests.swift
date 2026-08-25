@@ -292,6 +292,7 @@ final class GoogleCalendarConnectionTests: XCTestCase {
         )
         await store.loadGoogleCalendarConnection()
         XCTAssertEqual(store.googleCalendarStatus?.connected, false)
+        XCTAssertNotNil(store.googleCalendarStatusRefreshedAt)
         XCTAssertNil(store.googleCalendarErrorMessage)
         authorizer.result = .success(URL(string: "convolab://study-time?calendarConnection=connected")!)
         service.statusError = URLError(.timedOut); await store.connectGoogleCalendar()
