@@ -5,43 +5,22 @@ import Testing
 struct StudyTodayPresentationTests {
     @Test func estimatesReviewMinutesByRoundingUp() {
         #expect(
-            StudyTodayPresentation.estimatedReviewMinutes(
-                reviewCount: 14,
-                medianReviewDurationSeconds: 25
-            ) == 6
+            StudyTodayPresentation.estimatedReviewMinutes(reviewCount: 14) == 6
         )
         #expect(
-            StudyTodayPresentation.estimatedReviewMinutes(
-                reviewCount: 14,
-                medianReviewDurationSeconds: nil
-            ) == nil
+            StudyTodayPresentation.estimatedReviewMinutes(reviewCount: 74) == 29
         )
         #expect(
-            StudyTodayPresentation.estimatedReviewMinutes(
-                reviewCount: 0,
-                medianReviewDurationSeconds: 25
-            ) == nil
+            StudyTodayPresentation.estimatedReviewMinutes(reviewCount: 0) == nil
         )
     }
 
-    @Test func distinguishesCaughtUpReviewsFromACalibratingEstimate() {
+    @Test func distinguishesCaughtUpReviewsFromAnEstimate() {
         #expect(
-            StudyTodayPresentation.reviewTimeText(
-                reviewCount: 0,
-                medianReviewDurationSeconds: nil
-            ) == "All caught up"
+            StudyTodayPresentation.reviewTimeText(reviewCount: 0) == "All caught up"
         )
         #expect(
-            StudyTodayPresentation.reviewTimeText(
-                reviewCount: 14,
-                medianReviewDurationSeconds: nil
-            ) == "Time estimate is calibrating"
-        )
-        #expect(
-            StudyTodayPresentation.reviewTimeText(
-                reviewCount: 14,
-                medianReviewDurationSeconds: 25
-            ) == "About 6 min"
+            StudyTodayPresentation.reviewTimeText(reviewCount: 14) == "About 6 min"
         )
     }
 
