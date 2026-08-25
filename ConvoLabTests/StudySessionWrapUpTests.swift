@@ -29,6 +29,18 @@ final class StudySessionWrapUpTests: XCTestCase {
         XCTAssertEqual(summary.newlyStabilizedCards.map(\.id), ["stable"])
     }
 
+    func testFirstPassRecallUsesReviewTimeWhenAsyncResultsArriveOutOfOrder() {
+        let card = makeCard(id: "ordered", stability: 2)
+        let summary = StudySessionWrapUpSummary.build(
+            from: [
+                record(id: "2", card: card, rating: .again, duration: 500),
+                record(id: "1", card: card, rating: .good, duration: 500),
+            ]
+        )
+
+        XCTAssertEqual(summary.firstPassRecall, 1)
+    }
+
     func testToughestCombinesRepeatedMissesAndSlowCards() {
         let records = [
             record(id: "1", card: makeCard(id: "missed", stability: 2), rating: .again, duration: 500),
@@ -69,7 +81,8 @@ final class StudySessionWrapUpTests: XCTestCase {
             cardBefore: card,
             cardAfter: cardAfter,
             rating: rating,
-            durationMilliseconds: duration
+            durationMilliseconds: duration,
+            reviewedAt: Date(timeIntervalSince1970: TimeInterval(Int(id) ?? 0))
         )
     }
 

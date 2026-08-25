@@ -6,6 +6,7 @@ struct StudySessionReviewRecord: Identifiable, Equatable, Sendable {
     let cardAfter: StudyCard?
     let rating: ReviewRating
     let durationMilliseconds: Int
+    let reviewedAt: Date
 }
 
 struct StudySessionToughCard: Identifiable, Equatable, Sendable {
@@ -27,7 +28,12 @@ struct StudySessionWrapUpSummary: Equatable, Sendable {
         var stabilized: [String: StudyCard] = [:]
         var aggregates: [String: StudySessionToughCard] = [:]
 
-        for record in records {
+        let chronologicalRecords = records.sorted {
+            if $0.reviewedAt != $1.reviewedAt { return $0.reviewedAt < $1.reviewedAt }
+            return $0.id < $1.id
+        }
+
+        for record in chronologicalRecords {
             let identity = record.cardBefore.reviewCardID.lowercased()
             if firstAttempts[identity] == nil,
                ["review", "relearning"].contains(record.cardBefore.state.queueState)

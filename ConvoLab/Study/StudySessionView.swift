@@ -858,23 +858,28 @@ struct StudySessionView: View {
             }
             let duration = reviewedAt.timeIntervalSince(cardStartedAt)
             let durationMilliseconds = Int(duration * 1_000)
-            let cardAfter = try? card.applyingReview(rating, at: reviewedAt)
             Task {
-                let eventID = await store.recordReview(
+                let stagedReview = await store.recordReviewResult(
                     card: card,
                     rating: rating,
                     duration: .milliseconds(Int64(durationMilliseconds)),
                     reviewedAt: reviewedAt
                 )
-                if let eventID {
-                    pushUndo(.grade(eventID: eventID, cardBefore: card))
+                if let stagedReview {
+                    pushUndo(
+                        .grade(
+                            eventID: stagedReview.eventID,
+                            cardBefore: stagedReview.cardBefore
+                        )
+                    )
                     sessionReviewRecords.append(
                         StudySessionReviewRecord(
-                            id: eventID,
-                            cardBefore: card,
-                            cardAfter: cardAfter,
+                            id: stagedReview.eventID,
+                            cardBefore: stagedReview.cardBefore,
+                            cardAfter: stagedReview.cardAfter,
                             rating: rating,
-                            durationMilliseconds: durationMilliseconds
+                            durationMilliseconds: durationMilliseconds,
+                            reviewedAt: reviewedAt
                         )
                     )
                 }
