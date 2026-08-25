@@ -18,6 +18,7 @@ struct DailyAudioView: View {
     @State private var suppressTrackInteractions = false
     @State private var trackInteractionResetTask: Task<Void, Never>?
     @State private var selectedPlayerTrack: DailyAudioTrack?
+    @State private var selectedEdition: DailyAudioEditionDuration = .sixtyMinutes
 
     private let dayCardSpacing = CGFloat(16)
     private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
@@ -126,11 +127,11 @@ struct DailyAudioView: View {
                 titleVisibility: .visible
             ) {
                 Button("Regenerate Audio", role: .destructive) {
-                    Task { await store.create() }
+                    Task { await store.create(edition: selectedEdition) }
                 }
                 Button("Keep Existing Audio", role: .cancel) {}
             } message: {
-                Text("This will overwrite today’s existing audio drills. Previously downloaded versions may need to be downloaded again.")
+                Text("This will overwrite today’s existing audio with a \(selectedEdition.rawValue)-minute edition. The finished tracks will download automatically.")
             }
             .navigationDestination(
                 isPresented: Binding(
@@ -164,6 +165,13 @@ struct DailyAudioView: View {
                 .foregroundStyle(ConvoLabTheme.navy)
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
+            Picker("Edition Length", selection: $selectedEdition) {
+                ForEach(DailyAudioEditionDuration.allCases) { edition in
+                    Text(edition.label).tag(edition)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(store.isLoading || todayGenerationIsActivelyWorking)
             if let todayPractice, todayPractice.status == "generating" {
                 generationProgress(todayPractice)
             }
@@ -171,7 +179,7 @@ struct DailyAudioView: View {
                 if todayPractice == nil
                     || (todayGenerationCanRetry && todayPractice?.status == "generating")
                 {
-                    Task { await store.create() }
+                    Task { await store.create(edition: selectedEdition) }
                 } else {
                     confirmingRegeneration = true
                 }
@@ -200,7 +208,7 @@ struct DailyAudioView: View {
                 ProgressView()
             }
             Text(total > 0
-                ? "Generating audio… \(completed) of \(total) tracks ready"
+                ? "Generating \(practice.targetDurationMinutes)-minute edition… \(completed) of \(total) tracks ready"
                 : "Preparing today’s audio…")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -253,6 +261,9 @@ struct DailyAudioView: View {
                             "\(Self.relativePracticeDate(practice.practiceDate)), \(practice.practiceDate)"
                         )
                     Text(practice.status.capitalized)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(practice.targetDurationMinutes)-minute edition")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
