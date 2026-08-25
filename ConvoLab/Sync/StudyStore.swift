@@ -199,7 +199,10 @@ final class StudyStore {
     private(set) var sessionCompletedCardIDs: Set<String> = []
     private(set) var sessionFailedCardIDs: Set<String> = []
     private(set) var sessionKind = "reviews"
-    private(set) var pendingOfflineReviewCount = 0
+    var pendingOfflineReviewCount: Int {
+        guard activeUserID != nil else { return 0 }
+        return (try? reviewOutbox.pendingDeliverableCount()) ?? 0
+    }
     private var lessonSessionIsPresented = false
     private(set) var masteryAnimation: (
         id: UUID,
@@ -222,21 +225,6 @@ final class StudyStore {
     func beginSessionFailureTracking() {
         sessionFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
-    }
-
-    private func refreshPendingOfflineReviewCount() {
-        guard let activeUserID else {
-            pendingOfflineReviewCount = 0
-            return
-        }
-        let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == activeUserID
-                    && $0.kind == "review"
-                    && $0.lastError == nil
-            }
-        )
-        pendingOfflineReviewCount = (try? context.fetchCount(descriptor)) ?? 0
     }
 
     func beginLessonSessionPresentation() {
@@ -339,7 +327,6 @@ final class StudyStore {
         sessionLoadingService.activate(userID: userID)
         syncCoordinator.activate(userID: userID)
         restorePendingReviewState()
-        refreshPendingOfflineReviewCount()
         reloadFailedStudyChanges()
         knownKanjiService.activate(userID: userID)
         activateOfflineDueCards(preservingCurrentOrder: false)
@@ -402,7 +389,6 @@ final class StudyStore {
         retainedFailedCardIDs = []
         resolvedFailedCardIDs = []
         sessionFailureWasPresentByEventID = [:]
-        pendingOfflineReviewCount = 0
         syncStatus = .idle
         lastSyncAt = nil
         lastSessionRefreshAt = nil
@@ -571,10 +557,7 @@ final class StudyStore {
         requestingPromptRetryOnOutboxFailure: Bool
     ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
-        defer {
-            refreshPendingOfflineReviewCount()
-            reloadFailedStudyChanges()
-        }
+        defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
         var firstError: (any Error)?
@@ -1711,10 +1694,7 @@ final class StudyStore {
                 .localizedDescription
             return nil
         }
-        defer {
-            refreshPendingOfflineReviewCount()
-            reloadFailedStudyChanges()
-        }
+        defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
         var stagedReview: StagedStudyReview?
         do {
@@ -1730,9 +1710,6 @@ final class StudyStore {
                 queueIndex: cards.count
             )
             stagedReview = staged
-            // Publish the durable queue state before attempting the network flush.
-            // Session completion can render while that request is still in flight.
-            refreshPendingOfflineReviewCount()
             let currentCard = staged.cardBefore
             let updatedCard = staged.cardAfter
             let identifiers = StudyCardIdentity.identifiers(for: currentCard)
@@ -2463,7 +2440,9 @@ final class StudyStore {
         try requirePersistentWrites()
         guard let userID = activeUserID else { throw CancellationError() }
         guard failedStudyChangeOperationIDs.insert(id).inserted else { return }
-        defer { failedStudyChangeOperationIDs.remove(id) }
+        defer {
+            failedStudyChangeOperationIDs.remove(id)
+        }
         let activationGeneration = accountActivationGeneration
         guard let mutation = try failedMutation(id: id, userID: userID),
               let kind = mutation.studyMutationKind

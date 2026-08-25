@@ -6931,6 +6931,7 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(retained.payload, payload)
         XCTAssertNil(retained.lastError)
         XCTAssertTrue(store.failedStudyChanges.isEmpty)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 1)
     }
 
     @MainActor
@@ -7669,11 +7670,13 @@ final class StudyStoreTests: XCTestCase {
         let eventID = try XCTUnwrap(recordedEventID)
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertEqual(requestCount.current, 1)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 1)
 
         try await store.undoReview(eventID: eventID, cardBefore: card)
 
         XCTAssertEqual(store.cards.map(\.id), [card.id])
         XCTAssertEqual(requestCount.current, 1)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 0)
         XCTAssertTrue(
             try container.mainContext.fetch(
                 FetchDescriptor<PendingMutation>(
