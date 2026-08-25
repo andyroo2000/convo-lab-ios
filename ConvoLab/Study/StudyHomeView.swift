@@ -58,17 +58,15 @@ struct StudyHomeView: View {
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
-            .task {
-                // Cached state is already visible. Leave the first interaction window
-                // free before starting non-urgent main-actor refresh coordination.
-                do {
-                    try await Task.sleep(for: .milliseconds(250))
-                } catch {
-                    return
+            .onAppear {
+                Task {
+                    // Cached state is already visible. Leave the first interaction window
+                    // free before starting non-urgent main-actor refresh coordination.
+                    try? await Task.sleep(for: .milliseconds(250))
+                    async let study: Void = refreshStudyIfNeeded()
+                    async let calendar: Void = refreshCalendarIfNeeded()
+                    _ = await (study, calendar)
                 }
-                async let study: Void = refreshStudyIfNeeded()
-                async let calendar: Void = refreshCalendarIfNeeded()
-                _ = await (study, calendar)
             }
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
