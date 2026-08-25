@@ -334,6 +334,8 @@ final class AppModel {
     }
 
     private func retryPendingDraftCreates() async {
+        // A freshness-throttled study sync can skip its outbox work. Foregrounding
+        // still retries durable creates so offline drafts do not wait for a full sync.
         try? await study.retryPendingDraftCreates()
     }
 }

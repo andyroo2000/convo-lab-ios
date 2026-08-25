@@ -101,8 +101,11 @@ final class ConvoLabUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "Resume audio recognition draft")
         ).firstMatch
         XCTAssertTrue(recovery.waitForExistence(timeout: 8))
+        XCTAssertEqual(app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Resume audio recognition draft")
+        ).count, 1)
         recovery.tap()
-        XCTAssertTrue(app.navigationBars["Review Draft"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.navigationBars["Resume Draft"].waitForExistence(timeout: 8))
         for _ in 0..<3 {
             app.swipeDown()
         }
@@ -111,6 +114,35 @@ final class ConvoLabUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(recoveredAnswer.waitForExistence(timeout: 8))
         XCTAssertEqual(recoveredAnswer.value as? String, "忘れない")
+
+        let recoveredMeaning = app.textFields
+            .matching(NSPredicate(format: "value == %@", "not to forget"))
+            .firstMatch
+        XCTAssertTrue(recoveredMeaning.waitForExistence(timeout: 8))
+        recoveredMeaning.tap()
+        recoveredMeaning.typeKey("a", modifierFlags: .command)
+        recoveredMeaning.typeText("always remember")
+        let retryPrepare = app.buttons["Prepare"]
+        XCTAssertTrue(retryPrepare.isEnabled)
+        retryPrepare.tap()
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["card-editor-error"].waitForExistence(timeout: 8))
+
+        app.terminate()
+        launchFixture("create-card-recovery", reset: false, application: app)
+        let restagedRecovery = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Resume audio recognition draft")
+        ).firstMatch
+        XCTAssertTrue(restagedRecovery.waitForExistence(timeout: 8))
+        XCTAssertEqual(app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Resume audio recognition draft")
+        ).count, 1)
+        restagedRecovery.tap()
+        XCTAssertTrue(app.navigationBars["Resume Draft"].waitForExistence(timeout: 8))
+        let restagedMeaning = app.textFields
+            .matching(NSPredicate(format: "value == %@", "always remember"))
+            .firstMatch
+        XCTAssertTrue(restagedMeaning.waitForExistence(timeout: 8))
     }
 
     @MainActor

@@ -995,7 +995,27 @@ final class StudyStoreTests: XCTestCase {
         let responseData = try StorageCodec.encoder.encode(serverDraft)
         let attempts = LockedCounter()
         let requestIDs = LockedRequestPaths()
+        let draftRequestPaths = LockedRequestPaths()
         let client = makeClient { request in
+            guard request.url?.path == "/api/study/card-drafts",
+                  request.httpMethod == "POST"
+            else {
+                if request.url?.path.hasPrefix("/api/study/card-drafts") == true {
+                    draftRequestPaths.append(
+                        "\(request.httpMethod ?? "") \(request.url?.path ?? "")"
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(#"{"message":"offline"}"#.utf8)
+                )
+            }
+            draftRequestPaths.append("POST /api/study/card-drafts")
             let payload = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: try requestBody(request))
                     as? [String: Any]
@@ -1052,11 +1072,27 @@ final class StudyStoreTests: XCTestCase {
             context: container.mainContext,
             mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
         )
-        async let firstRetry: Void = relaunchedStore.retryPendingDraftCreates()
-        async let duplicateRetry: Void = relaunchedStore.retryPendingDraftCreates()
-        _ = try await (firstRetry, duplicateRetry)
+        let pendingChanged = expectation(
+            description: "Synchronization publishes pending create removal"
+        )
+        withObservationTracking {
+            _ = relaunchedStore.pendingManualDraftCreates
+        } onChange: {
+            pendingChanged.fulfill()
+        }
+
+        await relaunchedStore.synchronize()
+        await fulfillment(of: [pendingChanged], timeout: 1)
+
+        async let firstDuplicateRetry: Void = relaunchedStore.retryPendingDraftCreates()
+        async let secondDuplicateRetry: Void = relaunchedStore.retryPendingDraftCreates()
+        _ = try await (firstDuplicateRetry, secondDuplicateRetry)
 
         XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
+        XCTAssertEqual(
+            draftRequestPaths.values,
+            ["POST /api/study/card-drafts", "POST /api/study/card-drafts"]
+        )
         XCTAssertTrue(
             try container.mainContext.fetch(
                 FetchDescriptor<PendingMutation>(

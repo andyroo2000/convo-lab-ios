@@ -3,6 +3,11 @@ import SwiftUI
 struct CardLibraryView: View {
     private static let maximumReorderableCards = 100
 
+    private struct PendingCreateSelection: Identifiable {
+        let request: CreateStudyManualCardDraftRequest
+        var id: String { request.id }
+    }
+
     private enum CollectionMode: String, CaseIterable, Identifiable {
         case queue = "Queue"
         case all = "All Cards"
@@ -18,6 +23,7 @@ struct CardLibraryView: View {
     @State private var showingCreate = false
     @State private var selectedCard: StudyCard?
     @State private var selectedDraft: StudyManualCardDraft?
+    @State private var selectedPendingCreate: PendingCreateSelection?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
     @State private var showingCardLoadError = false
@@ -95,6 +101,19 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
+            .sheet(item: $selectedPendingCreate) { selection in
+                let request = selection.request
+                CardEditorView(
+                    store: store,
+                    player: player,
+                    card: nil,
+                    serverDraft: nil,
+                    initialCreationKind: request.creationKind,
+                    initialDraft: recoveredCardDraft(for: request),
+                    initialClientDraftID: request.id,
+                    timeStore: timeStore
+                )
+            }
             .alert("Could not delete card", isPresented: $showingDeletionError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -142,7 +161,7 @@ struct CardLibraryView: View {
                 Section("Card creation recovery") {
                     ForEach(store.pendingManualDraftCreates, id: \.id) { request in
                         Button {
-                            selectedDraft = recoveredDraft(for: request)
+                            selectedPendingCreate = PendingCreateSelection(request: request)
                         } label: {
                             Label(
                                 "Resume \(request.creationKind.title.lowercased()) draft",
@@ -297,10 +316,10 @@ struct CardLibraryView: View {
         }
     }
 
-    private func recoveredDraft(
+    private func recoveredCardDraft(
         for request: CreateStudyManualCardDraftRequest
-    ) -> StudyManualCardDraft {
-        StudyManualCardDraft(
+    ) -> StudyCardDraft {
+        StudyCardDraft(manualDraft: StudyManualCardDraft(
             id: request.id,
             status: "pending",
             committedCardId: nil,
@@ -316,7 +335,7 @@ struct CardLibraryView: View {
             errorMessage: nil,
             createdAt: .distantPast,
             updatedAt: .distantPast
-        )
+        ))
     }
 
     private func card(for item: StudyNewCardQueueItem) -> StudyCard? {

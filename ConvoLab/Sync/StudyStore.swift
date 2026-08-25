@@ -3250,6 +3250,7 @@ final class StudyStore {
         userID: Int,
         activationGeneration: Int
     ) async throws {
+        defer { manualDraftOutboxRevision &+= 1 }
         try await manualDraftOutbox.retryPendingMutations { [weak self] card in
             guard let self, self.isCurrentActivation(
                 userID,
