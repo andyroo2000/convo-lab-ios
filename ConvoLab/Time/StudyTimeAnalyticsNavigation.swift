@@ -196,6 +196,7 @@ extension StudyTimeView {
                 analytics: analytics,
                 generatedAt: generatedAt,
                 includedCategories: includedCategories,
+                availableWidth: analyticsCardWidth,
                 onToggleCategory: toggleCategory,
                 onDrillDown: drillDownAction
             )
