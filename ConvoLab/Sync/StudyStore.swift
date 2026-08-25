@@ -1098,7 +1098,7 @@ final class StudyStore {
         requirement: StudyLearningPathUnlockRequirement
     ) async throws -> StudyLearningPath {
         let currentPredecessor = try await prepareLearningPathAccess(for: predecessor)
-        for identifier in StudyCardIdentity.identifiers(for: successor) {
+        for identifier in Set([successor.id, successor.reviewCardID]) {
             guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
                 throw PendingLearningPathChangesError()
             }
@@ -2361,7 +2361,7 @@ final class StudyStore {
         }
 
         let currentCard = try currentLocalCard(for: card)
-        for identifier in StudyCardIdentity.identifiers(for: currentCard) {
+        for identifier in Set([currentCard.id, currentCard.reviewCardID]) {
             guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
                 throw PendingLearningPathChangesError()
             }
