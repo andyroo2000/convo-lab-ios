@@ -417,6 +417,52 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testResolveNewQueueItemFetchesMissingServerCardForEditing() async throws {
+        let serverCard = makeCard(id: "queued-server-card", expression: "犬")
+        let serverCardID = serverCard.id
+        let queueItem = StudyNewCardQueueItem(
+            id: serverCardID,
+            noteId: serverCard.noteId ?? serverCardID,
+            cardType: serverCard.cardType,
+            displayText: "犬",
+            meaning: "dog",
+            queuePosition: 1,
+            createdAt: serverCard.createdAt,
+            updatedAt: serverCard.updatedAt
+        )
+        let response = try StorageCodec.encoder.encode(["cards": [serverCard]])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(body["ids"] as? [String], [serverCardID])
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                response
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let resolved = try await store.resolveCard(for: queueItem)
+
+        XCTAssertEqual(resolved?.id, serverCardID)
+        XCTAssertEqual(resolved?.promptText, serverCard.promptText)
+    }
+
+    @MainActor
     func testNewCardQueueLoadMoreCannotAppendAfterNewerRefreshReusesCursor() async throws {
         func item(id: String) -> StudyNewCardQueueItem {
             StudyNewCardQueueItem(
