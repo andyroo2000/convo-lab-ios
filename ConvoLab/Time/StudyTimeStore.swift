@@ -1,78 +1,15 @@
 import Foundation
 import SwiftData
 
-protocol StudyTimeContextSaving: AnyObject {
-    func save() throws
-}
-
-private final class ModelContextStudyTimeSaver: StudyTimeContextSaving {
-    private let context: ModelContext
-
-    init(context: ModelContext) {
-        self.context = context
-    }
-
-    func save() throws {
-        try context.save()
-    }
-}
-
-private enum StudyTimeStoreError: LocalizedError {
-    case readOnlySession
-    case calendarEventUnavailable
-    case sessionUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .readOnlySession:
-            "Automatically or externally recorded study time cannot be changed."
-        case .calendarEventUnavailable:
-            "The linked calendar event is not available on this device."
-        case .sessionUnavailable:
-            "This study entry is no longer available. Refresh and try again."
-        }
-    }
-}
-
 @Observable
 final class StudyTimeStore {
     private static let automaticRecoveryLimit: TimeInterval = 5 * 60
 
-    private enum StorageWriteOperation: Equatable {
-        case start(
-            activity: StudyActivityKind,
-            source: StudyActivitySource,
-            name: String?,
-            replacingSessionID: String?
-        )
-        case finish(clientSessionID: String)
-        case addCreatedCards(clientSessionID: String, count: Int)
-        case recordCompleted(
-            activity: StudyActivityKind,
-            source: StudyActivitySource,
-            name: String?,
-            startedAt: Date,
-            duration: TimeInterval
-        )
-        case update(clientSessionID: String)
-        case delete(clientSessionID: String)
-    }
-
-    struct ActiveSession: Equatable {
-        let clientSessionID: String
-        let category: StudyActivityCategory
-        let activity: StudyActivityKind
-        let source: StudyActivitySource
-        let name: String?
-        let startedAt: Date
-        var cardsCreated: Int
-    }
+    typealias ActiveSession = StudyTimeActiveSession
+    private typealias StorageWriteOperation = StudyTimeStorageWriteOperation
 
     private let api: APIClient
-    private let context: ModelContext
-    private let storageMode: StorageMode
-    private let contextSaver: any StudyTimeContextSaving
-    private let calendar: any StudyCalendarProviding
+    private let mutationRepository: StudyTimeSessionMutationRepository
     private let googleCalendar: any GoogleCalendarConnectionServing
     private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
     private let weeklyRecapService: any WeeklyStudyRecapServing
@@ -88,7 +25,7 @@ final class StudyTimeStore {
     private(set) var analyticsCacheGeneration = 0
     private(set) var active: ActiveSession?
     private(set) var storageWriteErrorMessage: String?
-    private var storageWriteErrorOperation: StorageWriteOperation?
+    private var storageWriteErrorOperation: StudyTimeStorageWriteOperation?
     private(set) var syncErrorMessage: String?
     private(set) var googleCalendarStatus: GoogleCalendarConnectionStatus?
     private(set) var googleCalendarStatusRefreshedAt: Date?
@@ -124,10 +61,13 @@ final class StudyTimeStore {
         now: @escaping () -> Date = { .now }
     ) {
         self.api = api
-        self.context = context
-        self.storageMode = storageMode
-        self.contextSaver = contextSaver ?? ModelContextStudyTimeSaver(context: context)
-        self.calendar = calendar ?? LiveStudyCalendar()
+        mutationRepository = StudyTimeSessionMutationRepository(
+            api: api,
+            context: context,
+            storageMode: storageMode,
+            contextSaver: contextSaver,
+            calendar: calendar
+        )
         self.googleCalendar = googleCalendar ?? LiveGoogleCalendarConnectionService(api: api)
         self.googleCalendarAuthorizer = googleCalendarAuthorizer
             ?? LiveGoogleCalendarAuthorizer()
@@ -307,20 +247,23 @@ final class StudyTimeStore {
             // each page here makes SwiftData save on the main actor while the user is
             // trying to scroll the Time tab. Overlay any unsent local mutations, but only
             // materialize a server entry in SwiftData if the user edits or deletes it.
-            let resolvedItems = try resolvedEditableSessions(
+            let resolvedItems = try mutationRepository.resolvedEditableSessions(
                 page.items,
                 userID: requestedUserID
             )
             if reset {
-                editableSessions = sortedUniqueEditableSessions(
-                    resolvedItems + pendingEditableSessions(userID: requestedUserID)
+                editableSessions = StudyTimeEditableSessionProjection.sortedUnique(
+                    resolvedItems
+                        + mutationRepository.pendingEditableSessions(userID: requestedUserID)
                 )
             } else {
                 let existingIDs = Set(editableSessions.map(\.clientSessionId))
                 editableSessions.append(contentsOf: resolvedItems.filter {
                     !existingIDs.contains($0.clientSessionId)
                 })
-                editableSessions = sortedUniqueEditableSessions(editableSessions)
+                editableSessions = StudyTimeEditableSessionProjection.sortedUnique(
+                    editableSessions
+                )
             }
             editableSessionsNextCursor = page.nextCursor
         } catch {
@@ -421,11 +364,10 @@ final class StudyTimeStore {
             name: name,
             replacingSessionID: active?.clientSessionID
         )
-        guard storageMode == .persistent else {
-            setStorageWriteError(
-                StorageWriteUnavailableError(domain: .studyTime),
-                for: operation
-            )
+        do {
+            try mutationRepository.requirePersistentWrites()
+        } catch {
+            setStorageWriteError(error, for: operation)
             return false
         }
         if active?.activity == activity, active?.source == source, active?.name == name {
@@ -435,32 +377,19 @@ final class StudyTimeStore {
             return true
         }
         let previousActive = active
-        if let previousActive {
-            guard let previousRecord = record(
-                clientSessionID: previousActive.clientSessionID
-            ) else {
-                loadLocalSessions()
-                setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
-                return false
-            }
-            complete(previousRecord, from: previousActive, at: date)
-        }
-        let session = ActiveSession(
-            clientSessionID: UUID().uuidString.lowercased(),
-            category: activity.category,
-            activity: activity,
-            source: source,
-            name: name,
-            startedAt: date,
-            cardsCreated: 0
-        )
-        context.insert(LocalStudyActivitySession(active: session, userID: userID))
         do {
-            try contextSaver.save()
+            let result = try mutationRepository.start(
+                replacing: previousActive,
+                activity: activity,
+                source: source,
+                name: name,
+                at: date,
+                userID: userID
+            )
             localMutationGeneration += 1
-            active = session
+            active = result.active
             clearStorageWriteError(for: operation)
-            if previousActive != nil {
+            if result.completedPreviousSession {
                 loadLocalSessions()
                 Task {
                     await pushPending()
@@ -468,8 +397,14 @@ final class StudyTimeStore {
                 }
             }
             return true
+        } catch StudyTimeSessionMutationError.sessionUnavailable {
+            loadLocalSessions()
+            setStorageWriteError(
+                StudyTimeSessionMutationError.sessionUnavailable,
+                for: operation
+            )
+            return false
         } catch {
-            context.rollback()
             active = previousActive
             setStorageWriteError(error, for: operation)
             return false
@@ -512,23 +447,25 @@ final class StudyTimeStore {
             clientSessionID: current.clientSessionID,
             count: count
         )
-        guard let record = record(clientSessionID: current.clientSessionID) else {
-            loadLocalSessions()
-            setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
-            return false
-        }
-        let previousCount = current.cardsCreated
-        current.cardsCreated += count
-        record.cardsCreated = current.cardsCreated
+        guard let userID = activeUserID else { return false }
         do {
-            try contextSaver.save()
+            current = try mutationRepository.addCreatedCards(
+                count,
+                to: current,
+                userID: userID
+            )
             localMutationGeneration += 1
             active = current
             clearStorageWriteError(for: operation)
             return true
+        } catch StudyTimeSessionMutationError.sessionUnavailable {
+            loadLocalSessions()
+            setStorageWriteError(
+                StudyTimeSessionMutationError.sessionUnavailable,
+                for: operation
+            )
+            return false
         } catch {
-            context.rollback()
-            current.cardsCreated = previousCount
             active = current
             setStorageWriteError(error, for: operation)
             return false
@@ -543,65 +480,42 @@ final class StudyTimeStore {
         duration: TimeInterval,
         addToCalendar: Bool = false
     ) async throws -> String? {
-        try requirePersistentWrites()
+        try mutationRepository.requirePersistentWrites()
         guard let userID = activeUserID else { return nil }
-        let boundedDuration = max(0, min(duration, 86_400))
-        let endedAt = startedAt.addingTimeInterval(boundedDuration)
         let operation = StorageWriteOperation.recordCompleted(
             activity: activity,
             source: source,
             name: name,
             startedAt: startedAt,
-            duration: boundedDuration
+            duration: max(0, min(duration, 86_400))
         )
-        var effectiveSource = source
-        var calendarEventIdentifier: String?
-        var calendarWarning: String?
-        if addToCalendar {
-            do {
-                calendarEventIdentifier = try await calendar.addEvent(
-                    title: name ?? activity.title,
-                    start: startedAt,
-                    end: endedAt
-                )
-                effectiveSource = .calendar
-            } catch {
-                effectiveSource = .manual
-                calendarWarning = error.localizedDescription
-            }
-        }
-        let session = ActiveSession(
-            clientSessionID: UUID().uuidString.lowercased(),
-            category: activity.category,
-            activity: activity,
-            source: effectiveSource,
-            name: name,
-            startedAt: startedAt,
-            cardsCreated: 0
-        )
-        let record = LocalStudyActivitySession(active: session, userID: userID)
-        record.calendarEventIdentifier = calendarEventIdentifier
-        context.insert(record)
-        complete(record, from: session, at: endedAt)
+        let result: StudyTimeSessionMutationRepository.CompletedMutation
         do {
-            try contextSaver.save()
+            result = try await mutationRepository.recordCompleted(
+                activity: activity,
+                source: source,
+                name: name,
+                startedAt: startedAt,
+                duration: duration,
+                addToCalendar: addToCalendar,
+                userID: userID
+            )
         } catch {
-            context.rollback()
-            if let calendarEventIdentifier {
-                try? await calendar.deleteEvent(identifier: calendarEventIdentifier)
-            }
             setStorageWriteError(error, for: operation)
             throw error
         }
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let completedSession = record.session {
-            upsertEditableSession(completedSession)
+        if let completedSession = result.session {
+            editableSessions = StudyTimeEditableSessionProjection.upserting(
+                completedSession,
+                in: editableSessions
+            )
         }
         await pushPending()
         await refreshAnalytics()
-        return calendarWarning
+        return result.calendarWarning
     }
 
     func update(
@@ -611,69 +525,22 @@ final class StudyTimeStore {
         startedAt: Date,
         duration: TimeInterval
     ) async throws -> String? {
-        try requirePersistentWrites()
-        guard session.isEditable else {
-            throw StudyTimeStoreError.readOnlySession
-        }
-        let record = try mutationRecord(for: session)
-        guard let previousSession = record.session else {
-            throw StudyTimeStoreError.sessionUnavailable
-        }
+        try mutationRepository.requirePersistentWrites()
+        guard let userID = activeUserID else { return nil }
         let operation = StorageWriteOperation.update(
             clientSessionID: session.clientSessionId
         )
-        if session.source == .calendar, record.calendarEventIdentifier == nil {
-            throw StudyTimeStoreError.calendarEventUnavailable
-        }
-        let boundedDuration = max(0, min(duration, 86_400))
-        let endedAt = startedAt.addingTimeInterval(boundedDuration)
-        var calendarWarning: String?
-        if let identifier = record.calendarEventIdentifier {
-            do {
-                try await calendar.updateEvent(
-                    identifier: identifier,
-                    title: name ?? activity.title,
-                    start: startedAt,
-                    end: endedAt
-                )
-            } catch StudyCalendarError.eventNotFound {
-                calendarWarning = StudyCalendarError.eventNotFound.localizedDescription
-                record.calendarEventIdentifier = nil
-                record.source = StudyActivitySource.manual.rawValue
-            } catch StudyCalendarError.accessDenied {
-                calendarWarning = StudyCalendarError.accessDenied.localizedDescription
-                record.calendarEventIdentifier = nil
-                record.source = StudyActivitySource.manual.rawValue
-            } catch {
-                // Retain the calendar link when EventKit reports a transient
-                // save failure so the user can retry the edit.
-                throw error
-            }
-        }
-        record.category = activity.category.rawValue
-        record.activity = activity.rawValue
-        record.name = name
-        record.startedAt = startedAt
-        record.endedAt = endedAt
-        record.durationMs = Int(boundedDuration * 1_000)
-        record.audioPlaybackMs = activity == .dailyAudio ? record.durationMs : nil
-        record.syncPending = true
+        let result: StudyTimeSessionMutationRepository.CompletedMutation
         do {
-            try contextSaver.save()
+            result = try await mutationRepository.update(
+                session: session,
+                activity: activity,
+                name: name,
+                startedAt: startedAt,
+                duration: duration,
+                userID: userID
+            )
         } catch {
-            let calendarEventIdentifier = record.calendarEventIdentifier
-            // Preserve the complete pre-edit local transaction, including a
-            // dangling calendar link. A retry will observe EventKit's missing
-            // event again and persist the self-heal with the requested edit.
-            context.rollback()
-            if let identifier = calendarEventIdentifier {
-                try? await calendar.updateEvent(
-                    identifier: identifier,
-                    title: previousSession.name ?? previousSession.activity.title,
-                    start: previousSession.startedAt,
-                    end: previousSession.endedAt
-                )
-            }
             loadLocalSessions()
             setStorageWriteError(error, for: operation)
             throw error
@@ -681,32 +548,26 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let updatedSession = record.session {
-            upsertEditableSession(updatedSession)
+        if let updatedSession = result.session {
+            editableSessions = StudyTimeEditableSessionProjection.upserting(
+                updatedSession,
+                in: editableSessions
+            )
         }
         await pushPending()
         await refreshAnalytics()
-        return calendarWarning
+        return result.calendarWarning
     }
 
     func delete(session: StudyActivitySession) async throws {
-        try requirePersistentWrites()
-        guard session.isEditable else {
-            throw StudyTimeStoreError.readOnlySession
-        }
-        let record = try mutationRecord(for: session)
+        try mutationRepository.requirePersistentWrites()
+        guard let userID = activeUserID else { return }
         let operation = StorageWriteOperation.delete(
             clientSessionID: session.clientSessionId
         )
-        if session.source == .calendar, record.calendarEventIdentifier == nil {
-            throw StudyTimeStoreError.calendarEventUnavailable
-        }
-        record.isTombstone = true
-        record.syncPending = true
         do {
-            try contextSaver.save()
+            try mutationRepository.delete(session: session, userID: userID)
         } catch {
-            context.rollback()
             loadLocalSessions()
             setStorageWriteError(error, for: operation)
             throw error
@@ -714,7 +575,10 @@ final class StudyTimeStore {
         localMutationGeneration += 1
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        removeEditableSession(clientSessionID: session.clientSessionId)
+        editableSessions = StudyTimeEditableSessionProjection.removing(
+            clientSessionID: session.clientSessionId,
+            from: editableSessions
+        )
         await pushPending()
         await refreshAnalytics()
     }
@@ -764,7 +628,7 @@ final class StudyTimeStore {
                 response: [StudyActivitySession].self
             )
             if requestMutationGeneration == localMutationGeneration {
-                _ = try mergeRemoteSessions(remote, userID: userID)
+                _ = try mutationRepository.mergeRemoteSessions(remote, userID: userID)
                 loadLocalSessions()
             }
         } catch {
@@ -790,55 +654,10 @@ final class StudyTimeStore {
         }
     }
 
-    private func mergeRemoteSessions(
-        _ remote: [StudyActivitySession],
-        userID: Int
-    ) throws -> [StudyActivitySession] {
-        guard !remote.isEmpty else { return [] }
-        let remoteIDs = remote.map(\.clientSessionId)
-        let existing = try context.fetch(
-            FetchDescriptor<LocalStudyActivitySession>(
-                predicate: #Predicate {
-                    $0.userID == userID && remoteIDs.contains($0.clientSessionID)
-                }
-            )
-        )
-        var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
-            records, record in
-            if records[record.clientSessionID] == nil {
-                records[record.clientSessionID] = record
-            }
-        }
-        var didMutate = false
-        for session in remote {
-            if let record = recordsByID[session.clientSessionId] {
-                if !record.isTombstone,
-                   !record.syncPending,
-                   record.session != session
-                {
-                    record.apply(session)
-                    didMutate = true
-                }
-            } else {
-                let record = LocalStudyActivitySession(session: session, userID: userID)
-                context.insert(record)
-                recordsByID[session.clientSessionId] = record
-                didMutate = true
-            }
-        }
-        if didMutate {
-            try context.save()
-        }
-        return remote.compactMap { recordsByID[$0.clientSessionId]?.session }
-    }
-
     func deleteLocalData(userID: Int) throws {
         localMutationGeneration += 1
         snapshotCache.remove(userID: userID)
-        try context.delete(
-            model: LocalStudyActivitySession.self,
-            where: #Predicate { $0.userID == userID }
-        )
+        try mutationRepository.deleteLocalData(userID: userID)
         if activeUserID == userID {
             sessions = []
             editableSessions = []
@@ -848,7 +667,6 @@ final class StudyTimeStore {
             analyticsCacheGeneration += 1
             active = nil
         }
-        try context.save()
     }
 
     @discardableResult
@@ -860,16 +678,22 @@ final class StudyTimeStore {
         let operation = StorageWriteOperation.finish(
             clientSessionID: current.clientSessionID
         )
-        guard let record = record(clientSessionID: current.clientSessionID) else {
-            loadLocalSessions()
-            setStorageWriteError(StudyTimeStoreError.sessionUnavailable, for: operation)
-            return false
-        }
-        complete(record, from: current, at: date)
+        guard let userID = activeUserID else { return false }
+        let completedSession: StudyActivitySession?
         do {
-            try contextSaver.save()
+            completedSession = try mutationRepository.finish(
+                current,
+                at: date,
+                userID: userID
+            )
+        } catch StudyTimeSessionMutationError.sessionUnavailable {
+            loadLocalSessions()
+            setStorageWriteError(
+                StudyTimeSessionMutationError.sessionUnavailable,
+                for: operation
+            )
+            return false
         } catch {
-            context.rollback()
             active = current
             setStorageWriteError(error, for: operation)
             return false
@@ -878,8 +702,11 @@ final class StudyTimeStore {
         active = nil
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let completedSession = record.session {
-            upsertEditableSession(completedSession)
+        if let completedSession {
+            editableSessions = StudyTimeEditableSessionProjection.upserting(
+                completedSession,
+                in: editableSessions
+            )
         }
         if enqueueSync {
             Task {
@@ -902,28 +729,6 @@ final class StudyTimeStore {
         guard operation == nil || storageWriteErrorOperation == operation else { return }
         storageWriteErrorMessage = nil
         storageWriteErrorOperation = nil
-    }
-
-    private func requirePersistentWrites() throws {
-        guard storageMode == .persistent else {
-            throw StorageWriteUnavailableError(domain: .studyTime)
-        }
-    }
-
-    private func complete(
-        _ record: LocalStudyActivitySession,
-        from active: ActiveSession,
-        at date: Date
-    ) {
-        let durationMs = min(
-            86_400_000,
-            max(0, Int(date.timeIntervalSince(active.startedAt) * 1_000))
-        )
-        record.endedAt = date
-        record.durationMs = durationMs
-        record.audioPlaybackMs = active.activity == .dailyAudio ? durationMs : nil
-        record.cardsCreated = active.cardsCreated > 0 ? active.cardsCreated : nil
-        record.syncPending = true
     }
 
     private func pushPending() async {
@@ -968,94 +773,16 @@ final class StudyTimeStore {
         userID: Int,
         mutationGeneration: Int
     ) async {
-        var failures: [String] = []
-        do {
-            let deletions = try context.fetch(
-                FetchDescriptor<LocalStudyActivitySession>(
-                    predicate: #Predicate {
-                        $0.userID == userID && $0.syncPending && $0.isTombstone
-                    }
-                )
-            )
-            for record in deletions {
-                if let identifier = record.calendarEventIdentifier {
-                    do {
-                        try await calendar.deleteEvent(identifier: identifier)
-                        guard isCurrentMutation(
-                            userID: userID,
-                            generation: mutationGeneration
-                        ) else { return }
-                        record.calendarEventIdentifier = nil
-                        try context.save()
-                    } catch {
-                        record.calendarEventIdentifier = identifier
-                        failures.append(error.localizedDescription)
-                        // Calendar access may have been revoked. The explicit
-                        // study-log deletion must still be allowed to finish,
-                        // while retaining the identifier for a later retry.
-                    }
-                }
-                do {
-                    try await api.request(
-                        "/api/study/activity-sessions/\(record.clientSessionID)",
-                        method: "DELETE"
-                    )
-                } catch APIClientError.rejected(status: 404, message: _) {
-                    // The server already forgot this retry-safe tombstone.
-                } catch {
-                    failures.append(error.localizedDescription)
-                    continue
-                }
-                guard isCurrentMutation(
-                    userID: userID,
-                    generation: mutationGeneration
-                ) else { return }
-                record.syncPending = record.calendarEventIdentifier != nil
-                // Do not carry dirty ModelContext state across the next network
-                // await. Foreground write failures use context.rollback(), so
-                // each background mutation must be committed first.
-                try context.save()
-            }
-            let pending = try context.fetch(
-                FetchDescriptor<LocalStudyActivitySession>(
-                    predicate: #Predicate {
-                        $0.userID == userID
-                            && $0.syncPending
-                            && !$0.isTombstone
-                            && $0.endedAt != nil
-                    }
-                )
-            )
-            if !pending.isEmpty {
-                let payload = pending.compactMap(\.session)
-                let saved = try await api.request(
-                    "/api/study/activity-sessions/batch",
-                    method: "POST",
-                    body: StudyActivityBatchRequest(sessions: payload),
-                    response: [StudyActivitySession].self
-                )
-                guard isCurrentMutation(
-                    userID: userID,
-                    generation: mutationGeneration
-                ) else { return }
-                let savedIDs = Set(saved.map(\.clientSessionId))
-                pending.filter { savedIDs.contains($0.clientSessionID) }.forEach {
-                    $0.syncPending = false
-                }
-                try context.save()
-            }
-        } catch {
-            guard isCurrentMutation(
-                userID: userID,
-                generation: mutationGeneration
-            ) else { return }
-            failures.append(error.localizedDescription)
-        }
-        guard isCurrentMutation(
+        let result = await mutationRepository.pushPending(
             userID: userID,
-            generation: mutationGeneration
-        ) else { return }
-        syncErrorMessage = failures.first
+            mutationGeneration: mutationGeneration
+        ) { [weak self] userID, generation in
+            self?.isCurrentMutation(userID: userID, generation: generation) == true
+        }
+        guard !result.becameStale,
+              isCurrentMutation(userID: userID, generation: mutationGeneration)
+        else { return }
+        syncErrorMessage = result.failures.first
         loadLocalSessions()
     }
 
@@ -1065,38 +792,21 @@ final class StudyTimeStore {
 
     private func loadLocalSessions(recoverAbandonedAutomatic: Bool = false) {
         guard let userID = activeUserID else { return }
-        let descriptor = FetchDescriptor<LocalStudyActivitySession>(
-            predicate: #Predicate { $0.userID == userID },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-        )
-        guard let records = try? context.fetch(descriptor) else { return }
-        sessions = records.compactMap(\.session)
-        if let running = records.first(where: { !$0.isTombstone && $0.endedAt == nil }) {
-            active = running.activeSession
-            if recoverAbandonedAutomatic,
-               let active,
-               active.source == .automatic,
-               Date.now.timeIntervalSince(active.startedAt) > Self.automaticRecoveryLimit
-            {
-                finish(
-                    active,
-                    at: active.startedAt.addingTimeInterval(Self.automaticRecoveryLimit)
-                )
-            }
-        } else {
-            active = nil
+        guard let loaded = mutationRepository.loadLocalSessions(userID: userID) else {
+            return
         }
-    }
-
-    private func record(clientSessionID: String) -> LocalStudyActivitySession? {
-        guard let userID = activeUserID else { return nil }
-        var descriptor = FetchDescriptor<LocalStudyActivitySession>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.clientSessionID == clientSessionID
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try? context.fetch(descriptor).first(where: { !$0.isTombstone })
+        sessions = loaded.sessions
+        active = loaded.active
+        if recoverAbandonedAutomatic,
+           let active,
+           active.source == .automatic,
+           Date.now.timeIntervalSince(active.startedAt) > Self.automaticRecoveryLimit
+        {
+            finish(
+                active,
+                at: active.startedAt.addingTimeInterval(Self.automaticRecoveryLimit)
+            )
+        }
     }
 
     @discardableResult
@@ -1231,22 +941,6 @@ final class StudyTimeStore {
         analyticsCacheGeneration += 1
     }
 
-    private func upsertEditableSession(_ session: StudyActivitySession) {
-        guard session.isEditable else { return }
-        editableSessions.removeAll { $0.clientSessionId == session.clientSessionId }
-        editableSessions.append(session)
-        editableSessions.sort { lhs, rhs in
-            if lhs.startedAt == rhs.startedAt {
-                return lhs.clientSessionId > rhs.clientSessionId
-            }
-            return lhs.startedAt > rhs.startedAt
-        }
-    }
-
-    private func removeEditableSession(clientSessionID: String) {
-        editableSessions.removeAll { $0.clientSessionId == clientSessionID }
-    }
-
     private func restoreSnapshot(userID: Int) {
         let timeZone = TimeZone.autoupdatingCurrent.identifier
         guard let snapshot = snapshotCache.load(userID: userID, timeZone: timeZone) else { return }
@@ -1298,81 +992,4 @@ final class StudyTimeStore {
         return abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
     }
 
-    private func pendingEditableSessions(userID: Int) -> [StudyActivitySession] {
-        let descriptor = FetchDescriptor<LocalStudyActivitySession>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.syncPending && !$0.isTombstone
-            }
-        )
-        return (try? context.fetch(descriptor))?
-            .compactMap(\.session)
-            .filter(\.isEditable) ?? []
-    }
-
-    private func resolvedEditableSessions(
-        _ remote: [StudyActivitySession],
-        userID: Int
-    ) throws -> [StudyActivitySession] {
-        guard !remote.isEmpty else { return [] }
-        let remoteIDs = remote.map(\.clientSessionId)
-        let local = try context.fetch(
-            FetchDescriptor<LocalStudyActivitySession>(
-                predicate: #Predicate {
-                    $0.userID == userID && remoteIDs.contains($0.clientSessionID)
-                }
-            )
-        )
-        let localByID = Dictionary(
-            local.map { ($0.clientSessionID, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        return remote.compactMap { session in
-            guard session.isEditable else { return nil }
-            guard let local = localByID[session.clientSessionId] else {
-                return session
-            }
-            if local.isTombstone {
-                return nil
-            }
-            if local.syncPending {
-                return local.session
-            }
-            return session
-        }
-    }
-
-    private func mutationRecord(
-        for session: StudyActivitySession
-    ) throws -> LocalStudyActivitySession {
-        guard let userID = activeUserID else {
-            throw StudyTimeStoreError.sessionUnavailable
-        }
-        if let existing = record(clientSessionID: session.clientSessionId) {
-            return existing
-        }
-        // EventKit identifiers are device-local and are never present in a paginated
-        // server row. Do not create a detached calendar record that cannot be updated.
-        if session.source == .calendar {
-            throw StudyTimeStoreError.calendarEventUnavailable
-        }
-        let inserted = LocalStudyActivitySession(session: session, userID: userID)
-        context.insert(inserted)
-        return inserted
-    }
-
-    private func sortedUniqueEditableSessions(
-        _ candidates: [StudyActivitySession]
-    ) -> [StudyActivitySession] {
-        var byID: [String: StudyActivitySession] = [:]
-        for session in candidates where session.isEditable {
-            byID[session.clientSessionId] = session
-        }
-        return byID.values.sorted { lhs, rhs in
-            if lhs.startedAt == rhs.startedAt {
-                return lhs.clientSessionId > rhs.clientSessionId
-            }
-            return lhs.startedAt > rhs.startedAt
-        }
-    }
 }
