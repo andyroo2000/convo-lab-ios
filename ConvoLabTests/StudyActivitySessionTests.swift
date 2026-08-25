@@ -2606,7 +2606,7 @@ final class StudyActivitySessionTests: XCTestCase {
         XCTAssertTrue(didDeactivate)
     }
 
-    func testJoinedSynchronizationDoesNotReturnTheLeadersOutcome() async throws {
+    func testJoinedSynchronizationMarksTheLeadersOutcomeAsNonApplying() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let (getStarted, getStartedContinuation) = AsyncStream<Void>.makeStream()
         let (releaseGet, releaseGetContinuation) = AsyncStream<Void>.makeStream()
@@ -2664,11 +2664,11 @@ final class StudyActivitySessionTests: XCTestCase {
 
         let leaderOutcome = await leader.value
         let joinedOutcome = await joiner.value
-        XCTAssertNotNil(leaderOutcome)
-        XCTAssertNil(joinedOutcome)
+        XCTAssertEqual(leaderOutcome?.shouldApply, true)
+        XCTAssertEqual(joinedOutcome?.shouldApply, false)
     }
 
-    func testJoinedPendingPushDoesNotReturnTheLeadersOutcome() async throws {
+    func testJoinedPendingPushMarksTheLeadersOutcomeAsNonApplying() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let pendingSession = LocalStudyActivitySession(
             session: makeSession(source: .manual),
@@ -2736,8 +2736,99 @@ final class StudyActivitySessionTests: XCTestCase {
 
         let leaderOutcome = await leader.value
         let joinedOutcome = await joiner.value
-        XCTAssertNotNil(leaderOutcome)
-        XCTAssertNil(joinedOutcome)
+        XCTAssertEqual(leaderOutcome?.shouldApply, true)
+        XCTAssertEqual(joinedOutcome?.shouldApply, false)
+    }
+
+    func testSynchronizationSurfacesFailureFromAJoinedPendingPush() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let pendingSession = LocalStudyActivitySession(
+            session: makeSession(source: .manual),
+            userID: 42
+        )
+        pendingSession.syncPending = true
+        container.mainContext.insert(pendingSession)
+        try container.mainContext.save()
+        let (pushStarted, pushStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releasePush, releasePushContinuation) = AsyncStream<Void>.makeStream()
+        let pushCount = LockedCounter()
+        let client = makeDeferredClient { request, completion in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/api/study/activity-sessions/batch"):
+                let response = {
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: request.url!,
+                            statusCode: 503,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"message":"Push unavailable"}"#.utf8)
+                    )))
+                }
+                if pushCount.next() == 1 {
+                    pushStartedContinuation.yield()
+                    Task {
+                        var iterator = releasePush.makeAsyncIterator()
+                        _ = await iterator.next()
+                        response()
+                    }
+                } else {
+                    response()
+                }
+            case ("GET", "/api/study/activity-sessions"):
+                completion(.success((
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("[]".utf8)
+                )))
+            case ("GET", "/api/study/activity-analytics"):
+                do {
+                    completion(.success(try analyticsResponse(for: request)))
+                } catch {
+                    completion(.failure(error))
+                }
+            default:
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let insights = StudyTimeInsightsController(
+            api: client,
+            snapshotCache: EmptyStudyTimeSnapshotCache()
+        )
+        let coordinator = StudyTimeSynchronizationCoordinator(
+            api: client,
+            repository: StudyTimeSessionMutationRepository(
+                api: client,
+                context: container.mainContext,
+                storageMode: .persistent,
+                contextSaver: nil,
+                calendar: nil
+            ),
+            insights: insights
+        )
+        insights.activate(userID: 42)
+        coordinator.activate(userID: 42)
+
+        let pushLeader = Task { await coordinator.pushPending() }
+        var pushStartedIterator = pushStarted.makeAsyncIterator()
+        _ = await pushStartedIterator.next()
+        let synchronization = Task { await coordinator.synchronize() }
+        await Task.yield()
+        releasePushContinuation.yield()
+
+        let pushOutcome = await pushLeader.value
+        let synchronizationOutcome = await synchronization.value
+        XCTAssertNotNil(pushOutcome?.failureMessage)
+        XCTAssertEqual(
+            synchronizationOutcome?.failureMessage,
+            pushOutcome?.failureMessage
+        )
+        XCTAssertEqual(synchronizationOutcome?.shouldApply, true)
     }
 
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {

@@ -8,12 +8,32 @@ final class StudyTimeSynchronizationCoordinator {
         let loadedSessions: LoadedSessions?
         let failureMessage: String?
         let becameStale: Bool
+        let shouldApply: Bool
+
+        func joined() -> Self {
+            Self(
+                loadedSessions: loadedSessions,
+                failureMessage: failureMessage,
+                becameStale: becameStale,
+                shouldApply: false
+            )
+        }
     }
 
     struct SynchronizationOutcome {
         let loadedSessions: LoadedSessions?
         let failureMessage: String?
         let becameStale: Bool
+        let shouldApply: Bool
+
+        func joined() -> Self {
+            Self(
+                loadedSessions: loadedSessions,
+                failureMessage: failureMessage,
+                becameStale: becameStale,
+                shouldApply: false
+            )
+        }
     }
 
     private struct Context: Equatable {
@@ -65,8 +85,7 @@ final class StudyTimeSynchronizationCoordinator {
     func pushPending() async -> PushOutcome? {
         if let pendingPushTask {
             pendingPushNeedsAnotherPass = true
-            _ = await pendingPushTask.value
-            return nil
+            return await pendingPushTask.value.joined()
         }
         guard activeUserID != nil else { return nil }
         let pushID = UUID()
@@ -75,7 +94,8 @@ final class StudyTimeSynchronizationCoordinator {
                 return PushOutcome(
                     loadedSessions: nil,
                     failureMessage: nil,
-                    becameStale: true
+                    becameStale: true,
+                    shouldApply: true
                 )
             }
             let outcome = await self.drainPendingPushes()
@@ -94,9 +114,9 @@ final class StudyTimeSynchronizationCoordinator {
         guard let requestedUserID = activeUserID else { return nil }
         if let synchronizationTask {
             let inFlightUserID = synchronizingUserID
-            _ = await synchronizationTask.value
+            let outcome = await synchronizationTask.value
             guard activeUserID == requestedUserID else { return nil }
-            if inFlightUserID == requestedUserID { return nil }
+            if inFlightUserID == requestedUserID { return outcome.joined() }
         }
         guard activeUserID == requestedUserID else { return nil }
         let task = Task { [weak self] in
@@ -104,7 +124,8 @@ final class StudyTimeSynchronizationCoordinator {
                 return SynchronizationOutcome(
                     loadedSessions: nil,
                     failureMessage: nil,
-                    becameStale: true
+                    becameStale: true,
+                    shouldApply: true
                 )
             }
             return await self.performSynchronization(userID: requestedUserID)
@@ -153,13 +174,15 @@ final class StudyTimeSynchronizationCoordinator {
             return SynchronizationOutcome(
                 loadedSessions: nil,
                 failureMessage: nil,
-                becameStale: true
+                becameStale: true,
+                shouldApply: true
             )
         }
         return SynchronizationOutcome(
             loadedSessions: loadedSessions,
             failureMessage: failures.first,
-            becameStale: false
+            becameStale: false,
+            shouldApply: true
         )
     }
 
@@ -167,7 +190,8 @@ final class StudyTimeSynchronizationCoordinator {
         var latestOutcome = PushOutcome(
             loadedSessions: nil,
             failureMessage: nil,
-            becameStale: false
+            becameStale: false,
+            shouldApply: true
         )
         repeat {
             pendingPushNeedsAnotherPass = false
@@ -175,7 +199,8 @@ final class StudyTimeSynchronizationCoordinator {
                 return PushOutcome(
                     loadedSessions: nil,
                     failureMessage: nil,
-                    becameStale: true
+                    becameStale: true,
+                    shouldApply: true
                 )
             }
             let context = Context(
@@ -203,13 +228,15 @@ final class StudyTimeSynchronizationCoordinator {
             return PushOutcome(
                 loadedSessions: nil,
                 failureMessage: nil,
-                becameStale: true
+                becameStale: true,
+                shouldApply: true
             )
         }
         return PushOutcome(
             loadedSessions: repository.loadLocalSessions(userID: context.userID),
             failureMessage: result.failures.first,
-            becameStale: false
+            becameStale: false,
+            shouldApply: true
         )
     }
 

@@ -562,7 +562,8 @@ final class StudyTimeStore {
         guard let requestedUserID = activeUserID,
               let outcome = await synchronizationCoordinator.synchronize(),
               synchronizationCoordinator.isCurrent(userID: requestedUserID),
-              !outcome.becameStale
+              !outcome.becameStale,
+              outcome.shouldApply
         else { return }
         applyLoadedSessions(outcome.loadedSessions)
         syncErrorMessage = outcome.failureMessage
@@ -652,7 +653,8 @@ final class StudyTimeStore {
         guard let requestedUserID = activeUserID,
               let outcome = await synchronizationCoordinator.pushPending(),
               synchronizationCoordinator.isCurrent(userID: requestedUserID),
-              !outcome.becameStale
+              !outcome.becameStale,
+              outcome.shouldApply
         else { return }
         syncErrorMessage = outcome.failureMessage
         applyLoadedSessions(outcome.loadedSessions)
