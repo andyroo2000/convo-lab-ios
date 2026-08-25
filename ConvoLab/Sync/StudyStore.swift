@@ -579,14 +579,7 @@ final class StudyStore {
             generation: activationGeneration
         ) else { return }
         do {
-            try await reviewOutbox.flush()
-        } catch {
-            firstError = firstError ?? error
-            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        do {
-            try await flushCardActionOutbox()
+            try await flushSchedulingOutboxes()
         } catch {
             firstError = firstError ?? error
             retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
@@ -1680,15 +1673,6 @@ final class StudyStore {
         let activationGeneration = accountActivationGeneration
         var stagedEventID: String?
         do {
-            let pendingActionIdentifiers = StudyCardIdentity.identifiers(for: card)
-            if try pendingActionIdentifiers.contains(where: { identifier in
-                try cardActionOutbox.hasPendingAction(for: identifier)
-            }) {
-                // Reviews that happen after a scheduling action must reach the
-                // server after it. Do not stage a review until that prerequisite
-                // has drained; while offline the card remains available to retry.
-                try await flushCardActionOutbox()
-            }
             // Scheduling must succeed before the durable event is staged. If the
             // FSRS engine violates its rating-state contract, surface that error
             // without leaving a review queued against an unchanged local card.
@@ -1754,7 +1738,7 @@ final class StudyStore {
             if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
-            try await reviewOutbox.flush()
+            try await flushSchedulingOutboxes()
             return staged.eventID
         } catch {
             var schedulerStateRecovered = false
@@ -2233,18 +2217,16 @@ final class StudyStore {
             preservingPendingEdit: try hasPendingCardWrite(for: currentCard),
             preservingPendingSchedule: true
         )
-        try context.save()
 
         do {
             // Preserve the original cross-domain ordering: content writes and
             // reviews staged before this action must be accepted first.
             try await flushCardOutbox()
-            try await reviewOutbox.flush()
+            try await flushSchedulingOutboxes()
             guard isCurrentActivation(userID, generation: activationGeneration) else {
                 throw CancellationError()
             }
             apply(try reviewOutbox.pendingState())
-            try await flushCardActionOutbox()
         } catch {
             markOutboxRetryNeeded(for: error)
             handleSyncError(
@@ -2448,10 +2430,8 @@ final class StudyStore {
             switch kind {
             case .cardCreate, .cardUpdate, .cardDelete:
                 try await flushCardOutbox()
-            case .cardAction:
-                try await flushCardActionOutbox()
-            case .review:
-                try await reviewOutbox.flush()
+            case .cardAction, .review:
+                try await flushSchedulingOutboxes()
                 restorePendingReviewState()
             }
         } catch {
@@ -2833,6 +2813,21 @@ final class StudyStore {
                 preservingPendingSchedule: preservingPendingReview
                     || acknowledgement.preservingNewerAction
             )
+        }
+    }
+
+    private func flushSchedulingOutboxes() async throws {
+        while true {
+            let before = try reviewOutbox.pendingDeliverableCount()
+                + cardActionOutbox.pendingDeliverableCount()
+            guard before > 0 else { return }
+
+            try await reviewOutbox.flush()
+            try await flushCardActionOutbox()
+
+            let after = try reviewOutbox.pendingDeliverableCount()
+                + cardActionOutbox.pendingDeliverableCount()
+            guard after > 0, after < before else { return }
         }
     }
 

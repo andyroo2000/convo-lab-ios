@@ -8597,6 +8597,87 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testReviewAfterOfflineCardActionIsQueuedAndDeliveredAfterTheAction() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000Q6",
+            expression: "Grade after action",
+            queueState: "suspended",
+            dueAt: nil,
+            scheduler: .object(["state": .number(2)])
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let unsuspended = replacingSchedule(
+            card,
+            queueState: "review",
+            dueAt: .now
+        )
+        let actionResponseData = try StorageCodec.encoder.encode(
+            StudyCardActionResponse(
+                card: unsuspended,
+                overview: actionOverview(dueCount: 1, reviewCount: 1)
+            )
+        )
+        let online = LockedCounter()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            guard online.current > 0 else {
+                throw URLError(.notConnectedToInternet)
+            }
+            if path.hasSuffix("/actions") {
+                return Self.response(data: actionResponseData)
+            }
+            if path == "/api/card-review-events/batch" {
+                return Self.response(data: Data())
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let optimisticAction = try await store.performCardAction(.unsuspend, on: card)
+        let eventID = await store.recordReview(
+            card: optimisticAction,
+            rating: .good,
+            duration: .seconds(1)
+        )
+
+        XCTAssertNotNil(eventID)
+        XCTAssertTrue(store.cards.isEmpty)
+        let queuedKinds = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.kind == "cardAction" || $0.kind == "review"
+                },
+                sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
+            )
+        ).map(\.kind)
+        XCTAssertEqual(queuedKinds, ["cardAction", "review"])
+
+        _ = online.next()
+        await store.synchronize()
+
+        let deliveredWrites = paths.values.filter {
+            $0.hasSuffix("/actions") || $0 == "/api/card-review-events/batch"
+        }
+        XCTAssertEqual(Array(deliveredWrites.suffix(2)), [
+            "/api/study/cards/\(card.reviewCardID)/actions",
+            "/api/card-review-events/batch",
+        ])
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate {
+                        $0.kind == "cardAction" || $0.kind == "review"
+                    }
+                )
+            ),
+            0
+        )
+    }
+
+    @MainActor
     func testEarlierEditAcknowledgementPreservesLaterQueuedActionProjection() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

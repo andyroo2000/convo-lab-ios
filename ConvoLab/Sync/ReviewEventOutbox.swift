@@ -107,6 +107,18 @@ final class ReviewEventOutbox {
             resourceID: cardBefore.id,
             payload: payload
         )
+        var latestDescriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && ($0.kind == "cardAction" || $0.kind == "review")
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        latestDescriptor.fetchLimit = 1
+        if let latestCreatedAt = try context.fetch(latestDescriptor).first?.createdAt,
+           mutation.createdAt <= latestCreatedAt {
+            mutation.createdAt = latestCreatedAt.addingTimeInterval(0.001)
+        }
         context.insert(mutation)
         return mutation
     }
@@ -200,6 +212,19 @@ final class ReviewEventOutbox {
         return try !context.fetch(descriptor).isEmpty
     }
 
+    func pendingDeliverableCount() throws -> Int {
+        guard let userID = activeUserID else { return 0 }
+        return try context.fetchCount(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && $0.kind == "review"
+                        && $0.lastError == nil
+                }
+            )
+        )
+    }
+
     func stageRemoval(eventID: String) throws -> Bool {
         guard let userID = activeUserID else { return false }
         guard let pending = try context.fetch(
@@ -266,6 +291,7 @@ final class ReviewEventOutbox {
             let pending = try context.fetch(descriptor)
             let ready = try pending.filter {
                 try !hasPendingCardCreate(for: $0.resourceID, userID: userID)
+                    && !hasEarlierCardAction(than: $0, userID: userID)
             }
             let batch = Array(ready.prefix(Self.uploadBatchSize))
             guard !batch.isEmpty else { break }
@@ -349,6 +375,28 @@ final class ReviewEventOutbox {
         )
         descriptor.fetchLimit = 1
         return try !context.fetch(descriptor).isEmpty
+    }
+
+    private func hasEarlierCardAction(
+        than mutation: PendingMutation,
+        userID: Int
+    ) throws -> Bool {
+        let decodedReviewCardID = (try? decode(mutation.payload).event.cardID.lowercased())
+        let reviewIdentifiers = Set([
+            mutation.resourceID.lowercased(),
+            decodedReviewCardID,
+        ].compactMap { $0 })
+        return try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "cardAction"
+                }
+            )
+        ).contains { action in
+            let isEarlier = action.createdAt < mutation.createdAt
+                || (action.createdAt == mutation.createdAt && action.id < mutation.id)
+            return isEarlier && reviewIdentifiers.contains(action.resourceID.lowercased())
+        }
     }
 
     private func decode(

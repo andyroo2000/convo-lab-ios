@@ -56,7 +56,8 @@ final class CardActionOutbox {
         )
         var latestDescriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
-                $0.userID == userID && $0.kind == "cardAction"
+                $0.userID == userID
+                    && ($0.kind == "cardAction" || $0.kind == "review")
             },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
@@ -94,6 +95,19 @@ final class CardActionOutbox {
         ).contains { $0.resourceID.lowercased() == normalizedID }
     }
 
+    func pendingDeliverableCount() throws -> Int {
+        guard let userID = activeUserID else { return 0 }
+        return try context.fetchCount(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID
+                        && $0.kind == "cardAction"
+                        && $0.lastError == nil
+                }
+            )
+        )
+    }
+
     func flush(
         onAcknowledged: @escaping (CardActionAcknowledgement) throws -> Void
     ) async throws {
@@ -127,7 +141,7 @@ final class CardActionOutbox {
         var quarantinedCount = 0
         while true {
             try ensureActive(userID: userID, generation: generation)
-            var descriptor = FetchDescriptor<PendingMutation>(
+            let descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
                     $0.userID == userID
                         && $0.kind == "cardAction"
@@ -135,8 +149,10 @@ final class CardActionOutbox {
                 },
                 sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
             )
-            descriptor.fetchLimit = 1
-            guard let mutation = try context.fetch(descriptor).first else {
+            let pending = try context.fetch(descriptor)
+            guard let mutation = try pending.first(where: {
+                try !hasEarlierReview(than: $0, userID: userID)
+            }) else {
                 if quarantinedCount > 0 {
                     throw QuarantinedCardActionError(count: quarantinedCount)
                 }
@@ -208,6 +224,35 @@ final class CardActionOutbox {
                 && ($0.createdAt > mutation.createdAt
                     || ($0.createdAt == mutation.createdAt && $0.id > mutation.id))
         }
+    }
+
+    private func hasEarlierReview(
+        than mutation: PendingMutation,
+        userID: Int
+    ) throws -> Bool {
+        let actionCardID = mutation.resourceID.lowercased()
+        return try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "review"
+                }
+            )
+        ).contains { review in
+            guard isOrdered(review, before: mutation) else { return false }
+            let reviewCardID = (
+                try? StorageCodec.decoder.decode(
+                    PendingReviewPayload.self,
+                    from: review.payload
+                ).event.cardID.lowercased()
+            ) ?? review.resourceID.lowercased()
+            return review.resourceID.lowercased() == actionCardID
+                || reviewCardID == actionCardID
+        }
+    }
+
+    private func isOrdered(_ lhs: PendingMutation, before rhs: PendingMutation) -> Bool {
+        lhs.createdAt < rhs.createdAt
+            || (lhs.createdAt == rhs.createdAt && lhs.id < rhs.id)
     }
 
     private func ensureActive(userID: Int, generation: Int) throws {
