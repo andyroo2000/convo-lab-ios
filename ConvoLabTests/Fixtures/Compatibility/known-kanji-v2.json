@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "id": "known-kanji.v2",
+    "producer": "App\\Domain\\Japanese\\Actions\\ShowKnownKanjiAction",
+    "canonicalRepository": "andyroo2000/learning-os"
+  },
+  "cases": [
+    {
+      "id": "legacy-connected",
+      "description": "Legacy connected snapshot omits transferBridge and review summary keys rather than encoding them as null.",
+      "payload": {
+        "version": 42,
+        "kanji": ["会", "橋", "社"],
+        "manualKanji": ["会", "社"],
+        "wanikani": {
+          "connected": true,
+          "lastSyncedAt": "2026-08-25T10:15:30.000000Z"
+        }
+      }
+    },
+    {
+      "id": "connected-transfer-bridge",
+      "description": "Current v2 snapshot includes review summary and nonzero imported, pending, and failed transfer counts.",
+      "payload": {
+        "version": 42,
+        "kanji": ["会", "橋", "社"],
+        "manualKanji": ["会", "社"],
+        "wanikani": {
+          "connected": true,
+          "lastSyncedAt": "2026-08-25T10:15:30.000000Z",
+          "reviewCount": 17,
+          "reviewCountUpdatedAt": "2026-08-25T10:16:00.000000Z",
+          "transferBridge": {
+            "enabled": true,
+            "importedVocabularyCount": 1,
+            "pendingVocabularyCount": 1,
+            "failedVocabularyCount": 1,
+            "lastImportedAt": "2026-08-25T11:00:00.000000Z"
+          }
+        }
+      }
+    }
+  ]
+}

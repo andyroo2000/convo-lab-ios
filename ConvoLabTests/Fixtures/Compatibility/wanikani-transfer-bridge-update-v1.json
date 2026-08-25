@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "id": "wanikani-transfer-bridge-update.v1",
+    "producer": "App\\Http\\Controllers\\Api\\Study\\UpdateWaniKaniTransferBridgeController",
+    "canonicalRepository": "andyroo2000/learning-os"
+  },
+  "cases": [
+    {
+      "id": "enable",
+      "description": "Boolean PATCH input enables the bridge and returns the complete current KnownKanji v2 snapshot.",
+      "request": {
+        "enabled": true
+      },
+      "response": {
+        "version": 0,
+        "kanji": [],
+        "manualKanji": [],
+        "wanikani": {
+          "connected": true,
+          "lastSyncedAt": null,
+          "reviewCount": null,
+          "reviewCountUpdatedAt": null,
+          "transferBridge": {
+            "enabled": true,
+            "importedVocabularyCount": 0,
+            "pendingVocabularyCount": 0,
+            "failedVocabularyCount": 0,
+            "lastImportedAt": null
+          }
+        }
+      }
+    }
+  ]
+}

@@ -127,12 +127,22 @@ final class KnownKanjiServiceTests: XCTestCase {
 
     @MainActor
     func testUpdatesAndPersistsTheTransferBridgeStatus() async throws {
+        let canonicalRequest = try Self.compatibilityCaseData(
+            fixture: "wanikani-transfer-bridge-update-v1",
+            caseID: "enable",
+            field: "request"
+        )
+        let canonicalResponse = try Self.compatibilityCaseData(
+            fixture: "wanikani-transfer-bridge-update-v1",
+            caseID: "enable",
+            field: "response"
+        )
         let container = try Persistence.makeContainer(inMemory: true)
         container.mainContext.insert(
             LocalKnownKanjiSnapshot(
                 userID: 7,
                 payload: Data(
-                    Self.snapshotJSON(version: 2, kanji: ["会"], connected: true).utf8
+                    Self.snapshotJSON(version: 0, kanji: [], connected: true).utf8
                 )
             )
         )
@@ -141,13 +151,18 @@ final class KnownKanjiServiceTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "PATCH")
             XCTAssertEqual(request.url?.path, "/api/study/wanikani/transfer-bridge")
             let body = try requestBody(request)
-            let object = try XCTUnwrap(
-                JSONSerialization.jsonObject(with: body) as? [String: Bool]
+            XCTAssertEqual(
+                try JSONSerialization.jsonObject(with: body) as? [String: Bool],
+                try JSONSerialization.jsonObject(with: canonicalRequest) as? [String: Bool]
             )
-            XCTAssertEqual(object["enabled"], true)
-            return Self.jsonResponse(
-                for: request,
-                body: #"{"version":2,"kanji":["会"],"manualKanji":[],"wanikani":{"connected":true,"lastSyncedAt":null,"transferBridge":{"enabled":true,"importedVocabularyCount":3,"pendingVocabularyCount":1,"failedVocabularyCount":2,"lastImportedAt":"2026-08-24T18:00:00Z"}}}"#
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                canonicalResponse
             )
         }
         let service = KnownKanjiService(api: client, context: container.mainContext)
@@ -158,10 +173,10 @@ final class KnownKanjiServiceTests: XCTestCase {
         XCTAssertNil(service.errorMessage)
         XCTAssertFalse(service.isWorking)
         XCTAssertTrue(service.transferBridgeStatus.enabled)
-        XCTAssertEqual(service.transferBridgeStatus.importedVocabularyCount, 3)
-        XCTAssertEqual(service.transferBridgeStatus.pendingVocabularyCount, 1)
-        XCTAssertEqual(service.transferBridgeStatus.failedVocabularyCount, 2)
-        XCTAssertNotNil(service.transferBridgeStatus.lastImportedAt)
+        XCTAssertEqual(service.transferBridgeStatus.importedVocabularyCount, 0)
+        XCTAssertEqual(service.transferBridgeStatus.pendingVocabularyCount, 0)
+        XCTAssertEqual(service.transferBridgeStatus.failedVocabularyCount, 0)
+        XCTAssertNil(service.transferBridgeStatus.lastImportedAt)
         let persisted = try XCTUnwrap(
             container.mainContext.fetch(FetchDescriptor<LocalKnownKanjiSnapshot>()).first
         )
@@ -373,5 +388,27 @@ final class KnownKanjiServiceTests: XCTestCase {
           "wanikani": {"connected": \(connected), "lastSyncedAt": null}
         }
         """
+    }
+
+    private static func compatibilityCaseData(
+        fixture: String,
+        caseID: String,
+        field: String
+    ) throws -> Data {
+        let fixtureURL = try XCTUnwrap(
+            Bundle(for: KnownKanjiServiceTests.self).url(
+                forResource: fixture,
+                withExtension: "json"
+            )
+        )
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
+        )
+        let cases = try XCTUnwrap(root["cases"] as? [[String: Any]])
+        let fixtureCase = try XCTUnwrap(cases.first { $0["id"] as? String == caseID })
+        return try JSONSerialization.data(
+            withJSONObject: try XCTUnwrap(fixtureCase[field]),
+            options: [.sortedKeys]
+        )
     }
 }
