@@ -151,8 +151,10 @@ struct StudyRhythmChart: View {
     let analytics: StudyTimeAnalyticsRange
     let generatedAt: Date
     let includedCategories: Set<StudyActivityCategory>
+    let availableWidth: CGFloat
     let onToggleCategory: (StudyActivityCategory) -> Void
     let onDrillDown: ((StudyTimeAnalyticsBucket) -> Void)?
+    @State private var measuredPlotWidth: CGFloat? = nil
 
     private var projection: StudyTimeAnalyticsProjection {
         StudyTimeAnalyticsProjection(
@@ -225,7 +227,7 @@ struct StudyRhythmChart: View {
                         BarMark(
                             x: .value("Period", bucket.startsAt),
                             y: .value("Minutes", Double(milliseconds) / 60_000),
-                            width: .ratio(boldSlabWidthRatio)
+                            width: .fixed(boldSlabWidth)
                         )
                         .foregroundStyle(by: .value("Category", category.title))
                     }
@@ -263,9 +265,16 @@ struct StudyRhythmChart: View {
             )
             .chartOverlay { proxy in
                 GeometryReader { geometry in
+                    let plotWidth = proxy.plotFrame.map { geometry[$0].width } ?? 0
                     Color.clear
                         .contentShape(Rectangle())
                         .accessibilityHidden(true)
+                        .onAppear {
+                            updateMeasuredPlotWidth(plotWidth)
+                        }
+                        .onChange(of: plotWidth) { _, width in
+                            updateMeasuredPlotWidth(width)
+                        }
                         .simultaneousGesture(
                             SpatialTapGesture(count: 2)
                                 .onEnded { value in
@@ -287,13 +296,22 @@ struct StudyRhythmChart: View {
             }
     }
 
-    private var boldSlabWidthRatio: CGFloat {
-        switch analytics.key {
-        case .today, .month:
-            0.90
-        case .week, .year, .all:
-            0.82
+    private var boldSlabWidth: CGFloat {
+        let bucketCount = max(analytics.buckets.count, 1)
+        let density = switch analytics.key {
+        case .today, .month: CGFloat(0.90)
+        case .week, .year, .all: CGFloat(0.82)
         }
+        let plotWidth = measuredPlotWidth ?? max(availableWidth, 1)
+        let width = plotWidth / CGFloat(bucketCount) * density
+        return min(max(width, 0.5), 40)
+    }
+
+    private func updateMeasuredPlotWidth(_ width: CGFloat) {
+        guard width > 0,
+              measuredPlotWidth.map({ abs($0 - width) > 0.5 }) ?? true
+        else { return }
+        measuredPlotWidth = width
     }
 
     @ViewBuilder
