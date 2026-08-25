@@ -302,21 +302,25 @@ final class AudioPlayer {
         }
         switch type {
         case .began:
-            NativeDiagnostics.shared.record(
-                .backgroundPlayback,
-                reason: .interruptionBegan
-            )
             wasPlayingBeforeInterruption = isPlaying
+            if wasPlayingBeforeInterruption {
+                NativeDiagnostics.shared.record(
+                    .backgroundPlayback,
+                    reason: .interruptionBegan
+                )
+            }
             player.pause()
             isPlaying = false
             endPlaybackDiagnostics(outcome: .cancelled)
             updateNowPlaying()
         case .ended:
-            NativeDiagnostics.shared.record(
-                .backgroundPlayback,
-                reason: .interruptionEnded
-            )
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
+            if wasPlayingBeforeInterruption {
+                NativeDiagnostics.shared.record(
+                    .backgroundPlayback,
+                    reason: .interruptionEnded
+                )
+            }
             if wasPlayingBeforeInterruption, options.contains(.shouldResume) {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 player.play()
@@ -339,12 +343,15 @@ final class AudioPlayer {
         }
         // Do not unexpectedly continue spoken audio through the speaker when headphones
         // or another output route disappear.
+        let wasPlaying = isPlaying
         player.pause()
         isPlaying = false
-        NativeDiagnostics.shared.record(
-            .backgroundPlayback,
-            reason: .outputRouteLost
-        )
+        if wasPlaying {
+            NativeDiagnostics.shared.record(
+                .backgroundPlayback,
+                reason: .outputRouteLost
+            )
+        }
         endPlaybackDiagnostics(outcome: .cancelled)
         updateNowPlaying()
     }
