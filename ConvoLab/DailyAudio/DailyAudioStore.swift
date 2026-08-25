@@ -19,6 +19,8 @@ final class DailyAudioStore {
     @ObservationIgnored private var generationPollingTask: Task<Void, Never>?
     @ObservationIgnored private var generationPollingID: UUID?
     @ObservationIgnored private var errorSource: ErrorSource?
+    @ObservationIgnored private var pendingAutomaticDownloadIDs: Set<String> = []
+    @ObservationIgnored private var automaticDownloadReservationID: String?
 
     private(set) var practices: [DailyAudioPractice] = []
     private(set) var isLoading = false
@@ -37,7 +39,7 @@ final class DailyAudioStore {
     }
 
     var isPracticeDownloadInProgress: Bool {
-        !practiceDownloadProgress.isEmpty
+        automaticDownloadReservationID != nil || !practiceDownloadProgress.isEmpty
     }
 
     init(
@@ -70,6 +72,8 @@ final class DailyAudioStore {
         isLoadingMore = false
         downloadingTrackIDs = []
         practiceDownloadProgress = [:]
+        pendingAutomaticDownloadIDs = []
+        automaticDownloadReservationID = nil
         loadLocal(userID: userID)
         total = practices.count
         refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
@@ -94,6 +98,8 @@ final class DailyAudioStore {
         downloadedTrackIDs = []
         downloadingTrackIDs = []
         practiceDownloadProgress = [:]
+        pendingAutomaticDownloadIDs = []
+        automaticDownloadReservationID = nil
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -153,11 +159,19 @@ final class DailyAudioStore {
                 userID,
                 generation: operationGeneration
             ) else { return false }
+            let previousStatusByID = Dictionary(
+                uniqueKeysWithValues: practices.map { ($0.id, $0.status) }
+            )
             practices = orderedPractices(response.items)
             total = response.total
             nextCursor = response.nextCursor
             try persist(response.items, userID: userID)
             refreshDownloadedTrackIDs(for: practices, replacingExisting: true)
+            queueAutomaticDownloads(
+                practices.filter {
+                    previousStatusByID[$0.id] == "generating" && $0.status == "ready"
+                }
+            )
             generationStartWasInterrupted = false
             lastRefreshAt = .now
             beginGenerationPollingIfNeeded()
@@ -241,7 +255,9 @@ final class DailyAudioStore {
         }
     }
 
-    func create() async {
+    func create(
+        edition: DailyAudioEditionDuration = .sixtyMinutes
+    ) async {
         guard
             let userID = activeUserID,
             !isLoading,
@@ -265,7 +281,7 @@ final class DailyAudioStore {
                 method: "POST",
                 body: CreateDailyAudioRequest(
                     timeZone: TimeZone.current.identifier,
-                    targetDurationMinutes: 30
+                    targetDurationMinutes: edition.rawValue
                 )
             )
             guard isCurrentActivation(
@@ -280,6 +296,9 @@ final class DailyAudioStore {
             }
             try persist([response], userID: userID)
             refreshDownloadedTrackIDs(for: [response])
+            if response.status == "ready" {
+                queueAutomaticDownloads([response])
+            }
             generationStartWasInterrupted = false
             beginGenerationPollingIfNeeded()
             clearError(from: .create)
@@ -302,9 +321,14 @@ final class DailyAudioStore {
             let userID = activeUserID,
             practices.contains(where: { $0.id == practice.id }),
             practiceDownloadProgress.isEmpty,
+            automaticDownloadReservationID == nil
+                || automaticDownloadReservationID == practice.id,
             !isDownloaded(practice)
         else {
             return
+        }
+        if automaticDownloadReservationID == practice.id {
+            automaticDownloadReservationID = nil
         }
         let operationGeneration = activationGeneration
         let downloadableTracks = downloadableTracks(in: practice)
@@ -316,6 +340,7 @@ final class DailyAudioStore {
             if isCurrentActivation(userID, generation: operationGeneration) {
                 downloadingTrackIDs.subtract(downloadableTracks.map(\.id))
                 practiceDownloadProgress[practice.id] = nil
+                beginNextAutomaticDownloadIfNeeded()
             }
         }
 
@@ -537,6 +562,41 @@ final class DailyAudioStore {
         }
         let completed = tracks.filter { downloadedTrackIDs.contains($0.id) }.count
         practiceDownloadProgress[practiceID] = Double(completed) / Double(tracks.count)
+    }
+
+    private func queueAutomaticDownloads(_ practices: [DailyAudioPractice]) {
+        pendingAutomaticDownloadIDs.formUnion(
+            practices.lazy
+                .filter { !self.isDownloaded($0) }
+                .map(\.id)
+        )
+        beginNextAutomaticDownloadIfNeeded()
+    }
+
+    private func beginNextAutomaticDownloadIfNeeded() {
+        guard
+            automaticDownloadReservationID == nil,
+            practiceDownloadProgress.isEmpty
+        else { return }
+        while let practiceID = pendingAutomaticDownloadIDs.first {
+            pendingAutomaticDownloadIDs.remove(practiceID)
+            guard let practice = practices.first(where: {
+                $0.id == practiceID && $0.status == "ready"
+            }), !isDownloaded(practice)
+            else {
+                continue
+            }
+            automaticDownloadReservationID = practice.id
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.download(practice)
+                if self.automaticDownloadReservationID == practice.id {
+                    self.automaticDownloadReservationID = nil
+                }
+                self.beginNextAutomaticDownloadIfNeeded()
+            }
+            return
+        }
     }
 
     private func removePreviousCachedRevisions(

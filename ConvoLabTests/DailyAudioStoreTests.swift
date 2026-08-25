@@ -398,7 +398,7 @@ final class DailyAudioStoreTests: XCTestCase {
           "id": "39ac4e14-b8b0-482c-8831-a3c1cb1987e9",
           "practiceDate": "2026-07-23",
           "status": "generating",
-          "targetDurationMinutes": 30,
+          "targetDurationMinutes": 45,
           "errorMessage": null,
           "createdAt": "2026-07-23T12:00:00.000Z",
           "updatedAt": "2026-07-23T12:00:00.000Z",
@@ -436,6 +436,10 @@ final class DailyAudioStoreTests: XCTestCase {
                     """.utf8
                 )
             } else {
+                let payload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+                )
+                XCTAssertEqual(payload["targetDurationMinutes"] as? Int, 45)
                 body = Data(practiceJSON.utf8)
             }
             return (
@@ -461,10 +465,159 @@ final class DailyAudioStoreTests: XCTestCase {
         XCTAssertEqual(store.total, 1)
         XCTAssertFalse(store.hasMore)
 
-        await store.create()
+        await store.create(edition: .fortyFiveMinutes)
         XCTAssertEqual(store.practices.count, 1)
         XCTAssertEqual(store.practices.first?.tracks.first?.mode, "drill")
         XCTAssertEqual(store.practices.first?.tracks.first?.formattedDuration, "1:35")
+        XCTAssertNil(store.errorMessage)
+    }
+
+    func testAutomaticDownloadReservesSlotBeforeManualDownloadCanStart() async throws {
+        let practiceID = "39ac4e14-b8b0-482c-8831-a3c1cb1987e9"
+        let trackID = "4aa076b2-1bc7-45a8-b7b4-12b74dcbd463"
+        let manualPracticeID = "39ac4e14-b8b0-482c-8831-a3c1cb1987ea"
+        let manualTrackID = "4aa076b2-1bc7-45a8-b7b4-12b74dcbd464"
+        let oldDate = Date(timeIntervalSince1970: 2_000)
+        let newDate = Date(timeIntervalSince1970: 3_000)
+        let draftTrack = DailyAudioTrack(
+            id: trackID,
+            practiceId: practiceID,
+            mode: "drill",
+            status: "generating",
+            title: "Drills",
+            sortOrder: 0,
+            audioUrl: nil,
+            approxDurationSeconds: nil,
+            updatedAt: oldDate
+        )
+        let generatingPractice = DailyAudioPractice(
+            id: practiceID,
+            practiceDate: "2026-08-25",
+            status: "generating",
+            targetDurationMinutes: 60,
+            errorMessage: nil,
+            createdAt: oldDate,
+            updatedAt: oldDate,
+            tracks: [draftTrack]
+        )
+        let readyTrack = DailyAudioTrack(
+            id: trackID,
+            practiceId: practiceID,
+            mode: "drill",
+            status: "ready",
+            title: "Drills",
+            sortOrder: 0,
+            audioUrl: "/api/daily-audio-practice/\(practiceID)/tracks/\(trackID)/audio",
+            approxDurationSeconds: 3_600,
+            updatedAt: newDate
+        )
+        let readyPractice = DailyAudioPractice(
+            id: practiceID,
+            practiceDate: "2026-08-25",
+            status: "ready",
+            targetDurationMinutes: 60,
+            errorMessage: nil,
+            createdAt: oldDate,
+            updatedAt: newDate,
+            tracks: [readyTrack]
+        )
+        let manualTrack = DailyAudioTrack(
+            id: manualTrackID,
+            practiceId: manualPracticeID,
+            mode: "drill",
+            status: "ready",
+            title: "Earlier Drills",
+            sortOrder: 0,
+            audioUrl: "/api/daily-audio-practice/\(manualPracticeID)/tracks/\(manualTrackID)/audio",
+            approxDurationSeconds: 1_800,
+            updatedAt: oldDate
+        )
+        let manualPractice = DailyAudioPractice(
+            id: manualPracticeID,
+            practiceDate: "2026-08-24",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: oldDate,
+            updatedAt: oldDate,
+            tracks: [manualTrack]
+        )
+        let responseData = try StorageCodec.encoder.encode(DailyAudioPracticePage(
+            items: [readyPractice, manualPractice],
+            total: 2,
+            limit: 14,
+            nextCursor: nil
+        ))
+        let automaticRequestCount = LockedCounter()
+        let manualRequestCount = LockedCounter()
+        let client = makeClient { request in
+            if request.url?.path == "/api/daily-audio-practice" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    responseData
+                )
+            }
+            if request.url?.path == "/api/daily-audio-practice/\(practiceID)/tracks/\(trackID)/audio" {
+                _ = automaticRequestCount.next()
+            } else {
+                XCTAssertEqual(
+                    request.url?.path,
+                    "/api/daily-audio-practice/\(manualPracticeID)/tracks/\(manualTrackID)/audio"
+                )
+                _ = manualRequestCount.next()
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "audio/mpeg"]
+                )!,
+                Data("audio".utf8)
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: generatingPractice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(generatingPractice)
+        ))
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: manualPractice,
+            userID: 1,
+            payload: try StorageCodec.encoder.encode(manualPractice)
+        ))
+        try container.mainContext.save()
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        defer { store.deactivate() }
+
+        let didRefresh = await store.refresh()
+        XCTAssertTrue(didRefresh)
+        XCTAssertTrue(store.isPracticeDownloadInProgress)
+        await store.download(manualPractice)
+        for _ in 0..<100 where !store.isDownloaded(readyTrack) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(store.isDownloaded(readyTrack))
+        XCTAssertTrue(store.isDownloaded(readyPractice))
+        XCTAssertFalse(store.isDownloaded(manualTrack))
+        XCTAssertEqual(automaticRequestCount.current, 1)
+        XCTAssertEqual(manualRequestCount.current, 0)
         XCTAssertNil(store.errorMessage)
     }
 
