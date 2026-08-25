@@ -96,8 +96,8 @@ final class StudySessionCountsTests: XCTestCase {
                   },
                   "jlptMastery": {
                     "N5": {
-                      "vocabulary": {"masteryPercent": 34, "known": 233, "matched": 280, "covered": 280, "total": 684},
-                      "grammar": {"masteryPercent": 21, "known": 16, "matched": 29, "covered": 29, "total": 77}
+                      "vocabulary": {"masteryPercent": 34, "known": 250, "knownFromCards": 233, "knownFromWaniKani": 40, "knownFromBoth": 23, "matched": 280, "covered": 280, "total": 684},
+                      "grammar": {"masteryPercent": 21, "known": 16, "knownFromCards": 16, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 29, "covered": 29, "total": 77}
                     }
                   },
                   "learningReadiness": {
@@ -127,7 +127,10 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
-        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.known, 233)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.known, 250)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.knownFromCards, 233)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.knownFromWaniKani, 40)
+        XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.knownFromBoth, 23)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.matched, 280)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.covered, 280)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.total, 684)

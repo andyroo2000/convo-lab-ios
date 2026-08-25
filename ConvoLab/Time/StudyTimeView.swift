@@ -189,7 +189,8 @@ struct StudyTimeView: View {
                         JLPTMasteryMetricRow(
                             title: "Vocabulary",
                             metric: n5.vocabulary,
-                            tint: ConvoLabTheme.navy
+                            tint: ConvoLabTheme.navy,
+                            showSourceBreakdown: true
                         )
                         JLPTMasteryMetricRow(
                             title: "Grammar",
@@ -220,8 +221,8 @@ struct StudyTimeView: View {
                     Text("JLPT N5 Mastery")
                 } footer: {
                     Text(
-                        "Known means the strongest matched card is Guru or above. "
-                            + "Matched in your cards is a separate, rough coverage estimate against this app’s N5 catalog."
+                        "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
+                            + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate."
                     )
                 }
 
@@ -729,6 +730,7 @@ private struct JLPTMasteryMetricRow: View {
     let title: String
     let metric: StudyJLPTMasteryMetric
     let tint: Color
+    var showSourceBreakdown = false
 
     private var boundedPercent: Int {
         min(max(metric.masteryPercent, 0), 100)
@@ -740,7 +742,22 @@ private struct JLPTMasteryMetricRow: View {
 
     private var knownCount: Int? {
         guard let known = metric.known else { return nil }
-        return min(max(known, 0), matchedCount)
+        return min(max(known, 0), metric.total)
+    }
+
+    private var knownFromCards: Int? {
+        guard let value = metric.knownFromCards else { return nil }
+        return min(max(value, 0), metric.total)
+    }
+
+    private var knownFromWaniKani: Int? {
+        guard let value = metric.knownFromWaniKani else { return nil }
+        return min(max(value, 0), metric.total)
+    }
+
+    private var knownFromBoth: Int? {
+        guard let value = metric.knownFromBoth else { return nil }
+        return min(max(value, 0), metric.total)
     }
 
     private var accessibilitySummary: String {
@@ -748,7 +765,17 @@ private struct JLPTMasteryMetricRow: View {
         guard let knownCount else {
             return "\(boundedPercent) percent, \(matched)"
         }
-        return "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above, \(matched)"
+        var summary = "\(boundedPercent) percent, \(knownCount) of \(metric.total) known at Guru or above"
+        if showSourceBreakdown, let knownFromCards {
+            summary += ", \(knownFromCards) from ConvoLab cards"
+        }
+        if showSourceBreakdown, let knownFromWaniKani {
+            summary += ", \(knownFromWaniKani) from WaniKani"
+        }
+        if showSourceBreakdown, let knownFromBoth, knownFromBoth > 0 {
+            summary += ", \(knownFromBoth) counted in both"
+        }
+        return "\(summary), \(matched)"
     }
 
     var body: some View {
@@ -766,6 +793,18 @@ private struct JLPTMasteryMetricRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let knownCount {
                     Text("\(knownCount) of \(metric.total) known (Guru+)")
+                }
+                if showSourceBreakdown, let knownFromCards {
+                    Text("\(knownFromCards) from ConvoLab cards")
+                        .padding(.leading, 12)
+                }
+                if showSourceBreakdown, let knownFromWaniKani {
+                    Text("\(knownFromWaniKani) from WaniKani")
+                        .padding(.leading, 12)
+                }
+                if showSourceBreakdown, let knownFromBoth, knownFromBoth > 0 {
+                    Text("\(knownFromBoth) counted in both")
+                        .padding(.leading, 12)
                 }
                 Text("\(matchedCount) of \(metric.total) matched in your cards")
             }
