@@ -174,8 +174,6 @@ struct StudyTimeView: View {
                         ProgressView("Loading study rhythm…")
                             .frame(maxWidth: .infinity, minHeight: 220)
                     }
-                } header: {
-                    Text("Study Rhythm")
                 } footer: {
                     Text(
                         "Double-tap a category to filter it out or bring it back. In Week, Month, and Year, "
@@ -953,7 +951,8 @@ private struct StudyRhythmChart: View {
                     if milliseconds > 0 {
                         BarMark(
                             x: .value("Period", bucket.startsAt),
-                            y: .value("Minutes", Double(milliseconds) / 60_000)
+                            y: .value("Minutes", Double(milliseconds) / 60_000),
+                            width: .ratio(boldSlabWidthRatio)
                         )
                         .foregroundStyle(by: .value("Category", category.title))
                     }
@@ -987,7 +986,7 @@ private struct StudyRhythmChart: View {
             }
             .chartXScale(
                 domain: projection.chartDomain,
-                range: .plotDimension(padding: 12)
+                range: .plotDimension(padding: 4)
             )
             .chartOverlay { proxy in
                 GeometryReader { geometry in
@@ -1013,6 +1012,15 @@ private struct StudyRhythmChart: View {
                     }
                 }
             }
+    }
+
+    private var boldSlabWidthRatio: CGFloat {
+        switch analytics.key {
+        case .today, .month:
+            0.90
+        case .week, .year, .all:
+            0.82
+        }
     }
 
     @ViewBuilder
