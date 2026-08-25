@@ -68,7 +68,7 @@ struct CardLibraryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingCreate, onDismiss: refreshLearningItemsIfNeeded) {
+            .sheet(isPresented: $showingCreate) {
                 CardEditorView(
                     store: store,
                     player: player,
@@ -77,7 +77,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedCard, onDismiss: refreshLearningItemsIfNeeded) { card in
+            .sheet(item: $selectedCard) { card in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -86,7 +86,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedDraft, onDismiss: refreshLearningItemsIfNeeded) { draft in
+            .sheet(item: $selectedDraft) { draft in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -536,7 +536,7 @@ struct CardLibraryView: View {
         switch status {
         case .available: ConvoLabTheme.navy
         case .retired: .green
-        case .locked, nil: .gray.opacity(0.45)
+        case .locked, .unknown, nil: .gray.opacity(0.45)
         }
     }
 
@@ -544,7 +544,7 @@ struct CardLibraryView: View {
         switch status {
         case .available: "play.circle.fill"
         case .retired: "checkmark.circle.fill"
-        case .locked, nil: "lock.circle.fill"
+        case .locked, .unknown, nil: "lock.circle.fill"
         }
     }
 
@@ -553,18 +553,8 @@ struct CardLibraryView: View {
         case .available: "Available"
         case .retired: "Retired"
         case .locked: "Locked"
+        case .unknown: "Unknown"
         case nil: "Stage"
-        }
-    }
-
-    private func refreshLearningItemsIfNeeded() {
-        guard collectionMode == .all else { return }
-        let loadedItemCount = store.learningItems.count
-        Task {
-            try? await store.refreshLearningItems(
-                search: searchText,
-                minimumItemCount: loadedItemCount
-            )
         }
     }
 
@@ -609,13 +599,8 @@ struct CardLibraryView: View {
     }
 
     private func delete(_ card: StudyCard) async {
-        let loadedItemCount = store.learningItems.count
         do {
             try await store.deleteCard(card)
-            try? await store.refreshLearningItems(
-                search: searchText,
-                minimumItemCount: loadedItemCount
-            )
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {
@@ -627,7 +612,6 @@ struct CardLibraryView: View {
     }
 
     private func delete(_ itemCard: StudyLearningItemCard) async {
-        let loadedItemCount = store.learningItems.count
         do {
             guard let card = try await store.resolveCard(for: itemCard) else {
                 deletionErrorMessage = "This card is no longer available."
@@ -635,10 +619,6 @@ struct CardLibraryView: View {
                 return
             }
             try await store.deleteCard(card)
-            try? await store.refreshLearningItems(
-                search: searchText,
-                minimumItemCount: loadedItemCount
-            )
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {

@@ -2,6 +2,15 @@ import XCTest
 @testable import ConvoLab
 
 final class StudyCardCatalogRepositoryTests: XCTestCase {
+    func testUnknownLearningItemStageStatusDecodesSafely() throws {
+        let status = try JSONDecoder().decode(
+            StudyLearningItemStageStatus.self,
+            from: Data(#""future-stage""#.utf8)
+        )
+
+        XCTAssertEqual(status, .unknown)
+    }
+
     @MainActor
     func testRequestsPreserveCatalogCompatibilityContract() async throws {
         let queueItem = makeQueueItem(id: "queue-card")

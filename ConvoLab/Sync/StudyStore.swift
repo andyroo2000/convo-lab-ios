@@ -1065,10 +1065,7 @@ final class StudyStore {
         allCardsNextCursor = response.nextCursor
     }
 
-    func refreshLearningItems(
-        search query: String = "",
-        minimumItemCount: Int = 0
-    ) async throws {
+    func refreshLearningItems(search query: String = "") async throws {
         guard let userID = activeUserID else { return }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         learningItemsRefreshRevision += 1
@@ -1086,37 +1083,16 @@ final class StudyStore {
             let response = try await cardCatalogRepository.learningItemPage(
                 matching: trimmedQuery
             )
-            var refreshedItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
-                response.items,
-                to: []
-            )
-            var nextCursor = response.nextCursor
-            var requestedCursors = Set<String>()
-            while refreshedItems.count < minimumItemCount,
-                  let cursor = nextCursor,
-                  requestedCursors.insert(cursor).inserted {
-                guard
-                    activeUserID == userID,
-                    learningItemsRefreshRevision == refreshRevision,
-                    learningItemsQuery == trimmedQuery
-                else { return }
-                let nextResponse = try await cardCatalogRepository.learningItemPage(
-                    matching: trimmedQuery,
-                    after: cursor
-                )
-                refreshedItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
-                    nextResponse.items,
-                    to: refreshedItems
-                )
-                nextCursor = nextResponse.nextCursor
-            }
             guard
                 activeUserID == userID,
                 learningItemsRefreshRevision == refreshRevision,
                 learningItemsQuery == trimmedQuery
             else { return }
-            learningItems = refreshedItems
-            learningItemsNextCursor = nextCursor
+            learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
+                response.items,
+                to: []
+            )
+            learningItemsNextCursor = response.nextCursor
         } catch {
             guard
                 activeUserID == userID,
@@ -1217,12 +1193,136 @@ final class StudyStore {
         return canonicalCard
     }
 
-    private func upsertAllCardsPresentation(_ card: StudyCard) {
+    private func upsertAllCardsPresentation(
+        _ card: StudyCard,
+        addToLearningItemsIfMissing: Bool = false
+    ) {
         allCards = StudyCardCatalogRepository.upserting(
             card,
             into: allCards,
             matching: allCardsQuery
         )
+        reconcileLearningItems(
+            upserting: card,
+            addIfMissing: addToLearningItemsIfMissing
+        )
+    }
+
+    private func reconcileLearningItems(
+        upserting card: StudyCard,
+        addIfMissing: Bool = false
+    ) {
+        var foundExistingCard = false
+        learningItems = learningItems.map { item in
+            let representativeCard = updatedLearningItemCard(
+                item.representativeCard,
+                from: card,
+                foundExistingCard: &foundExistingCard
+            )
+            let stages = item.stages.map { stage in
+                StudyLearningItemStage(
+                    number: stage.number,
+                    status: stage.status,
+                    cardCount: stage.cardCount,
+                    representativeCard: updatedLearningItemCard(
+                        stage.representativeCard,
+                        from: card,
+                        foundExistingCard: &foundExistingCard
+                    ),
+                    cards: stage.cards.map {
+                        updatedLearningItemCard(
+                            $0,
+                            from: card,
+                            foundExistingCard: &foundExistingCard
+                        )
+                    }
+                )
+            }
+            return StudyLearningItem(
+                id: item.id,
+                groupId: item.groupId,
+                representativeCard: representativeCard,
+                currentStageNumber: item.currentStageNumber,
+                stageCount: item.stageCount,
+                cardCount: item.cardCount,
+                retiredStageCount: item.retiredStageCount,
+                transferDemonstrated: item.transferDemonstrated,
+                stages: stages
+            )
+        }
+        guard addIfMissing,
+              !foundExistingCard,
+              let standalone = StudyCardCatalogRepository.standaloneLearningItems(
+                  from: [card],
+                  matching: learningItemsQuery
+              ).first
+        else { return }
+        learningItems.insert(standalone, at: 0)
+    }
+
+    private func updatedLearningItemCard(
+        _ itemCard: StudyLearningItemCard,
+        from card: StudyCard,
+        foundExistingCard: inout Bool
+    ) -> StudyLearningItemCard {
+        guard StudyCardIdentity.matches(card, any: [itemCard.id, itemCard.syncId]) else {
+            return itemCard
+        }
+        foundExistingCard = true
+        return StudyLearningItemCard(
+            id: itemCard.id,
+            syncId: itemCard.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            displayText: card.promptText,
+            meaning: card.answerText,
+            variantKind: itemCard.variantKind
+        )
+    }
+
+    private func removeFromLearningItems(_ card: StudyCard) {
+        learningItems = learningItems.compactMap { item in
+            if item.groupId == nil,
+               StudyCardIdentity.matches(
+                   card,
+                   any: [item.representativeCard.id, item.representativeCard.syncId]
+               ) {
+                return nil
+            }
+            let stages = item.stages.compactMap { stage -> StudyLearningItemStage? in
+                let cards = stage.cards.filter {
+                    !StudyCardIdentity.matches(card, any: [$0.id, $0.syncId])
+                }
+                guard !cards.isEmpty else { return nil }
+                let representativeCard = StudyCardIdentity.matches(
+                    card,
+                    any: [stage.representativeCard.id, stage.representativeCard.syncId]
+                ) ? cards[0] : stage.representativeCard
+                return StudyLearningItemStage(
+                    number: stage.number,
+                    status: stage.status,
+                    cardCount: cards.count,
+                    representativeCard: representativeCard,
+                    cards: cards
+                )
+            }
+            guard !stages.isEmpty else { return nil }
+            let representativeCard = StudyCardIdentity.matches(
+                card,
+                any: [item.representativeCard.id, item.representativeCard.syncId]
+            ) ? stages[0].representativeCard : item.representativeCard
+            return StudyLearningItem(
+                id: item.id,
+                groupId: item.groupId,
+                representativeCard: representativeCard,
+                currentStageNumber: item.currentStageNumber,
+                stageCount: stages.count,
+                cardCount: stages.reduce(0) { $0 + $1.cardCount },
+                retiredStageCount: stages.filter { $0.status == .retired }.count,
+                transferDemonstrated: item.transferDemonstrated,
+                stages: stages
+            )
+        }
     }
 
     func moveNewCards(fromOffsets: IndexSet, toOffset: Int) async throws {
@@ -1803,7 +1903,7 @@ final class StudyStore {
         try cardOutbox.stageCreate(cardID: id, request: projection.request)
         cards.append(optimistic)
         libraryCards.append(optimistic)
-        upsertAllCardsPresentation(optimistic)
+        upsertAllCardsPresentation(optimistic, addToLearningItemsIfMissing: true)
         try context.save()
 
         do {
@@ -1849,6 +1949,7 @@ final class StudyStore {
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
+        reconcileLearningItems(upserting: updated)
         try context.save()
         do {
             try await flushCardOutbox()
@@ -1878,6 +1979,7 @@ final class StudyStore {
         cards.removeAll { $0.id == currentCard.id }
         libraryCards.removeAll { $0.id == currentCard.id }
         allCards.removeAll { $0.id == currentCard.id }
+        removeFromLearningItems(currentCard)
         try context.save()
         do {
             try await flushCardOutbox()
@@ -2712,7 +2814,7 @@ final class StudyStore {
         }
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
-        upsertAllCardsPresentation(card)
+        upsertAllCardsPresentation(card, addToLearningItemsIfMissing: true)
         try context.save()
         await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
     }

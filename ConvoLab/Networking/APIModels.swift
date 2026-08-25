@@ -766,6 +766,17 @@ enum StudyLearningItemStageStatus: String, nonisolated Codable, Equatable, Senda
     case locked
     case available
     case retired
+    case unknown
+
+    nonisolated init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 struct StudyLearningItemCard: nonisolated Codable, Identifiable, Equatable, Sendable {
