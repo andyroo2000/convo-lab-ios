@@ -771,6 +771,42 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testLearningItemsFallBackToTheLocalReplicaWhenOffline() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dog = makeCard(id: "01J00000000000000000000023", expression: "犬")
+        let cat = makeCard(id: "01J00000000000000000000024", expression: "猫")
+        for (index, card) in [dog, cat].enumerated() {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        do {
+            try await store.refreshLearningItems(search: "犬")
+            XCTFail("Expected the remote learning-item page to fail while offline")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+
+        XCTAssertEqual(store.learningItems.map(\.representativeCard.id), [dog.id])
+        XCTAssertEqual(store.learningItemsQuery, "犬")
+        XCTAssertNil(store.learningItemsNextCursor)
+    }
+
+    @MainActor
     func testLatestAllCardsSearchWinsWhenAnOlderRefreshFinishesLast() async throws {
         let firstCard = makeCard(id: "01J00000000000000000000031", expression: "古い")
         let secondCard = makeCard(id: "01J00000000000000000000032", expression: "新しい")
@@ -803,6 +839,61 @@ extension StudyStoreTests {
         XCTAssertEqual(store.allCards.map(\.id), [secondCard.id])
         XCTAssertEqual(store.allCardsQuery, "second")
         XCTAssertEqual(store.allCardsNextCursor, "new-cursor")
+    }
+
+    @MainActor
+    func testLatestLearningItemSearchWinsWhenAnOlderRefreshFinishesLast() async throws {
+        let firstCard = makeCard(id: "01J00000000000000000000033", expression: "古い")
+        let secondCard = makeCard(id: "01J00000000000000000000034", expression: "新しい")
+        let firstItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [firstCard],
+                matching: ""
+            ).first
+        )
+        let secondItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [secondCard],
+                matching: ""
+            ).first
+        )
+        let firstPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(
+                items: [firstItem],
+                limit: 20,
+                nextCursor: "old-cursor"
+            )
+        )
+        let secondPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(
+                items: [secondItem],
+                limit: 20,
+                nextCursor: "new-cursor"
+            )
+        )
+        OutOfOrderCardListURLProtocol.configure(first: firstPage, second: secondPage)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OutOfOrderCardListURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        let firstRefresh = Task { try await store.refreshLearningItems(search: "first") }
+        await waitUntil { OutOfOrderCardListURLProtocol.hasPendingFirstRequest }
+        try await store.refreshLearningItems(search: "second")
+        try await firstRefresh.value
+
+        XCTAssertEqual(store.learningItems.map(\.id), [secondItem.id])
+        XCTAssertEqual(store.learningItemsQuery, "second")
+        XCTAssertEqual(store.learningItemsNextCursor, "new-cursor")
     }
 
     @MainActor

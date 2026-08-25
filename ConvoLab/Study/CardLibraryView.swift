@@ -565,6 +565,10 @@ struct CardLibraryView: View {
         do {
             try await store.deleteCard(card)
             try? await store.refreshLearningItems(search: searchText)
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
             deletionErrorMessage = error.localizedDescription
             showingDeletionError = true
