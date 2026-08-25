@@ -8183,6 +8183,69 @@ final class StudyStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCardActionPreservesAnEditQueuedWhileTheRequestIsInFlight() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000P1",
+            expression: "Original prompt",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let serverCard = makeCard(
+            id: card.id,
+            expression: "Stale server prompt",
+            queueState: "suspended",
+            dueAt: card.state.dueAt
+        )
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: serverCard,
+            overview: actionOverview(dueCount: 0, reviewCount: 0)
+        ))
+        let deferredAction = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.url?.path.hasSuffix("/actions") == true {
+                deferredAction.hold(completion)
+            } else if request.httpMethod == "PATCH" {
+                completion(.failure(URLError(.notConnectedToInternet)))
+            } else {
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+        let actionTask = Task {
+            try await store.performCardAction(.suspend, on: card)
+        }
+        await deferredAction.waitUntilPending()
+
+        try await store.updateCard(
+            card,
+            prompt: "Local pending edit",
+            reading: "",
+            answer: "Local answer"
+        )
+        deferredAction.succeed(with: Self.response(data: responseData))
+        let updated = try await actionTask.value
+
+        XCTAssertEqual(updated.promptText, "Local pending edit")
+        XCTAssertEqual(updated.answerText, "Local answer")
+        XCTAssertEqual(updated.state.queueState, "suspended")
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertNotNil(record.locallyUpdatedAt)
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.promptText, "Local pending edit")
+        XCTAssertEqual(persisted.state.queueState, "suspended")
+        let pendingUpdates = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate { $0.kind == "cardUpdate" }
+            )
+        )
+        XCTAssertEqual(pendingUpdates.count, 1)
+    }
+
+    @MainActor
     func testSetDueCustomDateUsesNineAMInTheSelectedCalendar() throws {
         let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         var calendar = Calendar(identifier: .gregorian)
