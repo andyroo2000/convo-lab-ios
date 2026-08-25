@@ -61,6 +61,40 @@ final class StudyMilestoneStoreTests: XCTestCase {
         )
     }
 
+    func testPreparedCelebrationSurvivesALaterEmptyPendingSnapshot() throws {
+        let store = makeStore(defaults: try makeDefaults())
+        let award = makeAward(.burned100)
+        store.activate(userID: 7)
+        store.beginReviewSession()
+        store.recordReview(burnedRecord(id: "review-1"))
+
+        let prepared = try XCTUnwrap(
+            store.prepareInterruptedCompletion(newAwards: [award])
+        )
+        let restored = try XCTUnwrap(store.prepareInterruptedCompletion(newAwards: []))
+
+        XCTAssertEqual(prepared.newAwards, [award])
+        XCTAssertEqual(restored.newAwards, [award])
+        XCTAssertFalse(restored.celebrationPresented)
+    }
+
+    func testOfflinePreparedWrapUpCanPickUpALaterServerAward() throws {
+        let store = makeStore(defaults: try makeDefaults())
+        let award = makeAward(.burned100)
+        store.activate(userID: 7)
+        store.beginReviewSession()
+        store.recordReview(burnedRecord(id: "review-1"))
+
+        XCTAssertTrue(
+            try XCTUnwrap(store.prepareCurrentSessionCompletion()).newAwards.isEmpty
+        )
+
+        let restored = try XCTUnwrap(
+            store.prepareInterruptedCompletion(newAwards: [award])
+        )
+        XCTAssertEqual(restored.newAwards, [award])
+    }
+
     func testInterruptedOrdinarySessionDoesNotForceAStaleWrapUp() throws {
         let defaults = try makeDefaults()
         var store = makeStore(defaults: defaults)

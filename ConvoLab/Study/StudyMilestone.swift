@@ -234,9 +234,13 @@ final class StudyMilestoneStore {
         if !session.isReadyForPresentation {
             guard !requireNewAward || !newAwards.isEmpty else { return nil }
             session.isReadyForPresentation = true
+            session.newAwardIDs = newAwards.map(\.id)
+        } else if session.newAwardIDs.isEmpty, !newAwards.isEmpty {
+            // A completion prepared offline can still pick up the award after the
+            // authoritative review state reaches the server. Once committed, keep it.
+            session.newAwardIDs = newAwards.map(\.id)
         }
 
-        session.newAwardIDs = newAwards.map(\.id)
         mergeAwards(newAwards)
         state.activeSession = session
         persist()
