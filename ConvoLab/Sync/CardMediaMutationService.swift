@@ -99,6 +99,7 @@ final class CardMediaMutationService {
                 outcome: diagnosticOutcome
             )
         }
+        do {
         let operation = try beginOperation(for: currentCard, medium: .answerAudio)
         defer { finishOperation(operation) }
         let request = RegenerateAnswerAudioRequest(
@@ -148,6 +149,10 @@ final class CardMediaMutationService {
         try onReconciled(updated, pendingWrite, serverUpdatedAt)
         diagnosticOutcome = .succeeded
         return CardAnswerAudioRegenerationResult(card: updated, localURL: localURL)
+        } catch {
+            diagnosticOutcome = .classifying(error)
+            throw error
+        }
     }
 
     func regenerateImage(
@@ -166,6 +171,7 @@ final class CardMediaMutationService {
                 outcome: diagnosticOutcome
             )
         }
+        do {
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
             throw InvalidCardImagePromptError()
@@ -195,6 +201,10 @@ final class CardMediaMutationService {
         )
         diagnosticOutcome = .succeeded
         return result
+        } catch {
+            diagnosticOutcome = .classifying(error)
+            throw error
+        }
     }
 
     func uploadImage(
@@ -220,6 +230,7 @@ final class CardMediaMutationService {
                 itemCount: 1
             )
         }
+        do {
         let operation = try beginOperation(for: currentCard, medium: .image)
         defer { finishOperation(operation) }
         let serverCard: StudyCard = try await api.upload(
@@ -243,6 +254,10 @@ final class CardMediaMutationService {
         )
         diagnosticOutcome = .succeeded
         return result
+        } catch {
+            diagnosticOutcome = .classifying(error)
+            throw error
+        }
     }
 
     private func reconcileImage(

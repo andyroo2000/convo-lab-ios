@@ -363,7 +363,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
                 }
             }
         }
-        let (service, cache) = makeService(container: container, client: client)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let (service, cache) = makeService(
+            container: container,
+            client: client,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let reconciled = LockedCounter()
         let operation = Task {
             try await service.regenerateAnswerAudio(
@@ -383,6 +388,8 @@ final class CardMediaMutationServiceTests: XCTestCase {
         do { _ = try await operation.value; XCTFail("Expected cancellation") }
         catch is CancellationError {}
         XCTAssertEqual(reconciled.current, 0)
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .cancelled)
         XCTAssertTrue(
             try container.mainContext.fetch(FetchDescriptor<CachedMediaRecord>()).isEmpty
         )

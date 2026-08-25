@@ -2023,14 +2023,15 @@ final class StudyStore {
         draft: StudyCardDraft,
         previewImage: JSONValue?
     ) async throws -> DraftPreviewAudioResult {
-        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        let diagnosticInterval = diagnostics.begin(.generation)
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome
             )
         }
+        do {
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
@@ -2060,6 +2061,10 @@ final class StudyStore {
         ) else { throw CancellationError() }
         diagnosticOutcome = .succeeded
         return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
+        } catch {
+            diagnosticOutcome = .classifying(error)
+            throw error
+        }
     }
 
     func generateManualDraftPreviewImage(
@@ -2068,14 +2073,15 @@ final class StudyStore {
         previewAudio: JSONValue?,
         previewAudioRole: String?
     ) async throws -> DraftPreviewImageResult {
-        let diagnosticInterval = NativeDiagnostics.shared.begin(.generation)
+        let diagnosticInterval = diagnostics.begin(.generation)
         var diagnosticOutcome: NativeDiagnosticOutcome = .failed
         defer {
-            NativeDiagnostics.shared.end(
+            diagnostics.end(
                 diagnosticInterval,
                 outcome: diagnosticOutcome
             )
         }
+        do {
         guard let userID = activeUserID else { throw CancellationError() }
         let activationGeneration = accountActivationGeneration
         let updated = try await updateManualDraft(
@@ -2104,6 +2110,10 @@ final class StudyStore {
         let refreshed = try await fetchManualDraft(id: updated.id)
         diagnosticOutcome = .succeeded
         return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
+        } catch {
+            diagnosticOutcome = .classifying(error)
+            throw error
+        }
     }
 
     func createCard(

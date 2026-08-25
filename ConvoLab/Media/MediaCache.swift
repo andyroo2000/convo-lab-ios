@@ -326,7 +326,15 @@ final class MediaCache {
                 encounteredFailure = true
             }
         }
-        diagnosticOutcome = encounteredFailure ? .failed : .succeeded
+        let allDeferred = Set(uncachedURLs.map(Self.stableCacheKey(for:)))
+            .isSubset(of: deferredBatchKeys)
+        diagnosticOutcome = if allDeferred {
+            .discarded
+        } else if encounteredFailure {
+            .failed
+        } else {
+            .succeeded
+        }
     }
 
     private static func studyMediaID(for url: URL) -> String? {

@@ -16,6 +16,15 @@ nonisolated enum NativeDiagnosticOutcome: String, Sendable {
     case failed
     case cancelled
     case discarded
+
+    static func classifying(_ error: any Error) -> Self {
+        if error is CancellationError
+            || (error as? URLError)?.code == .cancelled
+        {
+            return .cancelled
+        }
+        return .failed
+    }
 }
 
 nonisolated enum NativeDiagnosticReason: String, Sendable {

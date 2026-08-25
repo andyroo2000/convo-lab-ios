@@ -174,7 +174,13 @@ final class MediaCacheTests: XCTestCase {
             session: URLSession(configuration: configuration)
         )
         let container = try Persistence.makeContainer(inMemory: true)
-        let cache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let cache = MediaCache(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        )
         let urls = (0..<20).map { offset in
             let id = ClientIdentifier.ulid(
                 date: Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + offset))
@@ -187,6 +193,8 @@ final class MediaCacheTests: XCTestCase {
 
         XCTAssertEqual(requestCounter.current, 1)
         XCTAssertTrue(cache.cachedKeys(for: urls).isEmpty)
+        XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
+        XCTAssertEqual(diagnosticsSink.events.last?.outcome, .discarded)
     }
 
     @MainActor
