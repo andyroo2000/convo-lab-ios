@@ -3,11 +3,44 @@ import SwiftData
 
 @main
 struct ConvoLabApp: App {
-    @State private var model = AppModel()
+    @State private var model: AppModel?
     @Environment(\.scenePhase) private var scenePhase
+#if DEBUG
+    private let fixture: UITestFixture?
+#endif
+
+    init() {
+#if DEBUG
+        let fixture = UITestFixture.fromProcessArguments()
+        self.fixture = fixture
+        _model = State(initialValue: fixture == nil ? AppModel() : nil)
+#else
+        _model = State(initialValue: AppModel())
+#endif
+    }
 
     var body: some Scene {
         WindowGroup {
+            appContent
+        }
+    }
+
+    @ViewBuilder
+    private var appContent: some View {
+#if DEBUG
+        if let fixture {
+            UITestFixtureView(fixture: fixture)
+        } else {
+            productionContent
+        }
+#else
+        productionContent
+#endif
+    }
+
+    @ViewBuilder
+    private var productionContent: some View {
+        if let model {
             RootView(model: model)
                 .modelContainer(model.container)
                 .task {

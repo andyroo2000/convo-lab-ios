@@ -12,6 +12,7 @@
 		100000000000000000000003 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		100000000000000000000004 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		200000000000000000000001 /* ConvoLabTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvoLabTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		300000000000000000000001 /* ConvoLabUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvoLabUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -28,10 +29,22 @@
 			path = ConvoLabTests;
 			sourceTree = "<group>";
 		};
+		300000000000000000000002 /* ConvoLabUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ConvoLabUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXContainerItemProxy section */
 		200000000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000040 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 100000000000000000000030;
+			remoteInfo = ConvoLab;
+		};
+		300000000000000000000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 100000000000000000000040 /* Project object */;
 			proxyType = 1;
@@ -65,6 +78,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		300000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -73,6 +93,7 @@
 			children = (
 				100000000000000000000005 /* ConvoLab */,
 				200000000000000000000002 /* ConvoLabTests */,
+				300000000000000000000002 /* ConvoLabUITests */,
 				100000000000000000000021 /* Config */,
 				100000000000000000000022 /* Products */,
 			);
@@ -92,6 +113,7 @@
 			children = (
 				100000000000000000000001 /* ConvoLab.app */,
 				200000000000000000000001 /* ConvoLabTests.xctest */,
+				300000000000000000000001 /* ConvoLabUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -144,6 +166,29 @@
 			productReference = 200000000000000000000001 /* ConvoLabTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		300000000000000000000010 /* ConvoLabUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 300000000000000000000011 /* Build configuration list for PBXNativeTarget "ConvoLabUITests" */;
+			buildPhases = (
+				300000000000000000000012 /* Sources */,
+				300000000000000000000004 /* Frameworks */,
+				300000000000000000000013 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				300000000000000000000014 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				300000000000000000000002 /* ConvoLabUITests */,
+			);
+			name = ConvoLabUITests;
+			packageProductDependencies = (
+			);
+			productName = ConvoLabUITests;
+			productReference = 300000000000000000000001 /* ConvoLabUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -158,6 +203,10 @@
 						CreatedOnToolsVersion = 26.3;
 					};
 					200000000000000000000010 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 100000000000000000000030;
+					};
+					300000000000000000000010 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = 100000000000000000000030;
 					};
@@ -178,6 +227,7 @@
 			targets = (
 				100000000000000000000030 /* ConvoLab */,
 				200000000000000000000010 /* ConvoLabTests */,
+				300000000000000000000010 /* ConvoLabUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -197,6 +247,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		300000000000000000000013 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -208,6 +265,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		200000000000000000000012 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		300000000000000000000012 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -332,6 +396,32 @@
 			};
 			name = Release;
 		};
+		300000000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = ConvoLab;
+			};
+			name = Debug;
+		};
+		300000000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = ConvoLab;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -362,6 +452,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		300000000000000000000011 /* Build configuration list for PBXNativeTarget "ConvoLabUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				300000000000000000000020 /* Debug */,
+				300000000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin PBXTargetDependency section */
@@ -369,6 +468,11 @@
 			isa = PBXTargetDependency;
 			target = 100000000000000000000030 /* ConvoLab */;
 			targetProxy = 200000000000000000000003 /* PBXContainerItemProxy */;
+		};
+		300000000000000000000014 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 100000000000000000000030 /* ConvoLab */;
+			targetProxy = 300000000000000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 	};
