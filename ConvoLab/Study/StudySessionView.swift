@@ -12,6 +12,7 @@ struct StudySessionView: View {
     let mode: Mode
     let timeStore: StudyTimeStore?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showingAnswer = false
     @State private var cardStartedAt = Date.now
@@ -31,6 +32,9 @@ struct StudySessionView: View {
     @State private var cardPendingForget: StudyCard?
     @State private var cardPendingSetDue: StudyCard?
     @State private var cardActionErrorMessage: String?
+    @State private var sessionReviewRecords: [StudySessionReviewRecord] = []
+    @State private var practiceCards: [StudyCard]?
+    @State private var practiceInitialCount = 0
 
     init(
         store: StudyStore,
@@ -46,19 +50,59 @@ struct StudySessionView: View {
     }
 
     private var card: StudyCard? {
-        store.masteryAnimation?.card ?? store.cards.first
+        if let practiceCards {
+            return practiceCards.first
+        }
+        return store.masteryAnimation?.card ?? store.cards.first
     }
+
+    private var practiceMode: Bool { practiceCards != nil }
+
+    private var practiceComplete: Bool { practiceCards?.isEmpty == true }
+
+    private var wrapUpSummary: StudySessionWrapUpSummary {
+        StudySessionWrapUpSummary.build(from: sessionReviewRecords)
+    }
+
+    private var reviewSessionComplete: Bool {
+        mode == .reviews
+            && !practiceMode
+            && !sessionReviewRecords.isEmpty
+            && store.masteryAnimation == nil
+            && store.cards.isEmpty
+            && !store.sessionCounts.hasRemainingReviews
+    }
+
+    private var displayedProgress: Double {
+        guard let practiceCards else { return store.sessionProgress }
+        guard practiceInitialCount > 0 else { return 1 }
+        return Double(practiceInitialCount - practiceCards.count) / Double(practiceInitialCount)
+    }
+
     var body: some View {
         VStack(spacing: 10) {
-            ProgressView(value: store.sessionProgress)
+            ProgressView(value: displayedProgress)
                 .tint(.green)
-                .accessibilityLabel("Session progress")
+                .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
 
             masteryFeedbackLane
 
             if mode == .lessons, lessonPreview {
                 lessonPreviewContent
+            } else if reviewSessionComplete {
+                wrapUpContent
+            } else if practiceComplete {
+                practiceCompleteContent
             } else if let card {
+                if practiceMode {
+                    Text("Practice only · results won’t affect your review schedule")
+                        .font(.caption.bold())
+                        .foregroundStyle(ConvoLabTheme.navy)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(ConvoLabTheme.cyan.opacity(0.16), in: .capsule)
+                        .accessibilityIdentifier("StudyPracticeModeBanner")
+                }
                 let presentation = card.presentation
                 VStack {
                     Spacer()
@@ -78,7 +122,9 @@ struct StudySessionView: View {
                 } else {
                     Button("Show Answer") {
                         player.stop()
-                        pushUndo(.reveal(cardID: card.id))
+                        if !practiceMode {
+                            pushUndo(.reveal(cardID: card.id))
+                        }
                         showingAnswer = true
                         autoplayAnswerAudioIfReady(cardID: card.id)
                         Task {
@@ -127,17 +173,24 @@ struct StudySessionView: View {
         .padding()
         .paperBackground()
         .background {
-            ShakeDetector(isEnabled: editingCard == nil) {
+            ShakeDetector(isEnabled: editingCard == nil && !practiceMode) {
                 Task { await undoLastAction() }
             }
         }
         .accessibilityAction(named: Text("Undo Last Study Action")) {
             Task { await undoLastAction() }
         }
-        .navigationTitle("Practice")
+        .navigationTitle(practiceMode ? "Toughest Practice" : "Practice")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let card, showingAnswer, store.masteryAnimation == nil {
+            if practiceMode {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Back to wrap-up") {
+                        exitPracticeMode()
+                    }
+                }
+            }
+            if let card, showingAnswer, store.masteryAnimation == nil, !practiceMode {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                         Button {
@@ -158,6 +211,9 @@ struct StudySessionView: View {
         }
         .task {
             startTimeTracking()
+            sessionReviewRecords = []
+            practiceCards = nil
+            practiceInitialCount = 0
             if mode == .lessons {
                 store.beginLessonSessionPresentation()
                 await loadLessonBatch()
@@ -365,6 +421,182 @@ struct StudySessionView: View {
         } catch {
             // StudyStore's normal sync surfaces connectivity errors on the home screen.
         }
+    }
+
+    private var wrapUpContent: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 58, height: 58)
+                    .background(ConvoLabTheme.cyan, in: .circle)
+
+                VStack(spacing: 4) {
+                    Text("Nice work")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(ConvoLabTheme.navy)
+                    Text("You’re caught up for today.")
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 12) {
+                    wrapUpMetric(
+                        value: String(wrapUpSummary.reviewsCompleted),
+                        label: "Reviews"
+                    )
+                    wrapUpMetric(
+                        value: wrapUpSummary.firstPassRecall.map {
+                            "\(Int(($0 * 100).rounded()))%"
+                        } ?? "—",
+                        label: "First-pass recall"
+                    )
+                }
+
+                HStack(spacing: 12) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(.green, in: .circle)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Newly stabilized")
+                            .font(.headline)
+                        Text(stabilizedCardDescription)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Text(String(wrapUpSummary.newlyStabilizedCards.count))
+                        .font(.title.bold())
+                        .foregroundStyle(.green)
+                }
+                .padding()
+                .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
+
+                if !wrapUpSummary.toughestCards.isEmpty {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("Toughest this session")
+                                .font(.headline)
+                            Spacer()
+                            Button("Practice \(wrapUpSummary.toughestCards.count)") {
+                                startToughestPractice()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(ConvoLabTheme.navy)
+                            .accessibilityIdentifier("StudyToughestPracticeButton")
+                        }
+                        .padding(.bottom, 6)
+
+                        ForEach(wrapUpSummary.toughestCards) { item in
+                            Divider()
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.card.promptText)
+                                        .font(.body.bold())
+                                        .lineLimit(1)
+                                    Text(item.card.answerText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 8)
+                                Text(toughCardReason(item))
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(ConvoLabTheme.coral)
+                                    .monospacedDigit()
+                            }
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    .padding()
+                    .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
+                    .accessibilityIdentifier("StudyToughestSection")
+                }
+
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ConvoLabTheme.navy)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("StudyWrapUpDoneButton")
+            }
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .accessibilityIdentifier("StudySessionWrapUp")
+    }
+
+    private func wrapUpMetric(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.largeTitle.bold())
+                .foregroundStyle(ConvoLabTheme.navy)
+                .monospacedDigit()
+            Text(label.uppercased())
+                .font(.caption2.bold())
+                .tracking(1.2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, minHeight: 82)
+        .padding(.horizontal, 8)
+        .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
+    }
+
+    private var stabilizedCardDescription: String {
+        let cards = wrapUpSummary.newlyStabilizedCards
+        if cards.isEmpty {
+            return "No cards crossed into week-plus stability this time."
+        }
+        return cards.map(\.promptText).joined(separator: " · ")
+    }
+
+    private func toughCardReason(_ item: StudySessionToughCard) -> String {
+        let seconds = max(1, Int((Double(item.durationMilliseconds) / 1_000).rounded()))
+        if item.missCount == 0 { return "\(seconds) sec" }
+        let missLabel = item.missCount == 1 ? "1 miss" : "\(item.missCount) misses"
+        return "\(missLabel) · \(seconds) sec"
+    }
+
+    private var practiceCompleteContent: some View {
+        ContentUnavailableView {
+            Label("Practice complete", systemImage: "checkmark.seal.fill")
+        } description: {
+            Text("Nothing here changed your review schedule.")
+        } actions: {
+            Button("Back to wrap-up") {
+                exitPracticeMode()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(ConvoLabTheme.navy)
+        }
+        .accessibilityIdentifier("StudyPracticeComplete")
+    }
+
+    private func startToughestPractice() {
+        let cards = wrapUpSummary.toughestCards.map(\.card)
+        guard !cards.isEmpty else { return }
+        player.stop()
+        showingAnswer = false
+        practiceInitialCount = cards.count
+        practiceCards = cards
+        cardStartedAt = .now
+        didAutoplayAnswerForCardID = nil
+    }
+
+    private func exitPracticeMode() {
+        player.stop()
+        showingAnswer = false
+        practiceCards = nil
+        practiceInitialCount = 0
+        cardStartedAt = .now
+        didAutoplayAnswerForCardID = nil
     }
 
     @ViewBuilder
@@ -600,6 +832,17 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
+            if practiceMode {
+                player.stop()
+                didAutoplayAnswerForCardID = nil
+                practiceCards = StudySessionPracticeQueue.applying(
+                    rating,
+                    to: practiceCards ?? []
+                )
+                showingAnswer = false
+                cardStartedAt = .now
+                return
+            }
             if mode == .lessons, rating == .again {
                 player.stop()
                 didAutoplayAnswerForCardID = nil
@@ -614,15 +857,26 @@ struct StudySessionView: View {
                 didAutoplayAnswerForCardID = nil
             }
             let duration = reviewedAt.timeIntervalSince(cardStartedAt)
+            let durationMilliseconds = Int(duration * 1_000)
+            let cardAfter = try? card.applyingReview(rating, at: reviewedAt)
             Task {
                 let eventID = await store.recordReview(
                     card: card,
                     rating: rating,
-                    duration: .milliseconds(Int64(duration * 1_000)),
+                    duration: .milliseconds(Int64(durationMilliseconds)),
                     reviewedAt: reviewedAt
                 )
                 if let eventID {
                     pushUndo(.grade(eventID: eventID, cardBefore: card))
+                    sessionReviewRecords.append(
+                        StudySessionReviewRecord(
+                            id: eventID,
+                            cardBefore: card,
+                            cardAfter: cardAfter,
+                            rating: rating,
+                            durationMilliseconds: durationMilliseconds
+                        )
+                    )
                 }
                 submittingReviewCardIDs.remove(card.id)
             }
@@ -643,7 +897,7 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var masteryFeedbackLane: some View {
-        if (mode == .reviews || !lessonPreview), card != nil {
+        if !practiceMode, (mode == .reviews || !lessonPreview), card != nil {
             ZStack {
                 Color.clear
 
@@ -704,6 +958,7 @@ struct StudySessionView: View {
     @MainActor
     private func undoLastAction() async {
         guard
+            !practiceMode,
             !isUndoing,
             submittingReviewCardIDs.isEmpty,
             submittingCardActionIDs.isEmpty,
@@ -729,6 +984,7 @@ struct StudySessionView: View {
             }
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
+                sessionReviewRecords.removeAll { $0.id == eventID }
                 showingAnswer = true
                 cardStartedAt = .now
                 didAutoplayAnswerForCardID = nil
