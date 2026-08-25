@@ -35,6 +35,12 @@ final class StudyStore {
         }
     }
 
+    private struct PendingLearningPathChangesError: LocalizedError {
+        var errorDescription: String? {
+            "Sync this card’s pending changes before editing its learning path."
+        }
+    }
+
     typealias AnswerAudioRegenerationResult = CardAnswerAudioRegenerationResult
     typealias ImageRegenerationResult = CardImageMutationResult
 
@@ -72,6 +78,7 @@ final class StudyStore {
     private let syncCoordinator: StudySyncCoordinator
     private let localCardRepository: StudyCardLocalRepository
     private let cardCatalogRepository: StudyCardCatalogRepository
+    private let learningPathRepository: StudyLearningPathRepository
     private let deviceID: String
     private let storageMode: StorageMode
     @ObservationIgnored private var allCardsRefreshRevision = 0
@@ -241,6 +248,7 @@ final class StudyStore {
         )
         localCardRepository = StudyCardLocalRepository(context: context)
         cardCatalogRepository = StudyCardCatalogRepository(api: api)
+        learningPathRepository = StudyLearningPathRepository(api: api)
         deviceID = ClientIdentifier.deviceID()
         if let initialUserID {
             activate(userID: initialUserID)
@@ -1071,6 +1079,38 @@ final class StudyStore {
             to: allCards
         )
         allCardsNextCursor = response.nextCursor
+    }
+
+    func learningPath(for card: StudyCard) async throws -> StudyLearningPath {
+        let currentCard = try prepareLearningPathAccess(for: card)
+        return try await learningPathRepository.learningPath(for: currentCard.reviewCardID)
+    }
+
+    func searchLearningPathSuccessors(matching query: String) async throws -> [StudyCard] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+        return try await cardCatalogRepository.cardPage(matching: trimmedQuery).items
+    }
+
+    func linkLearningPathSuccessor(
+        _ successor: StudyCard,
+        to predecessor: StudyCard,
+        requirement: StudyLearningPathUnlockRequirement
+    ) async throws -> StudyLearningPath {
+        let currentPredecessor = try prepareLearningPathAccess(for: predecessor)
+        let currentSuccessor = try currentLocalCardIfPresent(for: successor) ?? successor
+        for identifier in Set([currentSuccessor.id, currentSuccessor.reviewCardID]) {
+            guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
+                throw PendingLearningPathChangesError()
+            }
+        }
+        let path = try await learningPathRepository.linkSuccessor(
+            currentSuccessor.reviewCardID,
+            to: currentPredecessor.reviewCardID,
+            requirement: requirement
+        )
+        try? await refreshLearningItems(search: learningItemsQuery)
+        return path
     }
 
     func refreshLearningItems(search query: String = "") async throws {
@@ -2310,6 +2350,17 @@ final class StudyStore {
         return currentCard
     }
 
+    private func prepareLearningPathAccess(for card: StudyCard) throws -> StudyCard {
+        try requirePersistentWrites()
+        let currentCard = try currentLocalCard(for: card)
+        for identifier in Set([currentCard.id, currentCard.reviewCardID]) {
+            guard try !cardOutbox.hasPendingCardWrite(for: identifier) else {
+                throw PendingLearningPathChangesError()
+            }
+        }
+        return currentCard
+    }
+
     private func reconcileCardMedia(
         _ card: StudyCard,
         pendingWrite: Bool,
@@ -2866,14 +2917,15 @@ final class StudyStore {
     }
 
     private func currentLocalCard(for card: StudyCard) throws -> StudyCard {
-        if
-            let record = try localCardRecord(for: card),
-            let current = try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
-        {
-            return current
+        guard let currentCard = try currentLocalCardIfPresent(for: card) else {
+            throw MissingLocalCardError()
         }
+        return currentCard
+    }
 
-        throw MissingLocalCardError()
+    private func currentLocalCardIfPresent(for card: StudyCard) throws -> StudyCard? {
+        guard let record = try localCardRecord(for: card) else { return nil }
+        return try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
     }
 
     private func localCardRecord(for card: StudyCard) throws -> LocalCardRecord? {
