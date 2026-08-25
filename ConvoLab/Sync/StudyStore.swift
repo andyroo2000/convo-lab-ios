@@ -29,6 +29,12 @@ final class StudyStore {
         }
     }
 
+    private struct CardActionInProgressError: LocalizedError {
+        var errorDescription: String? {
+            "This card’s review schedule is already being updated."
+        }
+    }
+
     typealias AnswerAudioRegenerationResult = CardAnswerAudioRegenerationResult
     typealias ImageRegenerationResult = CardImageMutationResult
 
@@ -94,6 +100,7 @@ final class StudyStore {
     @ObservationIgnored private var outboxRetryRevision = 0
     @ObservationIgnored private var consumedOutboxRetryRevision = 0
     @ObservationIgnored private var failedStudyChangeOperationIDs: Set<String> = []
+    @ObservationIgnored private var cardActionCardIDs: Set<String> = []
 
     private(set) var cards: [StudyCard] = []
     private(set) var libraryCards: [StudyCard] = []
@@ -325,6 +332,7 @@ final class StudyStore {
         outboxRetryRevision = 0
         consumedOutboxRetryRevision = 0
         failedStudyChangeOperationIDs = []
+        cardActionCardIDs = []
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         sessionFailedCardIDs = []
@@ -2071,6 +2079,110 @@ final class StudyStore {
                 activationGeneration: activationGeneration
             )
         }
+    }
+
+    @discardableResult
+    func performCardAction(
+        _ action: StudyCardActionName,
+        on card: StudyCard,
+        mode: StudyCardSetDueMode? = nil,
+        dueAt: Date? = nil,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) async throws -> StudyCard {
+        try requirePersistentWrites()
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
+        let actionKey = card.id.lowercased()
+        guard cardActionCardIDs.insert(actionKey).inserted else {
+            throw CardActionInProgressError()
+        }
+        defer { cardActionCardIDs.remove(actionKey) }
+
+        try await flushCardOutbox()
+        try await reviewOutbox.flush()
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        apply(try reviewOutbox.pendingState())
+
+        let currentCard = try currentLocalCard(for: card)
+        let currentIdentifiers = StudyCardIdentity.identifiers(for: currentCard)
+        let wasInActiveSession = cards.contains {
+            StudyCardIdentity.matches($0, any: currentIdentifiers)
+        }
+        let response: StudyCardActionResponse = try await api.request(
+            "/api/study/cards/\(currentCard.reviewCardID)/actions",
+            method: "POST",
+            body: StudyCardActionRequest(
+                action: action,
+                mode: action == .setDue ? mode : nil,
+                dueAt: action == .setDue && mode == .customDate ? dueAt : nil,
+                timeZone: action == .setDue && mode == .tomorrow
+                    ? timeZone.identifier
+                    : nil
+            )
+        )
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+
+        let latestLocalCard = try currentLocalCard(for: currentCard)
+        let preservingPendingReview = try reviewOutbox.hasPendingReview(
+            for: latestLocalCard.id
+        ) || (latestLocalCard.reviewCardID != latestLocalCard.id
+            && (try reviewOutbox.hasPendingReview(for: latestLocalCard.reviewCardID)))
+        let preservingPendingEdit = try cardOutbox.hasPendingCardWrite(
+            for: latestLocalCard.id
+        ) || (latestLocalCard.reviewCardID != latestLocalCard.id
+            && (try cardOutbox.hasPendingCardWrite(for: latestLocalCard.reviewCardID)))
+        let updatedCard = try acknowledgedCard(
+            response.card,
+            preservingPendingReview: preservingPendingReview,
+            preservingPendingEdit: preservingPendingEdit
+        )
+        let updatedIdentifiers = currentIdentifiers.union(
+            StudyCardIdentity.identifiers(for: updatedCard)
+        )
+        let staysInActiveSession = wasInActiveSession
+            && !lessonSessionIsPresented
+            && updatedCard.isEligibleForOfflineStudy(at: .now)
+
+        try updateExistingLocalCard(
+            updatedCard,
+            markedDirty: preservingPendingEdit,
+            serverUpdatedAt: response.card.updatedAt
+        )
+        if let record = try localCardRepository.record(matching: updatedCard, userID: userID) {
+            record.isInActiveSession = staysInActiveSession
+        }
+
+        if staysInActiveSession {
+            cards = cards.map {
+                StudyCardIdentity.matches($0, any: updatedIdentifiers) ? updatedCard : $0
+            }
+        } else {
+            cards.removeAll { StudyCardIdentity.matches($0, any: updatedIdentifiers) }
+            if wasInActiveSession {
+                sessionCompletedCardIDs.insert(currentCard.id)
+            }
+        }
+        if let index = libraryCards.firstIndex(where: {
+            StudyCardIdentity.matches($0, any: updatedIdentifiers)
+        }) {
+            libraryCards[index] = updatedCard
+        } else {
+            libraryCards.append(updatedCard)
+        }
+        upsertAllCardsPresentation(updatedCard)
+
+        let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
+        setOverview(response.overview.updatingReviewTimeBudget(
+            to: reviewTimeBudgetMinutes,
+            fallbackJLPTMastery: overview?.jlptMastery
+        ))
+        try context.save()
+        scheduleNextOfflineActivation()
+        return updatedCard
     }
 
     func regenerateAnswerAudio(

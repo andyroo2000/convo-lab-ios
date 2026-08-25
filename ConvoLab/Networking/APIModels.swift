@@ -902,6 +902,31 @@ struct UndoStudyReviewResponse: nonisolated Decodable, Sendable {
     let overview: StudyOverview
 }
 
+enum StudyCardActionName: String, nonisolated Codable, Sendable {
+    case suspend
+    case unsuspend
+    case forget
+    case setDue = "set_due"
+}
+
+enum StudyCardSetDueMode: String, nonisolated Codable, Sendable {
+    case now
+    case tomorrow
+    case customDate = "custom_date"
+}
+
+struct StudyCardActionRequest: Encodable, Sendable {
+    let action: StudyCardActionName
+    let mode: StudyCardSetDueMode?
+    let dueAt: Date?
+    let timeZone: String?
+}
+
+struct StudyCardActionResponse: nonisolated Codable, Sendable {
+    let card: StudyCard
+    let overview: StudyOverview
+}
+
 struct DailyAudioPractice: nonisolated Codable, Identifiable, Sendable {
     let id: String
     let practiceDate: String

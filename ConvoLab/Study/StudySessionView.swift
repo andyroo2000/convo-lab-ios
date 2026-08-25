@@ -27,6 +27,10 @@ struct StudySessionView: View {
     @State private var lessonPreview = true
     @State private var lessonPreviewIndex = 0
     @State private var loadingLessons = false
+    @State private var submittingCardActionIDs: Set<String> = []
+    @State private var cardPendingForget: StudyCard?
+    @State private var cardPendingSetDue: StudyCard?
+    @State private var cardActionErrorMessage: String?
 
     init(
         store: StudyStore,
@@ -133,19 +137,22 @@ struct StudySessionView: View {
         .navigationTitle("Practice")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let card,
-               showingAnswer,
-               store.masteryAnimation == nil,
-               StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        player.stop()
-                        editingCard = card
-                    } label: {
-                        Image(systemName: "pencil")
+            if let card, showingAnswer, store.masteryAnimation == nil {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                        Button {
+                            player.stop()
+                            editingCard = card
+                        } label: {
+                            Image(systemName: "pencil")
+                        }
+                        .accessibilityLabel("Edit card")
+                        .accessibilityIdentifier("StudyAnswerEditButton")
+                        .disabled(submittingCardActionIDs.contains(card.id))
                     }
-                    .accessibilityLabel("Edit card")
-                    .accessibilityIdentifier("StudyAnswerEditButton")
+                    if mode == .reviews {
+                        reviewActionsMenu(card: card)
+                    }
                 }
             }
         }
@@ -210,6 +217,31 @@ struct StudySessionView: View {
                 timeStore: timeStore
             )
         }
+        .sheet(item: $cardPendingSetDue) { card in
+            StudySetDueView { mode, dueAt in
+                cardPendingSetDue = nil
+                submitCardAction(.setDue, card: card, mode: mode, dueAt: dueAt)
+            }
+        }
+        .confirmationDialog(
+            "Forget this card?",
+            isPresented: Binding(
+                get: { cardPendingForget != nil },
+                set: { if !$0 { cardPendingForget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Forget and Reset Progress", role: .destructive) {
+                guard let card = cardPendingForget else { return }
+                cardPendingForget = nil
+                submitCardAction(.forget, card: card)
+            }
+            Button("Cancel", role: .cancel) {
+                cardPendingForget = nil
+            }
+        } message: {
+            Text("This resets the card’s scheduling progress and returns it to the new-card queue.")
+        }
         .alert(
             "Unable to Undo",
             isPresented: Binding(
@@ -220,6 +252,17 @@ struct StudySessionView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(undoErrorMessage ?? "The last study action could not be undone.")
+        }
+        .alert(
+            "Card Action Failed",
+            isPresented: Binding(
+                get: { cardActionErrorMessage != nil },
+                set: { if !$0 { cardActionErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(cardActionErrorMessage ?? "The card’s review schedule could not be updated.")
         }
     }
 
@@ -486,6 +529,70 @@ struct StudySessionView: View {
         }
     }
 
+    private func reviewActionsMenu(card: StudyCard) -> some View {
+        Menu {
+            Button {
+                submitCardAction(.suspend, card: card)
+            } label: {
+                Label("Suspend", systemImage: "pause.circle")
+            }
+            Button {
+                cardPendingSetDue = card
+            } label: {
+                Label("Set Due", systemImage: "calendar.badge.clock")
+            }
+            Button(role: .destructive) {
+                cardPendingForget = card
+            } label: {
+                Label("Forget", systemImage: "arrow.counterclockwise")
+            }
+        } label: {
+            if submittingCardActionIDs.contains(card.id) {
+                ProgressView()
+            } else {
+                Image(systemName: "ellipsis.circle")
+            }
+        }
+        .disabled(
+            !submittingReviewCardIDs.isEmpty
+                || !submittingCardActionIDs.isEmpty
+                || isUndoing
+                || editingCard != nil
+        )
+        .accessibilityLabel("Card actions")
+        .accessibilityIdentifier("StudyAnswerCardActionsButton")
+    }
+
+    private func submitCardAction(
+        _ action: StudyCardActionName,
+        card: StudyCard,
+        mode: StudyCardSetDueMode? = nil,
+        dueAt: Date? = nil
+    ) {
+        guard submittingCardActionIDs.insert(card.id).inserted else { return }
+        player.stop()
+        Task {
+            do {
+                _ = try await store.performCardAction(
+                    action,
+                    on: card,
+                    mode: mode,
+                    dueAt: dueAt
+                )
+                showingAnswer = false
+                didAutoplayAnswerForCardID = nil
+                cardStartedAt = .now
+            } catch is CancellationError {
+                // Navigation or an account change cancelled this action.
+            } catch let error as URLError where error.code == .cancelled {
+                // Navigation or an account change cancelled this action.
+            } catch {
+                cardActionErrorMessage = error.localizedDescription
+            }
+            submittingCardActionIDs.remove(card.id)
+        }
+    }
+
     private func gradeButton(
         _ title: String,
         rating: ReviewRating,
@@ -528,6 +635,7 @@ struct StudySessionView: View {
         .frame(maxWidth: .infinity)
         .disabled(
             submittingReviewCardIDs.contains(card.id)
+                || submittingCardActionIDs.contains(card.id)
                 || isUndoing
                 || store.masteryAnimation != nil
         )
@@ -598,6 +706,7 @@ struct StudySessionView: View {
         guard
             !isUndoing,
             submittingReviewCardIDs.isEmpty,
+            submittingCardActionIDs.isEmpty,
             store.masteryAnimation == nil,
             editingCard == nil,
             let action = undoActions.popLast()
@@ -641,6 +750,61 @@ struct StudySessionView: View {
             return "Audio is not available offline."
         }
         return "Plays downloaded study audio."
+    }
+}
+
+struct StudySetDueView: View {
+    let onSubmit: (StudyCardSetDueMode, Date?) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var customDate = Date.now
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Quick options") {
+                    Button("Now") {
+                        onSubmit(.now, nil)
+                    }
+                    Button("Tomorrow at 9:00 AM") {
+                        onSubmit(.tomorrow, nil)
+                    }
+                }
+                Section("Custom date") {
+                    DatePicker(
+                        "Due date",
+                        selection: $customDate,
+                        in: Date.now...Self.maximumCustomDate(),
+                        displayedComponents: .date
+                    )
+                    Button("Set Custom Date") {
+                        onSubmit(.customDate, Self.localNineAM(on: customDate))
+                    }
+                }
+            }
+            .navigationTitle("Set Due")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    static func localNineAM(
+        on date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date {
+        calendar.date(bySettingHour: 9, minute: 0, second: 0, of: date) ?? date
+    }
+
+    private static func maximumCustomDate(
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date {
+        let tenYearsFromNow = calendar.date(byAdding: .year, value: 10, to: .now) ?? .distantFuture
+        return calendar.date(byAdding: .day, value: -1, to: tenYearsFromNow)
+            ?? tenYearsFromNow
     }
 }
 

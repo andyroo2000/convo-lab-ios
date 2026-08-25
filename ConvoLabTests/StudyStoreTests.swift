@@ -8000,6 +8000,285 @@ final class StudyStoreTests: XCTestCase {
         XCTAssertEqual(store.cards.first, restoredCard)
     }
 
+    @MainActor
+    func testSuspendCardPostsActionAndRemovesItFromTheActiveSession() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dueAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let card = makeCard(
+            id: "01J00000000000000000000S1",
+            expression: "Suspend me",
+            queueState: "review",
+            dueAt: dueAt
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let suspended = replacingSchedule(card, queueState: "suspended", dueAt: dueAt)
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: suspended,
+            overview: actionOverview(dueCount: 0, reviewCount: 0)
+        ))
+        let cardID = card.id
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/\(cardID)/actions")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(payload["action"] as? String, "suspend")
+            XCTAssertNil(payload["mode"])
+            XCTAssertNil(payload["dueAt"])
+            XCTAssertNil(payload["timeZone"])
+            return Self.response(data: responseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let updated = try await store.performCardAction(.suspend, on: card)
+
+        XCTAssertEqual(updated.state.queueState, "suspended")
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.libraryCards.first?.state.queueState, "suspended")
+        XCTAssertEqual(store.overview?.dueCount, 0)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testForgetCardResetsItToNewAndPersistsTheServerSchedule() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000F1",
+            expression: "Forget me",
+            queueState: "review",
+            dueAt: .now,
+            scheduler: .object(["state": .number(2), "reps": .number(12)])
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let forgotten = replacingSchedule(
+            card,
+            queueState: "new",
+            dueAt: nil,
+            scheduler: .object(["state": .number(0), "reps": .number(0)])
+        )
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: forgotten,
+            overview: actionOverview(dueCount: 0, newCount: 1, reviewCount: 0)
+        ))
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(payload["action"] as? String, "forget")
+            return Self.response(data: responseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let updated = try await store.performCardAction(.forget, on: card)
+
+        XCTAssertEqual(updated.state.queueState, "new")
+        XCTAssertNil(updated.state.dueAt)
+        XCTAssertEqual(updated.state.scheduler?["reps"], .number(0))
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.overview?.newCount, 1)
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.state, updated.state)
+    }
+
+    @MainActor
+    func testSetDueSendsTomorrowTimezoneAndCustomDatePayloads() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000D1",
+            expression: "Set me due",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let futureDueAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let rescheduled = replacingSchedule(card, queueState: "review", dueAt: futureDueAt)
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: rescheduled,
+            overview: actionOverview(dueCount: 0, reviewCount: 1)
+        ))
+        let bodies = LockedRequestBodies()
+        let client = makeClient { request in
+            bodies.append(try requestBody(request))
+            return Self.response(data: responseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+
+        _ = try await store.performCardAction(
+            .setDue,
+            on: card,
+            mode: .tomorrow,
+            timeZone: newYork
+        )
+        _ = try await store.performCardAction(
+            .setDue,
+            on: rescheduled,
+            mode: .customDate,
+            dueAt: futureDueAt,
+            timeZone: newYork
+        )
+
+        XCTAssertEqual(bodies.values.count, 2)
+        let tomorrow = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: bodies.values[0]) as? [String: Any]
+        )
+        XCTAssertEqual(tomorrow["action"] as? String, "set_due")
+        XCTAssertEqual(tomorrow["mode"] as? String, "tomorrow")
+        XCTAssertEqual(tomorrow["timeZone"] as? String, "America/New_York")
+        XCTAssertNil(tomorrow["dueAt"])
+        let custom = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: bodies.values[1]) as? [String: Any]
+        )
+        XCTAssertEqual(custom["mode"] as? String, "custom_date")
+        XCTAssertNotNil(custom["dueAt"] as? String)
+        XCTAssertNil(custom["timeZone"])
+        XCTAssertTrue(store.cards.isEmpty)
+    }
+
+    @MainActor
+    func testSetDueNowKeepsAnEligibleCardInTheActiveSession() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J00000000000000000000N1",
+            expression: "Due now",
+            queueState: "review",
+            dueAt: .now
+        )
+        try insertLocalCard(card, userID: 1, container: container)
+        let dueNow = replacingSchedule(
+            card,
+            queueState: "review",
+            dueAt: Date(timeIntervalSinceNow: -1)
+        )
+        let responseData = try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: dueNow,
+            overview: actionOverview(dueCount: 1, reviewCount: 1)
+        ))
+        let client = makeClient { request in
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            )
+            XCTAssertEqual(payload["action"] as? String, "set_due")
+            XCTAssertEqual(payload["mode"] as? String, "now")
+            XCTAssertNil(payload["dueAt"])
+            XCTAssertNil(payload["timeZone"])
+            return Self.response(data: responseData)
+        }
+        let store = makeStore(container: container, client: client, userID: 1)
+
+        let updated = try await store.performCardAction(.setDue, on: card, mode: .now)
+
+        XCTAssertEqual(store.cards, [updated])
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        XCTAssertTrue(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testSetDueCustomDateUsesNineAMInTheSelectedCalendar() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        let selected = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 27, hour: 16, minute: 45)
+        ))
+
+        let dueAt = StudySetDueView.localNineAM(on: selected, calendar: calendar)
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: dueAt)
+
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 8)
+        XCTAssertEqual(components.day, 27)
+        XCTAssertEqual(components.hour, 9)
+        XCTAssertEqual(components.minute, 0)
+    }
+
+    @MainActor
+    private func insertLocalCard(
+        _ card: StudyCard,
+        userID: Int,
+        container: ModelContainer
+    ) throws {
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: userID,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try container.mainContext.save()
+    }
+
+    @MainActor
+    private func makeStore(
+        container: ModelContainer,
+        client: APIClient,
+        userID: Int
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: userID,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: userID,
+                api: client,
+                context: container.mainContext
+            )
+        )
+    }
+
+    @MainActor
+    private func actionOverview(
+        dueCount: Int,
+        newCount: Int = 0,
+        reviewCount: Int
+    ) -> StudyOverview {
+        StudyOverview(
+            dueCount: dueCount,
+            newCount: newCount,
+            reviewCount: reviewCount,
+            totalCards: 1,
+            newCardsPerDay: 20,
+            newCardsAvailableToday: newCount
+        )
+    }
+
+    @MainActor
+    private func replacingSchedule(
+        _ card: StudyCard,
+        queueState: String,
+        dueAt: Date?,
+        scheduler: JSONValue? = nil
+    ) -> StudyCard {
+        StudyCard(
+            id: card.id,
+            syncId: card.syncId,
+            noteId: card.noteId,
+            cardType: card.cardType,
+            prompt: card.prompt,
+            answer: card.answer,
+            state: .init(
+                dueAt: dueAt,
+                introducedAt: card.state.introducedAt,
+                failedAt: queueState == "new" ? nil : card.state.failedAt,
+                queueState: queueState,
+                scheduler: scheduler ?? card.state.scheduler,
+                source: card.state.source
+            ),
+            answerAudioSource: card.answerAudioSource,
+            masteryLevel: card.masteryLevel,
+            createdAt: card.createdAt,
+            updatedAt: .now
+        )
+    }
+
     private static func response(
         statusCode: Int = 200,
         data: Data
@@ -8302,6 +8581,19 @@ final class LockedRequestPaths: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+final class LockedRequestBodies: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Data] = []
+
+    var values: [Data] {
+        lock.withLock { storage }
+    }
+
+    func append(_ body: Data) {
+        lock.withLock { storage.append(body) }
     }
 }
 
