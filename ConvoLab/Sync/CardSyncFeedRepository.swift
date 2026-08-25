@@ -491,7 +491,9 @@ final class CardSyncFeedRepository {
         let pendingReviews = pending.filter {
             $0.kind == "review" && $0.lastError == nil
         }
-        let hasPendingReview = !pendingReviews.isEmpty
+        let hasPendingReview = !pendingReviews.isEmpty || pending.contains {
+            $0.kind == "cardAction" && $0.lastError == nil
+        }
         let pendingReviewCard = pendingReviews
             .sorted {
                 if $0.createdAt != $1.createdAt {
@@ -669,7 +671,8 @@ final class CardSyncFeedRepository {
         pending: [PendingMutation]
     ) -> LocalCardRecord? {
         let pendingResourceIDs = Set(pending.lazy.filter {
-            $0.kind == "cardCreate" || $0.kind == "cardUpdate" || $0.kind == "review"
+            $0.kind == "cardCreate" || $0.kind == "cardUpdate"
+                || $0.kind == "cardAction" || $0.kind == "review"
         }.map { $0.resourceID.lowercased() })
         return records.max { lhs, rhs in
             let lhsPriority = recordPriority(
@@ -856,6 +859,7 @@ final class CardSyncFeedRepository {
                         && ($0.kind == "cardCreate"
                             || $0.kind == "cardUpdate"
                             || $0.kind == "cardDelete"
+                            || $0.kind == "cardAction"
                             || $0.kind == "review")
                 }
             )

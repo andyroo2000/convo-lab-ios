@@ -4,6 +4,7 @@ enum StudyMutationKind: String, Codable, CaseIterable, Sendable {
     case cardCreate
     case cardUpdate
     case cardDelete
+    case cardAction
     case review
 
     var title: String {
@@ -11,6 +12,7 @@ enum StudyMutationKind: String, Codable, CaseIterable, Sendable {
         case .cardCreate: "Create card"
         case .cardUpdate: "Update card"
         case .cardDelete: "Delete card"
+        case .cardAction: "Update review schedule"
         case .review: "Record review"
         }
     }
@@ -20,6 +22,7 @@ enum StudyMutationKind: String, Codable, CaseIterable, Sendable {
         case .cardCreate: "rectangle.stack.badge.plus"
         case .cardUpdate: "square.and.pencil"
         case .cardDelete: "trash"
+        case .cardAction: "calendar.badge.clock"
         case .review: "checkmark.circle"
         }
     }
@@ -98,6 +101,17 @@ extension PendingMutation {
                 ?? "Card \(resourceID)"
         case .cardDelete:
             return "Card \(resourceID)"
+        case .cardAction:
+            guard let wrapped = try? StorageCodec.decoder.decode(
+                PendingCardActionPayload.self,
+                from: payload
+            ) else { return "Card \(resourceID)" }
+            return switch wrapped.request.action {
+            case .suspend: "Suspend card \(resourceID)"
+            case .unsuspend: "Unsuspend card \(resourceID)"
+            case .forget: "Forget card \(resourceID)"
+            case .setDue: "Set due date for card \(resourceID)"
+            }
         case .review:
             guard let wrapped = try? StorageCodec.decoder.decode(
                 PendingReviewPayload.self,
