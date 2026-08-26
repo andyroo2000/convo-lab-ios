@@ -595,13 +595,28 @@ extension StudyStoreTests {
             )
         )
 
-        store.beginLessonSessionPresentation()
+        let ordinaryPresentationID = UUID()
+        let cohortPresentationID = UUID()
+        XCTAssertTrue(store.beginLessonSessionPresentation(
+            presentationID: ordinaryPresentationID
+        ))
         XCTAssertNil(store.activeLessonCohortID)
-        store.beginLessonSessionPresentation(cohortID: "01K00000000000000000000000")
+        XCTAssertFalse(store.beginLessonSessionPresentation(
+            presentationID: cohortPresentationID,
+            cohortID: "01K00000000000000000000000"
+        ))
+        XCTAssertNil(store.activeLessonCohortID)
+        store.endLessonSessionPresentation(presentationID: ordinaryPresentationID)
+        XCTAssertTrue(store.beginLessonSessionPresentation(
+            presentationID: cohortPresentationID,
+            cohortID: "01K00000000000000000000000"
+        ))
         XCTAssertEqual(store.activeLessonCohortID, "01K00000000000000000000000")
         try await store.refreshLessons()
         try await store.refreshLessons()
-        store.endLessonSessionPresentation()
+        store.endLessonSessionPresentation(presentationID: ordinaryPresentationID)
+        XCTAssertEqual(store.activeLessonCohortID, "01K00000000000000000000000")
+        store.endLessonSessionPresentation(presentationID: cohortPresentationID)
         store.beginLessonSessionPresentation()
         try await store.refreshLessons()
 

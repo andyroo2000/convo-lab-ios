@@ -812,7 +812,7 @@ struct StudyIntroductionCohort: nonisolated Codable, Equatable, Sendable {
     let updatedAt: Date
 }
 
-struct CreateStudyLessonFollowupCohortRequest: Encodable, Equatable, Sendable {
+struct CreateStudyLessonFollowupCohortRequest: nonisolated Encodable, Equatable, Sendable {
     let cohortId: String
     let cardIds: [String]
     let label: String?

@@ -79,7 +79,10 @@ struct CardLibraryView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Next") { showingLessonFollowupSetup = true }
-                            .disabled(selectedLessonFollowupCardIDs.isEmpty)
+                            .disabled(
+                                selectedLessonFollowupCardIDs.isEmpty
+                                    || store.lessonSessionIsPresented
+                            )
                     }
                 } else {
                     ToolbarItem(placement: .primaryAction) {
@@ -105,7 +108,9 @@ struct CardLibraryView: View {
                                 lessonFollowupCohortID = ClientIdentifier.ulid()
                                 queueErrorMessage = nil
                             }
-                            .disabled(store.newCardQueue.isEmpty)
+                            .disabled(
+                                store.newCardQueue.isEmpty || store.lessonSessionIsPresented
+                            )
                         }
                     }
                 }
@@ -434,6 +439,7 @@ struct CardLibraryView: View {
             return
         }
         selectedLessonFollowupCardIDs.insert(cardID)
+        queueErrorMessage = nil
     }
 
     private func cancelLessonFollowupSelection() {
@@ -448,6 +454,10 @@ struct CardLibraryView: View {
     private func createAndStudyLessonFollowup() async {
         guard !creatingLessonFollowup else { return }
         guard let lessonFollowupCohortID else { return }
+        guard !store.lessonSessionIsPresented else {
+            queueErrorMessage = "Finish the lesson already in progress before starting this one."
+            return
+        }
         let cardIDs = store.newCardQueue.compactMap { item in
             selectedLessonFollowupCardIDs.contains(item.id) ? item.id : nil
         }

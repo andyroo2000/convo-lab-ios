@@ -227,6 +227,7 @@ final class StudyStore {
     }
     var lessonSessionIsPresented = false
     @ObservationIgnored var activeLessonCohortID: String?
+    @ObservationIgnored private var activeLessonPresentationID: UUID?
     var masteryAnimation: (
         id: UUID,
         card: StudyCard,
@@ -250,20 +251,17 @@ final class StudyStore {
         sessionFailureWasPresentByEventID = [:]
     }
 
-    func beginLessonSessionPresentation(cohortID: String? = nil) {
+    @discardableResult
+    func beginLessonSessionPresentation(
+        presentationID: UUID = UUID(),
+        cohortID: String? = nil
+    ) -> Bool {
         if lessonSessionIsPresented {
-            guard activeLessonCohortID != cohortID else { return }
-            studySurfaceRevision += 1
-            activeLessonCohortID = cohortID
-            sessionLoadingService.invalidate()
-            cards = []
-            sessionInitialCardCount = 0
-            sessionCompletedCardIDs = []
-            masteryAnimation = nil
-            return
+            return activeLessonPresentationID == presentationID
         }
         studySurfaceRevision += 1
         lessonSessionIsPresented = true
+        activeLessonPresentationID = presentationID
         activeLessonCohortID = cohortID
         sessionLoadingService.invalidate()
         dueActivationScheduler.cancel()
@@ -271,12 +269,15 @@ final class StudyStore {
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         masteryAnimation = nil
+        return true
     }
 
-    func endLessonSessionPresentation() {
+    func endLessonSessionPresentation(presentationID: UUID? = nil) {
         guard lessonSessionIsPresented else { return }
+        if let presentationID, activeLessonPresentationID != presentationID { return }
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonPresentationID = nil
         activeLessonCohortID = nil
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
@@ -469,6 +470,7 @@ final class StudyStore {
         sessionKind = "reviews"
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonPresentationID = nil
         activeLessonCohortID = nil
         masteryAnimation = nil
     }

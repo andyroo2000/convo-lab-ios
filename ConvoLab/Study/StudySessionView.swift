@@ -43,6 +43,7 @@ struct StudySessionView: View {
     @State private var isPreparingCompletion = false
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
+    @State private var lessonPresentationID = UUID()
 
     init(
         store: StudyStore,
@@ -303,7 +304,10 @@ struct StudySessionView: View {
             practiceInitialCount = 0
             resetCardTimer()
             if mode == .lessons {
-                store.beginLessonSessionPresentation(cohortID: lessonCohortID)
+                guard store.beginLessonSessionPresentation(
+                    presentationID: lessonPresentationID,
+                    cohortID: lessonCohortID
+                ) else { return }
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
@@ -355,7 +359,7 @@ struct StudySessionView: View {
             player.stop()
             store.dismissMasteryAnimation()
             if mode == .lessons {
-                store.endLessonSessionPresentation()
+                store.endLessonSessionPresentation(presentationID: lessonPresentationID)
             }
         }
         .sheet(item: $editingCard, onDismiss: {
