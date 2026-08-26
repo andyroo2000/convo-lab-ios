@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CardLibraryView: View {
     private static let maximumReorderableCards = 100
+    private static let maximumLessonFollowupCards = 100
 
     private struct PendingCreateSelection: Identifiable {
         let request: CreateStudyManualCardDraftRequest
@@ -257,9 +258,15 @@ struct CardLibraryView: View {
                                                 : "circle"
                                         )
                                         .foregroundStyle(ConvoLabTheme.navy)
+                                        .accessibilityHidden(true)
                                         queueRow(item, number: index + 1)
                                     }
                                 }
+                                .accessibilityValue(
+                                    selectedLessonFollowupCardIDs.contains(item.id)
+                                        ? "Selected"
+                                        : "Not selected"
+                                )
                             } else if let card = card(for: item) {
                                 Button {
                                     selectedCard = card
@@ -301,6 +308,7 @@ struct CardLibraryView: View {
                             }
                         }
                     }
+                    .moveDisabled(selectingLessonFollowup)
                 } header: {
                     HStack {
                         Text("Up Next")
@@ -313,7 +321,7 @@ struct CardLibraryView: View {
                 } footer: {
                     if selectingLessonFollowup {
                         Text(
-                            "Choose up to \(Self.maximumReorderableCards) cards from this lesson, then tap Next. Their queue order is preserved."
+                            "Choose up to \(Self.maximumLessonFollowupCards) cards from this lesson, then tap Next. Their queue order is preserved."
                         )
                     } else if store.newCardQueue.count > Self.maximumReorderableCards {
                         Text(
@@ -421,8 +429,8 @@ struct CardLibraryView: View {
 
     private func toggleLessonFollowupSelection(_ cardID: String) {
         if selectedLessonFollowupCardIDs.remove(cardID) != nil { return }
-        guard selectedLessonFollowupCardIDs.count < Self.maximumReorderableCards else {
-            queueErrorMessage = "A lesson follow-up can contain up to \(Self.maximumReorderableCards) cards."
+        guard selectedLessonFollowupCardIDs.count < Self.maximumLessonFollowupCards else {
+            queueErrorMessage = "A lesson follow-up can contain up to \(Self.maximumLessonFollowupCards) cards."
             return
         }
         selectedLessonFollowupCardIDs.insert(cardID)
