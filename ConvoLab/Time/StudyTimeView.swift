@@ -34,6 +34,7 @@ struct StudyTimeView: View {
     @State private var selectedActivity: StudyActivityKind = .cardCreation
     @State private var timerName = ""
     @State var entryErrorMessage: String?
+    @State private var isJLPTMasteryExpanded = false
     @State private var isManualTimeEntryExpanded = false
     @State private var hasRequestedEditableSessions = false
 
@@ -91,52 +92,6 @@ struct StudyTimeView: View {
                 }
 
                 Section {
-                    if let mastery = studyStore.overview?.jlptMastery {
-                        VStack(spacing: 16) {
-                            JLPTMasteryLevelBand(
-                                level: "N5",
-                                caption: "Foundation",
-                                mastery: mastery.n5
-                            )
-                            if let n4 = mastery.n4 {
-                                JLPTMasteryLevelBand(
-                                    level: "N4",
-                                    caption: "Next step",
-                                    mastery: n4
-                                )
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    } else if studyStore.isRefreshingOverview {
-                        HStack {
-                            Spacer()
-                            ProgressView("Loading mastery…")
-                            Spacer()
-                        }
-                    } else if let message = studyStore.overviewRefreshErrorMessage {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(message, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Button("Retry") {
-                                Task { await studyStore.refreshOverview() }
-                            }
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "Mastery estimate unavailable",
-                            systemImage: "chart.bar.xaxis"
-                        )
-                    }
-                } header: {
-                    Text("JLPT Mastery")
-                } footer: {
-                    Text(
-                        "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
-                            + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate."
-                    )
-                }
-
-                Section {
                     WeeklyStudyRecapView(
                         recap: store.weeklyRecap,
                         isLoading: store.weeklyRecapIsLoading,
@@ -144,6 +99,16 @@ struct StudyTimeView: View {
                     ) {
                         Task { await store.loadWeeklyRecap(force: true) }
                     }
+                }
+
+                StudyTimeJLPTMasterySection(
+                    mastery: studyStore.overview?.jlptMastery,
+                    isLoading: studyStore.isRefreshingOverview,
+                    errorMessage: studyStore.overviewRefreshErrorMessage,
+                    reduceMotion: reduceMotion,
+                    isExpanded: $isJLPTMasteryExpanded
+                ) {
+                    Task { await studyStore.refreshOverview() }
                 }
 
                 if let message = entryErrorMessage

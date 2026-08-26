@@ -1,6 +1,98 @@
 import Charts
 import SwiftUI
 
+struct StudyTimeJLPTMasterySection: View {
+    let mastery: StudyJLPTMastery?
+    let isLoading: Bool
+    let errorMessage: String?
+    let reduceMotion: Bool
+    @Binding var isExpanded: Bool
+    let retry: () -> Void
+
+    var body: some View {
+        Section {
+            Button {
+                if reduceMotion {
+                    isExpanded.toggle()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack {
+                    Label("JLPT Mastery", systemImage: "chart.bar.fill")
+                        .font(.headline)
+                        .foregroundStyle(ConvoLabTheme.navy)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(
+                isExpanded
+                    ? "Hides JLPT mastery estimates"
+                    : "Shows JLPT mastery estimates"
+            )
+
+            if isExpanded {
+                masteryContent
+            }
+        } footer: {
+            if isExpanded {
+                Text(
+                    "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
+                        + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate."
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var masteryContent: some View {
+        if let mastery {
+            VStack(spacing: 16) {
+                JLPTMasteryLevelBand(
+                    level: "N5",
+                    caption: "Foundation",
+                    mastery: mastery.n5
+                )
+                if let n4 = mastery.n4 {
+                    JLPTMasteryLevelBand(
+                        level: "N4",
+                        caption: "Next step",
+                        mastery: n4
+                    )
+                }
+            }
+            .padding(.vertical, 4)
+        } else if isLoading {
+            HStack {
+                Spacer()
+                ProgressView("Loading mastery…")
+                Spacer()
+            }
+        } else if let errorMessage {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Button("Retry", action: retry)
+            }
+        } else {
+            ContentUnavailableView(
+                "Mastery estimate unavailable",
+                systemImage: "chart.bar.xaxis"
+            )
+        }
+    }
+}
+
 struct JLPTMasteryLevelBand: View {
     let level: String
     let caption: String
