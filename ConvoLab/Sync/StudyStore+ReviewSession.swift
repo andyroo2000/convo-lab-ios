@@ -38,7 +38,8 @@ extension StudyStore {
         )
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
-            fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+            fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
+            existingLaneWeights: studySettings?.newCardLaneWeights
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,
@@ -86,7 +87,8 @@ extension StudyStore {
         let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
-            fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+            fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
+            existingLaneWeights: studySettings?.newCardLaneWeights
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,

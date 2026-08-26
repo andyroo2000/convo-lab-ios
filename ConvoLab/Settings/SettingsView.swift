@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var newCardsPerDay: Int
     @State private var lessonBatchSize: Int
     @State private var reviewTimeBudgetMinutes: Int
+    @State private var laneWeights: StudyNewCardLaneWeights?
     @State private var studySettingsSaved = false
     @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
 
@@ -37,6 +38,7 @@ struct SettingsView: View {
         _reviewTimeBudgetMinutes = State(
             initialValue: min(max(initialReviewTimeBudgetMinutes, 15), 240)
         )
+        _laneWeights = State(initialValue: model.study.studySettings?.newCardLaneWeights)
     }
 
     var body: some View {
@@ -111,6 +113,28 @@ struct SettingsView: View {
                     .onChange(of: reviewTimeBudgetMinutes) {
                         studySettingsSaved = false
                     }
+                    if let laneWeights {
+                        Stepper(
+                            "Standard queue: \(laneWeights.standard) (\(laneWeights.percentage(for: laneWeights.standard))%)",
+                            value: laneWeightBinding(\.standard),
+                            in: 1...20
+                        )
+                        Stepper(
+                            "Lesson follow-up: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
+                            value: laneWeightBinding(\.lessonFollowup),
+                            in: 0...20
+                        )
+                        Stepper(
+                            "WaniKani: \(laneWeights.wanikani) (\(laneWeights.percentage(for: laneWeights.wanikani))%)",
+                            value: laneWeightBinding(\.wanikani),
+                            in: 0...20
+                        )
+                        Text(
+                            "These are relative weights, not daily limits. Empty lanes automatically give their space to the others."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
 
                     Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
                         Task {
@@ -118,7 +142,8 @@ struct SettingsView: View {
                                 .updateStudySettings(
                                     newCardsPerDay: newCardsPerDay,
                                     lessonBatchSize: lessonBatchSize,
-                                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+                                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
+                                    newCardLaneWeights: laneWeights
                                 )
                         }
                     }
@@ -178,7 +203,7 @@ struct SettingsView: View {
                             "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
                         )
                         Text(
-                            "Imports up to two recently passed vocabulary items each day as contextual sentence, cloze, listening, and production practice."
+                            "Imports up to two recently passed vocabulary items each day as four contextual listening, recognition, and cloze cards. Related cards unlock over time."
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -283,6 +308,7 @@ struct SettingsView: View {
                     newCardsPerDay = settings.newCardsPerDay
                     lessonBatchSize = settings.lessonBatchSize
                     reviewTimeBudgetMinutes = settings.reviewTimeBudgetMinutes
+                    laneWeights = settings.newCardLaneWeights
                 }
             }
             .confirmationDialog(
@@ -337,6 +363,20 @@ struct SettingsView: View {
         .sheet(isPresented: $showingFailedStudyChanges) {
             FailedStudyChangesView(store: model.study)
         }
+    }
+
+    private func laneWeightBinding(
+        _ keyPath: WritableKeyPath<StudyNewCardLaneWeights, Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { laneWeights?[keyPath: keyPath] ?? 0 },
+            set: { value in
+                guard var updated = laneWeights else { return }
+                updated[keyPath: keyPath] = value
+                laneWeights = updated
+                studySettingsSaved = false
+            }
+        )
     }
 
     @ViewBuilder

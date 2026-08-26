@@ -6,6 +6,67 @@ import XCTest
 
 extension StudyStoreTests {
     @MainActor
+    func testStudySettingsRoundTripsAPILaneWeights() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let expected = StudyNewCardLaneWeights(
+            standard: 4,
+            lessonFollowup: 2,
+            wanikani: 1
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/settings")
+            if request.httpMethod == "PATCH" {
+                let body = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request))
+                        as? [String: Any]
+                )
+                let weights = try XCTUnwrap(
+                    body["newCardLaneWeights"] as? [String: Int]
+                )
+                XCTAssertEqual(weights, [
+                    "standard": 4,
+                    "lessonFollowup": 2,
+                    "wanikani": 1,
+                ])
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"newCardsPerDay":20,"lessonBatchSize":5,"reviewTimeBudgetMinutes":90,"newCardLaneWeights":{"standard":4,"lessonFollowup":2,"wanikani":1}}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshStudySettings()
+        XCTAssertEqual(store.studySettings?.newCardLaneWeights, expected)
+
+        let saved = await store.updateStudySettings(
+            newCardsPerDay: 20,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 90,
+            newCardLaneWeights: expected
+        )
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.newCardLaneWeights, expected)
+    }
+
+    @MainActor
     func testStudySettingsRefreshAndUpdateUseCompatibilityPayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in

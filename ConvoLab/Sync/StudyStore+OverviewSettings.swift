@@ -24,7 +24,8 @@ extension StudyStore {
                   overviewRefreshID == refreshID else { return }
             let responseSettings = StudySettingsPolicy.settings(
                 from: refreshed,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
+                existingLaneWeights: studySettings?.newCardLaneWeights
             )
             let canPublishResponseSettings = studySettingsMutationRevision
                 == settingsMutationRevision
@@ -84,7 +85,8 @@ extension StudyStore {
     func updateNewCardsPerDay(_ value: Int) async -> Bool {
         await updateStudySettings(
             newCardsPerDay: value,
-            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5
+            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5,
+            newCardLaneWeights: studySettings?.newCardLaneWeights
         )
     }
 
@@ -92,14 +94,16 @@ extension StudyStore {
     func updateStudySettings(
         newCardsPerDay: Int,
         lessonBatchSize: Int,
-        reviewTimeBudgetMinutes: Int? = nil
+        reviewTimeBudgetMinutes: Int? = nil,
+        newCardLaneWeights: StudyNewCardLaneWeights? = nil
     ) async -> Bool {
         guard
             let userID = activeUserID,
             StudySettingsPolicy.accepts(
                 newCardsPerDay: newCardsPerDay,
                 lessonBatchSize: lessonBatchSize,
-                reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+                reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
+                newCardLaneWeights: newCardLaneWeights
             )
         else { return false }
         let activationGeneration = accountActivationGeneration
@@ -124,7 +128,8 @@ extension StudyStore {
                 body: UpdateStudySettingsRequest(
                     newCardsPerDay: newCardsPerDay,
                     lessonBatchSize: lessonBatchSize,
-                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes
+                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
+                    newCardLaneWeights: newCardLaneWeights
                 )
             )
             guard isCurrentActivation(
@@ -135,6 +140,7 @@ extension StudyStore {
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
                 requestedReviewTimeBudget: reviewTimeBudgetMinutes,
+                requestedLaneWeights: newCardLaneWeights,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget()
             )
             studySettings = resolvedResponse
@@ -171,7 +177,8 @@ extension StudyStore {
         overview = cachedOverview
         studySettings = StudySettingsPolicy.settings(
             from: cachedOverview,
-            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes ?? 90
+            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes ?? 90,
+            existingLaneWeights: studySettings?.newCardLaneWeights
         )
     }
 

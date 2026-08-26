@@ -29,6 +29,57 @@ final class StudySettingsPolicyTests: XCTestCase {
             lessonBatchSize: 5,
             reviewTimeBudgetMinutes: 14
         ))
+        XCTAssertTrue(StudySettingsPolicy.accepts(
+            newCardsPerDay: 20,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 90,
+            newCardLaneWeights: StudyNewCardLaneWeights(
+                standard: 3,
+                lessonFollowup: 1,
+                wanikani: 1
+            )
+        ))
+        XCTAssertFalse(StudySettingsPolicy.accepts(
+            newCardsPerDay: 20,
+            lessonBatchSize: 5,
+            reviewTimeBudgetMinutes: 90,
+            newCardLaneWeights: StudyNewCardLaneWeights(
+                standard: 0,
+                lessonFollowup: 1,
+                wanikani: 1
+            )
+        ))
+    }
+
+    @MainActor
+    func testLegacyResponsePreservesRequestedLaneWeights() {
+        let requested = StudyNewCardLaneWeights(
+            standard: 4,
+            lessonFollowup: 2,
+            wanikani: 1
+        )
+        let resolved = StudySettingsPolicy.resolving(
+            StudySettings(newCardsPerDay: 20, lessonBatchSize: 5),
+            requestedLaneWeights: requested,
+            fallbackReviewTimeBudget: 90
+        )
+
+        XCTAssertEqual(resolved.newCardLaneWeights, requested)
+        XCTAssertEqual(
+            StudySettingsPolicy.settings(
+                from: StudyOverview(
+                    dueCount: 0,
+                    newCount: 0,
+                    reviewCount: 0,
+                    newCardsPerDay: 20,
+                    newCardsAvailableToday: nil,
+                    lessonBatchSize: 5
+                ),
+                fallbackReviewTimeBudget: 90,
+                existingLaneWeights: requested
+            ).newCardLaneWeights,
+            requested
+        )
     }
 
     @MainActor
