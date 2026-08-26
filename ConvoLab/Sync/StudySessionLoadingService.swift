@@ -3,11 +3,14 @@ import Foundation
 enum StudySessionLoadKind {
     case reviews
     case lessons
+    case introductionCohort(String)
 
     fileprivate var path: String {
         switch self {
         case .reviews: "/api/study/session/start"
         case .lessons: "/api/study/lessons/start"
+        case let .introductionCohort(id):
+            "/api/study/introduction-cohorts/\(id)/lessons/start"
         }
     }
 }

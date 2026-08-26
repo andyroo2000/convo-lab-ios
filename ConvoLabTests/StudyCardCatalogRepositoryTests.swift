@@ -34,6 +34,17 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
                 nextCursor: nil
             )
         )
+        let cohortResponse = try StorageCodec.encoder.encode(
+            StudyIntroductionCohort(
+                id: "01K00000000000000000000000",
+                sourceKind: "lesson_followup",
+                label: "iTalki 8/25",
+                priorityUntil: Date(timeIntervalSince1970: 1_777_680_000),
+                cards: [card],
+                createdAt: Date(timeIntervalSince1970: 1_777_075_200),
+                updatedAt: Date(timeIntervalSince1970: 1_777_075_200)
+            )
+        )
         CatalogMockURLProtocol.handler = { request in
             let data: Data
             switch (request.url?.path, request.url?.query, request.httpMethod) {
@@ -58,6 +69,15 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
                     as? [String: [String]]
                 XCTAssertEqual(body?["cardIds"], ["second", "first"])
                 data = queueResponse
+            case ("/api/study/introduction-cohorts/lesson-followup", nil, "POST"):
+                let body = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: requestBody(request))
+                        as? [String: Any]
+                )
+                XCTAssertEqual(body["cohortId"] as? String, "01K00000000000000000000000")
+                XCTAssertEqual(body["cardIds"] as? [String], ["first", "second"])
+                XCTAssertEqual(body["label"] as? String, "iTalki 8/25")
+                data = cohortResponse
             default:
                 XCTFail("Unexpected catalog request: \(request.url?.absoluteString ?? "nil")")
                 throw URLError(.badURL)
@@ -88,6 +108,12 @@ final class StudyCardCatalogRepositoryTests: XCTestCase {
         _ = try await repository.learningItemPage(matching: "猫")
         _ = try await repository.learningItemPage(matching: "猫", after: "path-next")
         _ = try await repository.reorderNewCards(["second", "first"])
+        let cohort = try await repository.createLessonFollowupCohort(
+            id: "01K00000000000000000000000",
+            cardIDs: ["first", "second"],
+            label: "iTalki 8/25"
+        )
+        XCTAssertEqual(cohort.sourceKind, "lesson_followup")
     }
 
     @MainActor

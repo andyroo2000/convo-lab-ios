@@ -226,6 +226,8 @@ final class StudyStore {
         return (try? reviewOutbox.pendingDeliverableCount()) ?? 0
     }
     var lessonSessionIsPresented = false
+    @ObservationIgnored var activeLessonCohortID: String?
+    @ObservationIgnored private var activeLessonPresentationID: UUID?
     var masteryAnimation: (
         id: UUID,
         card: StudyCard,
@@ -249,22 +251,34 @@ final class StudyStore {
         sessionFailureWasPresentByEventID = [:]
     }
 
-    func beginLessonSessionPresentation() {
-        guard !lessonSessionIsPresented else { return }
+    @discardableResult
+    func beginLessonSessionPresentation(
+        presentationID: UUID = UUID(),
+        cohortID: String? = nil
+    ) -> Bool {
+        if lessonSessionIsPresented {
+            return activeLessonPresentationID == presentationID
+        }
         studySurfaceRevision += 1
         lessonSessionIsPresented = true
+        activeLessonPresentationID = presentationID
+        activeLessonCohortID = cohortID
         sessionLoadingService.invalidate()
         dueActivationScheduler.cancel()
         cards = []
         sessionInitialCardCount = 0
         sessionCompletedCardIDs = []
         masteryAnimation = nil
+        return true
     }
 
-    func endLessonSessionPresentation() {
+    func endLessonSessionPresentation(presentationID: UUID? = nil) {
         guard lessonSessionIsPresented else { return }
+        if let presentationID, activeLessonPresentationID != presentationID { return }
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonPresentationID = nil
+        activeLessonCohortID = nil
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
         if let userID = activeUserID {
@@ -456,6 +470,8 @@ final class StudyStore {
         sessionKind = "reviews"
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonPresentationID = nil
+        activeLessonCohortID = nil
         masteryAnimation = nil
     }
 

@@ -802,6 +802,22 @@ struct StudyNewCardQueueResponse: nonisolated Codable, Equatable, Sendable {
     let nextCursor: String?
 }
 
+struct StudyIntroductionCohort: nonisolated Codable, Equatable, Sendable {
+    let id: String
+    let sourceKind: String
+    let label: String?
+    let priorityUntil: Date
+    let cards: [StudyCard]
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct CreateStudyLessonFollowupCohortRequest: nonisolated Encodable, Equatable, Sendable {
+    let cohortId: String
+    let cardIds: [String]
+    let label: String?
+}
+
 struct StudyCardListResponse: nonisolated Codable, Equatable, Sendable {
     let items: [StudyCard]
     let limit: Int

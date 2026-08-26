@@ -2,10 +2,17 @@ import SwiftUI
 
 struct CardLibraryView: View {
     private static let maximumReorderableCards = 100
+    private static let maximumLessonFollowupCards = 100
 
     private struct PendingCreateSelection: Identifiable {
         let request: CreateStudyManualCardDraftRequest
         var id: String { request.id }
+    }
+
+    private struct LessonFollowupSession: Identifiable {
+        let cohortID: String
+        let presentationID: UUID
+        var id: UUID { presentationID }
     }
 
     private enum CollectionMode: String, CaseIterable, Identifiable {
@@ -30,6 +37,13 @@ struct CardLibraryView: View {
     @State private var cardLoadErrorMessage = ""
     @State private var queueErrorMessage: String?
     @State private var expandedLearningItemIDs: Set<String> = []
+    @State private var selectingLessonFollowup = false
+    @State private var selectedLessonFollowupCardIDs: Set<String> = []
+    @State private var showingLessonFollowupSetup = false
+    @State private var lessonFollowupLabel = ""
+    @State private var creatingLessonFollowup = false
+    @State private var lessonFollowupSession: LessonFollowupSession?
+    @State private var lessonFollowupCohortID: String?
 
     var body: some View {
         NavigationStack {
@@ -52,6 +66,7 @@ struct CardLibraryView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(selectingLessonFollowup)
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 .background(.bar)
@@ -60,17 +75,45 @@ struct CardLibraryView: View {
             .paperBackground()
             .navigationTitle("Cards")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingCreate = true
-                    } label: {
-                        Label("Create Card", systemImage: "plus")
+                if selectingLessonFollowup {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { cancelLessonFollowupSelection() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Next") { showingLessonFollowupSetup = true }
+                            .disabled(
+                                selectedLessonFollowupCardIDs.isEmpty
+                                    || store.lessonSessionIsPresented
+                            )
+                    }
+                } else {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showingCreate = true
+                        } label: {
+                            Label("Create Card", systemImage: "plus")
+                        }
                     }
                 }
                 if collectionMode == .queue {
                     ToolbarItem(placement: .secondaryAction) {
                         EditButton()
-                            .disabled(store.newCardQueue.count > Self.maximumReorderableCards)
+                            .disabled(
+                                selectingLessonFollowup
+                                    || store.newCardQueue.count > Self.maximumReorderableCards
+                            )
+                    }
+                    if !selectingLessonFollowup {
+                        ToolbarItem(placement: .secondaryAction) {
+                            Button("Study Lesson Cards Now") {
+                                selectingLessonFollowup = true
+                                lessonFollowupCohortID = ClientIdentifier.ulid()
+                                queueErrorMessage = nil
+                            }
+                            .disabled(
+                                store.newCardQueue.isEmpty || store.lessonSessionIsPresented
+                            )
+                        }
                     }
                 }
             }
@@ -123,6 +166,36 @@ struct CardLibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(cardLoadErrorMessage)
+            }
+            .alert("Study lesson cards now", isPresented: $showingLessonFollowupSetup) {
+                TextField("Lesson label (optional)", text: $lessonFollowupLabel)
+                Button("Cancel", role: .cancel) {}
+                Button("Create & Study") {
+                    Task { await createAndStudyLessonFollowup() }
+                }
+                .disabled(creatingLessonFollowup)
+            } message: {
+                Text(
+                    "The selected cards will be prioritized and opened as a lesson now."
+                )
+            }
+            .fullScreenCover(item: $lessonFollowupSession, onDismiss: {
+                Task {
+                    try? await store.refreshNewCardQueue()
+                    await store.refreshOverview()
+                }
+            }) { session in
+                NavigationStack {
+                    StudySessionView(
+                        store: store,
+                        player: player,
+                        mode: .lessons,
+                        timeStore: timeStore,
+                        lessonCohortID: session.cohortID,
+                        lessonPresentationID: session.presentationID,
+                        allowsLessonDismissal: true
+                    )
+                }
             }
             .task {
                 try? await store.refreshManualDrafts()
@@ -183,7 +256,27 @@ struct CardLibraryView: View {
                         index,
                         item in
                         Group {
-                            if let card = card(for: item) {
+                            if selectingLessonFollowup {
+                                Button {
+                                    toggleLessonFollowupSelection(item.id)
+                                } label: {
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Image(
+                                            systemName: selectedLessonFollowupCardIDs.contains(item.id)
+                                                ? "checkmark.circle.fill"
+                                                : "circle"
+                                        )
+                                        .foregroundStyle(ConvoLabTheme.navy)
+                                        .accessibilityHidden(true)
+                                        queueRow(item, number: index + 1)
+                                    }
+                                }
+                                .accessibilityValue(
+                                    selectedLessonFollowupCardIDs.contains(item.id)
+                                        ? "Selected"
+                                        : "Not selected"
+                                )
+                            } else if let card = card(for: item) {
                                 Button {
                                     selectedCard = card
                                 } label: {
@@ -224,6 +317,7 @@ struct CardLibraryView: View {
                             }
                         }
                     }
+                    .moveDisabled(selectingLessonFollowup)
                 } header: {
                     HStack {
                         Text("Up Next")
@@ -234,7 +328,11 @@ struct CardLibraryView: View {
                             .textCase(nil)
                     }
                 } footer: {
-                    if store.newCardQueue.count > Self.maximumReorderableCards {
+                    if selectingLessonFollowup {
+                        Text(
+                            "Choose up to \(Self.maximumLessonFollowupCards) cards from this lesson, then tap Next. Their queue order is preserved."
+                        )
+                    } else if store.newCardQueue.count > Self.maximumReorderableCards {
                         Text(
                             "Reordering is available while up to \(Self.maximumReorderableCards) cards are loaded."
                         )
@@ -336,6 +434,66 @@ struct CardLibraryView: View {
             createdAt: .distantPast,
             updatedAt: .distantPast
         ))
+    }
+
+    private func toggleLessonFollowupSelection(_ cardID: String) {
+        if selectedLessonFollowupCardIDs.remove(cardID) != nil { return }
+        guard selectedLessonFollowupCardIDs.count < Self.maximumLessonFollowupCards else {
+            queueErrorMessage = "A lesson follow-up can contain up to \(Self.maximumLessonFollowupCards) cards."
+            return
+        }
+        selectedLessonFollowupCardIDs.insert(cardID)
+        queueErrorMessage = nil
+    }
+
+    private func cancelLessonFollowupSelection() {
+        selectingLessonFollowup = false
+        selectedLessonFollowupCardIDs = []
+        lessonFollowupLabel = ""
+        lessonFollowupCohortID = nil
+        queueErrorMessage = nil
+    }
+
+    @MainActor
+    private func createAndStudyLessonFollowup() async {
+        guard !creatingLessonFollowup else { return }
+        guard let lessonFollowupCohortID else { return }
+        guard !store.lessonSessionIsPresented else {
+            queueErrorMessage = "Finish the lesson already in progress before starting this one."
+            return
+        }
+        let cardIDs = store.newCardQueue.compactMap { item in
+            selectedLessonFollowupCardIDs.contains(item.id) ? item.id : nil
+        }
+        guard !cardIDs.isEmpty else { return }
+        creatingLessonFollowup = true
+        defer { creatingLessonFollowup = false }
+        do {
+            let trimmedLabel = lessonFollowupLabel.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let cohort = try await store.createLessonFollowupCohort(
+                id: lessonFollowupCohortID,
+                cardIDs: cardIDs,
+                label: trimmedLabel.isEmpty ? nil : trimmedLabel
+            )
+            let presentationID = UUID()
+            guard store.beginLessonSessionPresentation(
+                presentationID: presentationID,
+                cohortID: cohort.id
+            ) else {
+                queueErrorMessage =
+                    "Finish the lesson already in progress, then tap Create & Study again."
+                return
+            }
+            cancelLessonFollowupSelection()
+            lessonFollowupSession = LessonFollowupSession(
+                cohortID: cohort.id,
+                presentationID: presentationID
+            )
+        } catch {
+            queueErrorMessage = error.localizedDescription
+        }
     }
 
     private func card(for item: StudyNewCardQueueItem) -> StudyCard? {

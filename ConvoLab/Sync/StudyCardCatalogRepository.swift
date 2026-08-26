@@ -54,6 +54,22 @@ struct StudyCardCatalogRepository {
         )
     }
 
+    func createLessonFollowupCohort(
+        id: String,
+        cardIDs: [String],
+        label: String?
+    ) async throws -> StudyIntroductionCohort {
+        try await api.request(
+            "/api/study/introduction-cohorts/lesson-followup",
+            method: "POST",
+            body: CreateStudyLessonFollowupCohortRequest(
+                cohortId: id,
+                cardIds: cardIDs,
+                label: label
+            )
+        )
+    }
+
     static func appendingUniqueCards(
         _ incoming: [StudyCard],
         to existing: [StudyCard]

@@ -13,6 +13,8 @@ struct StudySessionView: View {
     let timeStore: StudyTimeStore?
     let milestoneStore: StudyMilestoneStore?
     let restoredCompletion: StudyMilestoneCompletion?
+    let lessonCohortID: String?
+    let allowsLessonDismissal: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -42,6 +44,7 @@ struct StudySessionView: View {
     @State private var isPreparingCompletion = false
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
+    @State private var lessonPresentationID = UUID()
 
     init(
         store: StudyStore,
@@ -49,7 +52,10 @@ struct StudySessionView: View {
         mode: Mode = .reviews,
         timeStore: StudyTimeStore? = nil,
         milestoneStore: StudyMilestoneStore? = nil,
-        restoredCompletion: StudyMilestoneCompletion? = nil
+        restoredCompletion: StudyMilestoneCompletion? = nil,
+        lessonCohortID: String? = nil,
+        lessonPresentationID: UUID = UUID(),
+        allowsLessonDismissal: Bool = false
     ) {
         self.store = store
         self.player = player
@@ -57,6 +63,9 @@ struct StudySessionView: View {
         self.timeStore = timeStore
         self.milestoneStore = milestoneStore
         self.restoredCompletion = restoredCompletion
+        self.lessonCohortID = lessonCohortID
+        self.allowsLessonDismissal = allowsLessonDismissal
+        _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
         _sessionCompletion = State(initialValue: restoredCompletion)
@@ -76,6 +85,16 @@ struct StudySessionView: View {
     private var practiceMode: Bool { practiceCards != nil }
 
     private var practiceComplete: Bool { practiceCards?.isEmpty == true }
+
+    @ToolbarContentBuilder
+    private var lessonDismissToolbar: some ToolbarContent {
+        if mode == .lessons, allowsLessonDismissal {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Close") { dismiss() }
+                    .accessibilityIdentifier("StudyCloseLessonButton")
+            }
+        }
+    }
 
     private var wrapUpSummary: StudySessionWrapUpSummary {
         StudySessionWrapUpSummary.build(from: sessionReviewRecords)
@@ -224,6 +243,10 @@ struct StudySessionView: View {
     }
 
     var body: some View {
+        sessionViewWithLifecycle
+    }
+
+    private var sessionViewWithChrome: some View {
         sessionContent
         .background {
             ShakeDetector(
@@ -238,6 +261,7 @@ struct StudySessionView: View {
         .navigationTitle(practiceMode ? "Toughest Practice" : "Practice")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(mode == .reviews)
+        .toolbar { lessonDismissToolbar }
         .toolbar {
             if practiceMode {
                 ToolbarItem(placement: .topBarLeading) {
@@ -285,6 +309,10 @@ struct StudySessionView: View {
                 }
             }
         }
+    }
+
+    private var sessionViewWithLifecycle: some View {
+        sessionViewWithChrome
         .task {
             if let restoredCompletion {
                 sessionReviewRecords = restoredCompletion.records
@@ -300,7 +328,10 @@ struct StudySessionView: View {
             practiceInitialCount = 0
             resetCardTimer()
             if mode == .lessons {
-                store.beginLessonSessionPresentation()
+                guard store.beginLessonSessionPresentation(
+                    presentationID: lessonPresentationID,
+                    cohortID: lessonCohortID
+                ) else { return }
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
@@ -352,7 +383,7 @@ struct StudySessionView: View {
             player.stop()
             store.dismissMasteryAnimation()
             if mode == .lessons {
-                store.endLessonSessionPresentation()
+                store.endLessonSessionPresentation(presentationID: lessonPresentationID)
             }
         }
         .sheet(item: $editingCard, onDismiss: {
