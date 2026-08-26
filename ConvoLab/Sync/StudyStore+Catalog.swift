@@ -2,6 +2,24 @@ import Foundation
 import SwiftData
 
 extension StudyStore {
+    func createLessonFollowupCohort(
+        id: String,
+        cardIDs: [String],
+        label: String?
+    ) async throws -> StudyIntroductionCohort {
+        guard let userID = activeUserID else { throw CancellationError() }
+        let activationGeneration = accountActivationGeneration
+        let cohort = try await cardCatalogRepository.createLessonFollowupCohort(
+            id: id,
+            cardIDs: cardIDs,
+            label: label
+        )
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        return cohort
+    }
+
     func refreshNewCardQueue() async throws {
         guard let userID = activeUserID else { return }
         newCardQueueRefreshRevision += 1

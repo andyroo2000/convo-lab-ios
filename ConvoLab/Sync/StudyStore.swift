@@ -226,6 +226,7 @@ final class StudyStore {
         return (try? reviewOutbox.pendingDeliverableCount()) ?? 0
     }
     var lessonSessionIsPresented = false
+    @ObservationIgnored var activeLessonCohortID: String?
     var masteryAnimation: (
         id: UUID,
         card: StudyCard,
@@ -249,10 +250,21 @@ final class StudyStore {
         sessionFailureWasPresentByEventID = [:]
     }
 
-    func beginLessonSessionPresentation() {
-        guard !lessonSessionIsPresented else { return }
+    func beginLessonSessionPresentation(cohortID: String? = nil) {
+        if lessonSessionIsPresented {
+            guard activeLessonCohortID != cohortID else { return }
+            studySurfaceRevision += 1
+            activeLessonCohortID = cohortID
+            sessionLoadingService.invalidate()
+            cards = []
+            sessionInitialCardCount = 0
+            sessionCompletedCardIDs = []
+            masteryAnimation = nil
+            return
+        }
         studySurfaceRevision += 1
         lessonSessionIsPresented = true
+        activeLessonCohortID = cohortID
         sessionLoadingService.invalidate()
         dueActivationScheduler.cancel()
         cards = []
@@ -265,6 +277,7 @@ final class StudyStore {
         guard lessonSessionIsPresented else { return }
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonCohortID = nil
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
         if let userID = activeUserID {
@@ -456,6 +469,7 @@ final class StudyStore {
         sessionKind = "reviews"
         studySurfaceRevision += 1
         lessonSessionIsPresented = false
+        activeLessonCohortID = nil
         masteryAnimation = nil
     }
 

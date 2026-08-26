@@ -569,4 +569,46 @@ extension StudyStoreTests {
         XCTAssertEqual(store.sessionInitialCardCount, 5)
         XCTAssertEqual(store.overview?.lessonBatchSize, 5)
     }
+
+    @MainActor
+    func testLessonFollowupCohortRemainsActiveAcrossBatchesAndClearsOnExit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCard = makeCard(
+            id: "cohort-lesson-card",
+            expression: "会話",
+            queueState: "new"
+        )
+        let lessonData = try sessionResponseData(cards: [lessonCard], lessonBatchSize: 3)
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            paths.append(request.url?.path ?? "nil")
+            return Self.response(data: lessonData)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        store.beginLessonSessionPresentation()
+        XCTAssertNil(store.activeLessonCohortID)
+        store.beginLessonSessionPresentation(cohortID: "01K00000000000000000000000")
+        XCTAssertEqual(store.activeLessonCohortID, "01K00000000000000000000000")
+        try await store.refreshLessons()
+        try await store.refreshLessons()
+        store.endLessonSessionPresentation()
+        store.beginLessonSessionPresentation()
+        try await store.refreshLessons()
+
+        XCTAssertEqual(paths.values, [
+            "/api/study/introduction-cohorts/01K00000000000000000000000/lessons/start",
+            "/api/study/introduction-cohorts/01K00000000000000000000000/lessons/start",
+            "/api/study/lessons/start",
+        ])
+    }
 }

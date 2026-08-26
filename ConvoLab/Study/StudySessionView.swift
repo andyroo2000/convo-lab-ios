@@ -13,6 +13,7 @@ struct StudySessionView: View {
     let timeStore: StudyTimeStore?
     let milestoneStore: StudyMilestoneStore?
     let restoredCompletion: StudyMilestoneCompletion?
+    let lessonCohortID: String?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -49,7 +50,8 @@ struct StudySessionView: View {
         mode: Mode = .reviews,
         timeStore: StudyTimeStore? = nil,
         milestoneStore: StudyMilestoneStore? = nil,
-        restoredCompletion: StudyMilestoneCompletion? = nil
+        restoredCompletion: StudyMilestoneCompletion? = nil,
+        lessonCohortID: String? = nil
     ) {
         self.store = store
         self.player = player
@@ -57,6 +59,7 @@ struct StudySessionView: View {
         self.timeStore = timeStore
         self.milestoneStore = milestoneStore
         self.restoredCompletion = restoredCompletion
+        self.lessonCohortID = lessonCohortID
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
         _sessionCompletion = State(initialValue: restoredCompletion)
@@ -300,7 +303,7 @@ struct StudySessionView: View {
             practiceInitialCount = 0
             resetCardTimer()
             if mode == .lessons {
-                store.beginLessonSessionPresentation()
+                store.beginLessonSessionPresentation(cohortID: lessonCohortID)
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()

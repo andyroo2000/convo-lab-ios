@@ -75,7 +75,12 @@ extension StudyStore {
 
     @discardableResult
     func refreshLessons() async throws -> Bool {
-        guard let load = try await sessionLoadingService.load(.lessons) else { return false }
+        let loadKind: StudySessionLoadKind = if let activeLessonCohortID {
+            .introductionCohort(activeLessonCohortID)
+        } else {
+            .lessons
+        }
+        guard let load = try await sessionLoadingService.load(loadKind) else { return false }
         let userID = load.userID
         let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
