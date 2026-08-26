@@ -423,17 +423,20 @@ struct StudySettings: nonisolated Codable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int
+    let newCardLaneWeights: StudyNewCardLaneWeights?
     let includesReviewTimeBudgetMinutes: Bool
 
     init(
         newCardsPerDay: Int,
         lessonBatchSize: Int = 5,
         reviewTimeBudgetMinutes: Int = 90,
+        newCardLaneWeights: StudyNewCardLaneWeights? = nil,
         includesReviewTimeBudgetMinutes: Bool = true
     ) {
         self.newCardsPerDay = newCardsPerDay
         self.lessonBatchSize = lessonBatchSize
         self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
+        self.newCardLaneWeights = newCardLaneWeights
         self.includesReviewTimeBudgetMinutes = includesReviewTimeBudgetMinutes
     }
 
@@ -441,6 +444,7 @@ struct StudySettings: nonisolated Codable, Equatable, Sendable {
         case newCardsPerDay
         case lessonBatchSize
         case reviewTimeBudgetMinutes
+        case newCardLaneWeights
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -451,6 +455,10 @@ struct StudySettings: nonisolated Codable, Equatable, Sendable {
             Int.self,
             forKey: .reviewTimeBudgetMinutes
         ) ?? 90
+        newCardLaneWeights = try container.decodeIfPresent(
+            StudyNewCardLaneWeights.self,
+            forKey: .newCardLaneWeights
+        )
         if container.contains(.reviewTimeBudgetMinutes) {
             includesReviewTimeBudgetMinutes = !(try container.decodeNil(
                 forKey: .reviewTimeBudgetMinutes
@@ -465,12 +473,27 @@ struct StudySettings: nonisolated Codable, Equatable, Sendable {
         try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
         try container.encode(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
+        try container.encodeIfPresent(newCardLaneWeights, forKey: .newCardLaneWeights)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.newCardsPerDay == rhs.newCardsPerDay
             && lhs.lessonBatchSize == rhs.lessonBatchSize
             && lhs.reviewTimeBudgetMinutes == rhs.reviewTimeBudgetMinutes
+            && lhs.newCardLaneWeights == rhs.newCardLaneWeights
+    }
+}
+
+struct StudyNewCardLaneWeights: nonisolated Codable, Equatable, Sendable {
+    var standard: Int
+    var lessonFollowup: Int
+    var wanikani: Int
+
+    var total: Int { standard + lessonFollowup + wanikani }
+
+    func percentage(for weight: Int) -> Int {
+        guard total > 0 else { return 0 }
+        return Int((Double(weight) / Double(total) * 100).rounded())
     }
 }
 
@@ -478,11 +501,13 @@ struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
     let newCardsPerDay: Int
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int?
+    let newCardLaneWeights: StudyNewCardLaneWeights?
 
     private enum CodingKeys: String, CodingKey {
         case newCardsPerDay
         case lessonBatchSize
         case reviewTimeBudgetMinutes
+        case newCardLaneWeights
     }
 
     func encode(to encoder: Encoder) throws {
@@ -490,6 +515,7 @@ struct UpdateStudySettingsRequest: Encodable, Equatable, Sendable {
         try container.encode(newCardsPerDay, forKey: .newCardsPerDay)
         try container.encode(lessonBatchSize, forKey: .lessonBatchSize)
         try container.encodeIfPresent(reviewTimeBudgetMinutes, forKey: .reviewTimeBudgetMinutes)
+        try container.encodeIfPresent(newCardLaneWeights, forKey: .newCardLaneWeights)
     }
 }
 
@@ -609,6 +635,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let state: State
     let answerAudioSource: String?
     let masteryLevel: String?
+    let introductionCohortId: String?
+    let selectionPolicy: String?
+    let priorityUntil: Date?
+    let introductionAvailableAt: Date?
     let createdAt: Date
     let updatedAt: Date
 
@@ -622,6 +652,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         state: State,
         answerAudioSource: String?,
         masteryLevel: String? = nil,
+        introductionCohortId: String? = nil,
+        selectionPolicy: String? = nil,
+        priorityUntil: Date? = nil,
+        introductionAvailableAt: Date? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -634,6 +668,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.state = state
         self.answerAudioSource = answerAudioSource
         self.masteryLevel = masteryLevel
+        self.introductionCohortId = introductionCohortId
+        self.selectionPolicy = selectionPolicy
+        self.priorityUntil = priorityUntil
+        self.introductionAvailableAt = introductionAvailableAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -651,6 +689,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
+            introductionCohortId: introductionCohortId,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -724,6 +766,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
                 source: state.source
             ),
             answerAudioSource: answerAudioSource,
+            introductionCohortId: introductionCohortId,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
             createdAt: createdAt,
             updatedAt: reviewedAt
         )

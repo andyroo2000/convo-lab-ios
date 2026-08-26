@@ -213,6 +213,10 @@ final class APIClientTests: XCTestCase {
             "source": {}
           },
           "answerAudioSource": "missing",
+          "introductionCohortId": "01J11111111111111111111111",
+          "selectionPolicy": "spaced_siblings",
+          "priorityUntil": "2026-07-30T12:00:00.000Z",
+          "introductionAvailableAt": "2026-07-24T12:00:00.000Z",
           "createdAt": "2026-07-23T12:00:00.000Z",
           "updatedAt": "2026-07-23T12:00:00.000Z"
         }
@@ -242,6 +246,10 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(card.answerText, "dog")
         XCTAssertEqual(card.id, "98f42a62-8303-410e-ad4d-5a69c55911bb")
         XCTAssertEqual(card.reviewCardID, "01J00000000000000000000000")
+        XCTAssertEqual(card.introductionCohortId, "01J11111111111111111111111")
+        XCTAssertEqual(card.selectionPolicy, "spaced_siblings")
+        XCTAssertNotNil(card.priorityUntil)
+        XCTAssertNotNil(card.introductionAvailableAt)
 
         var cachedPayload = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(cardJSON.utf8)) as? [String: Any]
