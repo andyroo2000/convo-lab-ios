@@ -10,7 +10,9 @@ struct CardLibraryView: View {
     }
 
     private struct LessonFollowupSession: Identifiable {
-        let id: String
+        let cohortID: String
+        let presentationID: UUID
+        var id: UUID { presentationID }
     }
 
     private enum CollectionMode: String, CaseIterable, Identifiable {
@@ -189,7 +191,9 @@ struct CardLibraryView: View {
                         player: player,
                         mode: .lessons,
                         timeStore: timeStore,
-                        lessonCohortID: session.id
+                        lessonCohortID: session.cohortID,
+                        lessonPresentationID: session.presentationID,
+                        allowsLessonDismissal: true
                     )
                 }
             }
@@ -473,8 +477,20 @@ struct CardLibraryView: View {
                 cardIDs: cardIDs,
                 label: trimmedLabel.isEmpty ? nil : trimmedLabel
             )
+            let presentationID = UUID()
+            guard store.beginLessonSessionPresentation(
+                presentationID: presentationID,
+                cohortID: cohort.id
+            ) else {
+                queueErrorMessage =
+                    "Finish the lesson already in progress, then tap Create & Study again."
+                return
+            }
             cancelLessonFollowupSelection()
-            lessonFollowupSession = LessonFollowupSession(id: cohort.id)
+            lessonFollowupSession = LessonFollowupSession(
+                cohortID: cohort.id,
+                presentationID: presentationID
+            )
         } catch {
             queueErrorMessage = error.localizedDescription
         }
