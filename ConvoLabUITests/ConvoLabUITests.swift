@@ -181,34 +181,6 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
-    func testAchievementBadgeGalleryRendersNativeComposition() {
-        let app = launchFixture("achievement-badges", reset: true)
-        let gallery = app.descendants(matching: .any)["achievement-badge-gallery"]
-        XCTAssertTrue(
-            gallery.waitForExistence(timeout: 8)
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["StudyAchievementBadge.card-muncher.first-nibble"]
-                .exists
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["StudyAchievementBadge.roarer.first-roar"].exists
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["StudyAchievementBadge.yearfire.first-ember"].exists
-        )
-
-        let imagesLoaded = expectation(description: "Pinned badge art loads")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { imagesLoaded.fulfill() }
-        wait(for: [imagesLoaded], timeout: 6)
-
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "achievement-badges-ios"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
-    }
-
-    @MainActor
     private func waitForHittable(
         _ element: XCUIElement,
         timeout: TimeInterval

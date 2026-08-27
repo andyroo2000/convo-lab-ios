@@ -11,7 +11,6 @@ enum UITestFixture: String {
     case createCardRecovery = "create-card-recovery"
     case dailyAudioPlayback = "daily-audio-playback"
     case calendarConnection = "calendar-connection"
-    case achievementBadges = "achievement-badges"
 
     static func fromProcessArguments(
         _ arguments: [String] = ProcessInfo.processInfo.arguments
@@ -31,7 +30,7 @@ struct UITestFixtureView: View {
         case .loginScreen:
             UITestLoginScreenFixture()
         case .loginRestoration, .offlineReview, .createCardRecovery,
-             .dailyAudioPlayback, .calendarConnection, .achievementBadges:
+             .dailyAudioPlayback, .calendarConnection:
             UITestRealFlowFixtureView(fixture: fixture)
         }
     }

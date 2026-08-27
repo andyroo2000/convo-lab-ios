@@ -47,8 +47,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 result = try Self.dailyAudioPlayback()
             case .calendarConnection:
                 result = try Self.calendarConnection()
-            case .achievementBadges:
-                result = Self.achievementBadges()
             case .loginScreen:
                 result = (AnyView(EmptyView()), [])
             }
@@ -216,95 +214,6 @@ private final class UITestRealFlowComposition: ObservableObject {
         )
     }
 
-    private static func achievementBadges() -> Result {
-        let baseURL = "https://raw.githubusercontent.com/andyroo2000/learning-os/27aa58cc26f986b7b63c1da32613da79b2447a3e/public/achievement-assets"
-        let badges = [
-            UITestAchievementBadge(
-                achievement: fixtureAchievement(
-                    familyKey: "card-muncher",
-                    familyTitle: "Card Muncher",
-                    metricKey: "reviews.count",
-                    unit: "reviews",
-                    tierKey: "first-nibble",
-                    tierTitle: "First Nibble",
-                    threshold: 25,
-                    currentValue: 0,
-                    description: "A hungry kaiju discovers its first review cards."
-                ),
-                imageURL: URL(string: "\(baseURL)/card-muncher-series-v1/first-nibble/locked-512.png")!
-            ),
-            UITestAchievementBadge(
-                achievement: fixtureAchievement(
-                    familyKey: "roarer",
-                    familyTitle: "Roarer",
-                    metricKey: "study.conversation.minutes",
-                    unit: "minutes",
-                    tierKey: "first-roar",
-                    tierTitle: "First Roar",
-                    threshold: 5,
-                    currentValue: 8,
-                    description: "A brave little kaiju finds its conversational voice."
-                ),
-                imageURL: URL(string: "\(baseURL)/roarer-series-v7/first-roar/earned-512.png")!
-            ),
-            UITestAchievementBadge(
-                achievement: fixtureAchievement(
-                    familyKey: "yearfire",
-                    familyTitle: "Matsuri Light",
-                    metricKey: "cards.stability_365d.count",
-                    unit: "cards",
-                    tierKey: "first-ember",
-                    tierTitle: "First Ember",
-                    threshold: 25,
-                    currentValue: 4,
-                    description: "The first lantern glows for cards remembered across a full year."
-                ),
-                imageURL: URL(string: "\(baseURL)/matsuri-light-series-v1/first-ember/locked-512.png")!
-            ),
-        ]
-        return (
-            AnyView(NavigationStack {
-                UITestAchievementBadgeGallery(badges: badges)
-            }),
-            []
-        )
-    }
-
-    private static func fixtureAchievement(
-        familyKey: String,
-        familyTitle: String,
-        metricKey: String,
-        unit: String,
-        tierKey: String,
-        tierTitle: String,
-        threshold: Int,
-        currentValue: Int,
-        description: String
-    ) -> PresentedStudyAchievement {
-        let isEarned = currentValue >= threshold
-        let imageSize = StudyAchievementAsset(path: "/fixture.png", width: 512, height: 512)
-        let imageAssets = StudyAchievementPNGAssets(png: ["512": imageSize])
-        return PresentedStudyAchievement(
-            family: StudyAchievementFamily(
-                key: familyKey,
-                title: familyTitle,
-                metricKey: metricKey,
-                unit: unit,
-                tiers: []
-            ),
-            tier: StudyAchievementTier(
-                key: tierKey,
-                title: tierTitle,
-                threshold: threshold,
-                description: description,
-                assets: StudyAchievementTierAssets(earned: imageAssets, locked: imageAssets)
-            ),
-            isEarned: isEarned,
-            currentValue: currentValue,
-            remaining: max(0, threshold - currentValue)
-        )
-    }
-
     private static var shouldReset: Bool {
         ProcessInfo.processInfo.environment["UI_TEST_RESET"] == "1"
     }
@@ -415,44 +324,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 updatedAt: now
             )]
         )
-    }
-}
-
-private struct UITestAchievementBadge: Identifiable {
-    let achievement: PresentedStudyAchievement
-    let imageURL: URL
-
-    var id: String { achievement.id }
-}
-
-private struct UITestAchievementBadgeGallery: View {
-    let badges: [UITestAchievementBadge]
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("ACHIEVEMENTS")
-                        .font(.caption.bold())
-                        .tracking(2)
-                        .foregroundStyle(ConvoLabTheme.coral)
-                    Text("Your roar is growing")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                }
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(badges) { badge in
-                        StudyAchievementBadgeCard(
-                            achievement: badge.achievement,
-                            imageURL: badge.imageURL
-                        )
-                    }
-                }
-            }
-            .padding(28)
-        }
-        .paperBackground()
-        .accessibilityIdentifier("achievement-badge-gallery")
     }
 }
 

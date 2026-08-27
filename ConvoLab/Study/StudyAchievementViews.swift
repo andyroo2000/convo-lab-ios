@@ -6,26 +6,28 @@ struct StudyAchievementBadgeCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AsyncImage(url: imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
-                switch phase {
-                case let .success(image):
-                    image
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                case .failure:
-                    Image(systemName: "photo.badge.exclamationmark")
-                        .font(.largeTitle)
-                        .foregroundStyle(ConvoLabTheme.navy.opacity(0.45))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(ConvoLabTheme.cream)
-                case .empty:
-                    ProgressView()
-                        .tint(ConvoLabTheme.navy)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(ConvoLabTheme.cream)
-                @unknown default:
-                    Color.clear
+            Group {
+                if let imageURL {
+                    AsyncImage(url: imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
+                        switch phase {
+                        case let .success(image):
+                            image
+                                .resizable()
+                                .interpolation(.high)
+                                .scaledToFill()
+                        case .failure:
+                            unavailableArtwork
+                        case .empty:
+                            ProgressView()
+                                .tint(ConvoLabTheme.navy)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(ConvoLabTheme.cream)
+                        @unknown default:
+                            unavailableArtwork
+                        }
+                    }
+                } else {
+                    unavailableArtwork
                 }
             }
             .frame(width: 256, height: 256)
@@ -59,6 +61,14 @@ struct StudyAchievementBadgeCard: View {
         .accessibilityLabel("\(achievement.tier.title), \(detail)")
         .accessibilityHint(achievement.tier.description)
         .accessibilityIdentifier("StudyAchievementBadge.\(achievement.id)")
+    }
+
+    private var unavailableArtwork: some View {
+        Image(systemName: "photo.badge.exclamationmark")
+            .font(.largeTitle)
+            .foregroundStyle(ConvoLabTheme.navy.opacity(0.45))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ConvoLabTheme.cream)
     }
 
     private var detail: String {
