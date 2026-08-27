@@ -14,7 +14,10 @@ struct StudyHomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     todayPlan
-                    StudyAchievementSpotlight(store: achievementStore)
+                    StudyAchievementSpotlight(
+                        store: achievementStore,
+                        milestoneStore: milestoneStore
+                    )
                     learningReadiness
                     masterySpread
                     readiness

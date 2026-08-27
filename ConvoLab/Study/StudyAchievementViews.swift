@@ -73,24 +73,26 @@ struct StudyAchievementBadgeCard: View {
 
     private var detail: String {
         if achievement.isEarned { return "Earned" }
-        let count = achievement.remaining ?? achievement.tier.threshold
-        let prefix = achievement.remaining == nil ? "Start with" : "\(count.formatted()) more"
-        if achievement.remaining == nil {
-            return "\(prefix) \(count.formatted()) \(unit(for: count))"
+        guard let remaining = achievement.remaining else {
+            let threshold = achievement.tier.threshold
+            return "Start with \(threshold.formatted()) \(unit(for: threshold))"
         }
-        return "\(prefix) \(unit(for: count))"
+        return "\(remaining.formatted()) more \(unit(for: remaining))"
     }
 
     private func unit(for count: Int) -> String {
-        guard count == 1, achievement.family.unit.hasSuffix("s") else {
-            return achievement.family.unit
-        }
-        return String(achievement.family.unit.dropLast())
+        guard count == 1 else { return achievement.family.unit }
+        return [
+            "cards": "card",
+            "reviews": "review",
+            "minutes": "minute",
+        ][achievement.family.unit] ?? achievement.family.unit
     }
 }
 
 struct StudyAchievementSpotlight: View {
     let store: StudyAchievementStore
+    let milestoneStore: StudyMilestoneStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -106,7 +108,7 @@ struct StudyAchievementSpotlight: View {
                 }
                 Spacer(minLength: 8)
                 NavigationLink {
-                    StudyAchievementsView(store: store)
+                    StudyAchievementsView(store: store, milestoneStore: milestoneStore)
                 } label: {
                     Label("View all", systemImage: "chevron.right")
                         .labelStyle(.titleAndIcon)
@@ -171,6 +173,7 @@ struct StudyAchievementsView: View {
     }
 
     let store: StudyAchievementStore
+    let milestoneStore: StudyMilestoneStore
     @State private var selection = Selection.progress
 
     var body: some View {
@@ -192,6 +195,14 @@ struct StudyAchievementsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                NavigationLink {
+                    StudyMilestonesView(store: milestoneStore)
+                } label: {
+                    Label("Review milestone history", systemImage: "clock.arrow.circlepath")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(ConvoLabTheme.navy)
+                }
 
                 if let catalog = store.catalog {
                     switch selection {
@@ -243,7 +254,11 @@ struct StudyAchievementsView: View {
     }
 
     private func allBadgesView(catalog: StudyAchievementCatalog) -> some View {
-        LazyVStack(alignment: .leading, spacing: 30) {
+        let achievementsByFamily = Dictionary(
+            grouping: store.allAchievements,
+            by: { $0.family.key }
+        )
+        return LazyVStack(alignment: .leading, spacing: 30) {
             ForEach(catalog.families, id: \.key) { family in
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -258,9 +273,7 @@ struct StudyAchievementsView: View {
 
                     ScrollView(.horizontal) {
                         LazyHStack(alignment: .top, spacing: 18) {
-                            ForEach(
-                                store.allAchievements.filter { $0.family.key == family.key }
-                            ) { achievement in
+                            ForEach(achievementsByFamily[family.key] ?? []) { achievement in
                                 StudyAchievementBadgeCard(
                                     achievement: achievement,
                                     imageURL: store.imageURL(for: achievement)
