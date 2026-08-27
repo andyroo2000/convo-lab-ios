@@ -116,10 +116,14 @@ nonisolated enum StudyAchievementCatalogError: Error, Equatable {
 nonisolated struct StudyAchievementProgress: Codable, Equatable, Sendable {
     let revision: String
     let metricValues: [String: Int]
+    let awards: [StudyAchievementAward]
 
     func validated() throws -> Self {
+        let awardIDs = awards.map(\.id)
         guard !revision.isEmpty,
-              metricValues.allSatisfy({ !$0.key.isEmpty && $0.value >= 0 })
+              metricValues.allSatisfy({ !$0.key.isEmpty && $0.value >= 0 }),
+              awards.allSatisfy({ !$0.id.isEmpty && $0.earnedAt.timeIntervalSinceReferenceDate.isFinite }),
+              Set(awardIDs).count == awardIDs.count
         else {
             throw StudyAchievementCatalogError.invalidStructure
         }
@@ -127,10 +131,16 @@ nonisolated struct StudyAchievementProgress: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct StudyAchievementAward: Codable, Equatable, Sendable {
+    let id: String
+    let earnedAt: Date
+}
+
 nonisolated struct PresentedStudyAchievement: Identifiable, Equatable, Sendable {
     let family: StudyAchievementFamily
     let tier: StudyAchievementTier
     let isEarned: Bool
+    let earnedAt: Date?
     let currentValue: Int?
     let remaining: Int?
 
@@ -147,22 +157,48 @@ nonisolated enum StudyAchievementPresentationModel {
         catalog: StudyAchievementCatalog,
         progress: StudyAchievementProgress?
     ) -> [PresentedStudyAchievement] {
-        let metricValues = progress?.revision == catalog.revision ? progress?.metricValues : nil
+        let compatibleProgress = progress?.revision == catalog.revision ? progress : nil
+        let metricValues = compatibleProgress?.metricValues
+        let awardsByID = Dictionary(
+            (compatibleProgress?.awards ?? []).map { ($0.id, $0.earnedAt) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         return catalog.families.flatMap { family in
             family.tiers.map { tier in
-                present(family: family, tier: tier, metricValues: metricValues)
+                let id = "\(family.key).\(tier.key)"
+                return present(
+                    family: family,
+                    tier: tier,
+                    metricValues: metricValues,
+                    earnedAt: awardsByID[id]
+                )
             }
         }
     }
 
-    nonisolated static func featured(
+    nonisolated static func recentEarned(
+        catalog: StudyAchievementCatalog,
+        progress: StudyAchievementProgress?,
+        count: Int? = nil
+    ) -> [PresentedStudyAchievement] {
+        let limit = count ?? catalog.presentation.targetVisibleBadgeCount
+        return all(catalog: catalog, progress: progress)
+            .filter(\.isEarned)
+            .sorted { ($0.earnedAt ?? .distantPast) > ($1.earnedAt ?? .distantPast) }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    nonisolated static func closestInProgress(
         catalog: StudyAchievementCatalog,
         progress: StudyAchievementProgress?
     ) -> [PresentedStudyAchievement] {
         let achievements = all(catalog: catalog, progress: progress)
         let count = catalog.presentation.targetVisibleBadgeCount
-        let metricValues = progress?.revision == catalog.revision ? progress?.metricValues : nil
+        let compatibleProgress = progress?.revision == catalog.revision ? progress : nil
+        let metricValues = compatibleProgress?.metricValues
         let hasProgress = metricValues?.values.contains(where: { $0 > 0 }) == true
+            || compatibleProgress?.awards.isEmpty == false
 
         guard hasProgress else {
             let achievementsByID = Dictionary(
@@ -174,34 +210,18 @@ nonisolated enum StudyAchievementPresentationModel {
                 .map { $0 }
         }
 
-        let familyOrder = Dictionary(
-            uniqueKeysWithValues: catalog.families.enumerated().map { ($0.element.key, $0.offset) }
-        )
-        var selected = catalog.families.compactMap { family in
-            achievements.last {
-                $0.family.key == family.key && $0.isEarned
-            }
-        }
-        selected.sort { left, right in
-            let leftDepth = left.family.tiers.firstIndex { $0.key == left.tier.key } ?? 0
-            let rightDepth = right.family.tiers.firstIndex { $0.key == right.tier.key } ?? 0
-            if leftDepth != rightDepth { return leftDepth > rightDepth }
-            let leftRatio = Double(left.currentValue ?? 0) / Double(left.tier.threshold)
-            let rightRatio = Double(right.currentValue ?? 0) / Double(right.tier.threshold)
-            if leftRatio != rightRatio { return leftRatio > rightRatio }
-            return familyOrder[left.family.key, default: 0]
-                < familyOrder[right.family.key, default: 0]
-        }
-        if selected.count > count {
-            selected = Array(selected.prefix(count))
-        }
+        guard catalog.presentation.fillWithLockedCandidates else { return [] }
 
         let order = Dictionary(
             uniqueKeysWithValues: achievements.enumerated().map { ($0.element.id, $0.offset) }
         )
-        let selectedIDs = Set(selected.map(\.id))
-        let candidates = achievements
-            .filter { !$0.isEarned && !selectedIDs.contains($0.id) }
+        let candidates = catalog.families.compactMap { family in
+            let familyAchievements = achievements.filter { $0.family.key == family.key }
+            let highestEarnedIndex = familyAchievements.lastIndex { $0.isEarned }
+            return familyAchievements
+                .dropFirst((highestEarnedIndex ?? -1) + 1)
+                .first { !$0.isEarned }
+        }
             .sorted { left, right in
                 let leftRatio = Double(left.currentValue ?? 0) / Double(left.tier.threshold)
                 let rightRatio = Double(right.currentValue ?? 0) / Double(right.tier.threshold)
@@ -211,33 +231,21 @@ nonisolated enum StudyAchievementPresentationModel {
                 if leftRemaining != rightRemaining { return leftRemaining < rightRemaining }
                 return order[left.id, default: 0] < order[right.id, default: 0]
             }
-
-        guard catalog.presentation.fillWithLockedCandidates else {
-            return Array(selected.prefix(count))
-        }
-
-        var representedFamilies = Set(selected.map(\.family.key))
-        for candidate in candidates where selected.count < count {
-            guard representedFamilies.insert(candidate.family.key).inserted else { continue }
-            selected.append(candidate)
-        }
-        for candidate in candidates where selected.count < count {
-            guard !selected.contains(where: { $0.id == candidate.id }) else { continue }
-            selected.append(candidate)
-        }
-        return Array(selected.prefix(count))
+        return Array(candidates.prefix(count))
     }
 
     private nonisolated static func present(
         family: StudyAchievementFamily,
         tier: StudyAchievementTier,
-        metricValues: [String: Int]?
+        metricValues: [String: Int]?,
+        earnedAt: Date?
     ) -> PresentedStudyAchievement {
         let currentValue = metricValues?[family.metricKey]
         return PresentedStudyAchievement(
             family: family,
             tier: tier,
-            isEarned: currentValue.map { $0 >= tier.threshold } ?? false,
+            isEarned: earnedAt != nil,
+            earnedAt: earnedAt,
             currentValue: currentValue,
             remaining: currentValue.map { max(0, tier.threshold - $0) }
         )
@@ -256,19 +264,32 @@ final class StudyAchievementStore {
     private(set) var progress: StudyAchievementProgress?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var progressErrorMessage: String?
 
     init(api: APIClient) {
         self.api = api
     }
 
-    var featuredAchievements: [PresentedStudyAchievement] {
+    var recentAchievements: [PresentedStudyAchievement] {
         guard let catalog else { return [] }
-        return StudyAchievementPresentationModel.featured(catalog: catalog, progress: progress)
+        return StudyAchievementPresentationModel.recentEarned(catalog: catalog, progress: progress)
     }
 
-    var allAchievements: [PresentedStudyAchievement] {
+    var inProgressAchievements: [PresentedStudyAchievement] {
         guard let catalog else { return [] }
-        return StudyAchievementPresentationModel.all(catalog: catalog, progress: progress)
+        return StudyAchievementPresentationModel.closestInProgress(
+            catalog: catalog,
+            progress: progress
+        )
+    }
+
+    var earnedAchievements: [PresentedStudyAchievement] {
+        guard let catalog else { return [] }
+        return StudyAchievementPresentationModel.recentEarned(
+            catalog: catalog,
+            progress: progress,
+            count: .max
+        )
     }
 
     func activate(userID: Int) {
@@ -278,6 +299,7 @@ final class StudyAchievementStore {
         progress = nil
         refreshedAt = nil
         errorMessage = nil
+        progressErrorMessage = nil
         isLoading = false
     }
 
@@ -287,6 +309,7 @@ final class StudyAchievementStore {
         progress = nil
         refreshedAt = nil
         errorMessage = nil
+        progressErrorMessage = nil
         isLoading = false
     }
 
@@ -330,20 +353,26 @@ final class StudyAchievementStore {
             )
             let validatedCatalog = try loadedCatalog.validated()
             var loadedProgress = progress?.revision == validatedCatalog.revision ? progress : nil
+            var loadedProgressError: String?
             do {
                 let response: StudyAchievementProgress = try await api.request(
-                    "/api/achievements/progress"
+                    "/api/achievements/evaluate",
+                    method: "POST"
                 )
                 let validatedProgress = try response.validated()
                 loadedProgress = validatedProgress.revision == validatedCatalog.revision
                     ? validatedProgress
                     : nil
+                if loadedProgress == nil {
+                    loadedProgressError = "Your badges couldn’t be refreshed right now."
+                }
             } catch let error as StudyAchievementCatalogError {
                 print("Achievement progress response failed validation: \(error)")
-                // The catalog's locked no-data selection remains safe for a bad progress payload.
+                loadedProgressError = "Your badges couldn’t be refreshed right now."
             } catch {
                 // Preserve a same-revision snapshot when possible. Otherwise the catalog's
                 // locked no-data selection remains a useful default while progress is offline.
+                loadedProgressError = "Your badges couldn’t be refreshed right now."
             }
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,
@@ -353,6 +382,7 @@ final class StudyAchievementStore {
             progress = loadedProgress
             refreshedAt = .now
             errorMessage = nil
+            progressErrorMessage = loadedProgressError
         } catch {
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,

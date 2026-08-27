@@ -93,7 +93,7 @@ struct StudyAchievementBadgeCard: View {
         return [
             "cards": "card",
             "reviews": "review",
-            "minutes": "minute",
+            "hours": "hour",
         ][achievement.family.unit] ?? achievement.family.unit
     }
 }
@@ -126,25 +126,37 @@ struct StudyAchievementSpotlight: View {
                 }
             }
 
-            if store.catalog != nil {
+            if store.catalog != nil,
+               store.progress != nil || store.progressErrorMessage == nil {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(store.featuredAchievements) { achievement in
+                        ForEach(store.recentAchievements) { achievement in
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
                                 imageURL: store.imageURL(for: achievement)
                             )
+                        }
+                        if store.recentAchievements.isEmpty {
+                            Text("Your earned badges will appear here.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.bottom, 12)
                 }
                 .scrollIndicators(.hidden)
                 .padding(.top, 18)
+                if let progressErrorMessage = store.progressErrorMessage {
+                    Text(progressErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                }
             } else if store.isLoading {
                 ProgressView("Loading achievements…")
                     .tint(ConvoLabTheme.navy)
                     .frame(maxWidth: .infinity, minHeight: 130)
-            } else if let errorMessage = store.errorMessage {
+            } else if let errorMessage = store.progressErrorMessage ?? store.errorMessage {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(errorMessage)
                         .font(.subheadline)
@@ -175,7 +187,7 @@ struct StudyAchievementSpotlight: View {
 struct StudyAchievementsView: View {
     private enum Selection: String, CaseIterable, Identifiable {
         case progress = "In progress"
-        case all = "All badges"
+        case earned = "Earned"
 
         var id: Self { self }
     }
@@ -212,12 +224,26 @@ struct StudyAchievementsView: View {
                         .foregroundStyle(ConvoLabTheme.navy)
                 }
 
-                if let catalog = store.catalog {
+                if store.catalog != nil {
+                    if let progressErrorMessage = store.progressErrorMessage {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(progressErrorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Try again") {
+                                Task { await store.refresh() }
+                            }
+                            .font(.subheadline.bold())
+                        }
+                    }
                     switch selection {
                     case .progress:
                         progressView
-                    case .all:
-                        allBadgesView(catalog: catalog)
+                    case .earned:
+                        if store.progress != nil || store.progressErrorMessage == nil {
+                            earnedBadgesView
+                        }
                     }
                 } else if store.isLoading {
                     ProgressView("Loading achievements…")
@@ -247,59 +273,51 @@ struct StudyAchievementsView: View {
 
     private var progressView: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Your strongest earned badges and the achievements you’re closest to unlocking next.")
+            Text("The achievements you’re closest to unlocking next.")
                 .font(.body)
                 .foregroundStyle(.secondary)
 
-            ForEach(store.featuredAchievements) { achievement in
-                StudyAchievementBadgeCard(
-                    achievement: achievement,
-                    imageURL: store.imageURL(for: achievement)
-                )
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func allBadgesView(catalog: StudyAchievementCatalog) -> some View {
-        let achievementsByFamily = Dictionary(
-            grouping: store.allAchievements,
-            by: { $0.family.key }
-        )
-        return LazyVStack(alignment: .leading, spacing: 30) {
-            ForEach(catalog.families, id: \.key) { family in
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(family.title)
-                            .font(.title2.bold())
-                            .foregroundStyle(ConvoLabTheme.navy)
-                        Text(familyProgress(family))
-                            .font(.caption.bold())
-                            .tracking(1)
-                            .foregroundStyle(ConvoLabTheme.coral)
-                    }
-
-                    ScrollView(.horizontal) {
-                        LazyHStack(alignment: .top, spacing: 14) {
-                            ForEach(achievementsByFamily[family.key] ?? []) { achievement in
-                                StudyAchievementBadgeCard(
-                                    achievement: achievement,
-                                    imageURL: store.imageURL(for: achievement)
-                                )
-                            }
-                        }
-                        .padding(.bottom, 12)
-                    }
-                    .scrollIndicators(.hidden)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 128, maximum: 128), spacing: 16)],
+                alignment: .leading,
+                spacing: 20
+            ) {
+                ForEach(store.inProgressAchievements) { achievement in
+                    StudyAchievementBadgeCard(
+                        achievement: achievement,
+                        imageURL: store.imageURL(for: achievement)
+                    )
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func familyProgress(_ family: StudyAchievementFamily) -> String {
-        let value = store.progress?.revision == store.catalog?.revision
-            ? store.progress?.metricValues[family.metricKey] ?? 0
-            : 0
-        return "\(value.formatted()) \(family.unit) so far".uppercased()
+    private var earnedBadgesView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Every badge you’ve earned, newest first.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+
+            if store.earnedAchievements.isEmpty {
+                Text("Your earned badges will appear here.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 128, maximum: 128), spacing: 16)],
+                    alignment: .leading,
+                    spacing: 20
+                ) {
+                    ForEach(store.earnedAchievements) { achievement in
+                        StudyAchievementBadgeCard(
+                            achievement: achievement,
+                            imageURL: store.imageURL(for: achievement)
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }
