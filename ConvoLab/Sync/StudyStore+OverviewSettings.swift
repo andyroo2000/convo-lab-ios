@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 extension StudyStore {
-    func refreshOverview() async {
+    func refreshOverview(timeZone: TimeZone = .autoupdatingCurrent) async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
         let settingsMutationRevision = studySettingsMutationRevision
@@ -19,7 +19,10 @@ extension StudyStore {
         }
 
         do {
-            let refreshed: StudyOverview = try await api.request("/api/study/overview")
+            let refreshed: StudyOverview = try await api.request(
+                "/api/study/overview",
+                query: [URLQueryItem(name: "time_zone", value: timeZone.identifier)]
+            )
             guard isCurrentActivation(userID, generation: activationGeneration),
                   overviewRefreshID == refreshID else { return }
             let responseSettings = StudySettingsPolicy.settings(

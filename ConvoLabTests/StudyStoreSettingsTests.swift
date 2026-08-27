@@ -214,6 +214,48 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOverviewRefreshSendsDeviceTimeZone() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let expectedTimeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            let queryItems = try XCTUnwrap(
+                URLComponents(url: XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                    .queryItems
+            )
+            XCTAssertEqual(
+                queryItems.first(where: { $0.name == "time_zone" })?.value,
+                expectedTimeZone.identifier
+            )
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    #"{"dueCount":0,"newCount":0,"reviewCount":0,"newCardsPerDay":20}"#.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshOverview(timeZone: expectedTimeZone)
+
+        XCTAssertNil(store.overviewRefreshErrorMessage)
+    }
+
+    @MainActor
     func testOverviewRefreshPublishesSeparateN5VocabularyAndGrammarMastery() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { request in
