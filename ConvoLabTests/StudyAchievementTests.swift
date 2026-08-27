@@ -25,6 +25,23 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertTrue(featured.allSatisfy { !$0.isEarned && $0.currentValue == nil })
     }
 
+    func testNewAccountUsesCanonicalFallbackOrderBeforeProgressStarts() throws {
+        let catalog = try makeCatalog().validated()
+        let progress = StudyAchievementProgress(
+            revision: catalog.revision,
+            metricValues: ["stable.count": 0, "reviews.count": 0, "voice.hours": 0],
+            awards: []
+        )
+
+        XCTAssertEqual(
+            StudyAchievementPresentationModel.closestInProgress(
+                catalog: catalog,
+                progress: progress
+            ).map(\.id),
+            ["reviews.first", "voice.first", "stable.first"]
+        )
+    }
+
     func testInProgressShowsOnlyTheNextLockedTierPerFamily() throws {
         let catalog = try makeCatalog().validated()
         let progress = StudyAchievementProgress(
@@ -171,6 +188,56 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertEqual(
             store.recentAchievements.map(\.id),
             ["reviews.second", "reviews.first"]
+        )
+    }
+
+    @MainActor
+    func testStoreSurfacesInitialProgressFailureInsteadOfShowingEmptyHistory() async throws {
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/api/achievements/catalog" {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    catalogPayload
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Unavailable"}"#.utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        client.setAccessToken("achievement-token")
+        let store = StudyAchievementStore(api: client)
+        store.activate(userID: 41)
+
+        await store.refresh()
+
+        XCTAssertNotNil(store.catalog)
+        XCTAssertNil(store.progress)
+        XCTAssertEqual(store.progressErrorMessage, "Your badges couldn’t be refreshed right now.")
+        XCTAssertTrue(store.earnedAchievements.isEmpty)
+        XCTAssertEqual(
+            store.inProgressAchievements.map(\.id),
+            ["reviews.first", "voice.first", "stable.first"]
         )
     }
 

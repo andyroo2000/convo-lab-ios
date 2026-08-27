@@ -160,7 +160,8 @@ nonisolated enum StudyAchievementPresentationModel {
         let compatibleProgress = progress?.revision == catalog.revision ? progress : nil
         let metricValues = compatibleProgress?.metricValues
         let awardsByID = Dictionary(
-            uniqueKeysWithValues: (compatibleProgress?.awards ?? []).map { ($0.id, $0.earnedAt) }
+            (compatibleProgress?.awards ?? []).map { ($0.id, $0.earnedAt) },
+            uniquingKeysWith: { _, latest in latest }
         )
         return catalog.families.flatMap { family in
             family.tiers.map { tier in
@@ -194,9 +195,12 @@ nonisolated enum StudyAchievementPresentationModel {
     ) -> [PresentedStudyAchievement] {
         let achievements = all(catalog: catalog, progress: progress)
         let count = catalog.presentation.targetVisibleBadgeCount
-        let metricValues = progress?.revision == catalog.revision ? progress?.metricValues : nil
+        let compatibleProgress = progress?.revision == catalog.revision ? progress : nil
+        let metricValues = compatibleProgress?.metricValues
+        let hasProgress = metricValues?.values.contains(where: { $0 > 0 }) == true
+            || compatibleProgress?.awards.isEmpty == false
 
-        guard metricValues != nil else {
+        guard hasProgress else {
             let achievementsByID = Dictionary(
                 uniqueKeysWithValues: achievements.map { ($0.id, $0) }
             )
@@ -206,11 +210,17 @@ nonisolated enum StudyAchievementPresentationModel {
                 .map { $0 }
         }
 
+        guard catalog.presentation.fillWithLockedCandidates else { return [] }
+
         let order = Dictionary(
             uniqueKeysWithValues: achievements.enumerated().map { ($0.element.id, $0.offset) }
         )
         let candidates = catalog.families.compactMap { family in
-            achievements.first { $0.family.key == family.key && !$0.isEarned }
+            let familyAchievements = achievements.filter { $0.family.key == family.key }
+            let highestEarnedIndex = familyAchievements.lastIndex { $0.isEarned }
+            return familyAchievements
+                .dropFirst((highestEarnedIndex ?? -1) + 1)
+                .first { !$0.isEarned }
         }
             .sorted { left, right in
                 let leftRatio = Double(left.currentValue ?? 0) / Double(left.tier.threshold)
@@ -254,6 +264,7 @@ final class StudyAchievementStore {
     private(set) var progress: StudyAchievementProgress?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var progressErrorMessage: String?
 
     init(api: APIClient) {
         self.api = api
@@ -288,6 +299,7 @@ final class StudyAchievementStore {
         progress = nil
         refreshedAt = nil
         errorMessage = nil
+        progressErrorMessage = nil
         isLoading = false
     }
 
@@ -297,6 +309,7 @@ final class StudyAchievementStore {
         progress = nil
         refreshedAt = nil
         errorMessage = nil
+        progressErrorMessage = nil
         isLoading = false
     }
 
@@ -340,6 +353,7 @@ final class StudyAchievementStore {
             )
             let validatedCatalog = try loadedCatalog.validated()
             var loadedProgress = progress?.revision == validatedCatalog.revision ? progress : nil
+            var loadedProgressError: String?
             do {
                 let response: StudyAchievementProgress = try await api.request(
                     "/api/achievements/evaluate",
@@ -349,12 +363,16 @@ final class StudyAchievementStore {
                 loadedProgress = validatedProgress.revision == validatedCatalog.revision
                     ? validatedProgress
                     : nil
+                if loadedProgress == nil {
+                    loadedProgressError = "Your badges couldn’t be refreshed right now."
+                }
             } catch let error as StudyAchievementCatalogError {
                 print("Achievement progress response failed validation: \(error)")
-                // The catalog's locked no-data selection remains safe for a bad progress payload.
+                loadedProgressError = "Your badges couldn’t be refreshed right now."
             } catch {
                 // Preserve a same-revision snapshot when possible. Otherwise the catalog's
                 // locked no-data selection remains a useful default while progress is offline.
+                loadedProgressError = "Your badges couldn’t be refreshed right now."
             }
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,
@@ -364,6 +382,7 @@ final class StudyAchievementStore {
             progress = loadedProgress
             refreshedAt = .now
             errorMessage = nil
+            progressErrorMessage = loadedProgressError
         } catch {
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,

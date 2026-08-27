@@ -126,7 +126,8 @@ struct StudyAchievementSpotlight: View {
                 }
             }
 
-            if store.catalog != nil {
+            if store.catalog != nil,
+               store.progress != nil || store.progressErrorMessage == nil {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(store.recentAchievements) { achievement in
@@ -145,11 +146,17 @@ struct StudyAchievementSpotlight: View {
                 }
                 .scrollIndicators(.hidden)
                 .padding(.top, 18)
+                if let progressErrorMessage = store.progressErrorMessage {
+                    Text(progressErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                }
             } else if store.isLoading {
                 ProgressView("Loading achievements…")
                     .tint(ConvoLabTheme.navy)
                     .frame(maxWidth: .infinity, minHeight: 130)
-            } else if let errorMessage = store.errorMessage {
+            } else if let errorMessage = store.progressErrorMessage ?? store.errorMessage {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(errorMessage)
                         .font(.subheadline)
@@ -218,11 +225,25 @@ struct StudyAchievementsView: View {
                 }
 
                 if store.catalog != nil {
+                    if let progressErrorMessage = store.progressErrorMessage {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(progressErrorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Try again") {
+                                Task { await store.refresh() }
+                            }
+                            .font(.subheadline.bold())
+                        }
+                    }
                     switch selection {
                     case .progress:
                         progressView
                     case .earned:
-                        earnedBadgesView
+                        if store.progress != nil || store.progressErrorMessage == nil {
+                            earnedBadgesView
+                        }
                     }
                 } else if store.isLoading {
                     ProgressView("Loading achievements…")
