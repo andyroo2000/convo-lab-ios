@@ -267,7 +267,9 @@ private final class UITestRealFlowComposition: ObservableObject {
         ))
         let achievementStore = StudyAchievementStore(api: api)
         achievementStore.activate(userID: userID)
-        let milestoneStore = StudyMilestoneStore(defaults: UserDefaults())
+        let milestoneStore = StudyMilestoneStore(
+            defaults: try fixtureDefaults(named: "study-dashboard-milestones")
+        )
         milestoneStore.activate(userID: userID)
         let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
         return (
@@ -296,17 +298,23 @@ private final class UITestRealFlowComposition: ObservableObject {
         return url
     }
 
-    private static func mockAPI(
-        allowsFixtureAudio: Bool = false,
-        baseURL: URL = fixtureBaseURL
-    ) -> APIClient {
+    private static func mockAPI(allowsFixtureAudio: Bool = false) -> APIClient {
         UITestURLProtocol.allowsFixtureAudio = allowsFixtureAudio
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [UITestURLProtocol.self]
         return APIClient(
-            baseURL: baseURL,
+            baseURL: fixtureBaseURL,
             session: URLSession(configuration: configuration)
         )
+    }
+
+    private static func fixtureDefaults(named name: String) throws -> UserDefaults {
+        let suite = "com.cdcg.convolab.ui-tests.\(name)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            throw UITestFixtureConstructionError.unavailableDefaults
+        }
+        if shouldReset { defaults.removePersistentDomain(forName: suite) }
+        return defaults
     }
 
     private static func persistentContainer(named name: String) throws -> ModelContainer {
