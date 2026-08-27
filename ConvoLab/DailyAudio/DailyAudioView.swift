@@ -112,7 +112,6 @@ struct DailyAudioView: View {
                 .padding()
             }
             .paperBackground()
-            .navigationTitle("Daily Audio")
             .refreshable {
                 _ = await store.refresh()
             }
@@ -140,7 +139,7 @@ struct DailyAudioView: View {
                 }
                 Button("Keep Existing Audio", role: .cancel) {}
             } message: {
-                Text("This will overwrite today’s existing audio with a \(selectedEdition.rawValue)-minute edition. The finished tracks will download automatically.")
+                Text("This will overwrite today’s existing audio. The finished tracks will download automatically.")
             }
             .navigationDestination(
                 isPresented: Binding(
@@ -217,7 +216,7 @@ struct DailyAudioView: View {
                 ProgressView()
             }
             Text(total > 0
-                ? "Generating \(practice.targetDurationMinutes)-minute edition… \(completed) of \(total) tracks ready"
+                ? "Generating audio… \(completed) of \(total) tracks ready"
                 : "Preparing today’s audio…")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -270,9 +269,6 @@ struct DailyAudioView: View {
                             "\(Self.relativePracticeDate(practice.practiceDate)), \(practice.practiceDate)"
                         )
                     Text(practice.status.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("\(practice.targetDurationMinutes)-minute edition")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

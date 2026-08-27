@@ -218,6 +218,7 @@ private final class UITestRealFlowComposition: ObservableObject {
 
     private static func studyDashboard() throws -> Result {
         let container = try Persistence.makeContainer(inMemory: true)
+        let timeContainer = try StudyTimePersistence.makeContainer(inMemory: true)
         _ = URLProtocol.registerClass(UITestURLProtocol.self)
         let api = mockAPI()
         let mediaCache = MediaCache(
@@ -271,16 +272,52 @@ private final class UITestRealFlowComposition: ObservableObject {
             defaults: try fixtureDefaults(named: "study-dashboard-milestones")
         )
         milestoneStore.activate(userID: userID)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let nextLessonStart = DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: 2027,
+            month: 8,
+            day: 31,
+            hour: 14,
+            minute: 30
+        ).date!
+        let calendarService = UITestGoogleCalendarService(
+            connected: true,
+            nextLesson: GoogleCalendarNextLesson(
+                title: "iTalki with Yuki",
+                startsAt: nextLessonStart,
+                endsAt: nextLessonStart.addingTimeInterval(60 * 60)
+            )
+        )
+        let timeStore = StudyTimeStore(
+            api: api,
+            context: timeContainer.mainContext,
+            googleCalendar: calendarService
+        )
+        timeStore.activate(userID: userID)
         let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
         return (
             AnyView(StudyHomeView(
                 store: store,
                 player: player,
-                timeStore: nil,
+                timeStore: timeStore,
                 milestoneStore: milestoneStore,
                 achievementStore: achievementStore
             )),
-            [container, api, mediaCache, store, achievementStore, milestoneStore, player]
+            [
+                container,
+                timeContainer,
+                api,
+                mediaCache,
+                store,
+                achievementStore,
+                milestoneStore,
+                calendarService,
+                timeStore,
+                player,
+            ]
         )
     }
 
@@ -546,7 +583,16 @@ private final class UITestCredentialStore: CredentialStore {
 }
 
 private final class UITestGoogleCalendarService: GoogleCalendarConnectionServing {
-    var connected = false
+    var connected: Bool
+    var nextLesson: GoogleCalendarNextLesson?
+
+    init(
+        connected: Bool = false,
+        nextLesson: GoogleCalendarNextLesson? = nil
+    ) {
+        self.connected = connected
+        self.nextLesson = nextLesson
+    }
 
     func status() async throws -> GoogleCalendarConnectionStatus {
         GoogleCalendarConnectionStatus(
@@ -555,7 +601,8 @@ private final class UITestGoogleCalendarService: GoogleCalendarConnectionServing
             scopes: connected ? ["calendar.readonly"] : [],
             settings: nil,
             connectedAt: connected ? .now : nil,
-            lastSyncedAt: nil
+            lastSyncedAt: nil,
+            nextLesson: connected ? nextLesson : nil
         )
     }
 

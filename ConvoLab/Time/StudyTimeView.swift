@@ -132,7 +132,6 @@ struct StudyTimeView: View {
                     onDelete: delete
                 )
             }
-            .navigationTitle("Study Time")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
