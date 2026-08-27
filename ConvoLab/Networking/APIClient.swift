@@ -32,6 +32,15 @@ final class APIClient {
         accessToken = token
     }
 
+    func sameOriginResourceURL(_ path: String) -> URL? {
+        guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
+              isSameOrigin(url, baseURL)
+        else {
+            return nil
+        }
+        return url
+    }
+
     func request<Response: Decodable & Sendable>(
         _ path: String,
         method: String = "GET",

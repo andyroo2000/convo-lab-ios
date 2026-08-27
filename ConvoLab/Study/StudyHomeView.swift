@@ -5,6 +5,7 @@ struct StudyHomeView: View {
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
     let milestoneStore: StudyMilestoneStore
+    let achievementStore: StudyAchievementStore
     @State private var showingFailedChanges = false
     @State private var interruptedCompletion: StudyMilestoneCompletion?
 
@@ -13,16 +14,10 @@ struct StudyHomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     todayPlan
-                    if !milestoneStore.earnedAwards.isEmpty {
-                        NavigationLink {
-                            StudyMilestonesView(store: milestoneStore)
-                        } label: {
-                            StudyRecentMilestonesSection(
-                                awards: Array(milestoneStore.earnedAwards.prefix(3))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    StudyAchievementSpotlight(
+                        store: achievementStore,
+                        milestoneStore: milestoneStore
+                    )
                     learningReadiness
                     masterySpread
                     readiness
@@ -53,6 +48,7 @@ struct StudyHomeView: View {
                         Task {
                             await store.synchronize()
                             _ = try? await milestoneStore.synchronize()
+                            await achievementStore.refresh()
                             await refreshWaniKaniIfNeeded(force: true)
                             await refreshCalendarIfNeeded(force: true)
                         }
@@ -69,6 +65,7 @@ struct StudyHomeView: View {
             .refreshable {
                 await store.synchronize()
                 _ = try? await milestoneStore.synchronize()
+                await achievementStore.refresh()
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
