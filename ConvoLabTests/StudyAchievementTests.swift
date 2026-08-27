@@ -4,6 +4,12 @@ import XCTest
 final class StudyAchievementTests: XCTestCase {
     private nonisolated(unsafe) static var retainedClients: [APIClient] = []
 
+    override func tearDown() {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = nil
+        super.tearDown()
+    }
+
     func testNoDataUsesCanonicalFallbackOrder() throws {
         let catalog = try makeCatalog().validated()
 
@@ -37,6 +43,33 @@ final class StudyAchievementTests: XCTestCase {
 
         XCTAssertEqual(featured.map(\.id), ["reviews.second", "voice.first", "stable.first"])
         XCTAssertEqual(featured.map(\.isEarned), [true, false, false])
+    }
+
+    func testFeaturedRanksEarnedFamiliesWhenTheyOutnumberVisibleSlots() throws {
+        var crowdedCatalog = makeCatalog()
+        crowdedCatalog = StudyAchievementCatalog(
+            revision: crowdedCatalog.revision,
+            presentation: crowdedCatalog.presentation,
+            families: crowdedCatalog.families + [
+                family(key: "extra", title: "Extra", metric: "extra.count", unit: "reviews"),
+            ]
+        )
+        let catalog = try crowdedCatalog.validated()
+
+        let featured = StudyAchievementPresentationModel.featured(
+            catalog: catalog,
+            progress: StudyAchievementProgress(
+                revision: catalog.revision,
+                metricValues: [
+                    "stable.count": 25,
+                    "reviews.count": 120,
+                    "voice.minutes": 30,
+                    "extra.count": 500,
+                ]
+            )
+        )
+
+        XCTAssertEqual(featured.map(\.id), ["extra.second", "reviews.second", "voice.first"])
     }
 
     func testRevisionMismatchFallsBackInsteadOfApplyingStaleMetrics() throws {
@@ -131,6 +164,77 @@ final class StudyAchievementTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testAccountSwitchDropsStaleRefreshAndForcedRefreshWaitsForInFlightLoad() async throws {
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        let (requests, requestContinuation) = AsyncStream<(
+            URLRequest,
+            MockURLProtocol.DeferredCompletion
+        )>.makeStream()
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = { request, completion in
+            requestContinuation.yield((request, completion))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let store = StudyAchievementStore(api: client)
+        var iterator = requests.makeAsyncIterator()
+
+        store.activate(userID: 1)
+        let staleRefresh = Task { await store.refresh() }
+        guard let (staleCatalogRequest, staleCatalogCompletion) = await iterator.next() else {
+            return XCTFail("Expected the stale catalog request")
+        }
+        XCTAssertEqual(staleCatalogRequest.url?.path, "/api/achievements/catalog")
+        store.activate(userID: 2)
+        staleCatalogCompletion(.success(response(for: staleCatalogRequest, data: catalogPayload)))
+        guard let (staleProgressRequest, staleProgressCompletion) = await iterator.next() else {
+            return XCTFail("Expected the stale progress request")
+        }
+        staleProgressCompletion(.success(response(
+            for: staleProgressRequest,
+            data: progressPayload(reviews: 120)
+        )))
+        await staleRefresh.value
+        XCTAssertNil(store.catalog)
+        XCTAssertNil(store.progress)
+
+        let initialRefresh = Task { await store.refresh() }
+        guard let (initialCatalogRequest, initialCatalogCompletion) = await iterator.next() else {
+            return XCTFail("Expected the current catalog request")
+        }
+        let forcedRefresh = Task { await store.refresh() }
+        initialCatalogCompletion(.success(response(for: initialCatalogRequest, data: catalogPayload)))
+        guard let (initialProgressRequest, initialProgressCompletion) = await iterator.next() else {
+            return XCTFail("Expected the current progress request")
+        }
+        initialProgressCompletion(.success(response(
+            for: initialProgressRequest,
+            data: progressPayload(reviews: 25)
+        )))
+        await initialRefresh.value
+
+        guard let (forcedCatalogRequest, forcedCatalogCompletion) = await iterator.next() else {
+            return XCTFail("Expected the forced catalog request after the in-flight load")
+        }
+        forcedCatalogCompletion(.success(response(for: forcedCatalogRequest, data: catalogPayload)))
+        guard let (forcedProgressRequest, forcedProgressCompletion) = await iterator.next() else {
+            return XCTFail("Expected the forced progress request")
+        }
+        forcedProgressCompletion(.success(response(
+            for: forcedProgressRequest,
+            data: progressPayload(reviews: 50)
+        )))
+        await forcedRefresh.value
+
+        XCTAssertEqual(store.progress?.metricValues["reviews.count"], 50)
+    }
+
     private func makeCatalog() -> StudyAchievementCatalog {
         StudyAchievementCatalog(
             revision: "achievement-collection-v1",
@@ -183,6 +287,29 @@ final class StudyAchievementTests: XCTestCase {
             path: path ?? "/achievement-assets/test-\(size).png",
             width: size,
             height: size
+        )
+    }
+
+    private func progressPayload(reviews: Int) -> Data {
+        Data(
+            """
+            {"revision":"achievement-collection-v1","metricValues":{"stable.count":0,"reviews.count":\(reviews),"voice.minutes":20}}
+            """.utf8
+        )
+    }
+
+    private func response(
+        for request: URLRequest,
+        data: Data
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
         )
     }
 

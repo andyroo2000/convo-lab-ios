@@ -172,10 +172,23 @@ nonisolated enum StudyAchievementPresentationModel {
                 .map { $0 }
         }
 
+        let familyOrder = Dictionary(
+            uniqueKeysWithValues: catalog.families.enumerated().map { ($0.element.key, $0.offset) }
+        )
         var selected = catalog.families.compactMap { family in
             achievements.last {
                 $0.family.key == family.key && $0.isEarned
             }
+        }
+        selected.sort { left, right in
+            let leftDepth = left.family.tiers.firstIndex { $0.key == left.tier.key } ?? 0
+            let rightDepth = right.family.tiers.firstIndex { $0.key == right.tier.key } ?? 0
+            if leftDepth != rightDepth { return leftDepth > rightDepth }
+            let leftRatio = Double(left.currentValue ?? 0) / Double(left.tier.threshold)
+            let rightRatio = Double(right.currentValue ?? 0) / Double(right.tier.threshold)
+            if leftRatio != rightRatio { return leftRatio > rightRatio }
+            return familyOrder[left.family.key, default: 0]
+                < familyOrder[right.family.key, default: 0]
         }
         if selected.count > count {
             selected = Array(selected.prefix(count))
@@ -279,10 +292,26 @@ final class StudyAchievementStore {
         if let refreshedAt, Date.now.timeIntervalSince(refreshedAt) < maxAge {
             return
         }
-        await refresh()
+        await performRefresh()
     }
 
     func refresh() async {
+        let requestedUserID = activeUserID
+        let requestedSequence = refreshSequence
+        while isLoading {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return
+            }
+            guard activeUserID == requestedUserID,
+                  refreshSequence == requestedSequence
+            else { return }
+        }
+        await performRefresh()
+    }
+
+    private func performRefresh() async {
         guard let requestedUserID = activeUserID, !isLoading else { return }
         refreshSequence += 1
         let sequence = refreshSequence

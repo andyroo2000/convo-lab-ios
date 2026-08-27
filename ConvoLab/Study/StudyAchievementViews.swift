@@ -82,6 +82,7 @@ struct StudyAchievementBadgeCard: View {
 
     private func unit(for count: Int) -> String {
         guard count == 1 else { return achievement.family.unit }
+        // Unknown catalog units remain unchanged rather than guessing at irregular plurals.
         return [
             "cards": "card",
             "reviews": "review",
