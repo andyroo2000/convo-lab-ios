@@ -5,7 +5,7 @@ struct StudyAchievementBadgeCard: View {
     let imageURL: URL?
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: -1) {
             Group {
                 if let imageURL {
                     AsyncImage(url: imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
@@ -30,33 +30,40 @@ struct StudyAchievementBadgeCard: View {
                     unavailableArtwork
                 }
             }
-            .frame(width: 256, height: 256)
+            .frame(width: 128, height: 128)
             .clipped()
             .accessibilityHidden(true)
 
-            VStack(spacing: 5) {
+            VStack(spacing: 3) {
                 Text(achievement.tier.title)
-                    .font(.title3.bold())
+                    .font(.caption.bold())
                     .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 Text(detail)
-                    .font(.subheadline.bold())
+                    .font(.caption2.bold())
                     .foregroundStyle(ConvoLabTheme.cream.opacity(0.9))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(ConvoLabTheme.cream)
-            .frame(width: 256)
-            .frame(minHeight: 88)
-            .background(achievement.isEarned ? ConvoLabTheme.navy : Color(red: 0.38, green: 0.44, blue: 0.48))
-            .clipShape(
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(width: 128)
+            .frame(height: 62)
+            .background {
                 UnevenRoundedRectangle(
-                    cornerRadii: .init(bottomLeading: 18, bottomTrailing: 18),
+                    cornerRadii: .init(bottomLeading: 10, bottomTrailing: 10),
                     style: .continuous
                 )
-            )
+                .fill(achievement.isEarned
+                    ? ConvoLabTheme.navy
+                    : Color(red: 0.38, green: 0.44, blue: 0.48))
+            }
         }
-        .frame(width: 256)
+        .frame(width: 128)
         .opacity(achievement.isEarned ? 1 : 0.9)
-        .shadow(color: ConvoLabTheme.navy.opacity(0.12), radius: 0, y: 10)
+        .shadow(color: ConvoLabTheme.navy.opacity(0.12), radius: 0, y: 5)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(achievement.tier.title), \(detail)")
         .accessibilityHint(achievement.tier.description)
@@ -72,7 +79,7 @@ struct StudyAchievementBadgeCard: View {
     }
 
     private var detail: String {
-        if achievement.isEarned { return "Earned" }
+        if achievement.isEarned { return achievement.tier.earnedDescription }
         guard let remaining = achievement.remaining else {
             let threshold = achievement.tier.threshold
             return "Start with \(threshold.formatted()) \(unit(for: threshold))"
@@ -121,7 +128,7 @@ struct StudyAchievementSpotlight: View {
 
             if store.catalog != nil {
                 ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: 18) {
+                    LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(store.featuredAchievements) { achievement in
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
@@ -273,7 +280,7 @@ struct StudyAchievementsView: View {
                     }
 
                     ScrollView(.horizontal) {
-                        LazyHStack(alignment: .top, spacing: 18) {
+                        LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(achievementsByFamily[family.key] ?? []) { achievement in
                                 StudyAchievementBadgeCard(
                                     achievement: achievement,

@@ -20,6 +20,7 @@ nonisolated struct StudyAchievementTier: Codable, Equatable, Sendable {
     let title: String
     let threshold: Int
     let description: String
+    let earnedDescription: String
     let assets: StudyAchievementTierAssets
 }
 
@@ -71,6 +72,7 @@ nonisolated struct StudyAchievementCatalog: Codable, Equatable, Sendable {
                 guard !tier.key.isEmpty,
                       !tier.title.isEmpty,
                       !tier.description.isEmpty,
+                      !tier.earnedDescription.isEmpty,
                       tier.threshold > previousThreshold,
                       tierIDs.insert(id).inserted
                 else {

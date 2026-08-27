@@ -107,6 +107,8 @@ final class StudySessionCountsTests: XCTestCase {
                   "learningReadiness": {
                     "recommendation": "caution",
                     "readinessLevel": "ease_up",
+                    "displayStatus": "Add carefully",
+                    "displaySummary": "Recent recall is 84%. Target is 90%.",
                     "sampleSize": 50,
                     "sufficientData": true,
                     "recentRecall": 0.84,
@@ -151,6 +153,11 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.jlptMastery?.n4?.grammar.total, 89)
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")
+        XCTAssertEqual(overview.learningReadiness?.displayStatus, "Add carefully")
+        XCTAssertEqual(
+            overview.learningReadiness?.displaySummary,
+            "Recent recall is 84%. Target is 90%."
+        )
         XCTAssertEqual(overview.learningReadiness?.projectedDailyReviewMinutes, 58)
         XCTAssertEqual(overview.learningReadiness?.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.learningReadiness?.reviewTimeHeadroomMinutes, 32)

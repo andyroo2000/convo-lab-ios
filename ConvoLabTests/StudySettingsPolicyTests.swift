@@ -136,6 +136,8 @@ final class StudySettingsPolicyTests: XCTestCase {
             learningReadiness: StudyLearningReadiness(
                 recommendation: "ready",
                 readinessLevel: "ready",
+                displayStatus: "Ready to learn",
+                displaySummary: "Recent recall is 95%. Target is 90%.",
                 sampleSize: 40,
                 sufficientData: true,
                 recentRecall: 0.95,
@@ -169,5 +171,10 @@ final class StudySettingsPolicyTests: XCTestCase {
         XCTAssertEqual(projected.totalCards, 30)
         XCTAssertEqual(projected.learningReadiness?.reviewTimeBudgetMinutes, 45)
         XCTAssertEqual(projected.learningReadiness?.reviewTimeHeadroomMinutes, 15)
+        XCTAssertEqual(projected.learningReadiness?.displayStatus, "Ready to learn")
+        XCTAssertEqual(
+            projected.learningReadiness?.displaySummary,
+            "Recent recall is 95%. Target is 90%."
+        )
     }
 }
