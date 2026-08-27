@@ -151,6 +151,10 @@ final class AudioPlayer {
         !current
     }
 
+    static func shouldRecordCompletion(isRepeating: Bool) -> Bool {
+        !isRepeating
+    }
+
     init(diagnostics: NativeDiagnostics = .shared) {
         let player = AVPlayer()
         backend = .avPlayer(player)
@@ -452,7 +456,6 @@ final class AudioPlayer {
     }
 
     private func handlePlaybackCompletion() {
-        onPlaybackCompleted(currentTitle)
         if isRepeating {
             player.seek(to: .zero)
             elapsed = 0
@@ -460,6 +463,9 @@ final class AudioPlayer {
             player.play()
             updateNowPlaying()
             return
+        }
+        if Self.shouldRecordCompletion(isRepeating: isRepeating) {
+            onPlaybackCompleted(currentTitle)
         }
         isPlaying = false
         elapsed = duration

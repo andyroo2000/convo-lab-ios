@@ -101,6 +101,11 @@ final class StudyAudioPlayerTests: XCTestCase {
         XCTAssertFalse(AudioPlayer.toggledRepeatState(true))
     }
 
+    func testOnlyTerminalPlaybackRecordsAnEpisodeCompletion() {
+        XCTAssertTrue(AudioPlayer.shouldRecordCompletion(isRepeating: false))
+        XCTAssertFalse(AudioPlayer.shouldRecordCompletion(isRepeating: true))
+    }
+
     private func makeDailyAudioTrack(updatedAt: Date) -> DailyAudioTrack {
         DailyAudioTrack(
             id: "track-a",
