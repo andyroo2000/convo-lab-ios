@@ -207,6 +207,7 @@ nonisolated enum StudyAchievementPresentationModel {
             )
             return catalog.presentation.noDataFallbackTierIds
                 .compactMap { achievementsByID[$0] }
+                .filter { $0.family.hiddenUntilEarned != true }
                 .prefix(count)
                 .map { $0 }
         }

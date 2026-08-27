@@ -84,6 +84,12 @@ final class StudyAchievementTests: XCTestCase {
             families: families
         ).validated()
 
+        let noProgress = StudyAchievementPresentationModel.closestInProgress(
+            catalog: catalog,
+            progress: nil
+        )
+        XCTAssertFalse(noProgress.map(\.id).contains("stable.first"))
+
         let inProgress = StudyAchievementPresentationModel.closestInProgress(
             catalog: catalog,
             progress: StudyAchievementProgress(
