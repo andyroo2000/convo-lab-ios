@@ -12,19 +12,23 @@ struct DailyAudioPlayerView: View {
     @State private var showReadings = false
     @State private var showTranslation = false
 
+    private var latestTrack: DailyAudioTrack {
+        DailyAudioTrack.latest(matching: track, in: store.practices)
+    }
+
     private var activeTrack: DailyAudioTrack {
-        detailedTrack ?? track
+        detailedTrack ?? latestTrack
     }
 
     private var playbackDuration: Double {
-        if player.isCurrent(track.id), player.duration > 0 {
+        if player.isCurrent(activeTrack), player.duration > 0 {
             return player.duration
         }
         return activeTrack.approxDurationSeconds ?? 0
     }
 
     private var currentUnit: DailyAudioScriptUnit? {
-        guard player.isCurrent(track.id) else { return nil }
+        guard player.isCurrent(activeTrack) else { return nil }
         return DailyAudioTranscript.currentSpokenUnit(
             in: activeTrack,
             elapsedSeconds: player.elapsed,
@@ -58,18 +62,18 @@ struct DailyAudioPlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ConvoLabTheme.cream.opacity(0.94), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .task(id: track.id) {
-            await prepareForPlayback()
+        .task(id: DailyAudioPlaybackIdentity(track: latestTrack)) {
+            await prepareForPlayback(track: latestTrack)
         }
     }
 
     private var trackHeader: some View {
         VStack(spacing: 6) {
-            Text(track.mode.uppercased())
+            Text(activeTrack.mode.uppercased())
                 .font(.caption.bold())
                 .tracking(2.4)
                 .foregroundStyle(ConvoLabTheme.coral)
-            Text(track.title)
+            Text(activeTrack.title)
                 .font(.title2.bold())
                 .foregroundStyle(ConvoLabTheme.navy)
                 .multilineTextAlignment(.center)
@@ -189,7 +193,7 @@ struct DailyAudioPlayerView: View {
                     value: Binding(
                         get: {
                             min(
-                                player.isCurrent(track.id) ? player.elapsed : 0,
+                                player.isCurrent(activeTrack) ? player.elapsed : 0,
                                 max(playbackDuration, 1)
                             )
                         },
@@ -198,10 +202,10 @@ struct DailyAudioPlayerView: View {
                     in: 0...max(playbackDuration, 1)
                 )
                 .tint(ConvoLabTheme.navy)
-                .disabled(!player.isCurrent(track.id) || playbackDuration <= 0)
+                .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
 
                 HStack {
-                    Text(formatTime(player.isCurrent(track.id) ? player.elapsed : 0))
+                    Text(formatTime(player.isCurrent(activeTrack) ? player.elapsed : 0))
                     Spacer()
                     Text("-\(formatTime(remainingTime))")
                 }
@@ -219,18 +223,18 @@ struct DailyAudioPlayerView: View {
                         Circle()
                             .fill(ConvoLabTheme.navy)
                             .frame(width: 76, height: 76)
-                        Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                        Image(systemName: player.isCurrent(activeTrack) && player.isPlaying
                             ? "pause.fill"
                             : "play.fill")
                             .font(.system(size: 30, weight: .bold))
                             .foregroundStyle(.white)
-                            .offset(x: player.isCurrent(track.id) && player.isPlaying ? 0 : 2)
+                            .offset(x: player.isCurrent(activeTrack) && player.isPlaying ? 0 : 2)
                     }
                 }
                 .buttonStyle(.plain)
                 .disabled(isPreparing || couldNotLoad)
                 .accessibilityLabel(
-                    player.isCurrent(track.id) && player.isPlaying ? "Pause" : "Play"
+                    player.isCurrent(activeTrack) && player.isPlaying ? "Pause" : "Play"
                 )
 
                 seekButton(offset: 15, systemImage: "goforward.15")
@@ -258,7 +262,7 @@ struct DailyAudioPlayerView: View {
     }
 
     private var remainingTime: Double {
-        max(playbackDuration - (player.isCurrent(track.id) ? player.elapsed : 0), 0)
+        max(playbackDuration - (player.isCurrent(activeTrack) ? player.elapsed : 0), 0)
     }
 
     private func seekButton(offset: Double, systemImage: String) -> some View {
@@ -272,18 +276,39 @@ struct DailyAudioPlayerView: View {
                 .frame(width: 48, height: 48)
         }
         .buttonStyle(.plain)
-        .disabled(!player.isCurrent(track.id) || playbackDuration <= 0)
+        .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
         .accessibilityLabel(offset < 0 ? "Back 15 Seconds" : "Forward 15 Seconds")
     }
 
-    private func prepareForPlayback() async {
+    private func prepareForPlayback(track requestedTrack: DailyAudioTrack) async {
+        let requestedIdentity = DailyAudioPlaybackIdentity(track: requestedTrack)
         isPreparing = true
         couldNotLoad = false
-        let detailed = await store.detailedTrack(for: track) ?? track
+        detailedTrack = nil
+        resolvedURL = nil
+        let detailed = await store.detailedTrack(for: requestedTrack) ?? requestedTrack
+        guard
+            !Task.isCancelled,
+            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+        else {
+            return
+        }
         detailedTrack = detailed
         guard let url = await store.playableURL(for: detailed) else {
+            guard
+                !Task.isCancelled,
+                DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+            else {
+                return
+            }
             isPreparing = false
             couldNotLoad = true
+            return
+        }
+        guard
+            !Task.isCancelled,
+            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+        else {
             return
         }
         resolvedURL = url
@@ -291,10 +316,10 @@ struct DailyAudioPlayerView: View {
     }
 
     private func togglePlayback() {
-        if player.isCurrent(track.id) {
+        if player.isCurrent(activeTrack) {
             player.toggle()
         } else if let resolvedURL {
-            player.play(url: resolvedURL, trackID: track.id, title: track.title)
+            player.play(url: resolvedURL, track: activeTrack)
         }
     }
 
@@ -303,4 +328,5 @@ struct DailyAudioPlayerView: View {
         let total = Int(seconds.rounded(.down))
         return "\(total / 60):\(String(format: "%02d", total % 60))"
     }
+
 }

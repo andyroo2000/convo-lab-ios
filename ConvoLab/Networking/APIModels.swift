@@ -1189,6 +1189,17 @@ struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
         return "\(minutes):\(String(format: "%02d", seconds))"
     }
 
+    var revisionMilliseconds: Int64 {
+        Int64((updatedAt.timeIntervalSince1970 * 1_000).rounded())
+    }
+
+    static func latest(
+        matching track: DailyAudioTrack,
+        in practices: [DailyAudioPractice]
+    ) -> DailyAudioTrack {
+        practices.lazy.flatMap(\.tracks).first { $0.id == track.id } ?? track
+    }
+
     init(
         id: String,
         practiceId: String,

@@ -121,6 +121,15 @@ struct DailyAudioView: View {
                     selectedPracticeID = ids.first
                 }
             }
+            .onChange(
+                of: store.practices.flatMap(\.tracks).map {
+                    DailyAudioPlaybackIdentity(track: $0)
+                }
+            ) { _, _ in
+                player.stopIfCurrentTrackWasSuperseded(
+                    by: store.practices.flatMap(\.tracks)
+                )
+            }
             .confirmationDialog(
                 "Regenerate today’s audio?",
                 isPresented: $confirmingRegeneration,
@@ -355,7 +364,7 @@ struct DailyAudioView: View {
                             ProgressView()
                                 .tint(ConvoLabTheme.navy)
                         } else {
-                            Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                            Image(systemName: player.isCurrent(track) && player.isPlaying
                                 ? "pause.fill"
                                 : "play.fill")
                                 .foregroundStyle(ConvoLabTheme.navy)
@@ -366,7 +375,7 @@ struct DailyAudioView: View {
                 .disabled(preparingTrackID != nil)
                 .allowsHitTesting(!suppressTrackInteractions)
                 .accessibilityLabel(
-                    player.isCurrent(track.id) && player.isPlaying
+                    player.isCurrent(track) && player.isPlaying
                         ? "Pause \(track.title)"
                         : "Play \(track.title)"
                 )
@@ -447,11 +456,12 @@ struct DailyAudioView: View {
     }
 
     private func toggleTrackPlayback(_ track: DailyAudioTrack) async {
-        if player.isCurrent(track.id) {
+        if player.isCurrent(track) {
             player.toggle()
             return
         }
 
+        let requestedIdentity = DailyAudioPlaybackIdentity(track: track)
         preparingTrackID = track.id
         defer {
             if preparingTrackID == track.id {
@@ -461,11 +471,22 @@ struct DailyAudioView: View {
         let detailedTrack = await store.detailedTrack(for: track) ?? track
         guard
             preparingTrackID == track.id,
+            DailyAudioPlaybackIdentity(
+                track: DailyAudioTrack.latest(matching: track, in: store.practices)
+            ) == requestedIdentity,
             let url = await store.playableURL(for: detailedTrack)
         else {
             return
         }
-        player.play(url: url, trackID: track.id, title: track.title)
+        guard
+            preparingTrackID == track.id,
+            DailyAudioPlaybackIdentity(
+                track: DailyAudioTrack.latest(matching: track, in: store.practices)
+            ) == requestedIdentity
+        else {
+            return
+        }
+        player.play(url: url, track: detailedTrack)
     }
 
     private var displayedDragOffset: CGFloat {

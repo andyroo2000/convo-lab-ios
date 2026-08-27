@@ -527,8 +527,7 @@ final class DailyAudioStore {
         // learning-os advances the track's updatedAt on every regeneration
         // transition (reset, generation claim, and ready), making it the
         // canonical asset revision for client caches.
-        let revision = Int64((track.updatedAt.timeIntervalSince1970 * 1_000).rounded())
-        return "daily-audio:\(track.id):\(revision)"
+        return "daily-audio:\(track.id):\(track.revisionMilliseconds)"
     }
 
     private func downloadableTracks(in practice: DailyAudioPractice) -> [DailyAudioTrack] {
@@ -738,7 +737,7 @@ final class DailyAudioStore {
                 {
                     diagnosticOutcome = .cancelled
                 } else if practices.contains(where: {
-                    generatingPracticeIDs.contains($0.id) && $0.status == "failed"
+                    generatingPracticeIDs.contains($0.id) && $0.status == "error"
                 }) {
                     diagnosticOutcome = .failed
                 } else {
