@@ -77,29 +77,29 @@ struct StudyTodayPresentationTests {
         )
     }
 
-    @Test func describesTodayAndTomorrow() {
+    @Test func formatsLessonWeekdayDateAndTime() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let locale = Locale(identifier: "en_US")
-        let now = Date(timeIntervalSince1970: 1_787_584_400)
-        let laterToday = now.addingTimeInterval(60 * 60)
-        let tomorrow = now.addingTimeInterval(24 * 60 * 60)
+        let startsAt = DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: 2027,
+            month: 8,
+            day: 31,
+            hour: 14,
+            minute: 30
+        ).date!
 
-        #expect(
-            StudyTodayPresentation.lessonTiming(
-                laterToday,
-                relativeTo: now,
-                calendar: calendar,
-                locale: locale
-            ).hasPrefix("Today, ")
+        let timing = StudyTodayPresentation.lessonTiming(
+            startsAt,
+            calendar: calendar,
+            locale: locale
         )
-        #expect(
-            StudyTodayPresentation.lessonTiming(
-                tomorrow,
-                relativeTo: now,
-                calendar: calendar,
-                locale: locale
-            ).hasPrefix("Tomorrow, ")
-        )
+
+        #expect(timing.weekday == "Tue")
+        #expect(timing.date == "Aug 31")
+        #expect(timing.time.contains("2:30"))
+        #expect(timing.time.hasSuffix("PM"))
     }
 }

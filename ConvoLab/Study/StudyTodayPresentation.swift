@@ -1,6 +1,12 @@
 import Foundation
 
 nonisolated enum StudyTodayPresentation {
+    struct LessonTiming: Equatable, Sendable {
+        let weekday: String
+        let date: String
+        let time: String
+    }
+
     private static let reviewEstimateSecondsPerCard = 23.0
 
     static func estimatedReviewMinutes(reviewCount: Int) -> Int? {
@@ -45,29 +51,42 @@ nonisolated enum StudyTodayPresentation {
 
     static func lessonTiming(
         _ startsAt: Date,
-        relativeTo now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent,
         locale: Locale = .autoupdatingCurrent
-    ) -> String {
-        let startOfToday = calendar.startOfDay(for: now)
-        let startOfEventDay = calendar.startOfDay(for: startsAt)
-        let dayOffset = calendar.dateComponents(
-            [.day],
-            from: startOfToday,
-            to: startOfEventDay
-        ).day
-        let day: String
-
-        switch dayOffset {
-        case 0: day = "Today"
-        case 1: day = "Tomorrow"
-        default:
-            day = startsAt.formatted(
-                .dateTime.month(.abbreviated).day().locale(locale)
+    ) -> LessonTiming {
+        LessonTiming(
+            weekday: format(
+                startsAt,
+                template: "EEE",
+                calendar: calendar,
+                locale: locale
+            ),
+            date: format(
+                startsAt,
+                template: "MMM d",
+                calendar: calendar,
+                locale: locale
+            ),
+            time: format(
+                startsAt,
+                template: "j:mm",
+                calendar: calendar,
+                locale: locale
             )
-        }
+        )
+    }
 
-        let time = startsAt.formatted(.dateTime.hour().minute().locale(locale))
-        return "\(day), \(time)"
+    private static func format(
+        _ date: Date,
+        template: String,
+        calendar: Calendar,
+        locale: Locale
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = locale
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter.string(from: date)
     }
 }

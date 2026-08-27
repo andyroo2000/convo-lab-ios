@@ -40,7 +40,6 @@ struct StudyHomeView: View {
                 .padding()
             }
             .paperBackground()
-            .navigationTitle("Study")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -120,12 +119,6 @@ struct StudyHomeView: View {
 
     private var todayPlan: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Today")
-                .font(.caption2.bold())
-                .tracking(1.8)
-                .foregroundStyle(ConvoLabTheme.navy.opacity(0.62))
-                .padding(.leading, 4)
-
             VStack(spacing: 0) {
                 reviewAction
 
@@ -168,12 +161,6 @@ struct StudyHomeView: View {
                     .stroke(ConvoLabTheme.navy.opacity(0.1), lineWidth: 1)
             }
             .shadow(color: ConvoLabTheme.navy.opacity(0.08), radius: 12, y: 5)
-
-            Text("\(totalCardCount.formatted()) cards total")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 4)
         }
     }
 
@@ -189,9 +176,6 @@ struct StudyHomeView: View {
         } label: {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("ConvoLab reviews")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(ConvoLabTheme.cream.opacity(0.8))
                     Text(StudyTodayPresentation.reviewCountText(reviewAvailableCount))
                         .font(.title.bold())
                         .foregroundStyle(ConvoLabTheme.cream)
@@ -216,7 +200,7 @@ struct StudyHomeView: View {
         .buttonStyle(.plain)
         .disabled(reviewAvailableCount == 0)
         .accessibilityLabel(
-            "ConvoLab reviews, \(StudyTodayPresentation.reviewCountText(reviewAvailableCount)), \(reviewTimeText)"
+            "Reviews, \(StudyTodayPresentation.reviewCountText(reviewAvailableCount)), \(reviewTimeText)"
         )
     }
 
@@ -282,7 +266,9 @@ struct StudyHomeView: View {
     }
 
     private func nextLessonLabel(_ lesson: GoogleCalendarNextLesson) -> some View {
-        HStack(spacing: 12) {
+        let timing = StudyTodayPresentation.lessonTiming(lesson.startsAt)
+
+        return HStack(spacing: 12) {
             Image(systemName: "calendar")
                 .font(.body.bold())
                 .foregroundStyle(.white)
@@ -301,10 +287,18 @@ struct StudyHomeView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(StudyTodayPresentation.lessonTiming(lesson.startsAt))
-                .font(.caption.bold())
-                .foregroundStyle(ConvoLabTheme.navy)
-                .multilineTextAlignment(.trailing)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(timing.weekday)
+                    .font(.caption2.bold())
+                    .foregroundStyle(.secondary)
+                Text(timing.date)
+                    .font(.caption.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+                Text(timing.time)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.trailing)
         }
         .padding(14)
         .contentShape(.rect)
@@ -316,11 +310,6 @@ struct StudyHomeView: View {
 
     private var reviewTimeText: String {
         StudyTodayPresentation.reviewTimeText(reviewCount: reviewAvailableCount)
-    }
-
-    private var totalCardCount: Int {
-        store.overview.flatMap { $0.totalCards > 0 ? $0.totalCards : nil }
-            ?? store.libraryCards.count
     }
 
     private func refreshWaniKaniIfNeeded(force: Bool = false) async {
