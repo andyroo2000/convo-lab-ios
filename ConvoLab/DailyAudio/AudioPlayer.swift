@@ -203,9 +203,6 @@ final class AudioPlayer {
     func play(url: URL, track: DailyAudioTrack) {
         let identity = DailyAudioPlaybackIdentity(track: track)
         onWillStartPlayback()
-        if currentTrackIdentity != identity {
-            clearStalePositions(for: identity)
-        }
         if usesDeterministicBackend {
             if currentTrackIdentity != identity {
                 currentTrackIdentity = identity
@@ -215,6 +212,9 @@ final class AudioPlayer {
             duration = 60
             isPlaying = true
             return
+        }
+        if currentTrackIdentity != identity {
+            clearStalePositions(for: identity)
         }
         activateAudioSession()
         let replacedPlayingTrack = Self.replacesPlayingTrack(
