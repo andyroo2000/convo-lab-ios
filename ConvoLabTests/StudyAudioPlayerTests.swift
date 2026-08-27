@@ -3,6 +3,14 @@ import XCTest
 
 @MainActor
 final class StudyAudioPlayerTests: XCTestCase {
+    private final class CompletionRecorder {
+        var titles: [String] = []
+    }
+
+    // Xcode 26.2's simulator runtime can double-free task-local state while
+    // destroying an exercised @Observable object with an isolated deinit.
+    private static var playersRetainedForSimulatorLifetime: [AudioPlayer] = []
+
     func testLongFormPlaybackBlocksStudyClip() {
         XCTAssertFalse(
             StudyAudioPlayer.allowsPlayback(
@@ -99,6 +107,50 @@ final class StudyAudioPlayerTests: XCTestCase {
     func testLongFormPlayerRepeatCanBeToggled() {
         XCTAssertTrue(AudioPlayer.toggledRepeatState(false))
         XCTAssertFalse(AudioPlayer.toggledRepeatState(true))
+    }
+
+    func testOnlyTerminalPlaybackRecordsAnEpisodeCompletion() {
+        XCTAssertTrue(AudioPlayer.shouldRecordCompletion(isRepeating: false))
+        XCTAssertFalse(AudioPlayer.shouldRecordCompletion(isRepeating: true))
+    }
+
+    func testActualCompletionPathRecordsTerminalPlaybackButNotRepeatLoops() {
+        let player = AudioPlayer(deterministicUITestBackend: ())
+        let track = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
+        let url = URL(string: "https://example.com/audio.m4a")!
+        let recorder = CompletionRecorder()
+        player.setPlaybackCompletionHandler { recorder.titles.append($0) }
+
+        player.play(url: url, track: track)
+        player.simulatePlaybackCompletionForTesting()
+
+        XCTAssertEqual(recorder.titles, ["Track A"])
+        XCTAssertFalse(player.isPlaying)
+
+        player.play(url: url, track: track)
+        player.toggleRepeat()
+        player.simulatePlaybackCompletionForTesting()
+
+        XCTAssertEqual(recorder.titles, ["Track A"])
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.elapsed, 0)
+        player.setPlaybackCompletionHandler { _ in }
+        Self.playersRetainedForSimulatorLifetime.append(player)
+    }
+
+    func testCompletionMarkerPinsStudyTimeFieldsAndNameLimit() {
+        let startedAt = Date(timeIntervalSince1970: 1_234)
+        let marker = DailyAudioCompletionMarker(
+            title: String(repeating: "A", count: 150),
+            startedAt: startedAt
+        )
+
+        XCTAssertEqual(marker.activity, .dailyAudio)
+        XCTAssertEqual(marker.source, .automatic)
+        XCTAssertEqual(marker.startedAt, startedAt)
+        XCTAssertEqual(marker.duration, 0)
+        XCTAssertEqual(marker.name.count, DailyAudioCompletionMarker.maximumNameLength)
+        XCTAssertTrue(marker.name.hasPrefix(DailyAudioCompletionMarker.namePrefix))
     }
 
     private func makeDailyAudioTrack(updatedAt: Date) -> DailyAudioTrack {

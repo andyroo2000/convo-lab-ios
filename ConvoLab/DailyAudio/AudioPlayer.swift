@@ -95,6 +95,7 @@ final class AudioPlayer {
     private var wasPlayingBeforeInterruption = false
     private var onWillStartPlayback: @MainActor () -> Void = {}
     private var onPlaybackStateChanged: @MainActor (Bool, String) -> Void = { _, _ in }
+    private var onPlaybackCompleted: @MainActor (String) -> Void = { _ in }
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var completionObserver: NSObjectProtocol?
@@ -148,6 +149,10 @@ final class AudioPlayer {
 
     static func toggledRepeatState(_ current: Bool) -> Bool {
         !current
+    }
+
+    static func shouldRecordCompletion(isRepeating: Bool) -> Bool {
+        !isRepeating
     }
 
     init(diagnostics: NativeDiagnostics = .shared) {
@@ -307,6 +312,19 @@ final class AudioPlayer {
         onPlaybackStateChanged = handler
     }
 
+    func setPlaybackCompletionHandler(
+        _ handler: @escaping @MainActor (String) -> Void
+    ) {
+        onPlaybackCompleted = handler
+    }
+
+#if DEBUG
+    func simulatePlaybackCompletionForTesting() {
+        precondition(usesDeterministicBackend)
+        handlePlaybackCompletion()
+    }
+#endif
+
     private func activateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(
@@ -445,7 +463,12 @@ final class AudioPlayer {
     }
 
     private func handlePlaybackCompletion() {
-        if isRepeating {
+        guard Self.shouldRecordCompletion(isRepeating: isRepeating) else {
+            if usesDeterministicBackend {
+                elapsed = 0
+                isPlaying = true
+                return
+            }
             player.seek(to: .zero)
             elapsed = 0
             isPlaying = true
@@ -453,11 +476,13 @@ final class AudioPlayer {
             updateNowPlaying()
             return
         }
+        onPlaybackCompleted(currentTitle)
         isPlaying = false
         elapsed = duration
         if let currentTrackIdentity {
             UserDefaults.standard.removeObject(forKey: Self.positionKey(currentTrackIdentity))
         }
+        if usesDeterministicBackend { return }
         updateNowPlaying()
         endPlaybackDiagnostics(outcome: .succeeded)
     }
