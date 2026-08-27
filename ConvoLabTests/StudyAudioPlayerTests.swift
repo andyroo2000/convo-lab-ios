@@ -90,6 +90,23 @@ final class StudyAudioPlayerTests: XCTestCase {
         XCTAssertFalse(player.isCurrent(oldTrack))
     }
 
+    func testActivePlaybackStopsWhenTheStorePublishesANewerRevision() {
+        let player = AudioPlayer(deterministicUITestBackend: ())
+        let oldTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
+        let regeneratedTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
+        let url = URL(fileURLWithPath: "/tmp/daily-audio-test.m4a")
+        player.play(url: url, track: oldTrack)
+
+        player.stopIfCurrentTrackWasSuperseded(by: [oldTrack])
+        XCTAssertTrue(player.isPlaying)
+
+        player.stopIfCurrentTrackWasSuperseded(by: [regeneratedTrack])
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertFalse(player.isCurrent(oldTrack))
+        XCTAssertFalse(player.isCurrent(regeneratedTrack))
+    }
+
     func testLongFormPlayerRepeatCanBeToggled() {
         XCTAssertTrue(AudioPlayer.toggledRepeatState(false))
         XCTAssertFalse(AudioPlayer.toggledRepeatState(true))

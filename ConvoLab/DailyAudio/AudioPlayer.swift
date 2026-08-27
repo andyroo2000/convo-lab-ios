@@ -268,6 +268,17 @@ final class AudioPlayer {
         currentTrackIdentity == DailyAudioPlaybackIdentity(track: track)
     }
 
+    func stopIfCurrentTrackWasSuperseded(by tracks: [DailyAudioTrack]) {
+        guard
+            let currentTrackIdentity,
+            let latestTrack = tracks.first(where: { $0.id == currentTrackIdentity.trackID }),
+            DailyAudioPlaybackIdentity(track: latestTrack) != currentTrackIdentity
+        else {
+            return
+        }
+        stop()
+    }
+
     func toggleRepeat() {
         isRepeating = Self.toggledRepeatState(isRepeating)
     }

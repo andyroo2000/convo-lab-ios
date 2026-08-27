@@ -121,6 +121,15 @@ struct DailyAudioView: View {
                     selectedPracticeID = ids.first
                 }
             }
+            .onChange(
+                of: store.practices.flatMap(\.tracks).map {
+                    DailyAudioPlaybackIdentity(track: $0)
+                }
+            ) { _, _ in
+                player.stopIfCurrentTrackWasSuperseded(
+                    by: store.practices.flatMap(\.tracks)
+                )
+            }
             .confirmationDialog(
                 "Regenerate today’s audio?",
                 isPresented: $confirmingRegeneration,
