@@ -29,6 +29,7 @@ nonisolated struct StudyAchievementFamily: Codable, Equatable, Sendable {
     let title: String
     let metricKey: String
     let unit: String
+    let hiddenUntilEarned: Bool?
     let tiers: [StudyAchievementTier]
 }
 
@@ -215,7 +216,7 @@ nonisolated enum StudyAchievementPresentationModel {
         let order = Dictionary(
             uniqueKeysWithValues: achievements.enumerated().map { ($0.element.id, $0.offset) }
         )
-        let candidates = catalog.families.compactMap { family in
+        let candidates = catalog.families.filter { $0.hiddenUntilEarned != true }.compactMap { family in
             let familyAchievements = achievements.filter { $0.family.key == family.key }
             let highestEarnedIndex = familyAchievements.lastIndex { $0.isEarned }
             return familyAchievements

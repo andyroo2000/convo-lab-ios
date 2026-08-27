@@ -66,6 +66,45 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertTrue(featured.allSatisfy { !$0.isEarned })
     }
 
+    func testHiddenFamilyStaysOutOfInProgressButAppearsAfterItIsEarned() throws {
+        var catalog = makeCatalog()
+        let family = catalog.families[0]
+        var families = catalog.families
+        families[0] = StudyAchievementFamily(
+            key: family.key,
+            title: family.title,
+            metricKey: family.metricKey,
+            unit: family.unit,
+            hiddenUntilEarned: true,
+            tiers: family.tiers
+        )
+        catalog = try StudyAchievementCatalog(
+            revision: catalog.revision,
+            presentation: catalog.presentation,
+            families: families
+        ).validated()
+
+        let inProgress = StudyAchievementPresentationModel.closestInProgress(
+            catalog: catalog,
+            progress: StudyAchievementProgress(
+                revision: catalog.revision,
+                metricValues: ["stable.count": 24, "reviews.count": 1, "voice.hours": 1],
+                awards: []
+            )
+        )
+        XCTAssertFalse(inProgress.map(\.id).contains("stable.first"))
+
+        let earned = StudyAchievementPresentationModel.recentEarned(
+            catalog: catalog,
+            progress: StudyAchievementProgress(
+                revision: catalog.revision,
+                metricValues: ["stable.count": 25],
+                awards: [award(id: "stable.first", date: "2026-01-01T00:00:00.000Z")]
+            )
+        )
+        XCTAssertTrue(earned.map(\.id).contains("stable.first"))
+    }
+
     func testEarnedHistoryIncludesEveryAwardNewestFirst() throws {
         let catalog = try makeCatalog().validated()
         let earned = StudyAchievementPresentationModel.recentEarned(
@@ -339,6 +378,7 @@ final class StudyAchievementTests: XCTestCase {
             title: title,
             metricKey: metric,
             unit: unit,
+            hiddenUntilEarned: nil,
             tiers: [
                 tier(key: "first", title: "\(title) 1", threshold: 25),
                 tier(key: "second", title: "\(title) 2", threshold: 100),
@@ -422,6 +462,7 @@ final class StudyAchievementTests: XCTestCase {
             title: family.title,
             metricKey: family.metricKey,
             unit: family.unit,
+            hiddenUntilEarned: family.hiddenUntilEarned,
             tiers: tiers
         )
         return StudyAchievementCatalog(
@@ -452,6 +493,7 @@ final class StudyAchievementTests: XCTestCase {
             title: family.title,
             metricKey: family.metricKey,
             unit: family.unit,
+            hiddenUntilEarned: family.hiddenUntilEarned,
             tiers: tiers
         )
         return StudyAchievementCatalog(

@@ -193,6 +193,18 @@ final class AppModel {
                 studyTime?.stop(activity: .dailyAudio, source: .automatic)
             }
         }
+        audioPlayer.setPlaybackCompletionHandler { [weak studyTime] title in
+            Task { @MainActor in
+                let now = Date.now
+                _ = try? await studyTime?.recordCompleted(
+                    activity: .dailyAudio,
+                    source: .automatic,
+                    name: "Daily Audio completed: \(String((title.isEmpty ? "Daily Audio" : title).prefix(97)))",
+                    startedAt: now,
+                    duration: 0
+                )
+            }
+        }
         self.audioPlayer = audioPlayer
         self.studyAudioPlayer = studyAudioPlayer
         accountDeletionCleanupFailures = accountDeletionCleanup.pendingFailures

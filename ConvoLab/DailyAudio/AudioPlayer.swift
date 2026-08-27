@@ -95,6 +95,7 @@ final class AudioPlayer {
     private var wasPlayingBeforeInterruption = false
     private var onWillStartPlayback: @MainActor () -> Void = {}
     private var onPlaybackStateChanged: @MainActor (Bool, String) -> Void = { _, _ in }
+    private var onPlaybackCompleted: @MainActor (String) -> Void = { _ in }
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var completionObserver: NSObjectProtocol?
@@ -307,6 +308,12 @@ final class AudioPlayer {
         onPlaybackStateChanged = handler
     }
 
+    func setPlaybackCompletionHandler(
+        _ handler: @escaping @MainActor (String) -> Void
+    ) {
+        onPlaybackCompleted = handler
+    }
+
     private func activateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(
@@ -445,6 +452,7 @@ final class AudioPlayer {
     }
 
     private func handlePlaybackCompletion() {
+        onPlaybackCompleted(currentTitle)
         if isRepeating {
             player.seek(to: .zero)
             elapsed = 0
