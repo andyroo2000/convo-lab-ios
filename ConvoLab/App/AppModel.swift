@@ -14,6 +14,7 @@ final class AppModel {
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
     let milestones: StudyMilestoneStore
+    let achievements: StudyAchievementStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
     private(set) var isRetryingAccountDeletionCleanup = false
@@ -100,6 +101,7 @@ final class AppModel {
             mediaCache: mediaCache
         )
         let milestones = StudyMilestoneStore(api: api, defaults: accountDeletionCleanupDefaults)
+        let achievements = StudyAchievementStore(api: api)
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -108,6 +110,7 @@ final class AppModel {
         self.mediaCache = mediaCache
         self.studyTime = studyTime
         self.milestones = milestones
+        self.achievements = achievements
         self.storageStatus = storageStatus
         self.study = study
         // Daily Audio creation is server-first and downloaded media is a disposable
@@ -228,12 +231,14 @@ final class AppModel {
             )
             async let timeSync: Void = studyTime.synchronize()
             async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
+            async let achievementRefresh: Void = achievements.refreshIfNeeded(maxAge: 300)
             _ = await (
                 studySync,
                 draftCreateRetry,
                 dailyAudioRefresh,
                 timeSync,
-                weeklyRecap
+                weeklyRecap,
+                achievementRefresh
             )
         }
     }
@@ -246,6 +251,7 @@ final class AppModel {
         studyAudioPlayer.stop()
         study.deactivate()
         milestones.deactivate()
+        achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         await auth.logout()
@@ -295,6 +301,7 @@ final class AppModel {
         studyAudioPlayer.stop()
         study.deactivate()
         milestones.deactivate()
+        achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         await retryAccountDeletionCleanup()
@@ -333,6 +340,7 @@ final class AppModel {
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
         milestones.activate(userID: user.id)
+        achievements.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         async let studySync: Void = study.synchronize()
@@ -340,7 +348,15 @@ final class AppModel {
         async let audioRefresh: Bool = dailyAudio.refresh()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-        _ = await (studySync, draftCreateRetry, audioRefresh, timeSync, weeklyRecap)
+        async let achievementRefresh: Void = achievements.refresh()
+        _ = await (
+            studySync,
+            draftCreateRetry,
+            audioRefresh,
+            timeSync,
+            weeklyRecap,
+            achievementRefresh
+        )
     }
 
     private func retryPendingDraftCreates() async {

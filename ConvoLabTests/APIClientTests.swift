@@ -3,8 +3,28 @@ import XCTest
 @testable import ConvoLab
 
 final class APIClientTests: XCTestCase {
+    private nonisolated(unsafe) static var retainedClients: [APIClient] = []
+
     private struct UploadResponse: Decodable {
         let ok: Bool
+    }
+
+    @MainActor
+    func testSameOriginResourceURLAcceptsCanonicalRelativeAssetsOnly() throws {
+        let client = makeClient { request in
+            XCTFail("Resource URL resolution must not perform a request")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        Self.retainedClients.append(client)
+
+        XCTAssertEqual(
+            client.sameOriginResourceURL("/achievement-assets/series/badge.png")?.absoluteString,
+            "https://learning-os.example/achievement-assets/series/badge.png"
+        )
+        XCTAssertNil(client.sameOriginResourceURL("https://example.com/tracker.png"))
     }
 
     @MainActor

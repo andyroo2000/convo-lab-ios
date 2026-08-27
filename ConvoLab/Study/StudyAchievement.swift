@@ -1,0 +1,338 @@
+import Foundation
+
+nonisolated struct StudyAchievementAsset: Codable, Equatable, Sendable {
+    let path: String
+    let width: Int
+    let height: Int
+}
+
+nonisolated struct StudyAchievementPNGAssets: Codable, Equatable, Sendable {
+    let png: [String: StudyAchievementAsset]
+}
+
+nonisolated struct StudyAchievementTierAssets: Codable, Equatable, Sendable {
+    let earned: StudyAchievementPNGAssets
+    let locked: StudyAchievementPNGAssets
+}
+
+nonisolated struct StudyAchievementTier: Codable, Equatable, Sendable {
+    let key: String
+    let title: String
+    let threshold: Int
+    let description: String
+    let assets: StudyAchievementTierAssets
+}
+
+nonisolated struct StudyAchievementFamily: Codable, Equatable, Sendable {
+    let key: String
+    let title: String
+    let metricKey: String
+    let unit: String
+    let tiers: [StudyAchievementTier]
+}
+
+nonisolated struct StudyAchievementPresentation: Codable, Equatable, Sendable {
+    let targetVisibleBadgeCount: Int
+    let fillWithLockedCandidates: Bool
+    let noDataFallbackTierIds: [String]
+}
+
+nonisolated struct StudyAchievementCatalog: Codable, Equatable, Sendable {
+    let revision: String
+    let presentation: StudyAchievementPresentation
+    let families: [StudyAchievementFamily]
+
+    func validated() throws -> Self {
+        guard !revision.isEmpty,
+              presentation.targetVisibleBadgeCount > 0,
+              !families.isEmpty
+        else {
+            throw StudyAchievementCatalogError.invalidStructure
+        }
+
+        var familyKeys = Set<String>()
+        var metricKeys = Set<String>()
+        var tierIDs = Set<String>()
+        for family in families {
+            guard !family.key.isEmpty,
+                  !family.title.isEmpty,
+                  !family.metricKey.isEmpty,
+                  !family.unit.isEmpty,
+                  !family.tiers.isEmpty,
+                  familyKeys.insert(family.key).inserted,
+                  metricKeys.insert(family.metricKey).inserted
+            else {
+                throw StudyAchievementCatalogError.invalidStructure
+            }
+
+            var previousThreshold = 0
+            for tier in family.tiers {
+                let id = "\(family.key).\(tier.key)"
+                guard !tier.key.isEmpty,
+                      !tier.title.isEmpty,
+                      !tier.description.isEmpty,
+                      tier.threshold > previousThreshold,
+                      tierIDs.insert(id).inserted
+                else {
+                    throw StudyAchievementCatalogError.invalidStructure
+                }
+                try Self.validate(asset: tier.assets.earned.png["256"], size: 256)
+                try Self.validate(asset: tier.assets.earned.png["512"], size: 512)
+                try Self.validate(asset: tier.assets.locked.png["256"], size: 256)
+                try Self.validate(asset: tier.assets.locked.png["512"], size: 512)
+                previousThreshold = tier.threshold
+            }
+        }
+
+        let fallbackIDs = presentation.noDataFallbackTierIds
+        guard fallbackIDs.count >= presentation.targetVisibleBadgeCount,
+              Set(fallbackIDs).count == fallbackIDs.count,
+              fallbackIDs.allSatisfy(tierIDs.contains)
+        else {
+            throw StudyAchievementCatalogError.invalidStructure
+        }
+        return self
+    }
+
+    private static func validate(asset: StudyAchievementAsset?, size: Int) throws {
+        guard let asset,
+              asset.width == size,
+              asset.height == size,
+              asset.path.hasPrefix("/achievement-assets/"),
+              !asset.path.contains("..")
+        else {
+            throw StudyAchievementCatalogError.invalidAsset
+        }
+    }
+}
+
+nonisolated enum StudyAchievementCatalogError: Error, Equatable {
+    case invalidStructure
+    case invalidAsset
+}
+
+nonisolated struct StudyAchievementProgress: Codable, Equatable, Sendable {
+    let revision: String
+    let metricValues: [String: Int]
+
+    func validated() throws -> Self {
+        guard !revision.isEmpty,
+              metricValues.allSatisfy({ !$0.key.isEmpty && $0.value >= 0 })
+        else {
+            throw StudyAchievementCatalogError.invalidStructure
+        }
+        return self
+    }
+}
+
+nonisolated struct PresentedStudyAchievement: Identifiable, Equatable, Sendable {
+    let family: StudyAchievementFamily
+    let tier: StudyAchievementTier
+    let isEarned: Bool
+    let currentValue: Int?
+    let remaining: Int?
+
+    nonisolated var id: String { "\(family.key).\(tier.key)" }
+
+    var imageAsset: StudyAchievementAsset? {
+        let assets = isEarned ? tier.assets.earned : tier.assets.locked
+        return assets.png["512"]
+    }
+}
+
+nonisolated enum StudyAchievementPresentationModel {
+    nonisolated static func all(
+        catalog: StudyAchievementCatalog,
+        progress: StudyAchievementProgress?
+    ) -> [PresentedStudyAchievement] {
+        let metricValues = progress?.revision == catalog.revision ? progress?.metricValues : nil
+        return catalog.families.flatMap { family in
+            family.tiers.map { tier in
+                present(family: family, tier: tier, metricValues: metricValues)
+            }
+        }
+    }
+
+    nonisolated static func featured(
+        catalog: StudyAchievementCatalog,
+        progress: StudyAchievementProgress?
+    ) -> [PresentedStudyAchievement] {
+        let achievements = all(catalog: catalog, progress: progress)
+        let count = catalog.presentation.targetVisibleBadgeCount
+        let metricValues = progress?.revision == catalog.revision ? progress?.metricValues : nil
+        let hasProgress = metricValues?.values.contains(where: { $0 > 0 }) == true
+
+        guard hasProgress else {
+            let achievementsByID = Dictionary(
+                uniqueKeysWithValues: achievements.map { ($0.id, $0) }
+            )
+            return catalog.presentation.noDataFallbackTierIds
+                .compactMap { achievementsByID[$0] }
+                .prefix(count)
+                .map { $0 }
+        }
+
+        var selected = catalog.families.compactMap { family in
+            achievements.last {
+                $0.family.key == family.key && $0.isEarned
+            }
+        }
+        if selected.count > count {
+            selected = Array(selected.prefix(count))
+        }
+
+        let order = Dictionary(
+            uniqueKeysWithValues: achievements.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        let selectedIDs = Set(selected.map(\.id))
+        let candidates = achievements
+            .filter { !$0.isEarned && !selectedIDs.contains($0.id) }
+            .sorted { left, right in
+                let leftRatio = Double(left.currentValue ?? 0) / Double(left.tier.threshold)
+                let rightRatio = Double(right.currentValue ?? 0) / Double(right.tier.threshold)
+                if leftRatio != rightRatio { return leftRatio > rightRatio }
+                let leftRemaining = left.remaining ?? left.tier.threshold
+                let rightRemaining = right.remaining ?? right.tier.threshold
+                if leftRemaining != rightRemaining { return leftRemaining < rightRemaining }
+                return order[left.id, default: 0] < order[right.id, default: 0]
+            }
+
+        guard catalog.presentation.fillWithLockedCandidates else {
+            return Array(selected.prefix(count))
+        }
+
+        var representedFamilies = Set(selected.map(\.family.key))
+        for candidate in candidates where selected.count < count {
+            guard representedFamilies.insert(candidate.family.key).inserted else { continue }
+            selected.append(candidate)
+        }
+        for candidate in candidates where selected.count < count {
+            guard !selected.contains(where: { $0.id == candidate.id }) else { continue }
+            selected.append(candidate)
+        }
+        return Array(selected.prefix(count))
+    }
+
+    private nonisolated static func present(
+        family: StudyAchievementFamily,
+        tier: StudyAchievementTier,
+        metricValues: [String: Int]?
+    ) -> PresentedStudyAchievement {
+        let currentValue = metricValues?[family.metricKey]
+        return PresentedStudyAchievement(
+            family: family,
+            tier: tier,
+            isEarned: currentValue.map { $0 >= tier.threshold } ?? false,
+            currentValue: currentValue,
+            remaining: currentValue.map { max(0, tier.threshold - $0) }
+        )
+    }
+}
+
+@MainActor
+@Observable
+final class StudyAchievementStore {
+    private let api: APIClient
+    private var activeUserID: Int?
+    private var refreshedAt: Date?
+    private var refreshSequence = 0
+
+    private(set) var catalog: StudyAchievementCatalog?
+    private(set) var progress: StudyAchievementProgress?
+    private(set) var isLoading = false
+    private(set) var errorMessage: String?
+
+    init(api: APIClient) {
+        self.api = api
+    }
+
+    var featuredAchievements: [PresentedStudyAchievement] {
+        guard let catalog else { return [] }
+        return StudyAchievementPresentationModel.featured(catalog: catalog, progress: progress)
+    }
+
+    var allAchievements: [PresentedStudyAchievement] {
+        guard let catalog else { return [] }
+        return StudyAchievementPresentationModel.all(catalog: catalog, progress: progress)
+    }
+
+    func activate(userID: Int) {
+        guard activeUserID != userID else { return }
+        refreshSequence += 1
+        activeUserID = userID
+        progress = nil
+        refreshedAt = nil
+        errorMessage = nil
+        isLoading = false
+    }
+
+    func deactivate() {
+        refreshSequence += 1
+        activeUserID = nil
+        progress = nil
+        refreshedAt = nil
+        errorMessage = nil
+        isLoading = false
+    }
+
+    func refreshIfNeeded(maxAge: TimeInterval = 60) async {
+        if let refreshedAt, Date.now.timeIntervalSince(refreshedAt) < maxAge {
+            return
+        }
+        await refresh()
+    }
+
+    func refresh() async {
+        guard let requestedUserID = activeUserID, !isLoading else { return }
+        refreshSequence += 1
+        let sequence = refreshSequence
+        isLoading = true
+        defer {
+            if refreshSequence == sequence {
+                isLoading = false
+            }
+        }
+
+        do {
+            let loadedCatalog: StudyAchievementCatalog = try await api.request(
+                "/api/achievements/catalog"
+            )
+            let validatedCatalog = try loadedCatalog.validated()
+            var loadedProgress = progress?.revision == validatedCatalog.revision ? progress : nil
+            do {
+                let response: StudyAchievementProgress = try await api.request(
+                    "/api/achievements/progress"
+                )
+                let validatedProgress = try response.validated()
+                loadedProgress = validatedProgress.revision == validatedCatalog.revision
+                    ? validatedProgress
+                    : nil
+            } catch let error as StudyAchievementCatalogError {
+                print("Achievement progress response failed validation: \(error)")
+                // The catalog's locked no-data selection remains safe for a bad progress payload.
+            } catch {
+                // Preserve a same-revision snapshot when possible. Otherwise the catalog's
+                // locked no-data selection remains a useful default while progress is offline.
+            }
+            guard !Task.isCancelled,
+                  activeUserID == requestedUserID,
+                  refreshSequence == sequence
+            else { return }
+            catalog = validatedCatalog
+            progress = loadedProgress
+            refreshedAt = .now
+            errorMessage = nil
+        } catch {
+            guard !Task.isCancelled,
+                  activeUserID == requestedUserID,
+                  refreshSequence == sequence
+            else { return }
+            errorMessage = "Achievements couldn’t be loaded right now."
+        }
+    }
+
+    func imageURL(for achievement: PresentedStudyAchievement) -> URL? {
+        guard let path = achievement.imageAsset?.path else { return nil }
+        return api.sameOriginResourceURL(path)
+    }
+}
