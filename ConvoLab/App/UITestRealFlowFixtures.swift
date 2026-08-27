@@ -218,7 +218,8 @@ private final class UITestRealFlowComposition: ObservableObject {
 
     private static func studyDashboard() throws -> Result {
         let container = try Persistence.makeContainer(inMemory: true)
-        let api = mockAPI(baseURL: productionAssetBaseURL)
+        _ = URLProtocol.registerClass(UITestURLProtocol.self)
+        let api = mockAPI()
         let mediaCache = MediaCache(
             initialUserID: userID,
             api: api,
@@ -293,10 +294,6 @@ private final class UITestRealFlowComposition: ObservableObject {
             preconditionFailure("The fixed UI-test API URL must be valid")
         }
         return url
-    }
-
-    private static var productionAssetBaseURL: URL {
-        URL(string: "https://convo-lab.com")!
     }
 
     private static func mockAPI(
@@ -424,6 +421,10 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if request.url?.path.hasPrefix("/achievement-assets/") == true {
+            succeed(with: Self.fixturePNG, contentType: "image/png")
+            return
+        }
         if request.url?.path == "/api/achievements/catalog" {
             succeed(with: Self.achievementCatalog)
             return
@@ -470,19 +471,23 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    private func succeed(with data: Data) {
+    private func succeed(with data: Data, contentType: String = "application/json") {
         guard let url = request.url,
               let response = HTTPURLResponse(
                   url: url,
                   statusCode: 200,
                   httpVersion: nil,
-                  headerFields: ["Content-Type": "application/json"]
+                  headerFields: ["Content-Type": contentType]
               )
         else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
+
+    private static let fixturePNG = Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )!
 
     private static let achievementCatalog = Data(
         #"""
