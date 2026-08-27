@@ -738,7 +738,7 @@ final class DailyAudioStore {
                 {
                     diagnosticOutcome = .cancelled
                 } else if practices.contains(where: {
-                    generatingPracticeIDs.contains($0.id) && $0.status == "failed"
+                    generatingPracticeIDs.contains($0.id) && $0.status == "error"
                 }) {
                     diagnosticOutcome = .failed
                 } else {

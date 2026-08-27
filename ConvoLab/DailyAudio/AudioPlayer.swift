@@ -3,6 +3,18 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 
+struct DailyAudioPlaybackIdentity: Hashable, Sendable {
+    let trackID: String
+    let revisionMilliseconds: Int64
+
+    init(track: DailyAudioTrack) {
+        trackID = track.id
+        revisionMilliseconds = Int64(
+            (track.updatedAt.timeIntervalSince1970 * 1_000).rounded()
+        )
+    }
+}
+
 final class AudioPlaybackDiagnostics {
     private let diagnostics: NativeDiagnostics
     private var interval: NativeDiagnosticInterval?
@@ -80,7 +92,7 @@ final class AudioPlayer {
     }
     private let playbackDiagnostics: AudioPlaybackDiagnostics
     private var timeObserver: Any?
-    private var currentTrackID: String?
+    private var currentTrackIdentity: DailyAudioPlaybackIdentity?
     private var currentTitle = ""
     private var wasPlayingBeforeInterruption = false
     private var onWillStartPlayback: @MainActor () -> Void = {}
@@ -101,10 +113,10 @@ final class AudioPlayer {
 
     static func replacesPlayingTrack(
         isPlaying: Bool,
-        currentTrackID: String?,
-        newTrackID: String
+        currentTrackIdentity: DailyAudioPlaybackIdentity?,
+        newTrackIdentity: DailyAudioPlaybackIdentity
     ) -> Bool {
-        isPlaying && currentTrackID != newTrackID
+        isPlaying && currentTrackIdentity != newTrackIdentity
     }
 
     static func toggledRepeatState(_ current: Bool) -> Bool {
@@ -161,12 +173,15 @@ final class AudioPlayer {
         }
     }
 
-    func play(url: URL, trackID: String, title: String) {
+    func play(url: URL, track: DailyAudioTrack) {
+        let identity = DailyAudioPlaybackIdentity(track: track)
         onWillStartPlayback()
         if usesDeterministicBackend {
-            currentTrackID = trackID
-            currentTitle = title
-            elapsed = 0
+            if currentTrackIdentity != identity {
+                currentTrackIdentity = identity
+                currentTitle = track.title
+                elapsed = 0
+            }
             duration = 60
             isPlaying = true
             return
@@ -174,14 +189,14 @@ final class AudioPlayer {
         activateAudioSession()
         let replacedPlayingTrack = Self.replacesPlayingTrack(
             isPlaying: isPlaying,
-            currentTrackID: currentTrackID,
-            newTrackID: trackID
+            currentTrackIdentity: currentTrackIdentity,
+            newTrackIdentity: identity
         )
-        if currentTrackID != trackID {
-            currentTrackID = trackID
-            currentTitle = title
+        if currentTrackIdentity != identity {
+            currentTrackIdentity = identity
+            currentTitle = track.title
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
-            let saved = UserDefaults.standard.double(forKey: positionKey(trackID))
+            let saved = UserDefaults.standard.double(forKey: positionKey(identity))
             if saved > 0 {
                 player.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
             }
@@ -213,7 +228,7 @@ final class AudioPlayer {
     func stop() {
         if usesDeterministicBackend {
             isPlaying = false
-            currentTrackID = nil
+            currentTrackIdentity = nil
             currentTitle = ""
             elapsed = 0
             duration = 0
@@ -223,7 +238,7 @@ final class AudioPlayer {
         persistPosition()
         isPlaying = false
         player.replaceCurrentItem(with: nil)
-        currentTrackID = nil
+        currentTrackIdentity = nil
         currentTitle = ""
         elapsed = 0
         duration = 0
@@ -239,8 +254,8 @@ final class AudioPlayer {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
     }
 
-    func isCurrent(_ trackID: String) -> Bool {
-        currentTrackID == trackID
+    func isCurrent(_ track: DailyAudioTrack) -> Bool {
+        currentTrackIdentity == DailyAudioPlaybackIdentity(track: track)
     }
 
     func toggleRepeat() {
@@ -405,8 +420,8 @@ final class AudioPlayer {
         }
         isPlaying = false
         elapsed = duration
-        if let currentTrackID {
-            UserDefaults.standard.removeObject(forKey: positionKey(currentTrackID))
+        if let currentTrackIdentity {
+            UserDefaults.standard.removeObject(forKey: positionKey(currentTrackIdentity))
         }
         updateNowPlaying()
         endPlaybackDiagnostics(outcome: .succeeded)
@@ -434,16 +449,16 @@ final class AudioPlayer {
     }
 
     private func persistPosition() {
-        guard let currentTrackID else { return }
-        UserDefaults.standard.set(elapsed, forKey: positionKey(currentTrackID))
+        guard let currentTrackIdentity else { return }
+        UserDefaults.standard.set(elapsed, forKey: positionKey(currentTrackIdentity))
     }
 
-    private func positionKey(_ trackID: String) -> String {
-        "daily-audio.position.\(trackID)"
+    private func positionKey(_ identity: DailyAudioPlaybackIdentity) -> String {
+        "daily-audio.position.\(identity.trackID).\(identity.revisionMilliseconds)"
     }
 
     private func updateNowPlaying() {
-        guard currentTrackID != nil else { return }
+        guard currentTrackIdentity != nil else { return }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: currentTitle,
             MPMediaItemPropertyAlbumTitle: "ConvoLab Daily Audio",

@@ -355,7 +355,7 @@ struct DailyAudioView: View {
                             ProgressView()
                                 .tint(ConvoLabTheme.navy)
                         } else {
-                            Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                            Image(systemName: player.isCurrent(track) && player.isPlaying
                                 ? "pause.fill"
                                 : "play.fill")
                                 .foregroundStyle(ConvoLabTheme.navy)
@@ -366,7 +366,7 @@ struct DailyAudioView: View {
                 .disabled(preparingTrackID != nil)
                 .allowsHitTesting(!suppressTrackInteractions)
                 .accessibilityLabel(
-                    player.isCurrent(track.id) && player.isPlaying
+                    player.isCurrent(track) && player.isPlaying
                         ? "Pause \(track.title)"
                         : "Play \(track.title)"
                 )
@@ -447,7 +447,7 @@ struct DailyAudioView: View {
     }
 
     private func toggleTrackPlayback(_ track: DailyAudioTrack) async {
-        if player.isCurrent(track.id) {
+        if player.isCurrent(track) {
             player.toggle()
             return
         }
@@ -465,7 +465,7 @@ struct DailyAudioView: View {
         else {
             return
         }
-        player.play(url: url, trackID: track.id, title: track.title)
+        player.play(url: url, track: detailedTrack)
     }
 
     private var displayedDragOffset: CGFloat {

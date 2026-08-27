@@ -17,14 +17,14 @@ struct DailyAudioPlayerView: View {
     }
 
     private var playbackDuration: Double {
-        if player.isCurrent(track.id), player.duration > 0 {
+        if player.isCurrent(activeTrack), player.duration > 0 {
             return player.duration
         }
         return activeTrack.approxDurationSeconds ?? 0
     }
 
     private var currentUnit: DailyAudioScriptUnit? {
-        guard player.isCurrent(track.id) else { return nil }
+        guard player.isCurrent(activeTrack) else { return nil }
         return DailyAudioTranscript.currentSpokenUnit(
             in: activeTrack,
             elapsedSeconds: player.elapsed,
@@ -189,7 +189,7 @@ struct DailyAudioPlayerView: View {
                     value: Binding(
                         get: {
                             min(
-                                player.isCurrent(track.id) ? player.elapsed : 0,
+                                player.isCurrent(activeTrack) ? player.elapsed : 0,
                                 max(playbackDuration, 1)
                             )
                         },
@@ -198,10 +198,10 @@ struct DailyAudioPlayerView: View {
                     in: 0...max(playbackDuration, 1)
                 )
                 .tint(ConvoLabTheme.navy)
-                .disabled(!player.isCurrent(track.id) || playbackDuration <= 0)
+                .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
 
                 HStack {
-                    Text(formatTime(player.isCurrent(track.id) ? player.elapsed : 0))
+                    Text(formatTime(player.isCurrent(activeTrack) ? player.elapsed : 0))
                     Spacer()
                     Text("-\(formatTime(remainingTime))")
                 }
@@ -219,18 +219,18 @@ struct DailyAudioPlayerView: View {
                         Circle()
                             .fill(ConvoLabTheme.navy)
                             .frame(width: 76, height: 76)
-                        Image(systemName: player.isCurrent(track.id) && player.isPlaying
+                        Image(systemName: player.isCurrent(activeTrack) && player.isPlaying
                             ? "pause.fill"
                             : "play.fill")
                             .font(.system(size: 30, weight: .bold))
                             .foregroundStyle(.white)
-                            .offset(x: player.isCurrent(track.id) && player.isPlaying ? 0 : 2)
+                            .offset(x: player.isCurrent(activeTrack) && player.isPlaying ? 0 : 2)
                     }
                 }
                 .buttonStyle(.plain)
                 .disabled(isPreparing || couldNotLoad)
                 .accessibilityLabel(
-                    player.isCurrent(track.id) && player.isPlaying ? "Pause" : "Play"
+                    player.isCurrent(activeTrack) && player.isPlaying ? "Pause" : "Play"
                 )
 
                 seekButton(offset: 15, systemImage: "goforward.15")
@@ -258,7 +258,7 @@ struct DailyAudioPlayerView: View {
     }
 
     private var remainingTime: Double {
-        max(playbackDuration - (player.isCurrent(track.id) ? player.elapsed : 0), 0)
+        max(playbackDuration - (player.isCurrent(activeTrack) ? player.elapsed : 0), 0)
     }
 
     private func seekButton(offset: Double, systemImage: String) -> some View {
@@ -272,7 +272,7 @@ struct DailyAudioPlayerView: View {
                 .frame(width: 48, height: 48)
         }
         .buttonStyle(.plain)
-        .disabled(!player.isCurrent(track.id) || playbackDuration <= 0)
+        .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
         .accessibilityLabel(offset < 0 ? "Back 15 Seconds" : "Forward 15 Seconds")
     }
 
@@ -291,10 +291,10 @@ struct DailyAudioPlayerView: View {
     }
 
     private func togglePlayback() {
-        if player.isCurrent(track.id) {
+        if player.isCurrent(activeTrack) {
             player.toggle()
         } else if let resolvedURL {
-            player.play(url: resolvedURL, trackID: track.id, title: track.title)
+            player.play(url: resolvedURL, track: activeTrack)
         }
     }
 

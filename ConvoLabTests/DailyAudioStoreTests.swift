@@ -197,6 +197,66 @@ final class DailyAudioStoreTests: XCTestCase {
         )
     }
 
+    func testGenerationPollingReportsBackendErrorStatusAsFailed() async throws {
+        let timestamp = Date(timeIntervalSince1970: 10_000)
+        let generating = dailyAudioPractice(status: "generating", updatedAt: timestamp)
+        let failed = dailyAudioPractice(
+            status: "error",
+            updatedAt: timestamp.addingTimeInterval(30)
+        )
+        let generatingData = try StorageCodec.encoder.encode(generating)
+        let failedPageData = try StorageCodec.encoder.encode(DailyAudioPracticePage(
+            items: [failed],
+            total: 1,
+            limit: 14,
+            nextCursor: nil
+        ))
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/daily-audio-practice")
+            let data = request.httpMethod == "POST" ? generatingData : failedPageData
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let store = DailyAudioStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            diagnostics: NativeDiagnostics(sink: diagnosticsSink),
+            generationPollingInitialDelay: 0
+        )
+        defer { store.deactivate() }
+
+        await store.create()
+        for _ in 0..<300 where diagnosticsSink.events.last?.stage != .ended {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(
+            diagnosticsSink.events.last,
+            .init(
+                operation: .generation,
+                stage: .ended,
+                outcome: .failed,
+                reason: nil,
+                itemCount: nil
+            )
+        )
+    }
+
     func testCancelledCreateOffersAnActionableRetry() async throws {
         let client = makeClient { _ in
             throw URLError(.cancelled)
