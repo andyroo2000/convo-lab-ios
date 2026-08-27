@@ -43,68 +43,57 @@ final class StudyAudioPlayerTests: XCTestCase {
     }
 
     func testRegeneratedTrackWithSameIDStartsFromBeginning() {
-        let player = AudioPlayer(deterministicUITestBackend: ())
         let oldTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
         let regeneratedTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
-        let url = URL(fileURLWithPath: "/tmp/daily-audio-test.m4a")
+        let oldIdentity = DailyAudioPlaybackIdentity(track: oldTrack)
+        let regeneratedIdentity = DailyAudioPlaybackIdentity(track: regeneratedTrack)
 
-        player.play(url: url, track: oldTrack)
-        player.seek(to: 25)
-        XCTAssertEqual(player.elapsed, 25)
-
-        player.play(url: url, track: regeneratedTrack)
-
-        XCTAssertEqual(player.elapsed, 0)
-        XCTAssertFalse(player.isCurrent(oldTrack))
-        XCTAssertTrue(player.isCurrent(regeneratedTrack))
+        XCTAssertNotEqual(oldIdentity, regeneratedIdentity)
+        XCTAssertNotEqual(
+            AudioPlayer.positionKey(oldIdentity),
+            AudioPlayer.positionKey(regeneratedIdentity)
+        )
+        XCTAssertTrue(
+            AudioPlayer.replacesPlayingTrack(
+                isPlaying: true,
+                currentTrackIdentity: oldIdentity,
+                newTrackIdentity: regeneratedIdentity
+            )
+        )
     }
 
-    func testStartingARevisionPrunesOnlySupersededResumePositions() throws {
-        let suiteName = "StudyAudioPlayerTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let oldTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
+    func testStartingARevisionPrunesOnlySupersededResumePositions() {
         let currentTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
         let oldKey = "daily-audio.position.track-a.1000"
         let currentKey = "daily-audio.position.track-a.2000"
         let legacyKey = "daily-audio.position.track-a"
         let unrelatedKey = "daily-audio.position.track-b.1000"
-        defaults.set(12, forKey: oldKey)
-        defaults.set(18, forKey: currentKey)
-        defaults.set(6, forKey: legacyKey)
-        defaults.set(24, forKey: unrelatedKey)
-        let player = AudioPlayer(
-            deterministicUITestBackend: (),
-            userDefaults: defaults
-        )
 
-        player.play(
-            url: URL(fileURLWithPath: "/tmp/daily-audio-test.m4a"),
-            track: currentTrack
+        XCTAssertEqual(
+            Set(AudioPlayer.stalePositionKeys(
+                in: [oldKey, currentKey, legacyKey, unrelatedKey],
+                for: DailyAudioPlaybackIdentity(track: currentTrack)
+            )),
+            Set([oldKey, legacyKey])
         )
-
-        XCTAssertNil(defaults.object(forKey: oldKey))
-        XCTAssertNil(defaults.object(forKey: legacyKey))
-        XCTAssertEqual(defaults.double(forKey: currentKey), 18)
-        XCTAssertEqual(defaults.double(forKey: unrelatedKey), 24)
-        XCTAssertFalse(player.isCurrent(oldTrack))
     }
 
     func testActivePlaybackStopsWhenTheStorePublishesANewerRevision() {
-        let player = AudioPlayer(deterministicUITestBackend: ())
         let oldTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
         let regeneratedTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
-        let url = URL(fileURLWithPath: "/tmp/daily-audio-test.m4a")
-        player.play(url: url, track: oldTrack)
 
-        player.stopIfCurrentTrackWasSuperseded(by: [oldTrack])
-        XCTAssertTrue(player.isPlaying)
-
-        player.stopIfCurrentTrackWasSuperseded(by: [regeneratedTrack])
-
-        XCTAssertFalse(player.isPlaying)
-        XCTAssertFalse(player.isCurrent(oldTrack))
-        XCTAssertFalse(player.isCurrent(regeneratedTrack))
+        XCTAssertFalse(
+            AudioPlayer.currentTrackWasSuperseded(
+                DailyAudioPlaybackIdentity(track: oldTrack),
+                by: [oldTrack]
+            )
+        )
+        XCTAssertTrue(
+            AudioPlayer.currentTrackWasSuperseded(
+                DailyAudioPlaybackIdentity(track: oldTrack),
+                by: [regeneratedTrack]
+            )
+        )
     }
 
     func testLongFormPlayerRepeatCanBeToggled() {

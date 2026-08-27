@@ -89,7 +89,6 @@ final class AudioPlayer {
         return false
     }
     private let playbackDiagnostics: AudioPlaybackDiagnostics
-    private let userDefaults: UserDefaults
     private var timeObserver: Any?
     private var currentTrackIdentity: DailyAudioPlaybackIdentity?
     private var currentTitle = ""
@@ -118,18 +117,43 @@ final class AudioPlayer {
         isPlaying && currentTrackIdentity != newTrackIdentity
     }
 
+    static func positionKey(_ identity: DailyAudioPlaybackIdentity) -> String {
+        "daily-audio.position.\(identity.trackID).\(identity.revisionMilliseconds)"
+    }
+
+    static func stalePositionKeys(
+        in keys: [String],
+        for identity: DailyAudioPlaybackIdentity
+    ) -> [String] {
+        let currentKey = positionKey(identity)
+        let legacyKey = "daily-audio.position.\(identity.trackID)"
+        let revisionPrefix = "\(legacyKey)."
+        return keys.filter {
+            $0 == legacyKey || ($0.hasPrefix(revisionPrefix) && $0 != currentKey)
+        }
+    }
+
+    static func currentTrackWasSuperseded(
+        _ currentTrackIdentity: DailyAudioPlaybackIdentity?,
+        by tracks: [DailyAudioTrack]
+    ) -> Bool {
+        guard
+            let currentTrackIdentity,
+            let latestTrack = tracks.first(where: { $0.id == currentTrackIdentity.trackID })
+        else {
+            return false
+        }
+        return DailyAudioPlaybackIdentity(track: latestTrack) != currentTrackIdentity
+    }
+
     static func toggledRepeatState(_ current: Bool) -> Bool {
         !current
     }
 
-    init(
-        diagnostics: NativeDiagnostics = .shared,
-        userDefaults: UserDefaults = .standard
-    ) {
+    init(diagnostics: NativeDiagnostics = .shared) {
         let player = AVPlayer()
         backend = .avPlayer(player)
         playbackDiagnostics = AudioPlaybackDiagnostics(diagnostics: diagnostics)
-        self.userDefaults = userDefaults
         configureRemoteCommands()
         configureAudioNotifications()
         timeObserver = player.addPeriodicTimeObserver(
@@ -153,12 +177,10 @@ final class AudioPlayer {
     /// without registering remote commands, touching AVAudioSession, or decoding media.
     init(
         deterministicUITestBackend: Void,
-        diagnostics: NativeDiagnostics = .shared,
-        userDefaults: UserDefaults = .standard
+        diagnostics: NativeDiagnostics = .shared
     ) {
         backend = .deterministicUITest
         playbackDiagnostics = AudioPlaybackDiagnostics(diagnostics: diagnostics)
-        self.userDefaults = userDefaults
     }
 #endif
 
@@ -204,7 +226,7 @@ final class AudioPlayer {
             currentTrackIdentity = identity
             currentTitle = track.title
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
-            let saved = userDefaults.double(forKey: positionKey(identity))
+            let saved = UserDefaults.standard.double(forKey: Self.positionKey(identity))
             if saved > 0 {
                 player.seek(to: CMTime(seconds: saved, preferredTimescale: 600))
             }
@@ -267,13 +289,7 @@ final class AudioPlayer {
     }
 
     func stopIfCurrentTrackWasSuperseded(by tracks: [DailyAudioTrack]) {
-        guard
-            let currentTrackIdentity,
-            let latestTrack = tracks.first(where: { $0.id == currentTrackIdentity.trackID }),
-            DailyAudioPlaybackIdentity(track: latestTrack) != currentTrackIdentity
-        else {
-            return
-        }
+        guard Self.currentTrackWasSuperseded(currentTrackIdentity, by: tracks) else { return }
         stop()
     }
 
@@ -440,7 +456,7 @@ final class AudioPlayer {
         isPlaying = false
         elapsed = duration
         if let currentTrackIdentity {
-            userDefaults.removeObject(forKey: positionKey(currentTrackIdentity))
+            UserDefaults.standard.removeObject(forKey: Self.positionKey(currentTrackIdentity))
         }
         updateNowPlaying()
         endPlaybackDiagnostics(outcome: .succeeded)
@@ -469,20 +485,16 @@ final class AudioPlayer {
 
     private func persistPosition() {
         guard let currentTrackIdentity else { return }
-        userDefaults.set(elapsed, forKey: positionKey(currentTrackIdentity))
-    }
-
-    private func positionKey(_ identity: DailyAudioPlaybackIdentity) -> String {
-        "daily-audio.position.\(identity.trackID).\(identity.revisionMilliseconds)"
+        UserDefaults.standard.set(elapsed, forKey: Self.positionKey(currentTrackIdentity))
     }
 
     private func clearStalePositions(for identity: DailyAudioPlaybackIdentity) {
-        let currentKey = positionKey(identity)
-        let legacyKey = "daily-audio.position.\(identity.trackID)"
-        let revisionPrefix = "\(legacyKey)."
-        for key in userDefaults.dictionaryRepresentation().keys
-        where key == legacyKey || (key.hasPrefix(revisionPrefix) && key != currentKey) {
-            userDefaults.removeObject(forKey: key)
+        let defaults = UserDefaults.standard
+        for key in Self.stalePositionKeys(
+            in: Array(defaults.dictionaryRepresentation().keys),
+            for: identity
+        ) {
+            defaults.removeObject(forKey: key)
         }
     }
 
