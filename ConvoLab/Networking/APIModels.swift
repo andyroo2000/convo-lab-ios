@@ -581,6 +581,8 @@ struct StudyJLPTMasteryMetric: nonisolated Codable, Equatable, Sendable {
 struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
     let recommendation: String
     let readinessLevel: String?
+    let displayStatus: String?
+    let displaySummary: String?
     let sampleSize: Int
     let sufficientData: Bool
     let recentRecall: Double?
@@ -595,10 +597,50 @@ struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
     let reviewTimeHeadroomMinutes: Int?
     let suggestedBatchSize: Int
 
+    init(
+        recommendation: String,
+        readinessLevel: String?,
+        displayStatus: String? = nil,
+        displaySummary: String? = nil,
+        sampleSize: Int,
+        sufficientData: Bool,
+        recentRecall: Double?,
+        targetRecall: Double,
+        dueBacklog: Int,
+        apprenticeCount: Int,
+        projectedSevenDayReviews: Int,
+        timedReviewSampleSize: Int?,
+        medianReviewDurationSeconds: Double?,
+        projectedDailyReviewMinutes: Int?,
+        reviewTimeBudgetMinutes: Int?,
+        reviewTimeHeadroomMinutes: Int?,
+        suggestedBatchSize: Int
+    ) {
+        self.recommendation = recommendation
+        self.readinessLevel = readinessLevel
+        self.displayStatus = displayStatus
+        self.displaySummary = displaySummary
+        self.sampleSize = sampleSize
+        self.sufficientData = sufficientData
+        self.recentRecall = recentRecall
+        self.targetRecall = targetRecall
+        self.dueBacklog = dueBacklog
+        self.apprenticeCount = apprenticeCount
+        self.projectedSevenDayReviews = projectedSevenDayReviews
+        self.timedReviewSampleSize = timedReviewSampleSize
+        self.medianReviewDurationSeconds = medianReviewDurationSeconds
+        self.projectedDailyReviewMinutes = projectedDailyReviewMinutes
+        self.reviewTimeBudgetMinutes = reviewTimeBudgetMinutes
+        self.reviewTimeHeadroomMinutes = reviewTimeHeadroomMinutes
+        self.suggestedBatchSize = suggestedBatchSize
+    }
+
     func updatingReviewTimeBudget(to budgetMinutes: Int) -> Self {
         Self(
             recommendation: recommendation,
             readinessLevel: readinessLevel,
+            displayStatus: displayStatus,
+            displaySummary: displaySummary,
             sampleSize: sampleSize,
             sufficientData: sufficientData,
             recentRecall: recentRecall,

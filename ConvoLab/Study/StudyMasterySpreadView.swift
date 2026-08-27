@@ -116,9 +116,14 @@ struct StudyMasterySpreadView: View {
                                 .minimumScaleFactor(0.8)
                         }
                     }
-                    .frame(width: proxy.size.width * entry.share)
+                    .frame(
+                        width: proxy.size.width * entry.share,
+                        height: proxy.size.height,
+                        alignment: .center
+                    )
                 }
             }
+            .frame(height: proxy.size.height, alignment: .top)
         }
         .frame(height: 30)
         .background(ConvoLabTheme.navy.opacity(0.1))

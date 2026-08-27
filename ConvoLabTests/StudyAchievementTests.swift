@@ -110,6 +110,14 @@ final class StudyAchievementTests: XCTestCase {
         }
     }
 
+    func testCatalogRejectsMissingEarnedDescription() {
+        let catalog = replacingFirstEarnedDescription(in: makeCatalog(), with: "")
+
+        XCTAssertThrowsError(try catalog.validated()) { error in
+            XCTAssertEqual(error as? StudyAchievementCatalogError, .invalidStructure)
+        }
+    }
+
     @MainActor
     func testStoreLoadsCatalogAndAuthenticatedProgressFromCanonicalEndpoints() async throws {
         let catalogPayload = try JSONEncoder().encode(makeCatalog())
@@ -278,6 +286,7 @@ final class StudyAchievementTests: XCTestCase {
             title: title,
             threshold: threshold,
             description: "Earn \(threshold)",
+            earnedDescription: "Completed \(threshold) reviews",
             assets: StudyAchievementTierAssets(earned: state, locked: state)
         )
     }
@@ -329,10 +338,41 @@ final class StudyAchievementTests: XCTestCase {
             title: tier.title,
             threshold: tier.threshold,
             description: tier.description,
+            earnedDescription: tier.earnedDescription,
             assets: StudyAchievementTierAssets(
                 earned: StudyAchievementPNGAssets(png: png),
                 locked: tier.assets.locked
             )
+        )
+        families[0] = StudyAchievementFamily(
+            key: family.key,
+            title: family.title,
+            metricKey: family.metricKey,
+            unit: family.unit,
+            tiers: tiers
+        )
+        return StudyAchievementCatalog(
+            revision: catalog.revision,
+            presentation: catalog.presentation,
+            families: families
+        )
+    }
+
+    private func replacingFirstEarnedDescription(
+        in catalog: StudyAchievementCatalog,
+        with earnedDescription: String
+    ) -> StudyAchievementCatalog {
+        var families = catalog.families
+        let family = families[0]
+        var tiers = family.tiers
+        let tier = tiers[0]
+        tiers[0] = StudyAchievementTier(
+            key: tier.key,
+            title: tier.title,
+            threshold: tier.threshold,
+            description: tier.description,
+            earnedDescription: earnedDescription,
+            assets: tier.assets
         )
         families[0] = StudyAchievementFamily(
             key: family.key,

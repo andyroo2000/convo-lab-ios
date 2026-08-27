@@ -47,6 +47,8 @@ private final class UITestRealFlowComposition: ObservableObject {
                 result = try Self.dailyAudioPlayback()
             case .calendarConnection:
                 result = try Self.calendarConnection()
+            case .studyDashboard:
+                result = try Self.studyDashboard()
             case .loginScreen:
                 result = (AnyView(EmptyView()), [])
             }
@@ -214,6 +216,71 @@ private final class UITestRealFlowComposition: ObservableObject {
         )
     }
 
+    private static func studyDashboard() throws -> Result {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let api = mockAPI(baseURL: productionAssetBaseURL)
+        let mediaCache = MediaCache(
+            initialUserID: userID,
+            api: api,
+            context: container.mainContext
+        )
+        let store = StudyStore(
+            initialUserID: userID,
+            api: api,
+            context: container.mainContext,
+            mediaCache: mediaCache
+        )
+        store.setOverview(StudyOverview(
+            dueCount: 18,
+            newCount: 6,
+            reviewCount: 18,
+            totalCards: 846,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 6,
+            masterySpread: StudyMasterySpread(
+                apprentice: 183,
+                guru: 276,
+                master: 164,
+                enlightened: 118,
+                burned: 105
+            ),
+            learningReadiness: StudyLearningReadiness(
+                recommendation: "ready",
+                readinessLevel: "steady",
+                displayStatus: "Ready to learn",
+                displaySummary: "Recent recall is 93%. Target is 90%. You have 183 Apprentice cards, with 126 reviews projected over the next 7 days.",
+                sampleSize: 80,
+                sufficientData: true,
+                recentRecall: 0.93,
+                targetRecall: 0.9,
+                dueBacklog: 18,
+                apprenticeCount: 183,
+                projectedSevenDayReviews: 126,
+                timedReviewSampleSize: 80,
+                medianReviewDurationSeconds: 14,
+                projectedDailyReviewMinutes: 5,
+                reviewTimeBudgetMinutes: 90,
+                reviewTimeHeadroomMinutes: 85,
+                suggestedBatchSize: 5
+            )
+        ))
+        let achievementStore = StudyAchievementStore(api: api)
+        achievementStore.activate(userID: userID)
+        let milestoneStore = StudyMilestoneStore(defaults: UserDefaults())
+        milestoneStore.activate(userID: userID)
+        let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
+        return (
+            AnyView(StudyHomeView(
+                store: store,
+                player: player,
+                timeStore: nil,
+                milestoneStore: milestoneStore,
+                achievementStore: achievementStore
+            )),
+            [container, api, mediaCache, store, achievementStore, milestoneStore, player]
+        )
+    }
+
     private static var shouldReset: Bool {
         ProcessInfo.processInfo.environment["UI_TEST_RESET"] == "1"
     }
@@ -228,12 +295,19 @@ private final class UITestRealFlowComposition: ObservableObject {
         return url
     }
 
-    private static func mockAPI(allowsFixtureAudio: Bool = false) -> APIClient {
+    private static var productionAssetBaseURL: URL {
+        URL(string: "https://convo-lab.com")!
+    }
+
+    private static func mockAPI(
+        allowsFixtureAudio: Bool = false,
+        baseURL: URL = fixtureBaseURL
+    ) -> APIClient {
         UITestURLProtocol.allowsFixtureAudio = allowsFixtureAudio
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [UITestURLProtocol.self]
         return APIClient(
-            baseURL: fixtureBaseURL,
+            baseURL: baseURL,
             session: URLSession(configuration: configuration)
         )
     }
@@ -350,6 +424,16 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if request.url?.path == "/api/achievements/catalog" {
+            succeed(with: Self.achievementCatalog)
+            return
+        }
+        if request.url?.path == "/api/achievements/progress" {
+            succeed(with: Data(
+                #"{"revision":"achievement-collection-v1","metricValues":{"cards.stability_365d.count":25,"reviews.count":25,"study.conversation.minutes":25}}"#.utf8
+            ))
+            return
+        }
         if request.httpMethod == "POST",
            request.url?.path == "/api/study/card-drafts",
            let url = request.url,
@@ -385,6 +469,34 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
         client?.urlProtocol(self, didLoad: Data("fixture-audio".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
+    private func succeed(with data: Data) {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: ["Content-Type": "application/json"]
+              )
+        else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    private static let achievementCatalog = Data(
+        #"""
+        {
+          "revision":"achievement-collection-v1",
+          "presentation":{"targetVisibleBadgeCount":3,"fillWithLockedCandidates":true,"noDataFallbackTierIds":["yearfire.first-ember","card-muncher.first-nibble","roarer.first-roar"]},
+          "families":[
+            {"key":"yearfire","title":"Matsuri Light","metricKey":"cards.stability_365d.count","unit":"cards","tiers":[{"key":"first-ember","title":"First Ember","threshold":25,"description":"25 cards have reached one year of memory stability.","earnedDescription":"Kept 25 cards stable for a year","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/locked-512.png","width":512,"height":512}}}}}]},
+            {"key":"card-muncher","title":"Card Muncher","metricKey":"reviews.count","unit":"reviews","tiers":[{"key":"first-nibble","title":"First Nibble","threshold":25,"description":"Complete 25 reviews.","earnedDescription":"Completed 25 reviews","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/locked-512.png","width":512,"height":512}}}}}]},
+            {"key":"roarer","title":"Roarer","metricKey":"study.conversation.minutes","unit":"minutes","tiers":[{"key":"first-roar","title":"First Roar","threshold":25,"description":"Log 25 minutes of target-language conversation study.","earnedDescription":"Spoke for 25 minutes","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/roarer-series-v7/first-roar/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/roarer-series-v7/first-roar/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/roarer-series-v7/first-roar/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/roarer-series-v7/first-roar/locked-512.png","width":512,"height":512}}}}}]}
+          ]
+        }
+        """#.utf8
+    )
 
     override func stopLoading() {}
 }

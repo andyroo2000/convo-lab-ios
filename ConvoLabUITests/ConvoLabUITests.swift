@@ -181,6 +181,24 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testStudyDashboardUsesCompactSourceDrivenPresentation() {
+        let app = launchFixture("study-dashboard", reset: true)
+        XCTAssertTrue(app.staticTexts["Ready to learn"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.staticTexts["Learning readiness"].exists)
+        XCTAssertFalse(app.staticTexts["Steady pace"].exists)
+
+        let itemSpread = app.staticTexts["Item Spread"]
+        app.swipeUp()
+        XCTAssertTrue(itemSpread.waitForExistence(timeout: 8))
+
+        let badge = app.descendants(matching: .any)["StudyAchievementBadge.yearfire.first-ember"]
+        app.swipeUp()
+        XCTAssertTrue(badge.waitForExistence(timeout: 8))
+        XCTAssertEqual(badge.frame.width, 128, accuracy: 1)
+        XCTAssertTrue(badge.label.contains("Kept 25 cards stable for a year"))
+    }
+
+    @MainActor
     private func waitForHittable(
         _ element: XCUIElement,
         timeout: TimeInterval
