@@ -1384,7 +1384,7 @@ final class DailyAudioStoreTests: XCTestCase {
             tracks: [regeneratedTrack]
         )
 
-        let resolved = DailyAudioPlayerView.latestTrack(
+        let resolved = DailyAudioTrack.latest(
             matching: oldTrack,
             in: [practice]
         )

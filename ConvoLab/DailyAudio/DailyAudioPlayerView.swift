@@ -13,7 +13,7 @@ struct DailyAudioPlayerView: View {
     @State private var showTranslation = false
 
     private var latestTrack: DailyAudioTrack {
-        Self.latestTrack(matching: track, in: store.practices)
+        DailyAudioTrack.latest(matching: track, in: store.practices)
     }
 
     private var activeTrack: DailyAudioTrack {
@@ -329,10 +329,4 @@ struct DailyAudioPlayerView: View {
         return "\(total / 60):\(String(format: "%02d", total % 60))"
     }
 
-    static func latestTrack(
-        matching track: DailyAudioTrack,
-        in practices: [DailyAudioPractice]
-    ) -> DailyAudioTrack {
-        practices.lazy.flatMap(\.tracks).first { $0.id == track.id } ?? track
-    }
 }

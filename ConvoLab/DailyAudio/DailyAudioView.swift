@@ -461,6 +461,7 @@ struct DailyAudioView: View {
             return
         }
 
+        let requestedIdentity = DailyAudioPlaybackIdentity(track: track)
         preparingTrackID = track.id
         defer {
             if preparingTrackID == track.id {
@@ -470,7 +471,18 @@ struct DailyAudioView: View {
         let detailedTrack = await store.detailedTrack(for: track) ?? track
         guard
             preparingTrackID == track.id,
+            DailyAudioPlaybackIdentity(
+                track: DailyAudioTrack.latest(matching: track, in: store.practices)
+            ) == requestedIdentity,
             let url = await store.playableURL(for: detailedTrack)
+        else {
+            return
+        }
+        guard
+            preparingTrackID == track.id,
+            DailyAudioPlaybackIdentity(
+                track: DailyAudioTrack.latest(matching: track, in: store.practices)
+            ) == requestedIdentity
         else {
             return
         }
