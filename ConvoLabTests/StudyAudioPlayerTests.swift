@@ -59,6 +59,37 @@ final class StudyAudioPlayerTests: XCTestCase {
         XCTAssertTrue(player.isCurrent(regeneratedTrack))
     }
 
+    func testStartingARevisionPrunesOnlySupersededResumePositions() throws {
+        let suiteName = "StudyAudioPlayerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let oldTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
+        let currentTrack = makeDailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
+        let oldKey = "daily-audio.position.track-a.1000"
+        let currentKey = "daily-audio.position.track-a.2000"
+        let legacyKey = "daily-audio.position.track-a"
+        let unrelatedKey = "daily-audio.position.track-b.1000"
+        defaults.set(12, forKey: oldKey)
+        defaults.set(18, forKey: currentKey)
+        defaults.set(6, forKey: legacyKey)
+        defaults.set(24, forKey: unrelatedKey)
+        let player = AudioPlayer(
+            deterministicUITestBackend: (),
+            userDefaults: defaults
+        )
+
+        player.play(
+            url: URL(fileURLWithPath: "/tmp/daily-audio-test.m4a"),
+            track: currentTrack
+        )
+
+        XCTAssertNil(defaults.object(forKey: oldKey))
+        XCTAssertNil(defaults.object(forKey: legacyKey))
+        XCTAssertEqual(defaults.double(forKey: currentKey), 18)
+        XCTAssertEqual(defaults.double(forKey: unrelatedKey), 24)
+        XCTAssertFalse(player.isCurrent(oldTrack))
+    }
+
     func testLongFormPlayerRepeatCanBeToggled() {
         XCTAssertTrue(AudioPlayer.toggledRepeatState(false))
         XCTAssertFalse(AudioPlayer.toggledRepeatState(true))
