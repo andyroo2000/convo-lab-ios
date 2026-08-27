@@ -12,8 +12,12 @@ struct DailyAudioPlayerView: View {
     @State private var showReadings = false
     @State private var showTranslation = false
 
+    private var latestTrack: DailyAudioTrack {
+        Self.latestTrack(matching: track, in: store.practices)
+    }
+
     private var activeTrack: DailyAudioTrack {
-        detailedTrack ?? track
+        detailedTrack ?? latestTrack
     }
 
     private var playbackDuration: Double {
@@ -58,18 +62,18 @@ struct DailyAudioPlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(ConvoLabTheme.cream.opacity(0.94), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .task(id: track.id) {
-            await prepareForPlayback()
+        .task(id: DailyAudioPlaybackIdentity(track: latestTrack)) {
+            await prepareForPlayback(track: latestTrack)
         }
     }
 
     private var trackHeader: some View {
         VStack(spacing: 6) {
-            Text(track.mode.uppercased())
+            Text(activeTrack.mode.uppercased())
                 .font(.caption.bold())
                 .tracking(2.4)
                 .foregroundStyle(ConvoLabTheme.coral)
-            Text(track.title)
+            Text(activeTrack.title)
                 .font(.title2.bold())
                 .foregroundStyle(ConvoLabTheme.navy)
                 .multilineTextAlignment(.center)
@@ -276,14 +280,35 @@ struct DailyAudioPlayerView: View {
         .accessibilityLabel(offset < 0 ? "Back 15 Seconds" : "Forward 15 Seconds")
     }
 
-    private func prepareForPlayback() async {
+    private func prepareForPlayback(track requestedTrack: DailyAudioTrack) async {
+        let requestedIdentity = DailyAudioPlaybackIdentity(track: requestedTrack)
         isPreparing = true
         couldNotLoad = false
-        let detailed = await store.detailedTrack(for: track) ?? track
+        detailedTrack = nil
+        resolvedURL = nil
+        let detailed = await store.detailedTrack(for: requestedTrack) ?? requestedTrack
+        guard
+            !Task.isCancelled,
+            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+        else {
+            return
+        }
         detailedTrack = detailed
         guard let url = await store.playableURL(for: detailed) else {
+            guard
+                !Task.isCancelled,
+                DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+            else {
+                return
+            }
             isPreparing = false
             couldNotLoad = true
+            return
+        }
+        guard
+            !Task.isCancelled,
+            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
+        else {
             return
         }
         resolvedURL = url
@@ -302,5 +327,12 @@ struct DailyAudioPlayerView: View {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let total = Int(seconds.rounded(.down))
         return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+
+    static func latestTrack(
+        matching track: DailyAudioTrack,
+        in practices: [DailyAudioPractice]
+    ) -> DailyAudioTrack {
+        practices.lazy.flatMap(\.tracks).first { $0.id == track.id } ?? track
     }
 }

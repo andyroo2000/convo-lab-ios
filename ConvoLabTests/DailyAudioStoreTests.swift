@@ -1370,6 +1370,32 @@ final class DailyAudioStoreTests: XCTestCase {
         )
     }
 
+    func testPlayerViewResolvesARegeneratedTrackFromLiveStoreData() {
+        let oldTrack = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 1))
+        let regeneratedTrack = dailyAudioTrack(updatedAt: Date(timeIntervalSince1970: 2))
+        let practice = DailyAudioPractice(
+            id: regeneratedTrack.practiceId,
+            practiceDate: "2026-07-30",
+            status: "ready",
+            targetDurationMinutes: 30,
+            errorMessage: nil,
+            createdAt: regeneratedTrack.updatedAt,
+            updatedAt: regeneratedTrack.updatedAt,
+            tracks: [regeneratedTrack]
+        )
+
+        let resolved = DailyAudioPlayerView.latestTrack(
+            matching: oldTrack,
+            in: [practice]
+        )
+
+        XCTAssertEqual(resolved.revisionMilliseconds, 2_000)
+        XCTAssertEqual(
+            DailyAudioPlaybackIdentity(track: resolved),
+            DailyAudioPlaybackIdentity(track: regeneratedTrack)
+        )
+    }
+
     func testTranscriptTimingScalesToTheActualPlayerDuration() {
         let track = transcriptTrack(
             timings: [

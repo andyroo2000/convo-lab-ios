@@ -1189,6 +1189,10 @@ struct DailyAudioTrack: nonisolated Codable, Identifiable, Sendable {
         return "\(minutes):\(String(format: "%02d", seconds))"
     }
 
+    var revisionMilliseconds: Int64 {
+        Int64((updatedAt.timeIntervalSince1970 * 1_000).rounded())
+    }
+
     init(
         id: String,
         practiceId: String,

@@ -9,9 +9,7 @@ struct DailyAudioPlaybackIdentity: Hashable, Sendable {
 
     init(track: DailyAudioTrack) {
         trackID = track.id
-        revisionMilliseconds = Int64(
-            (track.updatedAt.timeIntervalSince1970 * 1_000).rounded()
-        )
+        revisionMilliseconds = track.revisionMilliseconds
     }
 }
 
