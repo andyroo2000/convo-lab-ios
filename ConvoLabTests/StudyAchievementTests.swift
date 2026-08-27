@@ -13,7 +13,7 @@ final class StudyAchievementTests: XCTestCase {
     func testNoDataUsesCanonicalFallbackOrder() throws {
         let catalog = try makeCatalog().validated()
 
-        let featured = StudyAchievementPresentationModel.featured(
+        let featured = StudyAchievementPresentationModel.closestInProgress(
             catalog: catalog,
             progress: nil
         )
@@ -25,62 +25,63 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertTrue(featured.allSatisfy { !$0.isEarned && $0.currentValue == nil })
     }
 
-    func testFeaturedShowsStrongestEarnedTierAndFillsUnrepresentedFamilies() throws {
+    func testInProgressShowsOnlyTheNextLockedTierPerFamily() throws {
         let catalog = try makeCatalog().validated()
         let progress = StudyAchievementProgress(
             revision: catalog.revision,
             metricValues: [
                 "stable.count": 0,
                 "reviews.count": 120,
-                "voice.minutes": 20,
+                "voice.hours": 20,
+            ],
+            awards: [
+                award(id: "reviews.first", date: "2026-01-01T00:00:00.000Z"),
+                award(id: "reviews.second", date: "2026-02-01T00:00:00.000Z"),
             ]
         )
 
-        let featured = StudyAchievementPresentationModel.featured(
+        let featured = StudyAchievementPresentationModel.closestInProgress(
             catalog: catalog,
             progress: progress
         )
 
-        XCTAssertEqual(featured.map(\.id), ["reviews.second", "voice.first", "stable.first"])
-        XCTAssertEqual(featured.map(\.isEarned), [true, false, false])
+        XCTAssertEqual(featured.map(\.id), ["voice.first", "stable.first"])
+        XCTAssertTrue(featured.allSatisfy { !$0.isEarned })
     }
 
-    func testFeaturedRanksEarnedFamiliesWhenTheyOutnumberVisibleSlots() throws {
-        var crowdedCatalog = makeCatalog()
-        crowdedCatalog = StudyAchievementCatalog(
-            revision: crowdedCatalog.revision,
-            presentation: crowdedCatalog.presentation,
-            families: crowdedCatalog.families + [
-                family(key: "extra", title: "Extra", metric: "extra.count", unit: "reviews"),
-            ]
-        )
-        let catalog = try crowdedCatalog.validated()
-
-        let featured = StudyAchievementPresentationModel.featured(
+    func testEarnedHistoryIncludesEveryAwardNewestFirst() throws {
+        let catalog = try makeCatalog().validated()
+        let earned = StudyAchievementPresentationModel.recentEarned(
             catalog: catalog,
             progress: StudyAchievementProgress(
                 revision: catalog.revision,
                 metricValues: [
-                    "stable.count": 25,
+                    "stable.count": 100,
                     "reviews.count": 120,
-                    "voice.minutes": 30,
-                    "extra.count": 500,
+                    "voice.hours": 100,
+                ],
+                awards: [
+                    award(id: "stable.first", date: "2026-01-01T00:00:00.000Z"),
+                    award(id: "reviews.second", date: "2026-03-01T00:00:00.000Z"),
+                    award(id: "voice.first", date: "2026-02-01T00:00:00.000Z"),
                 ]
-            )
+            ),
+            count: .max
         )
 
-        XCTAssertEqual(featured.map(\.id), ["extra.second", "reviews.second", "voice.first"])
+        XCTAssertEqual(earned.map(\.id), ["reviews.second", "voice.first", "stable.first"])
     }
 
     func testRevisionMismatchFallsBackInsteadOfApplyingStaleMetrics() throws {
         let catalog = try makeCatalog().validated()
         let progress = StudyAchievementProgress(
             revision: "future-revision",
-            metricValues: ["reviews.count": 10_000]
+            metricValues: ["reviews.count": 10_000],
+            awards: [award(id: "reviews.second", date: "2026-01-01T00:00:00.000Z")]
         )
 
         XCTAssertEqual(
-            StudyAchievementPresentationModel.featured(
+            StudyAchievementPresentationModel.closestInProgress(
                 catalog: catalog,
                 progress: progress
             ).map(\.id),
@@ -128,13 +129,14 @@ final class StudyAchievementTests: XCTestCase {
             switch path {
             case "/api/achievements/catalog":
                 body = catalogPayload
-            case "/api/achievements/progress":
+            case "/api/achievements/evaluate":
+                XCTAssertEqual(request.httpMethod, "POST")
                 XCTAssertEqual(
                     request.value(forHTTPHeaderField: "Authorization"),
                     "Bearer achievement-token"
                 )
                 body = Data(
-                    #"{"revision":"achievement-collection-v1","metricValues":{"stable.count":0,"reviews.count":120,"voice.minutes":20}}"#.utf8
+                    #"{"revision":"achievement-collection-v2","metricValues":{"stable.count":0,"reviews.count":120,"voice.hours":20},"awards":[{"id":"reviews.first","earnedAt":"2026-01-01T00:00:00.000Z"},{"id":"reviews.second","earnedAt":"2026-02-01T00:00:00.000Z"}]}"#.utf8
                 )
             default:
                 XCTFail("Unexpected achievement request: \(path ?? "nil")")
@@ -164,11 +166,11 @@ final class StudyAchievementTests: XCTestCase {
 
         await store.refresh()
 
-        XCTAssertEqual(store.catalog?.revision, "achievement-collection-v1")
+        XCTAssertEqual(store.catalog?.revision, "achievement-collection-v2")
         XCTAssertEqual(store.progress?.metricValues["reviews.count"], 120)
         XCTAssertEqual(
-            store.featuredAchievements.map(\.id),
-            ["reviews.second", "voice.first", "stable.first"]
+            store.recentAchievements.map(\.id),
+            ["reviews.second", "reviews.first"]
         )
     }
 
@@ -245,7 +247,7 @@ final class StudyAchievementTests: XCTestCase {
 
     private func makeCatalog() -> StudyAchievementCatalog {
         StudyAchievementCatalog(
-            revision: "achievement-collection-v1",
+            revision: "achievement-collection-v2",
             presentation: StudyAchievementPresentation(
                 targetVisibleBadgeCount: 3,
                 fillWithLockedCandidates: true,
@@ -254,7 +256,7 @@ final class StudyAchievementTests: XCTestCase {
             families: [
                 family(key: "stable", title: "Stable", metric: "stable.count", unit: "cards"),
                 family(key: "reviews", title: "Reviews", metric: "reviews.count", unit: "reviews"),
-                family(key: "voice", title: "Voice", metric: "voice.minutes", unit: "minutes"),
+                family(key: "voice", title: "Voice", metric: "voice.hours", unit: "hours"),
             ]
         )
     }
@@ -302,9 +304,13 @@ final class StudyAchievementTests: XCTestCase {
     private func progressPayload(reviews: Int) -> Data {
         Data(
             """
-            {"revision":"achievement-collection-v1","metricValues":{"stable.count":0,"reviews.count":\(reviews),"voice.minutes":20}}
+            {"revision":"achievement-collection-v2","metricValues":{"stable.count":0,"reviews.count":\(reviews),"voice.hours":20},"awards":[]}
             """.utf8
         )
+    }
+
+    private func award(id: String, date: String) -> StudyAchievementAward {
+        StudyAchievementAward(id: id, earnedAt: ISO8601Milliseconds.date(from: date)!)
     }
 
     private func response(
