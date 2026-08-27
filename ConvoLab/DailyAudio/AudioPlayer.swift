@@ -318,6 +318,13 @@ final class AudioPlayer {
         onPlaybackCompleted = handler
     }
 
+#if DEBUG
+    func simulatePlaybackCompletionForTesting() {
+        precondition(usesDeterministicBackend)
+        handlePlaybackCompletion()
+    }
+#endif
+
     private func activateAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(
@@ -456,7 +463,12 @@ final class AudioPlayer {
     }
 
     private func handlePlaybackCompletion() {
-        if isRepeating {
+        guard Self.shouldRecordCompletion(isRepeating: isRepeating) else {
+            if usesDeterministicBackend {
+                elapsed = 0
+                isPlaying = true
+                return
+            }
             player.seek(to: .zero)
             elapsed = 0
             isPlaying = true
@@ -464,14 +476,13 @@ final class AudioPlayer {
             updateNowPlaying()
             return
         }
-        if Self.shouldRecordCompletion(isRepeating: isRepeating) {
-            onPlaybackCompleted(currentTitle)
-        }
+        onPlaybackCompleted(currentTitle)
         isPlaying = false
         elapsed = duration
         if let currentTrackIdentity {
             UserDefaults.standard.removeObject(forKey: Self.positionKey(currentTrackIdentity))
         }
+        if usesDeterministicBackend { return }
         updateNowPlaying()
         endPlaybackDiagnostics(outcome: .succeeded)
     }

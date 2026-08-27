@@ -1,6 +1,24 @@
 import Foundation
 import SwiftData
 
+struct DailyAudioCompletionMarker: Equatable {
+    static let namePrefix = "Daily Audio completed: "
+    static let maximumNameLength = 120
+
+    let activity = StudyActivityKind.dailyAudio
+    let source = StudyActivitySource.automatic
+    let name: String
+    let startedAt: Date
+    let duration: TimeInterval = 0
+
+    init(title: String, startedAt: Date) {
+        let displayTitle = title.isEmpty ? "Daily Audio" : title
+        let titleLimit = Self.maximumNameLength - Self.namePrefix.count
+        name = Self.namePrefix + String(displayTitle.prefix(titleLimit))
+        self.startedAt = startedAt
+    }
+}
+
 @Observable
 final class AppModel {
     let container: ModelContainer
@@ -195,13 +213,13 @@ final class AppModel {
         }
         audioPlayer.setPlaybackCompletionHandler { [weak studyTime] title in
             Task { @MainActor in
-                let now = Date.now
+                let marker = DailyAudioCompletionMarker(title: title, startedAt: .now)
                 _ = try? await studyTime?.recordCompleted(
-                    activity: .dailyAudio,
-                    source: .automatic,
-                    name: "Daily Audio completed: \(String((title.isEmpty ? "Daily Audio" : title).prefix(97)))",
-                    startedAt: now,
-                    duration: 0
+                    activity: marker.activity,
+                    source: marker.source,
+                    name: marker.name,
+                    startedAt: marker.startedAt,
+                    duration: marker.duration
                 )
             }
         }
