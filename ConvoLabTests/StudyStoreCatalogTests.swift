@@ -59,6 +59,82 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testLocalFallbackRestoreKeepsOptimisticCardAndLoadedPageVisible() async throws {
+        let suiteName = "StudyStoreCatalogTests.local-paging-restore.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        let container = try Persistence.makeContainer(inMemory: true)
+        for index in 0..<25 {
+            let card = makeCard(
+                id: "persisted-local-card-\(index)",
+                expression: "Card \(index)"
+            )
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+        let initiallyVisibleIDs = Set(
+            store.learningItems.map(\.representativeCard.id)
+        )
+        XCTAssertEqual(initiallyVisibleIDs.count, 20)
+
+        var draft = StudyCardDraft()
+        draft.cueText = "Offline creation"
+        draft.answerExpression = "Offline creation"
+        draft.answerMeaning = "created offline"
+        let optimistic = try await store.createCard(draft)
+        XCTAssertEqual(store.learningItems.count, 21)
+        store.deactivate()
+
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+        let restoredIDs = Set(
+            relaunchedStore.learningItems.map(\.representativeCard.id)
+        )
+
+        XCTAssertEqual(restoredIDs.count, 21)
+        XCTAssertTrue(restoredIDs.contains(optimistic.id))
+        XCTAssertTrue(initiallyVisibleIDs.isSubset(of: restoredIDs))
+
+        try await relaunchedStore.loadMoreLearningItems()
+        XCTAssertEqual(relaunchedStore.learningItems.count, 26)
+        XCTAssertEqual(
+            Set(relaunchedStore.learningItems.map(\.representativeCard.id)).count,
+            26
+        )
+        XCTAssertNil(relaunchedStore.learningItemsNextCursor)
+        Self.retainedObservableStores.append(contentsOf: [store, relaunchedStore])
+    }
+
+    @MainActor
     func testCardLookupUsesAliasesAndPrefersServerPresentation() {
         let fallback = makeCard(
             id: "local-card",

@@ -367,7 +367,7 @@ extension StudyStore {
     func restoreLocalLearningItemFallbackCursor(_ cursor: String?) {
         guard let cursor,
               cursor.hasPrefix(Self.localLearningItemCursorPrefix),
-              let offset = Int(cursor.dropFirst(Self.localLearningItemCursorPrefix.count))
+              Int(cursor.dropFirst(Self.localLearningItemCursorPrefix.count)) != nil
         else {
             learningItemsLocalFallbackOffset = nil
             learningItemsLocalFallbackIdentifiers = nil
@@ -375,7 +375,7 @@ extension StudyStore {
         }
         let lookup = StudyCardLookup(preferred: [], fallback: libraryCards)
         var seenIdentifiers = Set<String>()
-        let loadedCards = learningItems.prefix(offset).compactMap { item -> StudyCard? in
+        let loadedCards = learningItems.compactMap { item -> StudyCard? in
             guard let card = lookup.card(
                 matching: [item.representativeCard.id, item.representativeCard.syncId]
             ) else { return nil }
