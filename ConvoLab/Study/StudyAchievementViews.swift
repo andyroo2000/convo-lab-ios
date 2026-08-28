@@ -73,7 +73,9 @@ struct StudyAchievementBadgeCard: View {
             y: showsShadow ? 5 : 0
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(achievement.tier.title), \(detail)")
+        .accessibilityLabel(
+            "\(achievement.tier.title), \(detail)\(isNew ? ", New" : "")"
+        )
         .accessibilityHint(achievement.tier.description)
         .accessibilityIdentifier("StudyAchievementBadge.\(achievement.id)")
     }
