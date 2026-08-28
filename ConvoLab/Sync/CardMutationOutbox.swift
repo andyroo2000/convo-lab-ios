@@ -5,12 +5,12 @@ struct CardMutationAcknowledgement {
     let card: StudyCard
     let preservingPendingReview: Bool
     let preservingPendingEdit: Bool
-    let submittedAnswerAudio: JSONValue?
+    let submittedAnswerAudioFields: [String: JSONValue]?
 }
 
 private struct CardUpdatePreservingAnswerAudio: Codable {
     let request: UpdateStudyCardRequest
-    let submittedAnswerAudio: JSONValue
+    let submittedAnswerAudioFields: [String: JSONValue]
 }
 
 struct QuarantinedCardMutationError: LocalizedError {
@@ -73,13 +73,19 @@ final class CardMutationOutbox {
         preserveSubmittedAnswerAudio: Bool = false
     ) throws -> PendingMutation {
         let payload: Data
-        if
-            preserveSubmittedAnswerAudio,
-            let submittedAnswerAudio = request.answer["answerAudio"]
-        {
+        if preserveSubmittedAnswerAudio, request.answer["answerAudio"] != nil {
+            let submittedAnswerAudioFields = Dictionary(
+                uniqueKeysWithValues: [
+                    "answerAudio",
+                    "answerAudioVoiceId",
+                    "answerAudioTextOverride",
+                ].compactMap { key in
+                    request.answer[key].map { (key, $0) }
+                }
+            )
             payload = try StorageCodec.encoder.encode(CardUpdatePreservingAnswerAudio(
                 request: request,
-                submittedAnswerAudio: submittedAnswerAudio
+                submittedAnswerAudioFields: submittedAnswerAudioFields
             ))
         } else {
             payload = try StorageCodec.encoder.encode(request)
@@ -240,7 +246,7 @@ final class CardMutationOutbox {
             do {
                 let clientResourceID = mutation.resourceID
                 let serverCard: StudyCard?
-                var submittedAnswerAudio: JSONValue?
+                var submittedAnswerAudioFields: [String: JSONValue]?
                 switch mutation.kind {
                 case "cardCreate":
                     let request = try StorageCodec.decoder.decode(
@@ -259,7 +265,7 @@ final class CardMutationOutbox {
                         from: mutation.payload
                     ) {
                         request = wrapped.request
-                        submittedAnswerAudio = wrapped.submittedAnswerAudio
+                        submittedAnswerAudioFields = wrapped.submittedAnswerAudioFields
                     } else {
                         request = try StorageCodec.decoder.decode(
                             UpdateStudyCardRequest.self,
@@ -303,7 +309,7 @@ final class CardMutationOutbox {
                             for: serverCard.id
                         ),
                         preservingPendingEdit: preservingPendingEdit,
-                        submittedAnswerAudio: submittedAnswerAudio
+                        submittedAnswerAudioFields: submittedAnswerAudioFields
                     ))
                 }
                 context.delete(mutation)

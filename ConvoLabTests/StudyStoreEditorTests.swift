@@ -129,6 +129,8 @@ extension StudyStoreTests {
             prompt: baseCard.prompt,
             answer: baseCard.answer.replacingObjectValues([
                 "answerAudio": oldAudio,
+                "answerAudioVoiceId": .string("fishaudio:old-voice"),
+                "answerAudioTextOverride": .string("ふるい"),
             ]),
             state: baseCard.state,
             answerAudioSource: "generated",
@@ -156,6 +158,8 @@ extension StudyStoreTests {
             prompt: original.prompt,
             answer: original.answer.replacingObjectValues([
                 "answerAudio": newAudio,
+                "answerAudioVoiceId": .string("fishaudio:new-voice"),
+                "answerAudioTextOverride": .string("あたらしい"),
             ]),
             state: original.state,
             answerAudioSource: "generated",
@@ -226,15 +230,25 @@ extension StudyStoreTests {
 
         _ = try await store.regenerateAnswerAudio(
             for: original,
-            voiceID: StudyAnswerVoice.defaultVoice.id,
-            textOverride: ""
+            voiceID: "fishaudio:new-voice",
+            textOverride: "あたらしい"
         )
         var draft = StudyCardDraft(card: original)
+        draft.answerAudioVoiceId = "fishaudio:new-voice"
+        draft.answerAudioTextOverride = "あたらしい"
         draft.notes = "Saved note"
         try await store.updateCard(original, draft: draft)
 
         let stored = try persistedCard(in: container)
         XCTAssertEqual(stored.answer["answerAudio"], newAudio)
+        XCTAssertEqual(
+            stored.answer["answerAudioVoiceId"],
+            .string("fishaudio:new-voice")
+        )
+        XCTAssertEqual(
+            stored.answer["answerAudioTextOverride"],
+            .string("あたらしい")
+        )
         XCTAssertEqual(stored.answer["notes"]?.stringValue, "Saved note")
     }
 

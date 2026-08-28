@@ -1835,7 +1835,7 @@ final class StudyStore {
                 acknowledgement.card,
                 preservingPendingReview: acknowledgement.preservingPendingReview,
                 preservingPendingEdit: acknowledgement.preservingPendingEdit,
-                submittedAnswerAudio: acknowledgement.submittedAnswerAudio
+                submittedAnswerAudioFields: acknowledgement.submittedAnswerAudioFields
             )
             let preservingPendingAction = try hasPendingCardAction(
                 for: acknowledgedCard
@@ -2149,9 +2149,13 @@ final class StudyStore {
         _ serverCard: StudyCard,
         preservingPendingReview: Bool,
         preservingPendingEdit: Bool,
-        submittedAnswerAudio: JSONValue? = nil
+        submittedAnswerAudioFields: [String: JSONValue]? = nil
     ) throws -> StudyCard {
-        guard preservingPendingReview || preservingPendingEdit || submittedAnswerAudio != nil else {
+        guard
+            preservingPendingReview
+                || preservingPendingEdit
+                || submittedAnswerAudioFields != nil
+        else {
             return serverCard
         }
         guard let userID = activeUserID else { return serverCard }
@@ -2167,19 +2171,16 @@ final class StudyStore {
         }
 
         // Compatibility PATCH responses can contain the pre-regeneration audio
-        // projection. Reconcile against the exact answerAudio value in the accepted
-        // request, including an explicit null if editor-driven removal is added later.
-        let serverAnswerAudio = serverCard.answer["answerAudio"]
-        let answerAudioResponseWasStale = submittedAnswerAudio.map {
-            $0 != serverAnswerAudio
+        // projection. Reconcile the exact audio, voice, and override values that
+        // regeneration wrote atomically and the accepted update request submitted.
+        let answerAudioResponseWasStale = submittedAnswerAudioFields.map { fields in
+            fields.contains { key, value in serverCard.answer[key] != value }
         } ?? false
         let answer: JSONValue
         if preservingPendingEdit {
             answer = localCard.answer
-        } else if let submittedAnswerAudio {
-            answer = serverCard.answer.replacingObjectValues([
-                "answerAudio": submittedAnswerAudio,
-            ])
+        } else if let submittedAnswerAudioFields {
+            answer = serverCard.answer.replacingObjectValues(submittedAnswerAudioFields)
         } else {
             answer = serverCard.answer
         }
