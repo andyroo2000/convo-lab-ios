@@ -36,13 +36,24 @@ extension StudyStoreTests {
 
         XCTAssertEqual(store.learningItems.count, 20)
         XCTAssertNotNil(store.learningItemsNextCursor)
+        let firstPageIDs = Set(store.learningItems.map(\.representativeCard.id))
+
+        // Background sync can reorder the local library while the cached
+        // fallback is being paged. The pager must continue from its stable
+        // identity snapshot rather than a fresh offset into this array.
+        store.libraryCards.reverse()
 
         try await store.loadMoreLearningItems()
         XCTAssertEqual(store.learningItems.count, 40)
+        XCTAssertEqual(Set(store.learningItems.map(\.representativeCard.id)).count, 40)
+        XCTAssertTrue(firstPageIDs.isSubset(of: Set(
+            store.learningItems.map(\.representativeCard.id)
+        )))
         XCTAssertNotNil(store.learningItemsNextCursor)
 
         try await store.loadMoreLearningItems()
         XCTAssertEqual(store.learningItems.count, 45)
+        XCTAssertEqual(Set(store.learningItems.map(\.representativeCard.id)).count, 45)
         XCTAssertNil(store.learningItemsNextCursor)
         Self.retainedObservableStores.append(store)
     }

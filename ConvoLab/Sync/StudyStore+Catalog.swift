@@ -216,6 +216,7 @@ extension StudyStore {
         let previousItems = learningItems
         let previousNextCursor = learningItemsNextCursor
         let previousLocalFallbackOffset = learningItemsLocalFallbackOffset
+        let previousLocalFallbackIdentifiers = learningItemsLocalFallbackIdentifiers
         let previousItemsMatchRequestedQuery = previousQuery == trimmedQuery
             || restoredDefaultSnapshot
         learningItemsRefreshRevision += 1
@@ -243,6 +244,7 @@ extension StudyStore {
                 to: []
             )
             learningItemsLocalFallbackOffset = nil
+            learningItemsLocalFallbackIdentifiers = nil
             reconcilePendingCardMutationsIntoLearningItems()
             learningItemsNextCursor = response.nextCursor
             if trimmedQuery.isEmpty {
@@ -265,6 +267,7 @@ extension StudyStore {
                 learningItems = previousItems
                 learningItemsNextCursor = previousNextCursor
                 learningItemsLocalFallbackOffset = previousLocalFallbackOffset
+                learningItemsLocalFallbackIdentifiers = previousLocalFallbackIdentifiers
                 reconcilePendingCardMutationsIntoLearningItems()
             } else {
                 installLocalLearningItemFallback(matching: trimmedQuery)
@@ -334,6 +337,7 @@ extension StudyStore {
             to: learningItems
         )
         learningItemsLocalFallbackOffset = nil
+        learningItemsLocalFallbackIdentifiers = nil
         reconcilePendingCardMutationsIntoLearningItems()
         learningItemsNextCursor = response.nextCursor
         if query.isEmpty {
@@ -346,6 +350,9 @@ extension StudyStore {
             libraryCards,
             matching: query
         )
+        learningItemsLocalFallbackIdentifiers = matchingCards.map {
+            Array(StudyCardIdentity.identifiers(for: $0)).sorted()
+        }
         let page = Array(matchingCards.prefix(Self.localLearningItemPageSize))
         learningItems = StudyCardCatalogRepository.standaloneLearningItems(
             from: page,
@@ -363,9 +370,38 @@ extension StudyStore {
               let offset = Int(cursor.dropFirst(Self.localLearningItemCursorPrefix.count))
         else {
             learningItemsLocalFallbackOffset = nil
+            learningItemsLocalFallbackIdentifiers = nil
             return
         }
-        learningItemsLocalFallbackOffset = offset
+        let lookup = StudyCardLookup(preferred: [], fallback: libraryCards)
+        var seenIdentifiers = Set<String>()
+        let loadedCards = learningItems.prefix(offset).compactMap { item -> StudyCard? in
+            guard let card = lookup.card(
+                matching: [item.representativeCard.id, item.representativeCard.syncId]
+            ) else { return nil }
+            let identifiers = StudyCardIdentity.identifiers(for: card)
+            guard seenIdentifiers.isDisjoint(with: identifiers) else { return nil }
+            seenIdentifiers.formUnion(identifiers)
+            return card
+        }
+        let remainingCards = libraryCards.filter { card in
+            let identifiers = StudyCardIdentity.identifiers(for: card)
+            guard seenIdentifiers.isDisjoint(with: identifiers) else { return false }
+            seenIdentifiers.formUnion(identifiers)
+            return true
+        }
+        let orderedCards = loadedCards + remainingCards
+        learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+            from: loadedCards,
+            matching: ""
+        )
+        learningItemsLocalFallbackIdentifiers = orderedCards.map {
+            Array(StudyCardIdentity.identifiers(for: $0)).sorted()
+        }
+        updateLocalLearningItemFallbackCursor(
+            loadedCount: loadedCards.count,
+            totalCount: orderedCards.count
+        )
     }
 
     private func loadMoreLocalLearningItems(
@@ -379,15 +415,18 @@ extension StudyStore {
               learningItemsQuery == query,
               learningItemsLocalFallbackOffset == offset
         else { return }
-        let matchingCards = StudyCardCatalogRepository.cards(
-            libraryCards,
-            matching: query
-        )
-        let page = Array(
-            matchingCards
+        guard let orderedIdentifiers = learningItemsLocalFallbackIdentifiers else {
+            learningItemsLocalFallbackOffset = nil
+            learningItemsNextCursor = nil
+            return
+        }
+        let pageIdentifiers = Array(
+            orderedIdentifiers
                 .dropFirst(offset)
                 .prefix(Self.localLearningItemPageSize)
         )
+        let lookup = StudyCardLookup(preferred: [], fallback: libraryCards)
+        let page = pageIdentifiers.compactMap { lookup.card(matching: $0) }
         learningItems = StudyCardCatalogRepository.appendingUniqueLearningItems(
             StudyCardCatalogRepository.standaloneLearningItems(
                 from: page,
@@ -396,8 +435,8 @@ extension StudyStore {
             to: learningItems
         )
         updateLocalLearningItemFallbackCursor(
-            loadedCount: offset + page.count,
-            totalCount: matchingCards.count
+            loadedCount: offset + pageIdentifiers.count,
+            totalCount: orderedIdentifiers.count
         )
     }
 
@@ -407,6 +446,7 @@ extension StudyStore {
     ) {
         guard loadedCount < totalCount else {
             learningItemsLocalFallbackOffset = nil
+            learningItemsLocalFallbackIdentifiers = nil
             learningItemsNextCursor = nil
             return
         }

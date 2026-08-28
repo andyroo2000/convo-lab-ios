@@ -133,6 +133,7 @@ final class StudyStore {
     @ObservationIgnored var newCardQueueRefreshedAt: Date?
     @ObservationIgnored var learningItemsRefreshedAt: Date?
     @ObservationIgnored var learningItemsLocalFallbackOffset: Int?
+    @ObservationIgnored var learningItemsLocalFallbackIdentifiers: [[String]]?
     @ObservationIgnored private var manualDraftsRefreshedAt: Date?
     @ObservationIgnored var allCardsRefreshRevision = 0
     @ObservationIgnored var learningItemsRefreshRevision = 0
@@ -450,6 +451,7 @@ final class StudyStore {
         learningItemsQuery = ""
         learningItemsRefreshedAt = nil
         learningItemsLocalFallbackOffset = nil
+        learningItemsLocalFallbackIdentifiers = nil
         learningItemsRefreshRevision += 1
         isRefreshingLearningItems = false
         isLoadingMoreLearningItems = false
