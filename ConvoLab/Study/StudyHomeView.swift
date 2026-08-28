@@ -15,10 +15,7 @@ struct StudyHomeView: View {
                 VStack(spacing: 18) {
                     todayPlan
                     masterySpread
-                    StudyAchievementSpotlight(
-                        store: achievementStore,
-                        milestoneStore: milestoneStore
-                    )
+                    StudyAchievementSpotlight(store: achievementStore)
                     readiness
 
                     if store.cards.isEmpty, store.sessionCounts.hasRemainingReviews {

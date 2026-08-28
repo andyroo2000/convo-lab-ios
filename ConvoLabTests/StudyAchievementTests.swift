@@ -231,7 +231,7 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertEqual(store.catalog?.revision, "achievement-collection-v2")
         XCTAssertEqual(store.progress?.metricValues["reviews.count"], 120)
         XCTAssertEqual(
-            store.recentAchievements.map(\.id),
+            store.earnedAchievements.map(\.id),
             ["reviews.second", "reviews.first"]
         )
     }

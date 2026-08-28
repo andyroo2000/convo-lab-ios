@@ -100,43 +100,44 @@ struct StudyAchievementBadgeCard: View {
 
 struct StudyAchievementSpotlight: View {
     let store: StudyAchievementStore
-    let milestoneStore: StudyMilestoneStore
 
     var body: some View {
+        let earnedAchievements = store.earnedAchievements
+        let inProgressAchievements = store.inProgressAchievements
+
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("ACHIEVEMENTS")
-                        .font(.caption.bold())
-                        .tracking(2)
-                        .foregroundStyle(ConvoLabTheme.coral)
-                    Text("Your roar is growing")
-                        .font(.title2.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                }
-                Spacer(minLength: 8)
-                NavigationLink {
-                    StudyAchievementsView(store: store, milestoneStore: milestoneStore)
-                } label: {
-                    Label("View all", systemImage: "chevron.right")
-                        .labelStyle(.titleAndIcon)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                        .padding(.vertical, 8)
-                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("ACHIEVEMENTS")
+                    .font(.caption.bold())
+                    .tracking(2)
+                    .foregroundStyle(ConvoLabTheme.coral)
+                Text("Your roar is growing")
+                    .font(.title2.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
             }
 
-            if store.catalog != nil,
-               store.progress != nil || store.progressErrorMessage == nil {
+            if store.catalog != nil {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(store.recentAchievements) { achievement in
+                        ForEach(earnedAchievements) { achievement in
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
                                 imageURL: store.imageURL(for: achievement)
                             )
                         }
-                        if store.recentAchievements.isEmpty {
+
+                        if !inProgressAchievements.isEmpty {
+                            nextUpMarker
+                            ForEach(inProgressAchievements) { achievement in
+                                StudyAchievementBadgeCard(
+                                    achievement: achievement,
+                                    imageURL: store.imageURL(for: achievement)
+                                )
+                            }
+                        }
+
+                        if earnedAchievements.isEmpty,
+                           inProgressAchievements.isEmpty {
                             Text("Your earned badges will appear here.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
@@ -182,142 +183,23 @@ struct StudyAchievementSpotlight: View {
             await store.refreshIfNeeded()
         }
     }
-}
 
-struct StudyAchievementsView: View {
-    private enum Selection: String, CaseIterable, Identifiable {
-        case progress = "In progress"
-        case earned = "Earned"
-
-        var id: Self { self }
-    }
-
-    let store: StudyAchievementStore
-    let milestoneStore: StudyMilestoneStore
-    @State private var selection = Selection.progress
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ACHIEVEMENTS")
-                        .font(.caption.bold())
-                        .tracking(2)
-                        .foregroundStyle(ConvoLabTheme.coral)
-                    Text("Your roar is growing")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                }
-
-                Picker("Achievement view", selection: $selection) {
-                    ForEach(Selection.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                NavigationLink {
-                    StudyMilestonesView(store: milestoneStore)
-                } label: {
-                    Label("Review milestone history", systemImage: "clock.arrow.circlepath")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
-                }
-
-                if store.catalog != nil {
-                    if let progressErrorMessage = store.progressErrorMessage {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text(progressErrorMessage)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Try again") {
-                                Task { await store.refresh() }
-                            }
-                            .font(.subheadline.bold())
-                        }
-                    }
-                    switch selection {
-                    case .progress:
-                        progressView
-                    case .earned:
-                        if store.progress != nil || store.progressErrorMessage == nil {
-                            earnedBadgesView
-                        }
-                    }
-                } else if store.isLoading {
-                    ProgressView("Loading achievements…")
-                        .frame(maxWidth: .infinity, minHeight: 220)
-                } else if let errorMessage = store.errorMessage {
-                    ContentUnavailableView {
-                        Label("Badge cabinet unavailable", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(errorMessage)
-                    } actions: {
-                        Button("Try again") {
-                            Task { await store.refresh() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ConvoLabTheme.navy)
-                    }
-                }
-            }
-            .padding()
+    private var nextUpMarker: some View {
+        VStack(spacing: 8) {
+            Capsule()
+                .fill(ConvoLabTheme.coral.opacity(0.28))
+                .frame(width: 2, height: 66)
+            Text("NEXT\nUP")
+                .font(.caption2.bold())
+                .tracking(1.4)
+                .foregroundStyle(ConvoLabTheme.coral)
+                .multilineTextAlignment(.center)
+            Capsule()
+                .fill(ConvoLabTheme.coral.opacity(0.28))
+                .frame(width: 2, height: 66)
         }
-        .paperBackground()
-        .navigationTitle("Achievements")
-        .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await store.refresh() }
-        .task { await store.refreshIfNeeded() }
-    }
-
-    private var progressView: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("The achievements you’re closest to unlocking next.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 128, maximum: 128), spacing: 16)],
-                alignment: .leading,
-                spacing: 20
-            ) {
-                ForEach(store.inProgressAchievements) { achievement in
-                    StudyAchievementBadgeCard(
-                        achievement: achievement,
-                        imageURL: store.imageURL(for: achievement)
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var earnedBadgesView: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Every badge you’ve earned, newest first.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-
-            if store.earnedAchievements.isEmpty {
-                Text("Your earned badges will appear here.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 128, maximum: 128), spacing: 16)],
-                    alignment: .leading,
-                    spacing: 20
-                ) {
-                    ForEach(store.earnedAchievements) { achievement in
-                        StudyAchievementBadgeCard(
-                            achievement: achievement,
-                            imageURL: store.imageURL(for: achievement)
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+        .frame(width: 38, height: 190)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Next up")
     }
 }
