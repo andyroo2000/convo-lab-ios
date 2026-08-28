@@ -94,7 +94,8 @@ struct StudyHomeView: View {
                         mode: .reviews,
                         timeStore: timeStore,
                         achievementStore: achievementStore,
-                        restoredCompletion: completion
+                        restoredCompletion: completion,
+                        onSessionAchievementsLanded: { newAchievementIDs = $0 }
                     )
                 }
             }

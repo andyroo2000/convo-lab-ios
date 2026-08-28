@@ -340,6 +340,7 @@ struct StudySessionView: View {
                 currentAwardIndex = 0
                 return
             }
+            onSessionAchievementsLanded([])
             startTimeTracking()
             sessionReviewRecords = []
             practiceCards = nil
