@@ -212,6 +212,58 @@ final class CardMutationOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testAudioProtectedUpdateKeepsFailedChangeDetail() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let outbox = makeOutbox(container: container)
+        outbox.activate(userID: 7)
+        let answer: JSONValue = .object([
+            "meaning": .string("meaning"),
+            "answerAudio": .object([
+                "url": .string("/api/study/media/new-answer"),
+            ]),
+        ])
+        try outbox.trackRegeneratedAnswerAudio(cardID: "card-1", answer: answer)
+        let update = try outbox.stageUpdate(
+            cardID: "card-1",
+            request: UpdateStudyCardRequest(
+                prompt: .object(["cueText": .string("edited cue")]),
+                answer: answer
+            )
+        )
+        update.lastError = "HTTP 422: Invalid card"
+        try container.mainContext.save()
+
+        XCTAssertEqual(update.failedStudyChange()?.detail, "edited cue")
+        for mutation in try allMutations(in: container) {
+            container.mainContext.delete(mutation)
+        }
+        try container.mainContext.save()
+    }
+
+    @MainActor
+    func testDeletingCardClearsAnswerAudioReconciliationMarker() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let outbox = makeOutbox(container: container)
+        outbox.activate(userID: 7)
+        try outbox.trackRegeneratedAnswerAudio(
+            cardID: "card-1",
+            answer: .object([
+                "answerAudio": .object([
+                    "url": .string("/api/study/media/new-answer"),
+                ]),
+            ])
+        )
+
+        _ = try outbox.stageDelete(cardID: "card-1")
+        try container.mainContext.save()
+
+        let remaining = try allMutations(in: container)
+        XCTAssertEqual(remaining.map(\.kind), ["cardDelete"])
+        remaining.forEach(container.mainContext.delete)
+        try container.mainContext.save()
+    }
+
+    @MainActor
     func testPermanentRejectionQuarantinesMutationAndContinuesInOrder() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let attempts = LockedCounter()

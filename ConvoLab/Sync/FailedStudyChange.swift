@@ -92,10 +92,8 @@ extension PendingMutation {
                 ?? request.answer.preferredText
                 ?? "Card \(resourceID)"
         case .cardUpdate:
-            guard let request = try? StorageCodec.decoder.decode(
-                UpdateStudyCardRequest.self,
-                from: payload
-            ) else { return "Card \(resourceID)" }
+            guard let request = try? CardMutationOutbox.updateRequest(from: payload)
+            else { return "Card \(resourceID)" }
             return request.prompt.preferredText
                 ?? request.answer.preferredText
                 ?? "Card \(resourceID)"

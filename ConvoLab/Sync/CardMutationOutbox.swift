@@ -133,7 +133,26 @@ final class CardMutationOutbox {
 
     @discardableResult
     func stageDelete(cardID: String) throws -> PendingMutation {
-        try stage(kind: "cardDelete", cardID: cardID, payload: Data())
+        if let userID = activeUserID {
+            try clearAnswerAudioReconciliationMarker(
+                for: cardID,
+                userID: userID
+            )
+        }
+        return try stage(kind: "cardDelete", cardID: cardID, payload: Data())
+    }
+
+    static func updateRequest(from payload: Data) throws -> UpdateStudyCardRequest {
+        if let wrapped = try? StorageCodec.decoder.decode(
+            CardUpdatePreservingAnswerAudio.self,
+            from: payload
+        ) {
+            return wrapped.request
+        }
+        return try StorageCodec.decoder.decode(
+            UpdateStudyCardRequest.self,
+            from: payload
+        )
     }
 
     func flush(
