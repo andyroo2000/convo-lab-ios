@@ -1829,7 +1829,8 @@ final class StudyStore {
             var acknowledgedCard = try acknowledgedCard(
                 acknowledgement.card,
                 preservingPendingReview: acknowledgement.preservingPendingReview,
-                preservingPendingEdit: acknowledgement.preservingPendingEdit
+                preservingPendingEdit: acknowledgement.preservingPendingEdit,
+                preservingSubmittedMedia: acknowledgement.wasUpdate
             )
             let preservingPendingAction = try hasPendingCardAction(
                 for: acknowledgedCard
@@ -2142,9 +2143,12 @@ final class StudyStore {
     private func acknowledgedCard(
         _ serverCard: StudyCard,
         preservingPendingReview: Bool,
-        preservingPendingEdit: Bool
+        preservingPendingEdit: Bool,
+        preservingSubmittedMedia: Bool = false
     ) throws -> StudyCard {
-        guard preservingPendingReview || preservingPendingEdit else { return serverCard }
+        guard preservingPendingReview || preservingPendingEdit || preservingSubmittedMedia else {
+            return serverCard
+        }
         guard let userID = activeUserID else { return serverCard }
 
         guard
@@ -2157,6 +2161,25 @@ final class StudyStore {
             return serverCard
         }
 
+        // An editor PATCH does not mutate generated media. Compatibility responses
+        // can contain a pre-regeneration projection, which must not roll back media
+        // generated immediately before the card's text fields were saved.
+        let prompt = preservingPendingEdit
+            ? localCard.prompt
+            : preservingSubmittedMedia
+                ? serverCard.prompt.replacingObjectValues([
+                    "cueAudio": localCard.prompt["cueAudio"] ?? .null,
+                    "cueImage": localCard.prompt["cueImage"] ?? .null,
+                ])
+                : serverCard.prompt
+        let answer = preservingPendingEdit
+            ? localCard.answer
+            : preservingSubmittedMedia
+                ? serverCard.answer.replacingObjectValues([
+                    "answerAudio": localCard.answer["answerAudio"] ?? .null,
+                    "answerImage": localCard.answer["answerImage"] ?? .null,
+                ])
+                : serverCard.answer
         return StudyCard(
             id: record.id,
             // Keep the persisted local key while carrying the server-resolved identity as its alias.
@@ -2165,10 +2188,12 @@ final class StudyStore {
                 : serverCard.reviewCardID,
             noteId: serverCard.noteId,
             cardType: serverCard.cardType,
-            prompt: preservingPendingEdit ? localCard.prompt : serverCard.prompt,
-            answer: preservingPendingEdit ? localCard.answer : serverCard.answer,
+            prompt: prompt,
+            answer: answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
-            answerAudioSource: serverCard.answerAudioSource,
+            answerAudioSource: preservingSubmittedMedia
+                ? localCard.answerAudioSource
+                : serverCard.answerAudioSource,
             // Current PATCH responses return computed, non-null mastery; legacy lean
             // responses may omit it. Editor input cannot clear mastery. If that contract
             // gains explicit clears, decoding must distinguish null from omission.

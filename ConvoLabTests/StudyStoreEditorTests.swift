@@ -112,6 +112,133 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testSavingAfterAudioRegenerationDoesNotRestoreStaleServerAudio() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let baseCard = makeCard(
+            id: "01J0000000000000000000000AS",
+            expression: "会社"
+        )
+        let oldAudio: JSONValue = .object([
+            "url": .string("/api/study/media/old-answer"),
+        ])
+        let original = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.id,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt,
+            answer: baseCard.answer.replacingObjectValues([
+                "answerAudio": oldAudio,
+            ]),
+            state: baseCard.state,
+            answerAudioSource: "generated",
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: original,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(original)
+            )
+        )
+        try container.mainContext.save()
+
+        let newAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-answer"),
+        ])
+        let regenerated = StudyCard(
+            id: original.id,
+            syncId: original.syncId,
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer.replacingObjectValues([
+                "answerAudio": newAudio,
+            ]),
+            state: original.state,
+            answerAudioSource: "generated",
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt.addingTimeInterval(1)
+        )
+        let stalePatchResponse = StudyCard(
+            id: original.id,
+            syncId: original.syncId,
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer.replacingObjectValues([
+                "notes": .string("Saved note"),
+            ]),
+            state: original.state,
+            answerAudioSource: "generated",
+            createdAt: original.createdAt,
+            updatedAt: regenerated.updatedAt.addingTimeInterval(1)
+        )
+        let regeneratedData = try StorageCodec.encoder.encode(regenerated)
+        let stalePatchResponseData = try StorageCodec.encoder.encode(stalePatchResponse)
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            let responseData: Data
+            let contentType: String
+            if path.hasSuffix("/regenerate-answer-audio") {
+                responseData = regeneratedData
+                contentType = "application/json"
+            } else if request.httpMethod == "PATCH" {
+                let payload = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: requestBody(request)
+                    ) as? [String: Any]
+                )
+                let answer = try XCTUnwrap(payload["answer"] as? [String: Any])
+                let audio = try XCTUnwrap(answer["answerAudio"] as? [String: Any])
+                XCTAssertEqual(
+                    audio["url"] as? String,
+                    "/api/study/media/new-answer"
+                )
+                responseData = stalePatchResponseData
+                contentType = "application/json"
+            } else {
+                responseData = Data("new-audio".utf8)
+                contentType = "audio/mpeg"
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        _ = try await store.regenerateAnswerAudio(
+            for: original,
+            voiceID: StudyAnswerVoice.defaultVoice.id,
+            textOverride: ""
+        )
+        var draft = StudyCardDraft(card: original)
+        draft.notes = "Saved note"
+        try await store.updateCard(original, draft: draft)
+
+        let stored = try persistedCard(in: container)
+        XCTAssertEqual(stored.answer["answerAudio"], newAudio)
+        XCTAssertEqual(stored.answer["notes"]?.stringValue, "Saved note")
+    }
+
+    @MainActor
     func testRegenerateImagePersistsPlacementAndDownloadsForOfflineUse() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

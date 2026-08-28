@@ -5,6 +5,7 @@ struct CardMutationAcknowledgement {
     let card: StudyCard
     let preservingPendingReview: Bool
     let preservingPendingEdit: Bool
+    let wasUpdate: Bool
 }
 
 struct QuarantinedCardMutationError: LocalizedError {
@@ -273,7 +274,8 @@ final class CardMutationOutbox {
                         preservingPendingReview: reviewOutbox.hasPendingReview(
                             for: serverCard.id
                         ),
-                        preservingPendingEdit: preservingPendingEdit
+                        preservingPendingEdit: preservingPendingEdit,
+                        wasUpdate: mutation.kind == "cardUpdate"
                     ))
                 }
                 context.delete(mutation)
