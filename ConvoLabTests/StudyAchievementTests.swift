@@ -552,6 +552,30 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingOpeningProgressDoesNotReplayHistoricalAwards() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(
+            id: "review-1",
+            reviewedAt: ISO8601Milliseconds.date(from: "2026-08-28T12:00:00.000Z")!
+        ))
+
+        try installAchievementResponses(awards: [
+            award(id: "stable.first", date: "2026-08-01T12:00:00.000Z"),
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+
+        XCTAssertEqual(
+            store.prepareCurrentSessionCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
+    }
+
+    @MainActor
     func testSessionCompletionPersistsMultipleAwardsUntilWrapUpConsumesIt() async throws {
         let defaults = try makeDefaults()
         let client = makeClient()
@@ -806,7 +830,10 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
-    private func makeReviewRecord(id: String) -> StudySessionReviewRecord {
+    private func makeReviewRecord(
+        id: String,
+        reviewedAt: Date = .now
+    ) -> StudySessionReviewRecord {
         let card = StudyCard(
             id: "card-\(id)",
             syncId: nil,
@@ -832,7 +859,7 @@ final class StudyAchievementTests: XCTestCase {
             cardAfter: card,
             rating: .good,
             durationMilliseconds: 1_000,
-            reviewedAt: .now
+            reviewedAt: reviewedAt
         )
     }
 

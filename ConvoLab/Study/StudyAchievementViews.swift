@@ -351,6 +351,7 @@ struct StudyAchievementAwardView: View {
                 .padding(.top, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityValue(total > 1 ? "Achievement \(position) of \(total)" : "")
         .accessibilityIdentifier("StudyAchievementAward")
         .task(id: achievement.id) { await playAnimation() }
     }

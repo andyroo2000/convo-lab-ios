@@ -1216,7 +1216,7 @@ struct StudySessionView: View {
 
     private func advanceAchievement() {
         guard let completion = sessionCompletion else { return }
-        if currentAwardIndex + 1 < completion.newAwardIDs.count {
+        if currentAwardIndex + 1 < completionAchievements.count {
             withAnimation(.timingCurve(0.33, 1, 0.68, 1, duration: 0.56)) {
                 currentAwardIndex += 1
             }

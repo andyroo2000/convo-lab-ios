@@ -283,7 +283,7 @@ final class StudyAchievementStore {
     private struct ReviewSession: Codable {
         let id: UUID
         var records: [StudySessionReviewRecord]
-        var baselineAwardIDs: [String]
+        var baselineAwardIDs: [String]?
         var newAwardIDs: [String]
         var isReadyForPresentation: Bool
         var celebrationPresented: Bool
@@ -682,7 +682,7 @@ final class StudyAchievementStore {
         sessionState.activeSession = ReviewSession(
             id: UUID(),
             records: [],
-            baselineAwardIDs: progress?.awards.map(\.id) ?? [],
+            baselineAwardIDs: progress?.awards.map(\.id),
             newAwardIDs: [],
             isReadyForPresentation: false,
             celebrationPresented: false
@@ -740,16 +740,25 @@ final class StudyAchievementStore {
         guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
         if !session.isReadyForPresentation || !session.celebrationPresented {
             if let progress {
-                let baseline = Set(session.baselineAwardIDs)
                 let earnedIDs = Set(progress.awards.map(\.id))
-                let detected = progress.awards
-                    .filter { !baseline.contains($0.id) }
+                let detected: [StudyAchievementAward]
+                if let baselineAwardIDs = session.baselineAwardIDs {
+                    let baseline = Set(baselineAwardIDs)
+                    detected = progress.awards.filter { !baseline.contains($0.id) }
+                } else if let firstReviewAt = session.records.map(\.reviewedAt).min() {
+                    // When the opening refresh failed, award timestamps prevent a later
+                    // successful refresh from replaying the user's entire badge history.
+                    detected = progress.awards.filter { $0.earnedAt >= firstReviewAt }
+                } else {
+                    detected = []
+                }
+                let detectedIDs = detected
                     .sorted { $0.earnedAt < $1.earnedAt }
                     .map(\.id)
                 let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
                     ($0.id, $0.earnedAt)
                 })
-                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detected))
+                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detectedIDs))
                     .filter { earnedIDs.contains($0) }
                     .sorted {
                         dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
