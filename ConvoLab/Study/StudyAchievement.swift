@@ -673,7 +673,7 @@ final class StudyAchievementStore {
     func achievement(id: String) -> PresentedStudyAchievement? {
         guard let catalog else { return nil }
         return StudyAchievementPresentationModel.all(catalog: catalog, progress: progress)
-            .first { $0.id == id }
+            .first { $0.id == id && $0.isEarned }
     }
 
     func beginReviewSession() {
@@ -736,32 +736,32 @@ final class StudyAchievementStore {
         persistSessionState()
     }
 
-    func reopenCompletion(sessionID: UUID) {
-        guard var session = sessionState.activeSession,
-              session.id == sessionID,
-              session.isReadyForPresentation
-        else { return }
-        session.baselineAwardIDs = progress?.awards.map(\.id) ?? []
-        session.newAwardIDs = []
-        session.isReadyForPresentation = false
-        session.celebrationPresented = false
-        sessionState.activeSession = session
-        persistSessionState()
-    }
-
     private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
         guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
         if !session.isReadyForPresentation || !session.celebrationPresented {
-            let baseline = Set(session.baselineAwardIDs)
-            let detected = (progress?.awards ?? [])
-                .filter { !baseline.contains($0.id) }
-                .sorted { $0.earnedAt < $1.earnedAt }
-                .map(\.id)
-            session.newAwardIDs = Array(Set(session.newAwardIDs).union(detected)).sorted { left, right in
-                let awards = Dictionary(uniqueKeysWithValues: (progress?.awards ?? []).map { ($0.id, $0.earnedAt) })
-                return awards[left, default: .distantPast] < awards[right, default: .distantPast]
+            if let progress {
+                let baseline = Set(session.baselineAwardIDs)
+                let earnedIDs = Set(progress.awards.map(\.id))
+                let detected = progress.awards
+                    .filter { !baseline.contains($0.id) }
+                    .sorted { $0.earnedAt < $1.earnedAt }
+                    .map(\.id)
+                let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
+                    ($0.id, $0.earnedAt)
+                })
+                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detected))
+                    .filter { earnedIDs.contains($0) }
+                    .sorted {
+                        dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
+                    }
+            } else if requireNewAward {
+                return nil
             }
-            guard !requireNewAward || !session.newAwardIDs.isEmpty else { return nil }
+            guard !requireNewAward || !session.newAwardIDs.isEmpty else {
+                sessionState.activeSession = session
+                persistSessionState()
+                return nil
+            }
             session.isReadyForPresentation = true
         }
         sessionState.activeSession = session

@@ -290,6 +290,7 @@ struct StudyAchievementAwardView: View {
                 Circle()
                     .stroke(ConvoLabTheme.cyan.opacity(starOpacity * 0.16), lineWidth: 2)
                     .frame(width: 254, height: 254)
+                    .accessibilityHidden(true)
 
                 ForEach(colors.indices, id: \.self) { index in
                     Image(systemName: "star.fill")
@@ -302,6 +303,7 @@ struct StudyAchievementAwardView: View {
                         .rotationEffect(.degrees(Double(index) * 45))
                 }
                 .rotationEffect(.degrees(orbitAngle))
+                .accessibilityHidden(true)
 
                 AsyncImage(url: imageURL, transaction: Transaction(animation: nil)) { phase in
                     if case let .success(image) = phase {
