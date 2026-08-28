@@ -132,6 +132,7 @@ final class StudyStore {
     @ObservationIgnored var cardCatalogSnapshot: StudyCardCatalogSnapshot?
     @ObservationIgnored var newCardQueueRefreshedAt: Date?
     @ObservationIgnored var learningItemsRefreshedAt: Date?
+    @ObservationIgnored var learningItemsLocalFallbackOffset: Int?
     @ObservationIgnored private var manualDraftsRefreshedAt: Date?
     @ObservationIgnored var allCardsRefreshRevision = 0
     @ObservationIgnored var learningItemsRefreshRevision = 0
@@ -448,6 +449,7 @@ final class StudyStore {
         learningItemsNextCursor = nil
         learningItemsQuery = ""
         learningItemsRefreshedAt = nil
+        learningItemsLocalFallbackOffset = nil
         learningItemsRefreshRevision += 1
         isRefreshingLearningItems = false
         isLoadingMoreLearningItems = false
@@ -541,6 +543,7 @@ final class StudyStore {
             learningItems = snapshot.learningItems
             learningItemsNextCursor = snapshot.learningItemsNextCursor
             learningItemsRefreshedAt = snapshot.learningItemsRefreshedAt
+            restoreLocalLearningItemFallbackCursor(snapshot.learningItemsNextCursor)
             reconcilePendingCardMutationsIntoLearningItems()
         } else {
             // Existing installations already have the full local card records in
@@ -565,11 +568,7 @@ final class StudyStore {
             }
             newCardQueueTotal = max(overview?.newCount ?? 0, newCardQueue.count)
             newCardQueueNextCursor = nil
-            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
-                from: libraryCards,
-                matching: ""
-            )
-            learningItemsNextCursor = nil
+            installLocalLearningItemFallback(matching: "")
         }
 
         if let manualDraftSnapshot = cardCatalogSnapshotCache?.loadManualDrafts(userID: userID) {

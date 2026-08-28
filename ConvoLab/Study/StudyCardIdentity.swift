@@ -17,3 +17,30 @@ enum StudyCardIdentity {
         Set(identifiers.map { $0.lowercased() })
     }
 }
+
+struct StudyCardLookup {
+    private let cardsByIdentifier: [String: StudyCard]
+
+    init(preferred: [StudyCard], fallback: [StudyCard]) {
+        var cardsByIdentifier: [String: StudyCard] = [:]
+        // Match the former first(where:) behavior within each collection while
+        // allowing the server presentation to override the local fallback.
+        for card in fallback.reversed() {
+            for identifier in StudyCardIdentity.identifiers(for: card) {
+                cardsByIdentifier[identifier] = card
+            }
+        }
+        for card in preferred.reversed() {
+            for identifier in StudyCardIdentity.identifiers(for: card) {
+                cardsByIdentifier[identifier] = card
+            }
+        }
+        self.cardsByIdentifier = cardsByIdentifier
+    }
+
+    func card(matching identifiers: some Sequence<String>) -> StudyCard? {
+        identifiers.lazy.compactMap {
+            cardsByIdentifier[$0.lowercased()]
+        }.first
+    }
+}

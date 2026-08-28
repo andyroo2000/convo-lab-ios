@@ -5,6 +5,67 @@ import XCTest
 
 extension StudyStoreTests {
     @MainActor
+    func testInitialLocalLearningItemFallbackIsPaged() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        for index in 0..<45 {
+            let card = makeCard(
+                id: "local-card-\(index)",
+                expression: "Card \(index)"
+            )
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        XCTAssertEqual(store.learningItems.count, 20)
+        XCTAssertNotNil(store.learningItemsNextCursor)
+
+        try await store.loadMoreLearningItems()
+        XCTAssertEqual(store.learningItems.count, 40)
+        XCTAssertNotNil(store.learningItemsNextCursor)
+
+        try await store.loadMoreLearningItems()
+        XCTAssertEqual(store.learningItems.count, 45)
+        XCTAssertNil(store.learningItemsNextCursor)
+        Self.retainedObservableStores.append(store)
+    }
+
+    @MainActor
+    func testCardLookupUsesAliasesAndPrefersServerPresentation() {
+        let fallback = makeCard(
+            id: "local-card",
+            syncId: "server-card",
+            expression: "Cached"
+        )
+        let preferred = makeCard(
+            id: "server-card",
+            expression: "Server"
+        )
+        let lookup = StudyCardLookup(preferred: [preferred], fallback: [fallback])
+
+        XCTAssertEqual(lookup.card(matching: ["local-card"])?.promptText, "Cached")
+        XCTAssertEqual(lookup.card(matching: ["server-card"])?.promptText, "Server")
+        XCTAssertEqual(lookup.card(matching: ["SERVER-CARD"])?.promptText, "Server")
+    }
+
+    @MainActor
     func testCardCatalogSnapshotIsVisibleOnRelaunchWithoutRefetching() async throws {
         let suiteName = "StudyStoreCatalogTests.snapshot.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -964,6 +1025,72 @@ extension StudyStoreTests {
 
         XCTAssertTrue(store.learningItems.isEmpty)
         XCTAssertEqual(learningItemRequests.values.count, 2)
+    }
+
+    @MainActor
+    func testClearingSearchOfflineWithoutSnapshotRestoresPagedLocalCards() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let dog = makeCard(id: "local-dog", expression: "Dog")
+        let cat = makeCard(id: "local-cat", expression: "Cat")
+        for (index, card) in [dog, cat].enumerated() {
+            container.mainContext.insert(
+                LocalCardRecord(
+                    card: card,
+                    userID: 1,
+                    queueIndex: index,
+                    payload: try StorageCodec.encoder.encode(card)
+                )
+            )
+        }
+        try container.mainContext.save()
+        let dogItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [dog],
+                matching: ""
+            ).first
+        )
+        let dogPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [dogItem], limit: 20, nextCursor: nil)
+        )
+        let client = makeClient { request in
+            guard request.url?.query?.contains("q=Dog") == true else {
+                throw URLError(.notConnectedToInternet)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                dogPage
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        try await store.refreshLearningItems(search: "Dog")
+
+        do {
+            try await store.refreshLearningItems(search: "")
+            XCTFail("Expected the offline refresh to fail")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+
+        XCTAssertEqual(store.learningItemsQuery, "")
+        XCTAssertEqual(
+            Set(store.learningItems.map(\.representativeCard.id)),
+            Set([dog.id, cat.id])
+        )
+        Self.retainedObservableStores.append(store)
     }
 
     @MainActor
