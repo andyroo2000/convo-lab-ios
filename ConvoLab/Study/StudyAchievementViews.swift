@@ -1,31 +1,25 @@
 import SwiftUI
+import UIKit
 
 struct StudyAchievementBadgeCard: View {
     let achievement: PresentedStudyAchievement
     let imageURL: URL?
+    let isArtworkLoading: Bool
 
     var body: some View {
         VStack(spacing: -1) {
             Group {
-                if let imageURL {
-                    AsyncImage(url: imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
-                        switch phase {
-                        case let .success(image):
-                            image
-                                .resizable()
-                                .interpolation(.high)
-                                .scaledToFill()
-                        case .failure:
-                            unavailableArtwork
-                        case .empty:
-                            ProgressView()
-                                .tint(ConvoLabTheme.navy)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(ConvoLabTheme.cream)
-                        @unknown default:
-                            unavailableArtwork
-                        }
-                    }
+                if let imageURL,
+                   let image = UIImage(contentsOfFile: imageURL.path) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                } else if isArtworkLoading {
+                    ProgressView()
+                        .tint(ConvoLabTheme.navy)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(ConvoLabTheme.cream)
                 } else {
                     unavailableArtwork
                 }
@@ -123,7 +117,8 @@ struct StudyAchievementSpotlight: View {
                         ForEach(earnedAchievements) { achievement in
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
-                                imageURL: store.imageURL(for: achievement)
+                                imageURL: store.imageURL(for: achievement),
+                                isArtworkLoading: store.isPreparingImage(for: achievement)
                             )
                         }
 
@@ -132,7 +127,8 @@ struct StudyAchievementSpotlight: View {
                             ForEach(inProgressAchievements) { achievement in
                                 StudyAchievementBadgeCard(
                                     achievement: achievement,
-                                    imageURL: store.imageURL(for: achievement)
+                                    imageURL: store.imageURL(for: achievement),
+                                    isArtworkLoading: store.isPreparingImage(for: achievement)
                                 )
                             }
                         }

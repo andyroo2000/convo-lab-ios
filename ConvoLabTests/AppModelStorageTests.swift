@@ -5,8 +5,63 @@ import XCTest
 
 @MainActor
 final class AppModelStorageTests: XCTestCase {
+    private nonisolated(unsafe) static var retainedObservableStores: [AnyObject] = []
+
     private enum TestFailure: Error {
         case unavailable
+    }
+
+    func testLaunchPublishesCachedStudyDataBeforeRefresh() throws {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let studyContainer = try Persistence.makeContainer(inMemory: true)
+        let card = reviewCard()
+        studyContainer.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: user.id,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try studyContainer.mainContext.save()
+        let defaultsName = "AppModelStorageTests.cached-launch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in studyContainer },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAuthStore: { api in
+                AuthStore(api: api, keychain: credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+
+        guard case let .signedIn(restoredUser) = model.auth.state else {
+            return XCTFail("Expected cached authentication at construction")
+        }
+        XCTAssertEqual(restoredUser.id, user.id)
+        XCTAssertEqual(restoredUser.email, user.email)
+        XCTAssertEqual(model.study.cards.map(\.id), [card.id])
+        XCTAssertEqual(model.study.libraryCards.map(\.id), [card.id])
+        XCTAssertEqual(
+            model.study.learningItems.map(\.representativeCard.id),
+            [card.id]
+        )
+        Self.retainedObservableStores.append(model)
     }
 
     func testLaunchReportsMainStoreFallbackAndRejectsCardWrites() async throws {
@@ -273,5 +328,26 @@ final class AppModelStorageTests: XCTestCase {
             audioPlaybackMs: nil,
             cardsCreated: nil
         )
+    }
+}
+
+@MainActor
+private final class AppModelCachedCredentialStore: CredentialStore {
+    private var values: [String: String]
+
+    init(values: [String: String]) {
+        self.values = values
+    }
+
+    func save(_ value: String, account: String) throws {
+        values[account] = value
+    }
+
+    func read(account: String) throws -> String? {
+        values[account]
+    }
+
+    func remove(account: String) throws {
+        values[account] = nil
     }
 }

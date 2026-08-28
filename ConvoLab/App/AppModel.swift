@@ -101,6 +101,9 @@ final class AppModel {
         )
         let api = makeAPIClient(configuration.apiBaseURL)
         let mediaCache = MediaCache(api: api, context: container.mainContext)
+        let cardCatalogSnapshotCache = StudyCardCatalogSnapshotCache(
+            defaults: accountDeletionCleanupDefaults
+        )
         let studyTime = makeStudyTimeStore?(api, timeContainer.mainContext, studyTimeStorageMode)
             ?? StudyTimeStore(
                 api: api,
@@ -111,7 +114,8 @@ final class AppModel {
             api: api,
             context: container.mainContext,
             mediaCache: mediaCache,
-            storageMode: studyStorageMode
+            storageMode: studyStorageMode,
+            cardCatalogSnapshotCache: cardCatalogSnapshotCache
         )
         let dailyAudio = DailyAudioStore(
             api: api,
@@ -119,7 +123,11 @@ final class AppModel {
             mediaCache: mediaCache
         )
         let milestones = StudyMilestoneStore(api: api, defaults: accountDeletionCleanupDefaults)
-        let achievements = StudyAchievementStore(api: api)
+        let achievements = StudyAchievementStore(
+            api: api,
+            mediaCache: mediaCache,
+            defaults: accountDeletionCleanupDefaults
+        )
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -186,6 +194,7 @@ final class AppModel {
                 },
                 .milestones: { userID in
                     milestones.deleteLocalData(userID: userID)
+                    achievements.deleteLocalData(userID: userID)
                     return true
                 },
             ]
@@ -226,6 +235,15 @@ final class AppModel {
         self.audioPlayer = audioPlayer
         self.studyAudioPlayer = studyAudioPlayer
         accountDeletionCleanupFailures = accountDeletionCleanup.pendingFailures
+        if case let .signedIn(user) = auth.state {
+            if accountDeletionCleanupFailures.contains(where: { $0.userID == user.id }) {
+                // The server already confirmed this account's deletion. Do not
+                // briefly publish its cached session while local cleanup retries.
+                auth.discardCachedSession()
+            } else {
+                activateLocalData(for: user)
+            }
+        }
     }
 
     func start() async {
@@ -367,12 +385,7 @@ final class AppModel {
                 return
             }
         }
-        mediaCache.activate(userID: user.id)
-        study.activate(userID: user.id)
-        milestones.activate(userID: user.id)
-        achievements.activate(userID: user.id)
-        dailyAudio.activate(userID: user.id)
-        studyTime.activate(userID: user.id)
+        activateLocalData(for: user)
         async let studySync: Void = study.synchronize()
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
@@ -393,5 +406,14 @@ final class AppModel {
         // A freshness-throttled study sync can skip its outbox work. Foregrounding
         // still retries durable creates so offline drafts do not wait for a full sync.
         try? await study.retryPendingDraftCreates()
+    }
+
+    private func activateLocalData(for user: CurrentUser) {
+        mediaCache.activate(userID: user.id)
+        study.activate(userID: user.id)
+        milestones.activate(userID: user.id)
+        achievements.activate(userID: user.id)
+        dailyAudio.activate(userID: user.id)
+        studyTime.activate(userID: user.id)
     }
 }

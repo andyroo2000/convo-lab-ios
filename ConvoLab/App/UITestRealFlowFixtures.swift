@@ -266,7 +266,7 @@ private final class UITestRealFlowComposition: ObservableObject {
                 suggestedBatchSize: 5
             )
         ))
-        let achievementStore = StudyAchievementStore(api: api)
+        let achievementStore = StudyAchievementStore(api: api, mediaCache: mediaCache)
         achievementStore.activate(userID: userID)
         let milestoneStore = StudyMilestoneStore(
             defaults: try fixtureDefaults(named: "study-dashboard-milestones")

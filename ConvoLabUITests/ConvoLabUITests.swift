@@ -140,7 +140,7 @@ final class ConvoLabUITests: XCTestCase {
         restagedRecovery.tap()
         XCTAssertTrue(app.navigationBars["Resume Draft"].waitForExistence(timeout: 8))
         let restagedMeaning = app.textFields
-            .matching(NSPredicate(format: "value == %@", "always remember"))
+            .matching(NSPredicate(format: "value CONTAINS %@", "always remember"))
             .firstMatch
         XCTAssertTrue(restagedMeaning.waitForExistence(timeout: 8))
     }

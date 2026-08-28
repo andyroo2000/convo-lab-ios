@@ -3,6 +3,39 @@ import XCTest
 @testable import ConvoLab
 
 final class AuthStoreTests: XCTestCase {
+    private nonisolated(unsafe) static var retainedObservableStores: [AnyObject] = []
+
+    @MainActor
+    func testInitializationPublishesCachedSessionBeforeServerVerification() throws {
+        let user = CurrentUser(
+            id: 1,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = MemoryCredentialStore(values: [
+            "learning-os-mobile-token": "valid-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let client = makeClient { _ in
+            XCTFail("Initialization must not wait for or start a network request")
+            throw URLError(.notConnectedToInternet)
+        }
+
+        let store = AuthStore(api: client, keychain: credentials)
+
+        guard case let .signedIn(restoredUser) = store.state else {
+            return XCTFail("Expected the cached user at the first render")
+        }
+        XCTAssertEqual(restoredUser.id, user.id)
+        XCTAssertEqual(restoredUser.email, user.email)
+        XCTAssertEqual(client.accessToken, "valid-token")
+        Self.retainedObservableStores.append(store)
+    }
+
     @MainActor
     func testOfflineRestoreKeepsTokenAndUsesCachedUser() async throws {
         let user = CurrentUser(

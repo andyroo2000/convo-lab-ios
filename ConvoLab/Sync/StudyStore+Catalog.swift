@@ -41,6 +41,13 @@ extension StudyStore {
         )
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
+        newCardQueueRefreshedAt = .now
+        persistCardCatalogSnapshot()
+    }
+
+    func refreshNewCardQueueIfNeeded(maxAge: TimeInterval = 60) async throws {
+        guard !isFresh(newCardQueueRefreshedAt, maxAge: maxAge) else { return }
+        try await refreshNewCardQueue()
     }
 
     func loadMoreNewCardQueue() async throws {
@@ -71,6 +78,7 @@ extension StudyStore {
         )
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
+        persistCardCatalogSnapshot()
     }
 
     func refreshAllCards(search query: String = "") async throws {
@@ -187,6 +195,15 @@ extension StudyStore {
     func refreshLearningItems(search query: String = "") async throws {
         guard let userID = activeUserID else { return }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedQuery.isEmpty,
+           !learningItemsQuery.isEmpty,
+           let cardCatalogSnapshot
+        {
+            learningItems = cardCatalogSnapshot.learningItems
+            learningItemsNextCursor = cardCatalogSnapshot.learningItemsNextCursor
+        }
+        let previousItems = learningItems
+        let previousNextCursor = learningItemsNextCursor
         learningItemsRefreshRevision += 1
         let refreshRevision = learningItemsRefreshRevision
         learningItemsQuery = trimmedQuery
@@ -213,6 +230,10 @@ extension StudyStore {
             )
             reconcilePendingCardMutationsIntoLearningItems()
             learningItemsNextCursor = response.nextCursor
+            if trimmedQuery.isEmpty {
+                learningItemsRefreshedAt = .now
+                persistCardCatalogSnapshot()
+            }
         } catch {
             guard
                 activeUserID == userID,
@@ -222,13 +243,37 @@ extension StudyStore {
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
                 return
             }
-            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
-                from: libraryCards,
-                matching: trimmedQuery
-            )
-            learningItemsNextCursor = nil
+            if trimmedQuery.isEmpty, !previousItems.isEmpty {
+                learningItems = previousItems
+                learningItemsNextCursor = previousNextCursor
+                reconcilePendingCardMutationsIntoLearningItems()
+            } else {
+                learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+                    from: libraryCards,
+                    matching: trimmedQuery
+                )
+                learningItemsNextCursor = nil
+            }
             throw error
         }
+    }
+
+    func refreshLearningItemsIfNeeded(
+        search query: String = "",
+        maxAge: TimeInterval = 60
+    ) async throws {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.isEmpty else {
+            try await refreshLearningItems(search: trimmedQuery)
+            return
+        }
+        if !learningItemsQuery.isEmpty, let cardCatalogSnapshot {
+            learningItems = cardCatalogSnapshot.learningItems
+            learningItemsNextCursor = cardCatalogSnapshot.learningItemsNextCursor
+            learningItemsQuery = ""
+        }
+        guard !isFresh(learningItemsRefreshedAt, maxAge: maxAge) else { return }
+        try await refreshLearningItems()
     }
 
     func loadMoreLearningItems() async throws {
@@ -263,6 +308,9 @@ extension StudyStore {
         )
         reconcilePendingCardMutationsIntoLearningItems()
         learningItemsNextCursor = response.nextCursor
+        if query.isEmpty {
+            persistCardCatalogSnapshot()
+        }
     }
 
     func card(for item: StudyLearningItemCard) -> StudyCard? {
@@ -401,7 +449,7 @@ extension StudyStore {
         }
     }
 
-    private func reconcilePendingCardMutationsIntoLearningItems() {
+    func reconcilePendingCardMutationsIntoLearningItems() {
         removeStandaloneItemsDuplicatedByFamilies()
         let pendingDeleteIdentifiers =
             (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
@@ -554,6 +602,8 @@ extension StudyStore {
             newCardQueue = response.items
             newCardQueueTotal = response.total
             newCardQueueNextCursor = response.nextCursor
+            newCardQueueRefreshedAt = .now
+            persistCardCatalogSnapshot()
         } catch {
             guard
                 activeUserID == userID,

@@ -5,6 +5,130 @@ import XCTest
 
 extension StudyStoreTests {
     @MainActor
+    func testCardCatalogSnapshotIsVisibleOnRelaunchWithoutRefetching() async throws {
+        let suiteName = "StudyStoreCatalogTests.snapshot.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let queueItem = StudyNewCardQueueItem(
+            id: "cached-queue-card",
+            noteId: "cached-queue-note",
+            cardType: "recognition",
+            displayText: "犬",
+            meaning: "dog",
+            queuePosition: 1,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let card = makeCard(id: "cached-learning-card", expression: "猫")
+        let learningItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [card],
+                matching: ""
+            ).first
+        )
+        let cachedDraft = StudyManualCardDraft(
+            id: "cached-manual-draft",
+            status: "ready",
+            committedCardId: nil,
+            creationKind: .textRecognition,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("忘れない")]),
+            answer: .object(["meaning": .string("not to forget")]),
+            imagePlacement: .none,
+            imagePrompt: nil,
+            previewAudio: nil,
+            previewAudioRole: nil,
+            previewImage: nil,
+            errorMessage: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let refreshedAt = Date.now
+        let cache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        cache.save(
+            StudyCardCatalogSnapshot(
+                savedAt: refreshedAt,
+                newCardQueue: [queueItem],
+                newCardQueueTotal: 1,
+                newCardQueueNextCursor: nil,
+                newCardQueueRefreshedAt: refreshedAt,
+                learningItems: [learningItem],
+                learningItemsNextCursor: nil,
+                learningItemsRefreshedAt: refreshedAt,
+                manualDrafts: [cachedDraft],
+                manualDraftsRefreshedAt: refreshedAt
+            ),
+            userID: 1
+        )
+        let requestPaths = LockedRequestPaths()
+        let client = makeClient { request in
+            requestPaths.append(request.url?.path ?? "")
+            throw URLError(.notConnectedToInternet)
+        }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+
+        XCTAssertEqual(store.newCardQueue.map(\.id), [queueItem.id])
+        XCTAssertEqual(store.newCardQueue.map(\.displayText), [queueItem.displayText])
+        XCTAssertEqual(store.learningItems.map(\.id), [learningItem.id])
+        XCTAssertEqual(store.manualDrafts.map(\.id), [cachedDraft.id])
+        XCTAssertFalse(store.isRefreshingNewCardQueue)
+        XCTAssertFalse(store.isRefreshingLearningItems)
+
+        try await store.refreshManualDraftsIfNeeded()
+        try await store.refreshNewCardQueueIfNeeded()
+        try await store.refreshLearningItemsIfNeeded()
+
+        XCTAssertTrue(requestPaths.values.isEmpty)
+        let updatedDraft = StudyManualCardDraft(
+            id: cachedDraft.id,
+            status: cachedDraft.status,
+            committedCardId: cachedDraft.committedCardId,
+            creationKind: cachedDraft.creationKind,
+            cardType: cachedDraft.cardType,
+            prompt: cachedDraft.prompt,
+            answer: .object(["meaning": .string("always remember")]),
+            imagePlacement: cachedDraft.imagePlacement,
+            imagePrompt: cachedDraft.imagePrompt,
+            previewAudio: cachedDraft.previewAudio,
+            previewAudioRole: cachedDraft.previewAudioRole,
+            previewImage: cachedDraft.previewImage,
+            errorMessage: cachedDraft.errorMessage,
+            createdAt: cachedDraft.createdAt,
+            updatedAt: .now
+        )
+        store.replaceManualDraft(updatedDraft)
+
+        let relaunchedContainer = try Persistence.makeContainer(inMemory: true)
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: relaunchedContainer.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: relaunchedContainer.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+        XCTAssertEqual(relaunchedStore.manualDrafts.first?.answer, updatedDraft.answer)
+
+        try relaunchedStore.deleteLocalData(userID: 1)
+        XCTAssertNil(cache.load(userID: 1))
+        Self.retainedObservableStores.append(contentsOf: [store, relaunchedStore])
+    }
+
+    @MainActor
     func testNewCardQueueRefreshAndReorderUseCompatibilityAPI() async throws {
         let firstID = "01J00000000000000000000001"
         let secondID = "01J00000000000000000000002"

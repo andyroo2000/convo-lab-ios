@@ -198,14 +198,14 @@ struct CardLibraryView: View {
                 }
             }
             .task {
-                try? await store.refreshManualDrafts()
-                try? await store.refreshNewCardQueue()
+                try? await store.refreshManualDraftsIfNeeded()
+                try? await store.refreshNewCardQueueIfNeeded()
             }
             .task(id: "\(collectionMode.rawValue)-\(searchText)") {
                 guard collectionMode == .all else { return }
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                try? await store.refreshLearningItems(search: searchText)
+                try? await store.refreshLearningItemsIfNeeded(search: searchText)
             }
             .task(id: store.manualDrafts.filter { $0.status == "generating" }.map(\.id)) {
                 while !Task.isCancelled,

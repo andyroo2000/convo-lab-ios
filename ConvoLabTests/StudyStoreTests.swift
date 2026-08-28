@@ -4,4 +4,6 @@ import SwiftData
 import XCTest
 @testable import ConvoLab
 
-final class StudyStoreTests: XCTestCase {}
+final class StudyStoreTests: XCTestCase {
+    nonisolated(unsafe) static var retainedObservableStores: [AnyObject] = []
+}

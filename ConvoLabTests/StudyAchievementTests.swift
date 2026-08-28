@@ -237,6 +237,135 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreRestoresSnapshotImmediatelyAndReusesFreshCatalog() async throws {
+        let defaults = try makeDefaults()
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        let progressPayload = progressPayload(reviews: 120)
+        let requestPaths = LockedRequestPaths()
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            requestPaths.append(path)
+            let body = switch path {
+            case "/api/achievements/catalog": catalogPayload
+            case "/api/achievements/evaluate": progressPayload
+            default: Data()
+            }
+            if body.isEmpty {
+                XCTFail("Unexpected achievement request: \(path)")
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: body.isEmpty ? 404 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let firstStore = StudyAchievementStore(api: client, defaults: defaults)
+        firstStore.activate(userID: 41)
+        await firstStore.refresh()
+
+        let relaunchedStore = StudyAchievementStore(api: client, defaults: defaults)
+        relaunchedStore.activate(userID: 41)
+
+        XCTAssertEqual(relaunchedStore.catalog?.revision, "achievement-collection-v2")
+        XCTAssertEqual(relaunchedStore.progress?.metricValues["reviews.count"], 120)
+        XCTAssertFalse(relaunchedStore.isLoading)
+
+        await relaunchedStore.refresh()
+
+        XCTAssertEqual(
+            requestPaths.values,
+            [
+                "/api/achievements/catalog",
+                "/api/achievements/evaluate",
+                "/api/achievements/evaluate",
+            ]
+        )
+    }
+
+    @MainActor
+    func testStoreDownloadsEveryLockedAndEarnedBadgeBeforeItIsEarned() async throws {
+        let catalog = makeCatalog()
+        let catalogPayload = try JSONEncoder().encode(catalog)
+        let progressPayload = progressPayload(reviews: 0)
+        let requestPaths = LockedRequestPaths()
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            requestPaths.append(path)
+            let body: Data
+            let contentType: String
+            switch path {
+            case "/api/achievements/catalog":
+                body = catalogPayload
+                contentType = "application/json"
+            case "/api/achievements/evaluate":
+                body = progressPayload
+                contentType = "application/json"
+            case _ where path.hasPrefix("/achievement-assets/"):
+                body = Data("png-\(path)".utf8)
+                contentType = "image/png"
+            default:
+                XCTFail("Unexpected achievement request: \(path)")
+                body = Data()
+                contentType = "application/json"
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: body.isEmpty ? 404 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let container = try Persistence.makeContainer(inMemory: true)
+        let mediaCache = MediaCache(
+            initialUserID: 41,
+            api: client,
+            context: container.mainContext
+        )
+        let store = StudyAchievementStore(api: client, mediaCache: mediaCache)
+        store.activate(userID: 41)
+
+        await store.refresh()
+
+        let expectedPaths = Set(catalog.offlineImageAssets.map(\.path))
+        let downloadedPaths = Set(requestPaths.values.filter {
+            $0.hasPrefix("/achievement-assets/")
+        })
+        XCTAssertEqual(downloadedPaths, expectedPaths)
+        XCTAssertEqual(store.cachedAssetURLs.count, expectedPaths.count)
+        XCTAssertTrue(store.preparingAssetPaths.isEmpty)
+
+        for asset in catalog.offlineImageAssets {
+            let remoteURL = try XCTUnwrap(client.sameOriginResourceURL(asset.path))
+            XCTAssertNotNil(mediaCache.localURL(for: remoteURL))
+        }
+    }
+
+    @MainActor
     func testStoreSurfacesInitialProgressFailureInsteadOfShowingEmptyHistory() async throws {
         let catalogPayload = try JSONEncoder().encode(makeCatalog())
         MockURLProtocol.deferredHandler = nil
@@ -315,13 +444,6 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertEqual(staleCatalogRequest.url?.path, "/api/achievements/catalog")
         store.activate(userID: 2)
         staleCatalogCompletion(.success(response(for: staleCatalogRequest, data: catalogPayload)))
-        guard let (staleProgressRequest, staleProgressCompletion) = await iterator.next() else {
-            return XCTFail("Expected the stale progress request")
-        }
-        staleProgressCompletion(.success(response(
-            for: staleProgressRequest,
-            data: progressPayload(reviews: 120)
-        )))
         await staleRefresh.value
         XCTAssertNil(store.catalog)
         XCTAssertNil(store.progress)
@@ -341,13 +463,10 @@ final class StudyAchievementTests: XCTestCase {
         )))
         await initialRefresh.value
 
-        guard let (forcedCatalogRequest, forcedCatalogCompletion) = await iterator.next() else {
-            return XCTFail("Expected the forced catalog request after the in-flight load")
-        }
-        forcedCatalogCompletion(.success(response(for: forcedCatalogRequest, data: catalogPayload)))
         guard let (forcedProgressRequest, forcedProgressCompletion) = await iterator.next() else {
             return XCTFail("Expected the forced progress request")
         }
+        XCTAssertEqual(forcedProgressRequest.url?.path, "/api/achievements/evaluate")
         forcedProgressCompletion(.success(response(
             for: forcedProgressRequest,
             data: progressPayload(reviews: 50)
@@ -386,15 +505,51 @@ final class StudyAchievementTests: XCTestCase {
             unit: unit,
             hiddenUntilEarned: nil,
             tiers: [
-                tier(key: "first", title: "\(title) 1", threshold: 25),
-                tier(key: "second", title: "\(title) 2", threshold: 100),
+                tier(
+                    key: "first",
+                    title: "\(title) 1",
+                    threshold: 25,
+                    assetPrefix: "\(key)-first"
+                ),
+                tier(
+                    key: "second",
+                    title: "\(title) 2",
+                    threshold: 100,
+                    assetPrefix: "\(key)-second"
+                ),
             ]
         )
     }
 
-    private func tier(key: String, title: String, threshold: Int) -> StudyAchievementTier {
-        let state = StudyAchievementPNGAssets(
-            png: ["256": asset(size: 256), "512": asset(size: 512)]
+    private func tier(
+        key: String,
+        title: String,
+        threshold: Int,
+        assetPrefix: String
+    ) -> StudyAchievementTier {
+        let earned = StudyAchievementPNGAssets(
+            png: [
+                "256": asset(
+                    size: 256,
+                    path: "/achievement-assets/\(assetPrefix)-earned-256.png"
+                ),
+                "512": asset(
+                    size: 512,
+                    path: "/achievement-assets/\(assetPrefix)-earned-512.png"
+                ),
+            ]
+        )
+        let locked = StudyAchievementPNGAssets(
+            png: [
+                "256": asset(
+                    size: 256,
+                    path: "/achievement-assets/\(assetPrefix)-locked-256.png"
+                ),
+                "512": asset(
+                    size: 512,
+                    path: "/achievement-assets/\(assetPrefix)-locked-512.png"
+                ),
+            ]
         )
         return StudyAchievementTier(
             key: key,
@@ -402,7 +557,7 @@ final class StudyAchievementTests: XCTestCase {
             threshold: threshold,
             description: "Earn \(threshold)",
             earnedDescription: "Completed \(threshold) reviews",
-            assets: StudyAchievementTierAssets(earned: state, locked: state)
+            assets: StudyAchievementTierAssets(earned: earned, locked: locked)
         )
     }
 
@@ -507,6 +662,13 @@ final class StudyAchievementTests: XCTestCase {
             presentation: catalog.presentation,
             families: families
         )
+    }
+
+    private func makeDefaults() throws -> UserDefaults {
+        let name = "StudyAchievementTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defaults.removePersistentDomain(forName: name)
+        return defaults
     }
 
 }
