@@ -272,11 +272,6 @@ final class StudyAchievementStore {
         self.api = api
     }
 
-    var recentAchievements: [PresentedStudyAchievement] {
-        guard let catalog else { return [] }
-        return StudyAchievementPresentationModel.recentEarned(catalog: catalog, progress: progress)
-    }
-
     var inProgressAchievements: [PresentedStudyAchievement] {
         guard let catalog else { return [] }
         return StudyAchievementPresentationModel.closestInProgress(
