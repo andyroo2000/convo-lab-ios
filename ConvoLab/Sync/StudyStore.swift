@@ -537,6 +537,7 @@ final class StudyStore {
             newCardQueueTotal = snapshot.newCardQueueTotal
             newCardQueueNextCursor = snapshot.newCardQueueNextCursor
             newCardQueueRefreshedAt = snapshot.newCardQueueRefreshedAt
+            reconcilePendingCardMutationsIntoNewCardQueue()
             learningItems = snapshot.learningItems
             learningItemsNextCursor = snapshot.learningItemsNextCursor
             learningItemsRefreshedAt = snapshot.learningItemsRefreshedAt
@@ -1347,7 +1348,9 @@ final class StudyStore {
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
         reconcileLearningItems(upserting: updated)
+        reconcilePendingCardMutationsIntoNewCardQueue()
         try context.save()
+        persistCardCatalogSnapshot()
         do {
             try await flushCardOutbox()
         } catch {
@@ -1377,7 +1380,9 @@ final class StudyStore {
         libraryCards.removeAll { $0.id == currentCard.id }
         allCards.removeAll { $0.id == currentCard.id }
         removeFromLearningItems(currentCard)
+        reconcilePendingCardMutationsIntoNewCardQueue()
         try context.save()
+        persistCardCatalogSnapshot()
         do {
             try await flushCardOutbox()
         } catch {

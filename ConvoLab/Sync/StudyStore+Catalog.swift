@@ -42,6 +42,7 @@ extension StudyStore {
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
         newCardQueueRefreshedAt = .now
+        reconcilePendingCardMutationsIntoNewCardQueue()
         persistCardCatalogSnapshot()
     }
 
@@ -78,6 +79,7 @@ extension StudyStore {
         )
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
+        reconcilePendingCardMutationsIntoNewCardQueue()
         persistCardCatalogSnapshot()
     }
 
@@ -468,6 +470,42 @@ extension StudyStore {
         removeStandaloneItemsDuplicatedByFamilies()
     }
 
+    func reconcilePendingCardMutationsIntoNewCardQueue() {
+        let pendingDeleteIdentifiers =
+            (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        let previousCount = newCardQueue.count
+        newCardQueue.removeAll { item in
+            pendingDeleteIdentifiers.contains(item.id.lowercased())
+        }
+        let removedCount = previousCount - newCardQueue.count
+        if removedCount > 0 {
+            newCardQueueTotal = max(
+                newCardQueue.count,
+                newCardQueueTotal - removedCount
+            )
+        }
+
+        let pendingWriteIdentifiers =
+            (try? cardOutbox.pendingWriteIdentifiers()) ?? []
+        guard !pendingWriteIdentifiers.isEmpty else { return }
+        newCardQueue = newCardQueue.map { item in
+            guard let card = libraryCards.first(where: {
+                StudyCardIdentity.matches($0, any: [item.id])
+            }), StudyCardIdentity.matches(card, any: pendingWriteIdentifiers)
+            else { return item }
+            return StudyNewCardQueueItem(
+                id: item.id,
+                noteId: card.noteId ?? item.noteId,
+                cardType: card.cardType,
+                displayText: card.promptText,
+                meaning: card.answerText,
+                queuePosition: item.queuePosition,
+                createdAt: item.createdAt,
+                updatedAt: card.updatedAt
+            )
+        }
+    }
+
     private func removeStandaloneItemsDuplicatedByFamilies() {
         let familyCardIdentifiers = Set(
             learningItems
@@ -604,6 +642,7 @@ extension StudyStore {
             newCardQueueTotal = response.total
             newCardQueueNextCursor = response.nextCursor
             newCardQueueRefreshedAt = .now
+            reconcilePendingCardMutationsIntoNewCardQueue()
             persistCardCatalogSnapshot()
         } catch {
             guard

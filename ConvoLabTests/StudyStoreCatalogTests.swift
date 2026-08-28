@@ -136,6 +136,93 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testPendingDeleteCannotReappearFromCachedNewCardQueueAfterRelaunch() async throws {
+        let suiteName = "StudyStoreCatalogTests.queue-delete.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let card = makeCard(
+            id: "cached-new-card-delete",
+            expression: "消す",
+            queueState: "new"
+        )
+        let queueItem = StudyNewCardQueueItem(
+            id: card.id,
+            noteId: card.noteId ?? card.id,
+            cardType: card.cardType,
+            displayText: card.promptText,
+            meaning: card.answerText,
+            queuePosition: 1,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt
+        )
+        let refreshedAt = Date.now
+        let staleSnapshot = StudyCardCatalogSnapshot(
+            savedAt: refreshedAt,
+            newCardQueue: [queueItem],
+            newCardQueueTotal: 1,
+            newCardQueueNextCursor: nil,
+            newCardQueueRefreshedAt: refreshedAt,
+            learningItems: [],
+            learningItemsNextCursor: nil,
+            learningItemsRefreshedAt: refreshedAt
+        )
+        let cache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        cache.save(staleSnapshot, userID: 1)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let container = try Persistence.makeContainer(inMemory: true)
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+        XCTAssertEqual(store.newCardQueue.map(\.id), [card.id])
+
+        try await store.updateCard(card, prompt: "更新", reading: "", answer: "updated")
+        XCTAssertEqual(store.newCardQueue.first?.displayText, "更新")
+        XCTAssertEqual(store.newCardQueue.first?.meaning, "updated")
+
+        try await store.deleteCard(card)
+
+        XCTAssertTrue(store.newCardQueue.isEmpty)
+        XCTAssertEqual(store.newCardQueueTotal, 0)
+        store.deactivate()
+
+        // Model an older cached payload surviving a termination between the
+        // durable outbox write and a presentation-snapshot rewrite.
+        cache.save(staleSnapshot, userID: 1)
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+
+        XCTAssertTrue(relaunchedStore.newCardQueue.isEmpty)
+        XCTAssertEqual(relaunchedStore.newCardQueueTotal, 0)
+        Self.retainedObservableStores.append(contentsOf: [store, relaunchedStore])
+    }
+
+    @MainActor
     func testNewCardQueueRefreshAndReorderUseCompatibilityAPI() async throws {
         let firstID = "01J00000000000000000000001"
         let secondID = "01J00000000000000000000002"
