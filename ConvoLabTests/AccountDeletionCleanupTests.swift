@@ -147,6 +147,24 @@ final class AccountDeletionCleanupTests: XCTestCase {
             email: "deleted@example.com",
             emailVerifiedAt: nil
         )
+        let cardCatalogCache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        cardCatalogCache.save(
+            StudyCardCatalogSnapshot(
+                savedAt: .now,
+                newCardQueue: [],
+                newCardQueueTotal: 0,
+                newCardQueueNextCursor: nil,
+                newCardQueueRefreshedAt: .now,
+                learningItems: [],
+                learningItemsNextCursor: nil,
+                learningItemsRefreshedAt: .now
+            ),
+            userID: user.id
+        )
+        cardCatalogCache.saveManualDrafts(
+            StudyManualDraftSnapshot(savedAt: .now, drafts: [], refreshedAt: .now),
+            userID: user.id
+        )
         let credentials = CleanupCredentialStore(values: [
             "learning-os-mobile-token": "valid-token",
             "learning-os-current-user": String(
@@ -194,6 +212,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertTrue(model.storageStatus.isDegraded)
+        XCTAssertNil(cardCatalogCache.load(userID: user.id))
+        XCTAssertNil(cardCatalogCache.loadManualDrafts(userID: user.id))
         XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
         XCTAssertTrue(expectedPendingDomains.allSatisfy { domain in
             pending.contains { $0.userID == user.id && $0.domain == domain }

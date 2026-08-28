@@ -1,31 +1,21 @@
 import SwiftUI
+import UIKit
 
 struct StudyAchievementBadgeCard: View {
     let achievement: PresentedStudyAchievement
     let imageURL: URL?
+    let isArtworkLoading: Bool
 
     var body: some View {
         VStack(spacing: -1) {
             Group {
                 if let imageURL {
-                    AsyncImage(url: imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
-                        switch phase {
-                        case let .success(image):
-                            image
-                                .resizable()
-                                .interpolation(.high)
-                                .scaledToFill()
-                        case .failure:
-                            unavailableArtwork
-                        case .empty:
-                            ProgressView()
-                                .tint(ConvoLabTheme.navy)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(ConvoLabTheme.cream)
-                        @unknown default:
-                            unavailableArtwork
-                        }
-                    }
+                    StudyAchievementLocalArtwork(imageURL: imageURL)
+                } else if isArtworkLoading {
+                    ProgressView()
+                        .tint(ConvoLabTheme.navy)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(ConvoLabTheme.cream)
                 } else {
                     unavailableArtwork
                 }
@@ -98,6 +88,51 @@ struct StudyAchievementBadgeCard: View {
     }
 }
 
+private struct StudyAchievementLocalArtwork: View {
+    let imageURL: URL
+
+    @State private var image: UIImage?
+    @State private var didFinishLoading = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+            } else if didFinishLoading {
+                Image(systemName: "photo.badge.exclamationmark")
+                    .font(.largeTitle)
+                    .foregroundStyle(ConvoLabTheme.navy.opacity(0.45))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(ConvoLabTheme.cream)
+            } else {
+                ProgressView()
+                    .tint(ConvoLabTheme.navy)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(ConvoLabTheme.cream)
+            }
+        }
+        .task(id: imageURL) {
+            image = nil
+            didFinishLoading = false
+            let data = await Self.loadData(from: imageURL)
+            guard !Task.isCancelled else { return }
+            if let data, let decodedImage = UIImage(data: data) {
+                image = await decodedImage.byPreparingForDisplay() ?? decodedImage
+            }
+            didFinishLoading = true
+        }
+    }
+
+    private nonisolated static func loadData(from url: URL) async -> Data? {
+        await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url, options: .mappedIfSafe)
+        }.value
+    }
+}
+
 struct StudyAchievementSpotlight: View {
     let store: StudyAchievementStore
     let milestoneStore: StudyMilestoneStore
@@ -123,7 +158,8 @@ struct StudyAchievementSpotlight: View {
                         ForEach(earnedAchievements) { achievement in
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
-                                imageURL: store.imageURL(for: achievement)
+                                imageURL: store.imageURL(for: achievement),
+                                isArtworkLoading: store.isPreparingImage(for: achievement)
                             )
                         }
 
@@ -132,7 +168,8 @@ struct StudyAchievementSpotlight: View {
                             ForEach(inProgressAchievements) { achievement in
                                 StudyAchievementBadgeCard(
                                     achievement: achievement,
-                                    imageURL: store.imageURL(for: achievement)
+                                    imageURL: store.imageURL(for: achievement),
+                                    isArtworkLoading: store.isPreparingImage(for: achievement)
                                 )
                             }
                         }

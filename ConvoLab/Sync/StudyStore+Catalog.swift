@@ -41,6 +41,14 @@ extension StudyStore {
         )
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
+        newCardQueueRefreshedAt = .now
+        reconcilePendingCardMutationsIntoNewCardQueue()
+        persistCardCatalogSnapshot()
+    }
+
+    func refreshNewCardQueueIfNeeded(maxAge: TimeInterval = 60) async throws {
+        guard !isFresh(newCardQueueRefreshedAt, maxAge: maxAge) else { return }
+        try await refreshNewCardQueue()
     }
 
     func loadMoreNewCardQueue() async throws {
@@ -71,6 +79,8 @@ extension StudyStore {
         )
         newCardQueueTotal = response.total
         newCardQueueNextCursor = response.nextCursor
+        reconcilePendingCardMutationsIntoNewCardQueue()
+        persistCardCatalogSnapshot()
     }
 
     func refreshAllCards(search query: String = "") async throws {
@@ -187,6 +197,15 @@ extension StudyStore {
     func refreshLearningItems(search query: String = "") async throws {
         guard let userID = activeUserID else { return }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedQuery.isEmpty,
+           !learningItemsQuery.isEmpty,
+           let cardCatalogSnapshot
+        {
+            learningItems = cardCatalogSnapshot.learningItems
+            learningItemsNextCursor = cardCatalogSnapshot.learningItemsNextCursor
+        }
+        let previousItems = learningItems
+        let previousNextCursor = learningItemsNextCursor
         learningItemsRefreshRevision += 1
         let refreshRevision = learningItemsRefreshRevision
         learningItemsQuery = trimmedQuery
@@ -213,6 +232,10 @@ extension StudyStore {
             )
             reconcilePendingCardMutationsIntoLearningItems()
             learningItemsNextCursor = response.nextCursor
+            if trimmedQuery.isEmpty {
+                learningItemsRefreshedAt = .now
+                persistCardCatalogSnapshot()
+            }
         } catch {
             guard
                 activeUserID == userID,
@@ -222,13 +245,38 @@ extension StudyStore {
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
                 return
             }
-            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
-                from: libraryCards,
-                matching: trimmedQuery
-            )
-            learningItemsNextCursor = nil
+            if trimmedQuery.isEmpty, !previousItems.isEmpty {
+                learningItems = previousItems
+                learningItemsNextCursor = previousNextCursor
+                reconcilePendingCardMutationsIntoLearningItems()
+            } else {
+                learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+                    from: libraryCards,
+                    matching: trimmedQuery
+                )
+                learningItemsNextCursor = nil
+            }
             throw error
         }
+    }
+
+    func refreshLearningItemsIfNeeded(
+        search query: String = "",
+        maxAge: TimeInterval = 60
+    ) async throws {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.isEmpty else {
+            try await refreshLearningItems(search: trimmedQuery)
+            return
+        }
+        if !learningItemsQuery.isEmpty, let cardCatalogSnapshot {
+            learningItems = cardCatalogSnapshot.learningItems
+            learningItemsNextCursor = cardCatalogSnapshot.learningItemsNextCursor
+            learningItemsQuery = ""
+            reconcilePendingCardMutationsIntoLearningItems()
+        }
+        guard !isFresh(learningItemsRefreshedAt, maxAge: maxAge) else { return }
+        try await refreshLearningItems()
     }
 
     func loadMoreLearningItems() async throws {
@@ -263,6 +311,9 @@ extension StudyStore {
         )
         reconcilePendingCardMutationsIntoLearningItems()
         learningItemsNextCursor = response.nextCursor
+        if query.isEmpty {
+            persistCardCatalogSnapshot()
+        }
     }
 
     func card(for item: StudyLearningItemCard) -> StudyCard? {
@@ -339,8 +390,22 @@ extension StudyStore {
         upserting card: StudyCard,
         addIfMissing: Bool = false
     ) {
+        learningItems = reconciledLearningItems(
+            learningItems,
+            upserting: card,
+            matching: learningItemsQuery,
+            addIfMissing: addIfMissing
+        )
+    }
+
+    private func reconciledLearningItems(
+        _ sourceItems: [StudyLearningItem],
+        upserting card: StudyCard,
+        matching query: String,
+        addIfMissing: Bool = false
+    ) -> [StudyLearningItem] {
         var foundExistingCard = false
-        learningItems = learningItems.compactMap { item in
+        var updatedItems = sourceItems.compactMap { item in
             let representativeCard = updatedLearningItemCard(
                 item.representativeCard,
                 from: card,
@@ -376,7 +441,7 @@ extension StudyStore {
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
-            return learningItem(updatedItem, matches: learningItemsQuery)
+            return learningItem(updatedItem, matches: query)
                 ? updatedItem
                 : nil
         }
@@ -384,12 +449,13 @@ extension StudyStore {
               !foundExistingCard,
               let standalone = StudyCardCatalogRepository.standaloneLearningItems(
                   from: [card],
-                  matching: learningItemsQuery
+                  matching: query
               ).first
-        else { return }
+        else { return updatedItems }
         // Keep optimistic/manual creations visible immediately. A later grouped
         // refresh replaces this projection if the server assigned the card to a family.
-        learningItems.insert(standalone, at: 0)
+        updatedItems.insert(standalone, at: 0)
+        return updatedItems
     }
 
     private func learningItem(_ item: StudyLearningItem, matches query: String) -> Bool {
@@ -401,7 +467,7 @@ extension StudyStore {
         }
     }
 
-    private func reconcilePendingCardMutationsIntoLearningItems() {
+    func reconcilePendingCardMutationsIntoLearningItems() {
         removeStandaloneItemsDuplicatedByFamilies()
         let pendingDeleteIdentifiers =
             (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
@@ -417,6 +483,42 @@ extension StudyStore {
             reconcileLearningItems(upserting: card, addIfMissing: true)
         }
         removeStandaloneItemsDuplicatedByFamilies()
+    }
+
+    func reconcilePendingCardMutationsIntoNewCardQueue() {
+        let pendingDeleteIdentifiers =
+            (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
+        let previousCount = newCardQueue.count
+        newCardQueue.removeAll { item in
+            pendingDeleteIdentifiers.contains(item.id.lowercased())
+        }
+        let removedCount = previousCount - newCardQueue.count
+        if removedCount > 0 {
+            newCardQueueTotal = max(
+                newCardQueue.count,
+                newCardQueueTotal - removedCount
+            )
+        }
+
+        let pendingWriteIdentifiers =
+            (try? cardOutbox.pendingWriteIdentifiers()) ?? []
+        guard !pendingWriteIdentifiers.isEmpty else { return }
+        newCardQueue = newCardQueue.map { item in
+            guard let card = libraryCards.first(where: {
+                StudyCardIdentity.matches($0, any: [item.id])
+            }), StudyCardIdentity.matches(card, any: pendingWriteIdentifiers)
+            else { return item }
+            return StudyNewCardQueueItem(
+                id: item.id,
+                noteId: card.noteId ?? item.noteId,
+                cardType: card.cardType,
+                displayText: card.promptText,
+                meaning: card.answerText,
+                queuePosition: item.queuePosition,
+                createdAt: item.createdAt,
+                updatedAt: card.updatedAt
+            )
+        }
     }
 
     private func removeStandaloneItemsDuplicatedByFamilies() {
@@ -466,7 +568,19 @@ extension StudyStore {
     }
 
     private func removeFromLearningItems(matching identifiers: Set<String>) {
-        learningItems = learningItems.compactMap { item in
+        learningItems = learningItemsRemoving(
+            learningItems,
+            removing: identifiers,
+            matching: learningItemsQuery
+        )
+    }
+
+    private func learningItemsRemoving(
+        _ sourceItems: [StudyLearningItem],
+        removing identifiers: Set<String>,
+        matching query: String
+    ) -> [StudyLearningItem] {
+        sourceItems.compactMap { item in
             if item.groupId == nil {
                 let isDeletedCard = learningItemCard(
                     item.representativeCard,
@@ -510,10 +624,53 @@ extension StudyStore {
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
-            return learningItem(updatedItem, matches: learningItemsQuery)
+            return learningItem(updatedItem, matches: query)
                 ? updatedItem
                 : nil
         }
+    }
+
+    func reconcileCachedDefaultLearningItems(upserting card: StudyCard) {
+        guard let snapshot = cardCatalogSnapshot else { return }
+        replaceCachedDefaultLearningItems(
+            in: snapshot,
+            with: reconciledLearningItems(
+                snapshot.learningItems,
+                upserting: card,
+                matching: ""
+            )
+        )
+    }
+
+    func removeFromCachedDefaultLearningItems(_ card: StudyCard) {
+        guard let snapshot = cardCatalogSnapshot else { return }
+        replaceCachedDefaultLearningItems(
+            in: snapshot,
+            with: learningItemsRemoving(
+                snapshot.learningItems,
+                removing: Set([
+                    card.id.lowercased(),
+                    card.reviewCardID.lowercased(),
+                ]),
+                matching: ""
+            )
+        )
+    }
+
+    private func replaceCachedDefaultLearningItems(
+        in snapshot: StudyCardCatalogSnapshot,
+        with learningItems: [StudyLearningItem]
+    ) {
+        cardCatalogSnapshot = StudyCardCatalogSnapshot(
+            savedAt: snapshot.savedAt,
+            newCardQueue: snapshot.newCardQueue,
+            newCardQueueTotal: snapshot.newCardQueueTotal,
+            newCardQueueNextCursor: snapshot.newCardQueueNextCursor,
+            newCardQueueRefreshedAt: snapshot.newCardQueueRefreshedAt,
+            learningItems: learningItems,
+            learningItemsNextCursor: snapshot.learningItemsNextCursor,
+            learningItemsRefreshedAt: snapshot.learningItemsRefreshedAt
+        )
     }
 
     private func learningItemCard(
@@ -554,6 +711,9 @@ extension StudyStore {
             newCardQueue = response.items
             newCardQueueTotal = response.total
             newCardQueueNextCursor = response.nextCursor
+            newCardQueueRefreshedAt = .now
+            reconcilePendingCardMutationsIntoNewCardQueue()
+            persistCardCatalogSnapshot()
         } catch {
             guard
                 activeUserID == userID,

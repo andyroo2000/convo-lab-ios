@@ -107,6 +107,15 @@ nonisolated struct StudyAchievementCatalog: Codable, Equatable, Sendable {
             throw StudyAchievementCatalogError.invalidAsset
         }
     }
+
+    var offlineImageAssets: [StudyAchievementAsset] {
+        var seenPaths = Set<String>()
+        return families.flatMap(\.tiers).flatMap { tier in
+            [tier.assets.earned.png["512"], tier.assets.locked.png["512"]]
+                .compactMap { $0 }
+        }
+        .filter { seenPaths.insert($0.path).inserted }
+    }
 }
 
 nonisolated enum StudyAchievementCatalogError: Error, Equatable {
@@ -257,19 +266,44 @@ nonisolated enum StudyAchievementPresentationModel {
 @MainActor
 @Observable
 final class StudyAchievementStore {
+    private struct PersistedState: Codable {
+        let catalog: StudyAchievementCatalog
+        let progress: StudyAchievementProgress?
+        let catalogRefreshedAt: Date
+        let progressRefreshedAt: Date?
+    }
+
+    private static let catalogMaximumAge: TimeInterval = 24 * 60 * 60
+    private static let mediaCategory = "achievement-badges"
+
     private let api: APIClient
+    private let mediaCache: MediaCache?
+    private let defaults: UserDefaults?
+    private let persistenceKeyPrefix = "study-achievements-v1"
     private var activeUserID: Int?
+    private var catalogRefreshedAt: Date?
     private var refreshedAt: Date?
     private var refreshSequence = 0
+    private var assetPreparationSequence = 0
+    private var assetPreparationRevision: String?
+    private var assetPreparationTask: Task<Void, Never>?
 
     private(set) var catalog: StudyAchievementCatalog?
     private(set) var progress: StudyAchievementProgress?
+    private(set) var cachedAssetURLs: [String: URL] = [:]
+    private(set) var preparingAssetPaths: Set<String> = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var progressErrorMessage: String?
 
-    init(api: APIClient) {
+    init(
+        api: APIClient,
+        mediaCache: MediaCache? = nil,
+        defaults: UserDefaults? = nil
+    ) {
         self.api = api
+        self.mediaCache = mediaCache
+        self.defaults = defaults
     }
 
     var inProgressAchievements: [PresentedStudyAchievement] {
@@ -292,19 +326,27 @@ final class StudyAchievementStore {
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
         refreshSequence += 1
+        cancelAssetPreparation()
         activeUserID = userID
-        progress = nil
-        refreshedAt = nil
+        restorePersistedState(userID: userID)
         errorMessage = nil
         progressErrorMessage = nil
         isLoading = false
+        if let catalog {
+            startAssetPreparation(for: catalog)
+        }
     }
 
     func deactivate() {
         refreshSequence += 1
+        cancelAssetPreparation()
         activeUserID = nil
+        catalog = nil
         progress = nil
+        catalogRefreshedAt = nil
         refreshedAt = nil
+        cachedAssetURLs = [:]
+        preparingAssetPaths = []
         errorMessage = nil
         progressErrorMessage = nil
         isLoading = false
@@ -345,10 +387,30 @@ final class StudyAchievementStore {
         }
 
         do {
-            let loadedCatalog: StudyAchievementCatalog = try await api.request(
-                "/api/achievements/catalog"
-            )
-            let validatedCatalog = try loadedCatalog.validated()
+            var validatedCatalog = catalog
+            var loadedCatalogRefreshedAt = catalogRefreshedAt
+            let catalogIsStale = catalogRefreshedAt.map {
+                Date.now.timeIntervalSince($0) >= Self.catalogMaximumAge
+            } ?? true
+            if validatedCatalog == nil || catalogIsStale {
+                do {
+                    let loadedCatalog: StudyAchievementCatalog = try await api.request(
+                        "/api/achievements/catalog"
+                    )
+                    validatedCatalog = try loadedCatalog.validated()
+                    loadedCatalogRefreshedAt = .now
+                } catch {
+                    guard validatedCatalog != nil else { throw error }
+                    // A saved, validated catalog keeps the shelf useful offline. The
+                    // next foreground refresh will retry once the catalog is stale.
+                }
+            }
+            guard !Task.isCancelled,
+                  activeUserID == requestedUserID,
+                  refreshSequence == sequence,
+                  let validatedCatalog
+            else { return }
+
             var loadedProgress = progress?.revision == validatedCatalog.revision ? progress : nil
             var loadedProgressError: String?
             do {
@@ -375,11 +437,19 @@ final class StudyAchievementStore {
                   activeUserID == requestedUserID,
                   refreshSequence == sequence
             else { return }
+            let catalogChanged = catalog?.revision != validatedCatalog.revision
             catalog = validatedCatalog
+            catalogRefreshedAt = loadedCatalogRefreshedAt
             progress = loadedProgress
             refreshedAt = .now
             errorMessage = nil
             progressErrorMessage = loadedProgressError
+            if catalogChanged {
+                restoreCachedAssetURLs(for: validatedCatalog)
+            }
+            persist()
+
+            startAssetPreparation(for: validatedCatalog)
         } catch {
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,
@@ -391,6 +461,181 @@ final class StudyAchievementStore {
 
     func imageURL(for achievement: PresentedStudyAchievement) -> URL? {
         guard let path = achievement.imageAsset?.path else { return nil }
-        return api.sameOriginResourceURL(path)
+        return cachedAssetURLs[path]
+    }
+
+    func isPreparingImage(for achievement: PresentedStudyAchievement) -> Bool {
+        guard let path = achievement.imageAsset?.path else { return false }
+        return preparingAssetPaths.contains(path)
+    }
+
+    func waitForAssetPreparation() async {
+        while let assetPreparationTask {
+            await assetPreparationTask.value
+        }
+    }
+
+    func downloadedMediaWasCleared() {
+        cancelAssetPreparation()
+        cachedAssetURLs = [:]
+        preparingAssetPaths = []
+        guard let catalog else { return }
+        startAssetPreparation(for: catalog)
+    }
+
+    func deleteLocalData(userID: Int) {
+        defaults?.removeObject(forKey: persistenceKey(userID: userID))
+        guard activeUserID == userID else { return }
+        refreshSequence += 1
+        cancelAssetPreparation()
+        catalog = nil
+        progress = nil
+        catalogRefreshedAt = nil
+        refreshedAt = nil
+        cachedAssetURLs = [:]
+        preparingAssetPaths = []
+    }
+
+    @discardableResult
+    private func startAssetPreparation(
+        for catalog: StudyAchievementCatalog
+    ) -> Task<Void, Never>? {
+        guard mediaCache != nil, let userID = activeUserID else { return nil }
+        if assetPreparationRevision == catalog.revision,
+           let assetPreparationTask {
+            return assetPreparationTask
+        }
+        restoreCachedAssetURLs(for: catalog)
+        let missingPaths = Set(catalog.offlineImageAssets.map(\.path))
+            .subtracting(cachedAssetURLs.keys)
+        guard !missingPaths.isEmpty else {
+            cancelAssetPreparation()
+            preparingAssetPaths = []
+            return nil
+        }
+        cancelAssetPreparation()
+        assetPreparationSequence += 1
+        let sequence = assetPreparationSequence
+        assetPreparationRevision = catalog.revision
+        preparingAssetPaths = missingPaths
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.prepareAssets(
+                for: catalog,
+                userID: userID,
+                sequence: sequence
+            )
+        }
+        assetPreparationTask = task
+        return task
+    }
+
+    private func prepareAssets(
+        for catalog: StudyAchievementCatalog,
+        userID: Int,
+        sequence: Int
+    ) async {
+        guard let mediaCache else { return }
+        let featuredAssets = (earnedAchievements + inProgressAchievements)
+            .compactMap(\.imageAsset)
+        var seenPaths = Set<String>()
+        let assets = (featuredAssets + catalog.offlineImageAssets)
+            .filter { seenPaths.insert($0.path).inserted }
+
+        for asset in assets {
+            guard !Task.isCancelled,
+                  activeUserID == userID,
+                  assetPreparationSequence == sequence
+            else { return }
+            guard let remoteURL = api.sameOriginResourceURL(asset.path) else {
+                preparingAssetPaths.remove(asset.path)
+                continue
+            }
+            let localURL: URL?
+            if let cachedURL = mediaCache.localURL(for: remoteURL) {
+                localURL = cachedURL
+            } else {
+                localURL = try? await mediaCache.download(
+                    remoteURL,
+                    category: Self.mediaCategory
+                )
+            }
+            guard !Task.isCancelled,
+                  activeUserID == userID,
+                  assetPreparationSequence == sequence
+            else { return }
+            if let localURL {
+                cachedAssetURLs[asset.path] = localURL
+            }
+            preparingAssetPaths.remove(asset.path)
+        }
+
+        guard activeUserID == userID,
+              assetPreparationSequence == sequence
+        else { return }
+        assetPreparationTask = nil
+        assetPreparationRevision = nil
+    }
+
+    private func restorePersistedState(userID: Int) {
+        catalog = nil
+        progress = nil
+        catalogRefreshedAt = nil
+        refreshedAt = nil
+        cachedAssetURLs = [:]
+        preparingAssetPaths = []
+
+        guard let defaults,
+              let data = defaults.data(forKey: persistenceKey(userID: userID)),
+              let state = try? JSONDecoder().decode(PersistedState.self, from: data),
+              let catalog = try? state.catalog.validated()
+        else { return }
+        let progress = try? state.progress?.validated()
+        self.catalog = catalog
+        self.progress = progress?.revision == catalog.revision ? progress : nil
+        catalogRefreshedAt = state.catalogRefreshedAt
+        refreshedAt = state.progressRefreshedAt
+        restoreCachedAssetURLs(for: catalog)
+    }
+
+    private func restoreCachedAssetURLs(for catalog: StudyAchievementCatalog) {
+        guard let mediaCache else {
+            cachedAssetURLs = [:]
+            return
+        }
+        cachedAssetURLs = Dictionary(
+            uniqueKeysWithValues: catalog.offlineImageAssets.compactMap { asset in
+                guard let remoteURL = api.sameOriginResourceURL(asset.path),
+                      let localURL = mediaCache.localURL(for: remoteURL)
+                else { return nil }
+                return (asset.path, localURL)
+            }
+        )
+    }
+
+    private func persist() {
+        guard let defaults,
+              let activeUserID,
+              let catalog,
+              let catalogRefreshedAt,
+              let data = try? JSONEncoder().encode(PersistedState(
+                  catalog: catalog,
+                  progress: progress,
+                  catalogRefreshedAt: catalogRefreshedAt,
+                  progressRefreshedAt: refreshedAt
+              ))
+        else { return }
+        defaults.set(data, forKey: persistenceKey(userID: activeUserID))
+    }
+
+    private func persistenceKey(userID: Int) -> String {
+        "\(persistenceKeyPrefix)-\(userID)"
+    }
+
+    private func cancelAssetPreparation() {
+        assetPreparationSequence += 1
+        assetPreparationTask?.cancel()
+        assetPreparationTask = nil
+        assetPreparationRevision = nil
     }
 }

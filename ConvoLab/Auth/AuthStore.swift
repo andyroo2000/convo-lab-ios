@@ -30,25 +30,28 @@ final class AuthStore {
     init(api: APIClient, keychain: any CredentialStore = KeychainStore()) {
         self.api = api
         self.keychain = keychain
+        restoreCachedSession()
     }
 
     func restore() async {
+        let generation = authenticationGeneration
+        guard restoreCachedSession() else { return }
         do {
-            guard let token = try keychain.read(account: tokenAccount) else {
-                state = .signedOut
-                return
-            }
-            api.setAccessToken(token)
             let envelope: APIEnvelope<CurrentUser> = try await api.request("/api/me")
+            guard authenticationGeneration == generation else { return }
             try cacheUser(envelope.data)
             state = .signedIn(envelope.data)
         } catch APIClientError.rejected(status: 401, message: _) {
+            guard authenticationGeneration == generation else { return }
             clearCredentials()
             state = .signedOut
         } catch {
+            guard authenticationGeneration == generation else { return }
             // A network failure does not invalidate a bearer token. Use the last verified
             // profile so a cold launch can still enter the local-first app while offline.
-            if let cachedUser = try? cachedUser() {
+            if case .signedIn = state {
+                // The cached profile was published before verification began.
+            } else if let cachedUser = try? cachedUser() {
                 state = .signedIn(cachedUser)
             } else {
                 errorMessage = "Your account could not be verified while offline."
@@ -254,6 +257,12 @@ final class AuthStore {
         state = .signedOut
     }
 
+    func discardCachedSession() {
+        authenticationGeneration += 1
+        clearCredentials()
+        state = .signedOut
+    }
+
     private func cacheUser(_ user: CurrentUser) throws {
         let data = try JSONEncoder().encode(user)
         guard let value = String(data: data, encoding: .utf8) else {
@@ -319,6 +328,31 @@ final class AuthStore {
             return nil
         }
         return try JSONDecoder().decode(CurrentUser.self, from: data)
+    }
+
+    @discardableResult
+    private func restoreCachedSession() -> Bool {
+        do {
+            guard let token = try keychain.read(account: tokenAccount) else {
+                api.setAccessToken(nil)
+                state = .signedOut
+                return false
+            }
+            api.setAccessToken(token)
+            if let user = try? cachedUser() {
+                state = .signedIn(user)
+            } else {
+                // A token from an older app build may predate profile caching. Only
+                // that one-time migration needs the blocking verification state.
+                state = .restoring
+            }
+            return true
+        } catch {
+            api.setAccessToken(nil)
+            errorMessage = "Your saved account could not be opened."
+            state = .signedOut
+            return false
+        }
     }
 
     private func clearCredentials() {
