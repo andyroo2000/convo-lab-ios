@@ -229,6 +229,10 @@ struct CardLibraryView: View {
 
     @ViewBuilder
     private var cardList: some View {
+        let cardLookup = StudyCardLookup(
+            preferred: store.allCards,
+            fallback: store.libraryCards
+        )
         List {
             if !store.pendingManualDraftCreates.isEmpty {
                 Section("Card creation recovery") {
@@ -276,7 +280,7 @@ struct CardLibraryView: View {
                                         ? "Selected"
                                         : "Not selected"
                                 )
-                            } else if let card = card(for: item) {
+                            } else if let card = card(for: item, using: cardLookup) {
                                 Button {
                                     selectedCard = card
                                 } label: {
@@ -361,7 +365,7 @@ struct CardLibraryView: View {
                 if !store.learningItems.isEmpty {
                     Section {
                         ForEach(store.learningItems) { item in
-                            learningItemRow(item)
+                            learningItemRow(item, using: cardLookup)
                             .task {
                                 guard item.id == store.learningItems.last?.id else { return }
                                 try? await store.loadMoreLearningItems()
@@ -496,9 +500,11 @@ struct CardLibraryView: View {
         }
     }
 
-    private func card(for item: StudyNewCardQueueItem) -> StudyCard? {
-        store.allCards.first { $0.id == item.id }
-            ?? store.libraryCards.first { $0.id == item.id }
+    private func card(
+        for item: StudyNewCardQueueItem,
+        using cardLookup: StudyCardLookup
+    ) -> StudyCard? {
+        cardLookup.card(matching: [item.id])
     }
 
     private func queueRow(_ item: StudyNewCardQueueItem, number: Int) -> some View {
@@ -561,9 +567,14 @@ struct CardLibraryView: View {
     }
 
     @ViewBuilder
-    private func learningItemRow(_ item: StudyLearningItem) -> some View {
+    private func learningItemRow(
+        _ item: StudyLearningItem,
+        using cardLookup: StudyCardLookup
+    ) -> some View {
         if item.groupId == nil {
-            if let card = store.card(for: item.representativeCard),
+            if let card = cardLookup.card(
+                matching: [item.representativeCard.id, item.representativeCard.syncId]
+            ),
                StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                 Button {
                     selectedCard = card
@@ -610,7 +621,7 @@ struct CardLibraryView: View {
                 )
             ) {
                 ForEach(item.stages) { stage in
-                    learningStageRow(stage)
+                    learningStageRow(stage, using: cardLookup)
                 }
             } label: {
                 learningItemSummary(item)
@@ -669,7 +680,10 @@ struct CardLibraryView: View {
         .accessibilityHidden(true)
     }
 
-    private func learningStageRow(_ stage: StudyLearningItemStage) -> some View {
+    private func learningStageRow(
+        _ stage: StudyLearningItemStage,
+        using cardLookup: StudyCardLookup
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: stageIcon(stage.status))
@@ -683,7 +697,7 @@ struct CardLibraryView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(stage.cards) { itemCard in
-                if let card = store.card(for: itemCard),
+                if let card = cardLookup.card(matching: [itemCard.id, itemCard.syncId]),
                    StudyCardDraft.CardType(rawValue: card.cardType) != nil {
                     HStack {
                         Button {
