@@ -5,7 +5,7 @@ struct CardMutationAcknowledgement {
     let card: StudyCard
     let preservingPendingReview: Bool
     let preservingPendingEdit: Bool
-    let wasUpdate: Bool
+    let submittedAnswerAudio: JSONValue?
 }
 
 struct QuarantinedCardMutationError: LocalizedError {
@@ -222,6 +222,7 @@ final class CardMutationOutbox {
             do {
                 let clientResourceID = mutation.resourceID
                 let serverCard: StudyCard?
+                var submittedAnswerAudio: JSONValue?
                 switch mutation.kind {
                 case "cardCreate":
                     let request = try StorageCodec.decoder.decode(
@@ -238,6 +239,7 @@ final class CardMutationOutbox {
                         UpdateStudyCardRequest.self,
                         from: mutation.payload
                     )
+                    submittedAnswerAudio = request.answer["answerAudio"]
                     serverCard = try await api.request(
                         "/api/study/cards/\(mutation.resourceID)",
                         method: "PATCH",
@@ -275,7 +277,7 @@ final class CardMutationOutbox {
                             for: serverCard.id
                         ),
                         preservingPendingEdit: preservingPendingEdit,
-                        wasUpdate: mutation.kind == "cardUpdate"
+                        submittedAnswerAudio: submittedAnswerAudio
                     ))
                 }
                 context.delete(mutation)
