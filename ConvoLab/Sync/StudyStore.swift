@@ -1348,6 +1348,7 @@ final class StudyStore {
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
         reconcileLearningItems(upserting: updated)
+        reconcileCachedDefaultLearningItems(upserting: updated)
         reconcilePendingCardMutationsIntoNewCardQueue()
         try context.save()
         persistCardCatalogSnapshot()
@@ -1380,6 +1381,7 @@ final class StudyStore {
         libraryCards.removeAll { $0.id == currentCard.id }
         allCards.removeAll { $0.id == currentCard.id }
         removeFromLearningItems(currentCard)
+        removeFromCachedDefaultLearningItems(currentCard)
         reconcilePendingCardMutationsIntoNewCardQueue()
         try context.save()
         persistCardCatalogSnapshot()

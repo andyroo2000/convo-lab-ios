@@ -967,6 +967,122 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testSuccessfulSearchMutationsUpdateCachedDefaultItemsBeforeRelaunch() async throws {
+        let suiteName = "StudyStoreCatalogTests.search-mutation-cache.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "search-mutation-cache", expression: "古い")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let staleItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [card],
+                matching: ""
+            ).first
+        )
+        let refreshedAt = Date.now
+        let cache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        cache.save(
+            StudyCardCatalogSnapshot(
+                savedAt: refreshedAt,
+                newCardQueue: [],
+                newCardQueueTotal: 0,
+                newCardQueueNextCursor: nil,
+                newCardQueueRefreshedAt: refreshedAt,
+                learningItems: [staleItem],
+                learningItemsNextCursor: nil,
+                learningItemsRefreshedAt: refreshedAt
+            ),
+            userID: 1
+        )
+        let searchPage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [staleItem], limit: 20, nextCursor: nil)
+        )
+        let updatedServerCard = makeCard(id: card.id, expression: "新しい")
+        let updatedCardData = try StorageCodec.encoder.encode(updatedServerCard)
+        let client = makeClient { request in
+            let data: Data
+            let statusCode: Int
+            switch request.httpMethod {
+            case "GET" where request.url?.path == "/api/study/learning-items":
+                data = searchPage
+                statusCode = 200
+            case "PATCH":
+                data = updatedCardData
+                statusCode = 200
+            case "DELETE":
+                data = Data()
+                statusCode = 204
+            default:
+                XCTFail(
+                    "Unexpected request: "
+                        + "\(request.httpMethod ?? "nil") \(request.url?.path ?? "nil")"
+                )
+                throw URLError(.badURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: data.isEmpty ? nil : ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext),
+            cardCatalogSnapshotCache: cache
+        )
+        try await store.refreshLearningItems(search: "古い")
+
+        try await store.updateCard(card, prompt: "新しい", reading: "", answer: "new")
+
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertEqual(
+            cache.load(userID: 1)?.learningItems.first?.representativeCard.displayText,
+            "新しい"
+        )
+
+        try await store.deleteCard(card)
+
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        XCTAssertTrue(cache.load(userID: 1)?.learningItems.isEmpty == true)
+        store.deactivate()
+
+        let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let relaunchedStore = StudyStore(
+            initialUserID: 1,
+            api: offlineClient,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: offlineClient,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+
+        XCTAssertTrue(relaunchedStore.learningItems.isEmpty)
+        Self.retainedObservableStores.append(contentsOf: [store, relaunchedStore])
+    }
+
+    @MainActor
     func testOptimisticEditRemovesLearningItemThatNoLongerMatchesSearch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "searched-card", expression: "古い")

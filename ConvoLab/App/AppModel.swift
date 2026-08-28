@@ -171,6 +171,9 @@ final class AppModel {
                     }
                 },
                 .study: { userID in
+                    // This cache remains durable even when SwiftData had to fall
+                    // back to temporary storage, so purge it on every attempt.
+                    cardCatalogSnapshotCache.remove(userID: userID)
                     guard studyStorageMode == .persistent else {
                         return false
                     }
@@ -309,6 +312,7 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         try mediaCache.clearDownloadedMedia()
+        achievements.downloadedMediaWasCleared()
     }
 
     func deleteAccount(currentPassword: String) async -> Bool {

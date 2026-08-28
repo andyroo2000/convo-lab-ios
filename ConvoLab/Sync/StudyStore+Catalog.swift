@@ -390,8 +390,22 @@ extension StudyStore {
         upserting card: StudyCard,
         addIfMissing: Bool = false
     ) {
+        learningItems = reconciledLearningItems(
+            learningItems,
+            upserting: card,
+            matching: learningItemsQuery,
+            addIfMissing: addIfMissing
+        )
+    }
+
+    private func reconciledLearningItems(
+        _ sourceItems: [StudyLearningItem],
+        upserting card: StudyCard,
+        matching query: String,
+        addIfMissing: Bool = false
+    ) -> [StudyLearningItem] {
         var foundExistingCard = false
-        learningItems = learningItems.compactMap { item in
+        var updatedItems = sourceItems.compactMap { item in
             let representativeCard = updatedLearningItemCard(
                 item.representativeCard,
                 from: card,
@@ -427,7 +441,7 @@ extension StudyStore {
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
-            return learningItem(updatedItem, matches: learningItemsQuery)
+            return learningItem(updatedItem, matches: query)
                 ? updatedItem
                 : nil
         }
@@ -435,12 +449,13 @@ extension StudyStore {
               !foundExistingCard,
               let standalone = StudyCardCatalogRepository.standaloneLearningItems(
                   from: [card],
-                  matching: learningItemsQuery
+                  matching: query
               ).first
-        else { return }
+        else { return updatedItems }
         // Keep optimistic/manual creations visible immediately. A later grouped
         // refresh replaces this projection if the server assigned the card to a family.
-        learningItems.insert(standalone, at: 0)
+        updatedItems.insert(standalone, at: 0)
+        return updatedItems
     }
 
     private func learningItem(_ item: StudyLearningItem, matches query: String) -> Bool {
@@ -553,7 +568,19 @@ extension StudyStore {
     }
 
     private func removeFromLearningItems(matching identifiers: Set<String>) {
-        learningItems = learningItems.compactMap { item in
+        learningItems = learningItemsRemoving(
+            learningItems,
+            removing: identifiers,
+            matching: learningItemsQuery
+        )
+    }
+
+    private func learningItemsRemoving(
+        _ sourceItems: [StudyLearningItem],
+        removing identifiers: Set<String>,
+        matching query: String
+    ) -> [StudyLearningItem] {
+        sourceItems.compactMap { item in
             if item.groupId == nil {
                 let isDeletedCard = learningItemCard(
                     item.representativeCard,
@@ -597,10 +624,53 @@ extension StudyStore {
                 transferDemonstrated: item.transferDemonstrated,
                 stages: stages
             )
-            return learningItem(updatedItem, matches: learningItemsQuery)
+            return learningItem(updatedItem, matches: query)
                 ? updatedItem
                 : nil
         }
+    }
+
+    func reconcileCachedDefaultLearningItems(upserting card: StudyCard) {
+        guard let snapshot = cardCatalogSnapshot else { return }
+        replaceCachedDefaultLearningItems(
+            in: snapshot,
+            with: reconciledLearningItems(
+                snapshot.learningItems,
+                upserting: card,
+                matching: ""
+            )
+        )
+    }
+
+    func removeFromCachedDefaultLearningItems(_ card: StudyCard) {
+        guard let snapshot = cardCatalogSnapshot else { return }
+        replaceCachedDefaultLearningItems(
+            in: snapshot,
+            with: learningItemsRemoving(
+                snapshot.learningItems,
+                removing: Set([
+                    card.id.lowercased(),
+                    card.reviewCardID.lowercased(),
+                ]),
+                matching: ""
+            )
+        )
+    }
+
+    private func replaceCachedDefaultLearningItems(
+        in snapshot: StudyCardCatalogSnapshot,
+        with learningItems: [StudyLearningItem]
+    ) {
+        cardCatalogSnapshot = StudyCardCatalogSnapshot(
+            savedAt: snapshot.savedAt,
+            newCardQueue: snapshot.newCardQueue,
+            newCardQueueTotal: snapshot.newCardQueueTotal,
+            newCardQueueNextCursor: snapshot.newCardQueueNextCursor,
+            newCardQueueRefreshedAt: snapshot.newCardQueueRefreshedAt,
+            learningItems: learningItems,
+            learningItemsNextCursor: snapshot.learningItemsNextCursor,
+            learningItemsRefreshedAt: snapshot.learningItemsRefreshedAt
+        )
     }
 
     private func learningItemCard(

@@ -475,6 +475,14 @@ final class StudyAchievementStore {
         }
     }
 
+    func downloadedMediaWasCleared() {
+        cancelAssetPreparation()
+        cachedAssetURLs = [:]
+        preparingAssetPaths = []
+        guard let catalog else { return }
+        startAssetPreparation(for: catalog)
+    }
+
     func deleteLocalData(userID: Int) {
         defaults?.removeObject(forKey: persistenceKey(userID: userID))
         guard activeUserID == userID else { return }

@@ -364,6 +364,20 @@ final class StudyAchievementTests: XCTestCase {
             let remoteURL = try XCTUnwrap(client.sameOriginResourceURL(asset.path))
             XCTAssertNotNil(mediaCache.localURL(for: remoteURL))
         }
+
+        try mediaCache.clearDownloadedMedia()
+        store.downloadedMediaWasCleared()
+        await store.waitForAssetPreparation()
+
+        let redownloadedPaths = requestPaths.values.filter {
+            $0.hasPrefix("/achievement-assets/")
+        }
+        XCTAssertEqual(redownloadedPaths.count, expectedPaths.count * 2)
+        XCTAssertEqual(store.cachedAssetURLs.count, expectedPaths.count)
+        for asset in catalog.offlineImageAssets {
+            let remoteURL = try XCTUnwrap(client.sameOriginResourceURL(asset.path))
+            XCTAssertNotNil(mediaCache.localURL(for: remoteURL))
+        }
     }
 
     @MainActor
