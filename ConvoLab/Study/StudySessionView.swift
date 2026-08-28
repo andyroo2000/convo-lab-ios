@@ -11,10 +11,11 @@ struct StudySessionView: View {
     let player: StudyAudioPlayer
     let mode: Mode
     let timeStore: StudyTimeStore?
-    let milestoneStore: StudyMilestoneStore?
-    let restoredCompletion: StudyMilestoneCompletion?
+    let achievementStore: StudyAchievementStore?
+    let restoredCompletion: StudyAchievementCompletion?
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
+    let onSessionAchievementsLanded: (Set<String>) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -37,7 +38,7 @@ struct StudySessionView: View {
     @State private var cardPendingSetDue: StudyCard?
     @State private var cardActionErrorMessage: String?
     @State private var sessionReviewRecords: [StudySessionReviewRecord] = []
-    @State private var sessionCompletion: StudyMilestoneCompletion?
+    @State private var sessionCompletion: StudyAchievementCompletion?
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
@@ -45,26 +46,29 @@ struct StudySessionView: View {
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
     @State private var lessonPresentationID = UUID()
+    @Namespace private var achievementFlight
 
     init(
         store: StudyStore,
         player: StudyAudioPlayer,
         mode: Mode = .reviews,
         timeStore: StudyTimeStore? = nil,
-        milestoneStore: StudyMilestoneStore? = nil,
-        restoredCompletion: StudyMilestoneCompletion? = nil,
+        achievementStore: StudyAchievementStore? = nil,
+        restoredCompletion: StudyAchievementCompletion? = nil,
         lessonCohortID: String? = nil,
         lessonPresentationID: UUID = UUID(),
-        allowsLessonDismissal: Bool = false
+        allowsLessonDismissal: Bool = false,
+        onSessionAchievementsLanded: @escaping (Set<String>) -> Void = { _ in }
     ) {
         self.store = store
         self.player = player
         self.mode = mode
         self.timeStore = timeStore
-        self.milestoneStore = milestoneStore
+        self.achievementStore = achievementStore
         self.restoredCompletion = restoredCompletion
         self.lessonCohortID = lessonCohortID
         self.allowsLessonDismissal = allowsLessonDismissal
+        self.onSessionAchievementsLanded = onSessionAchievementsLanded
         _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
@@ -113,12 +117,16 @@ struct StudySessionView: View {
         sessionWasEnded || sessionCompletion != nil || reviewSessionComplete
     }
 
-    private var currentMilestoneAward: StudyMilestoneAward? {
+    private var completionAchievements: [PresentedStudyAchievement] {
+        guard let completion = sessionCompletion else { return [] }
+        return completion.newAwardIDs.compactMap { achievementStore?.achievement(id: $0) }
+    }
+
+    private var currentAchievement: PresentedStudyAchievement? {
         guard !celebrationPresented,
-              let awards = sessionCompletion?.newAwards,
-              awards.indices.contains(currentAwardIndex)
+              completionAchievements.indices.contains(currentAwardIndex)
         else { return nil }
-        return awards[currentAwardIndex]
+        return completionAchievements[currentAwardIndex]
     }
 
     private var displayedProgress: Double {
@@ -144,7 +152,7 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var sessionProgressContent: some View {
-        if currentMilestoneAward == nil {
+        if currentAchievement == nil {
             ProgressView(value: displayedProgress)
                 .tint(.green)
                 .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
@@ -154,11 +162,21 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var activeSessionContent: some View {
-        if let award = currentMilestoneAward {
-            StudyMilestoneAwardView(award: award) {
-                advanceMilestoneAward()
+        if let achievement = currentAchievement {
+            StudyAchievementAwardView(
+                achievement: achievement,
+                imageURL: achievementStore?.imageURL(for: achievement),
+                position: currentAwardIndex + 1,
+                total: completionAchievements.count,
+                flightNamespace: achievementFlight
+            ) {
+                advanceAchievement()
             }
-            .id(award.id)
+            .id(achievement.id)
+            .transition(.asymmetric(
+                insertion: .move(edge: .trailing),
+                removal: .move(edge: .leading)
+            ))
         } else if isPreparingCompletion {
             ProgressView("Preparing your wrap-up…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -336,8 +354,8 @@ struct StudySessionView: View {
             } else {
                 store.beginSessionFailureTracking()
                 _ = try? await store.refreshSession()
-                _ = try? await milestoneStore?.synchronize()
-                milestoneStore?.beginReviewSession()
+                await achievementStore?.refresh()
+                achievementStore?.beginReviewSession()
             }
         }
         .onChange(of: reviewSessionComplete) { _, isComplete in
@@ -654,22 +672,42 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyToughestSection")
                 }
 
-                if let milestoneStore,
-                   let awards = sessionCompletion?.newAwards,
-                   !awards.isEmpty
-                {
-                    NavigationLink {
-                        StudyMilestonesView(store: milestoneStore)
-                    } label: {
-                        StudyRecentMilestonesSection(awards: awards)
+                if !completionAchievements.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Earned this session")
+                            .font(.headline)
+                        ScrollView(.horizontal) {
+                            HStack(alignment: .top, spacing: 14) {
+                                ForEach(Array(completionAchievements.reversed())) { achievement in
+                                    StudyAchievementBadgeCard(
+                                        achievement: achievement,
+                                        imageURL: achievementStore?.imageURL(for: achievement),
+                                        isNew: true,
+                                        showsShadow: false
+                                    )
+                                    .matchedGeometryEffect(
+                                        id: "session-achievement-\(achievement.id)",
+                                        in: achievementFlight,
+                                        properties: .frame,
+                                        anchor: .center,
+                                        isSource: false
+                                    )
+                                }
+                            }
+                            .padding(.bottom, 2)
+                        }
+                        .scrollIndicators(.hidden)
                     }
-                    .buttonStyle(.plain)
+                    .padding()
+                    .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
+                    .accessibilityIdentifier("StudySessionAchievements")
                 }
 
                 Button("Done") {
                     if let completionID = sessionCompletion?.id {
-                        milestoneStore?.consumeCompletion(sessionID: completionID)
+                        achievementStore?.consumeCompletion(sessionID: completionID)
                     }
+                    onSessionAchievementsLanded(Set(completionAchievements.map(\.id)))
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -1037,7 +1075,7 @@ struct StudySessionView: View {
                         )
                     )
                     if mode == .reviews, let record = sessionReviewRecords.last {
-                        milestoneStore?.recordReview(record)
+                        achievementStore?.recordReview(record)
                     }
                 }
                 submittingReviewCardIDs.remove(card.id)
@@ -1149,8 +1187,8 @@ struct StudySessionView: View {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 sessionReviewRecords.removeAll { $0.id == eventID }
                 if mode == .reviews {
-                    milestoneStore?.undoReview(eventID: eventID)
-                    _ = try? await milestoneStore?.synchronize()
+                    achievementStore?.undoReview(eventID: eventID)
+                    await achievementStore?.refresh()
                 }
                 showingAnswer = true
                 resetCardTimer()
@@ -1175,19 +1213,18 @@ struct StudySessionView: View {
         return "Plays downloaded study audio."
     }
 
-    private func advanceMilestoneAward() {
+    private func advanceAchievement() {
         guard let completion = sessionCompletion else { return }
-        if currentAwardIndex + 1 < completion.newAwards.count {
-            currentAwardIndex += 1
+        if currentAwardIndex + 1 < completion.newAwardIDs.count {
+            withAnimation(.timingCurve(0.33, 1, 0.68, 1, duration: 0.56)) {
+                currentAwardIndex += 1
+            }
             return
         }
-        celebrationPresented = true
-        milestoneStore?.markCelebrationPresented(sessionID: completion.id)
-        Task {
-            try? await milestoneStore?.acknowledgePresentation(
-                completion.newAwards.map(\.id)
-            )
+        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.9)) {
+            celebrationPresented = true
         }
+        achievementStore?.markCelebrationPresented(sessionID: completion.id)
         if completion.records.isEmpty {
             dismiss()
         }
@@ -1196,7 +1233,7 @@ struct StudySessionView: View {
     private func endReviewSession() async {
         player.stop()
         guard !sessionReviewRecords.isEmpty else {
-            milestoneStore?.cancelCurrentSession()
+            achievementStore?.cancelCurrentSession()
             dismiss()
             return
         }
@@ -1208,10 +1245,8 @@ struct StudySessionView: View {
         isPreparingCompletion = true
         defer { isPreparingCompletion = false }
         sessionWasEnded = true
-        let snapshot = try? await milestoneStore?.synchronize()
-        sessionCompletion = milestoneStore?.prepareCurrentSessionCompletion(
-            newAwards: snapshot?.pendingMilestones ?? []
-        )
+        await achievementStore?.refresh()
+        sessionCompletion = achievementStore?.prepareCurrentSessionCompletion()
         currentAwardIndex = 0
         celebrationPresented = sessionCompletion?.celebrationPresented ?? true
     }

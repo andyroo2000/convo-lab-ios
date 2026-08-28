@@ -133,7 +133,6 @@ private struct MainTabView: View {
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime,
-                    milestoneStore: model.milestones,
                     achievementStore: model.achievements
                 )
             }

@@ -4,7 +4,9 @@ import UIKit
 struct StudyAchievementBadgeCard: View {
     let achievement: PresentedStudyAchievement
     let imageURL: URL?
-    let isArtworkLoading: Bool
+    var isArtworkLoading = false
+    var isNew = false
+    var showsShadow = true
 
     var body: some View {
         VStack(spacing: -1) {
@@ -53,7 +55,23 @@ struct StudyAchievementBadgeCard: View {
         }
         .frame(width: 128)
         .opacity(achievement.isEarned ? 1 : 0.9)
-        .shadow(color: ConvoLabTheme.navy.opacity(0.12), radius: 0, y: 5)
+        .overlay(alignment: .topTrailing) {
+            if isNew {
+                Text("NEW")
+                    .font(.caption2.bold())
+                    .tracking(1.2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(ConvoLabTheme.coral, in: .capsule)
+                    .padding(8)
+            }
+        }
+        .shadow(
+            color: showsShadow ? ConvoLabTheme.navy.opacity(0.12) : .clear,
+            radius: 0,
+            y: showsShadow ? 5 : 0
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(achievement.tier.title), \(detail)")
         .accessibilityHint(achievement.tier.description)
@@ -135,7 +153,7 @@ private struct StudyAchievementLocalArtwork: View {
 
 struct StudyAchievementSpotlight: View {
     let store: StudyAchievementStore
-    let milestoneStore: StudyMilestoneStore
+    var newAchievementIDs: Set<String> = []
 
     var body: some View {
         let earnedAchievements = store.earnedAchievements
@@ -159,7 +177,8 @@ struct StudyAchievementSpotlight: View {
                             StudyAchievementBadgeCard(
                                 achievement: achievement,
                                 imageURL: store.imageURL(for: achievement),
-                                isArtworkLoading: store.isPreparingImage(for: achievement)
+                                isArtworkLoading: store.isPreparingImage(for: achievement),
+                                isNew: newAchievementIDs.contains(achievement.id)
                             )
                         }
 
@@ -209,14 +228,6 @@ struct StudyAchievementSpotlight: View {
                 .padding(.vertical, 18)
             }
 
-            NavigationLink {
-                StudyMilestonesView(store: milestoneStore)
-            } label: {
-                Label("Milestone history", systemImage: "clock.arrow.circlepath")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(ConvoLabTheme.navy)
-            }
-            .padding(.top, 14)
         }
         .padding(18)
         .background(.white.opacity(0.78), in: .rect(cornerRadius: 22))
@@ -248,5 +259,133 @@ struct StudyAchievementSpotlight: View {
         .frame(width: 38, height: 190)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Next up")
+    }
+}
+
+struct StudyAchievementAwardView: View {
+    let achievement: PresentedStudyAchievement
+    let imageURL: URL?
+    let position: Int
+    let total: Int
+    let flightNamespace: Namespace.ID
+    let onContinue: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var orbitAngle = 0.0
+    @State private var orbitScale = 0.68
+    @State private var starOpacity = 0.0
+    @State private var badgeScale = 0.28
+    @State private var badgeRotation = -170.0
+    @State private var canContinue = false
+    @State private var arrivalScale = 1.0
+
+    private let colors: [Color] = [
+        ConvoLabTheme.cyan, ConvoLabTheme.coral, .green, .yellow,
+        .purple, .pink, .blue, .orange,
+    ]
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .stroke(ConvoLabTheme.cyan.opacity(starOpacity * 0.16), lineWidth: 2)
+                    .frame(width: 254, height: 254)
+
+                ForEach(colors.indices, id: \.self) { index in
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(colors[index])
+                        .shadow(color: ConvoLabTheme.navy.opacity(0.24), radius: 4, y: 5)
+                        .opacity(starOpacity)
+                        .scaleEffect(orbitScale)
+                        .offset(y: -142)
+                        .rotationEffect(.degrees(Double(index) * 45))
+                }
+                .rotationEffect(.degrees(orbitAngle))
+
+                AsyncImage(url: imageURL, transaction: Transaction(animation: nil)) { phase in
+                    if case let .success(image) = phase {
+                        image.resizable().interpolation(.high).scaledToFill()
+                    } else {
+                        Color.clear.overlay { ProgressView().tint(ConvoLabTheme.navy) }
+                    }
+                }
+                .frame(width: 164, height: 164)
+                .clipped()
+                .scaleEffect(badgeScale * arrivalScale)
+                .rotationEffect(.degrees(badgeRotation))
+                .shadow(color: ConvoLabTheme.navy.opacity(0.22), radius: 16, y: 12)
+                .matchedGeometryEffect(
+                    id: "session-achievement-\(achievement.id)",
+                    in: flightNamespace,
+                    properties: .frame,
+                    anchor: .center
+                )
+            }
+            .frame(width: 318, height: 318)
+
+            Text("ACHIEVEMENT EARNED")
+                .font(.caption.bold())
+                .tracking(2)
+                .foregroundStyle(ConvoLabTheme.coral)
+            Text(achievement.tier.title)
+                .font(.largeTitle.bold())
+                .foregroundStyle(ConvoLabTheme.navy)
+                .multilineTextAlignment(.center)
+            Text(achievement.tier.earnedDescription)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            Button(position < total ? "Next" : "Continue") { onContinue() }
+                .buttonStyle(.borderedProminent)
+                .tint(ConvoLabTheme.navy)
+                .controlSize(.large)
+                .opacity(canContinue ? 1 : 0)
+                .disabled(!canContinue)
+                .padding(.top, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("StudyAchievementAward")
+        .task(id: achievement.id) { await playAnimation() }
+    }
+
+    private func playAnimation() async {
+        if reduceMotion {
+            orbitAngle = 1_080
+            orbitScale = 0.62
+            starOpacity = 0
+            badgeScale = 1
+            badgeRotation = 0
+            canContinue = true
+            return
+        }
+        if position > 1 {
+            badgeScale = 1
+            badgeRotation = 0
+            starOpacity = 0
+            try? await Task.sleep(for: .milliseconds(560))
+            withAnimation(.easeOut(duration: 0.16)) { arrivalScale = 1.075 }
+            try? await Task.sleep(for: .milliseconds(160))
+            withAnimation(.easeInOut(duration: 0.22)) { arrivalScale = 1 }
+        }
+        orbitAngle = 0
+        orbitScale = 0.68
+        starOpacity = 0
+        badgeScale = 0.28
+        badgeRotation = -170
+        canContinue = false
+        withAnimation(.easeOut(duration: 0.25)) { starOpacity = 1 }
+        withAnimation(.timingCurve(0.16, 0.84, 0.2, 1, duration: 4.8)) {
+            orbitAngle = 1_080
+            orbitScale = 0.62
+            badgeScale = 1
+            badgeRotation = 0
+        }
+        try? await Task.sleep(for: .seconds(4.35))
+        withAnimation(.easeOut(duration: 0.45)) { starOpacity = 0 }
+        try? await Task.sleep(for: .milliseconds(450))
+        canContinue = true
     }
 }

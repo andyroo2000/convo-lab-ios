@@ -303,7 +303,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 store: store,
                 player: player,
                 timeStore: timeStore,
-                milestoneStore: milestoneStore,
                 achievementStore: achievementStore
             )),
             [
