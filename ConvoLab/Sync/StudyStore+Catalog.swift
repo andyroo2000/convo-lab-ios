@@ -271,6 +271,7 @@ extension StudyStore {
             learningItems = cardCatalogSnapshot.learningItems
             learningItemsNextCursor = cardCatalogSnapshot.learningItemsNextCursor
             learningItemsQuery = ""
+            reconcilePendingCardMutationsIntoLearningItems()
         }
         guard !isFresh(learningItemsRefreshedAt, maxAge: maxAge) else { return }
         try await refreshLearningItems()

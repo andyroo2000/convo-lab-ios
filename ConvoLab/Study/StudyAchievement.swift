@@ -501,6 +501,7 @@ final class StudyAchievementStore {
         let missingPaths = Set(catalog.offlineImageAssets.map(\.path))
             .subtracting(cachedAssetURLs.keys)
         guard !missingPaths.isEmpty else {
+            cancelAssetPreparation()
             preparingAssetPaths = []
             return nil
         }

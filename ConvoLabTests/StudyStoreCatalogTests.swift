@@ -822,6 +822,64 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testClearingSearchDoesNotRestorePendingDeletedCardFromFreshSnapshot() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(id: "pending-search-delete", expression: "古い")
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let staleItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [card],
+                matching: ""
+            ).first
+        )
+        let stalePage = try StorageCodec.encoder.encode(
+            StudyLearningItemListResponse(items: [staleItem], limit: 20, nextCursor: nil)
+        )
+        let learningItemRequests = LockedRequestPaths()
+        let client = makeClient { request in
+            if request.url?.path == "/api/study/learning-items" {
+                learningItemRequests.append(request.url?.absoluteString ?? "")
+                return (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    stalePage
+                )
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+        try await store.refreshLearningItems()
+        let currentCard = try XCTUnwrap(store.card(for: staleItem.representativeCard))
+        try await store.deleteCard(currentCard)
+        XCTAssertTrue(store.learningItems.isEmpty)
+
+        try await store.refreshLearningItems(search: "古")
+        XCTAssertTrue(store.learningItems.isEmpty)
+
+        try await store.refreshLearningItemsIfNeeded(search: "")
+
+        XCTAssertTrue(store.learningItems.isEmpty)
+        XCTAssertEqual(learningItemRequests.values.count, 2)
+    }
+
+    @MainActor
     func testOptimisticEditRemovesLearningItemThatNoLongerMatchesSearch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(id: "searched-card", expression: "古い")
