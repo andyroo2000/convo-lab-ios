@@ -39,6 +39,7 @@ struct StudySessionView: View {
     @State private var cardActionErrorMessage: String?
     @State private var sessionReviewRecords: [StudySessionReviewRecord] = []
     @State private var sessionCompletion: StudyAchievementCompletion?
+    @State private var completionAchievements: [PresentedStudyAchievement] = []
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
@@ -73,6 +74,11 @@ struct StudySessionView: View {
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
         _sessionCompletion = State(initialValue: restoredCompletion)
+        _completionAchievements = State(
+            initialValue: restoredCompletion?.newAwardIDs.compactMap {
+                achievementStore?.achievement(id: $0)
+            } ?? []
+        )
         _sessionWasEnded = State(initialValue: restoredCompletion != nil)
         _celebrationPresented = State(
             initialValue: restoredCompletion?.celebrationPresented ?? false
@@ -115,11 +121,6 @@ struct StudySessionView: View {
 
     private var displayingCompletion: Bool {
         sessionWasEnded || sessionCompletion != nil || reviewSessionComplete
-    }
-
-    private var completionAchievements: [PresentedStudyAchievement] {
-        guard let completion = sessionCompletion else { return [] }
-        return completion.newAwardIDs.compactMap { achievementStore?.achievement(id: $0) }
     }
 
     private var currentAchievement: PresentedStudyAchievement? {
@@ -335,6 +336,9 @@ struct StudySessionView: View {
             if let restoredCompletion {
                 sessionReviewRecords = restoredCompletion.records
                 sessionCompletion = restoredCompletion
+                completionAchievements = restoredCompletion.newAwardIDs.compactMap {
+                    achievementStore?.achievement(id: $0)
+                }
                 sessionWasEnded = true
                 celebrationPresented = restoredCompletion.celebrationPresented
                 currentAwardIndex = 0
@@ -1247,7 +1251,11 @@ struct StudySessionView: View {
         defer { isPreparingCompletion = false }
         sessionWasEnded = true
         await achievementStore?.refresh()
-        sessionCompletion = achievementStore?.prepareCurrentSessionCompletion()
+        let completion = achievementStore?.prepareCurrentSessionCompletion()
+        sessionCompletion = completion
+        completionAchievements = completion?.newAwardIDs.compactMap {
+            achievementStore?.achievement(id: $0)
+        } ?? []
         currentAwardIndex = 0
         celebrationPresented = sessionCompletion?.celebrationPresented ?? true
     }
