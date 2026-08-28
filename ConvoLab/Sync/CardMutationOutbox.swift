@@ -13,6 +13,10 @@ private struct CardUpdatePreservingAnswerAudio: Codable {
     let submittedAnswerAudioFields: [String: JSONValue]
 }
 
+private struct PendingAnswerAudioReconciliation: Codable {
+    let fields: [String: JSONValue]
+}
+
 struct QuarantinedCardMutationError: LocalizedError {
     let count: Int
 
@@ -22,6 +26,13 @@ struct QuarantinedCardMutationError: LocalizedError {
 }
 
 final class CardMutationOutbox {
+    private static let answerAudioReconciliationKind = "cardAnswerAudioReconciliation"
+    private static let answerAudioFieldNames = [
+        "answerAudio",
+        "answerAudioVoiceId",
+        "answerAudioTextOverride",
+    ]
+
     private let api: APIClient
     private let context: ModelContext
     private let reviewOutbox: ReviewEventOutbox
@@ -69,25 +80,26 @@ final class CardMutationOutbox {
     @discardableResult
     func stageUpdate(
         cardID: String,
-        request: UpdateStudyCardRequest,
-        preserveSubmittedAnswerAudio: Bool = false
+        request: UpdateStudyCardRequest
     ) throws -> PendingMutation {
         let payload: Data
-        if preserveSubmittedAnswerAudio, request.answer["answerAudio"] != nil {
-            let submittedAnswerAudioFields = Dictionary(
-                uniqueKeysWithValues: [
-                    "answerAudio",
-                    "answerAudioVoiceId",
-                    "answerAudioTextOverride",
-                ].compactMap { key in
-                    request.answer[key].map { (key, $0) }
-                }
-            )
+        let pendingAudio = try pendingAnswerAudioReconciliation(for: cardID)
+        if let pendingAudio,
+           pendingAudio.fields["answerAudio"] == request.answer["answerAudio"],
+           request.answer["answerAudio"] != nil
+        {
+            let submittedAnswerAudioFields = Self.answerAudioFields(in: request.answer)
             payload = try StorageCodec.encoder.encode(CardUpdatePreservingAnswerAudio(
                 request: request,
                 submittedAnswerAudioFields: submittedAnswerAudioFields
             ))
         } else {
+            if pendingAudio != nil, let userID = activeUserID {
+                try clearAnswerAudioReconciliationMarker(
+                    for: cardID,
+                    userID: userID
+                )
+            }
             payload = try StorageCodec.encoder.encode(request)
         }
         return try stage(
@@ -95,6 +107,28 @@ final class CardMutationOutbox {
             cardID: cardID,
             payload: payload
         )
+    }
+
+    func trackRegeneratedAnswerAudio(cardID: String, answer: JSONValue) throws {
+        guard let userID = activeUserID else { throw CancellationError() }
+        let fields = Self.answerAudioFields(in: answer)
+        guard fields["answerAudio"] != nil else { return }
+        let payload = try StorageCodec.encoder.encode(
+            PendingAnswerAudioReconciliation(fields: fields)
+        )
+        if let marker = try answerAudioReconciliationMarker(
+            for: cardID,
+            userID: userID
+        ) {
+            marker.payload = payload
+        } else {
+            context.insert(PendingMutation(
+                kind: Self.answerAudioReconciliationKind,
+                userID: userID,
+                resourceID: cardID,
+                payload: payload
+            ))
+        }
     }
 
     @discardableResult
@@ -311,6 +345,16 @@ final class CardMutationOutbox {
                         preservingPendingEdit: preservingPendingEdit,
                         submittedAnswerAudioFields: submittedAnswerAudioFields
                     ))
+                    if let submittedAnswerAudioFields,
+                       submittedAnswerAudioFields.allSatisfy({ key, value in
+                           serverCard.answer[key] == value
+                       })
+                    {
+                        try clearAnswerAudioReconciliationMarker(
+                            for: clientResourceID,
+                            userID: userID
+                        )
+                    }
                 }
                 context.delete(mutation)
                 try context.save()
@@ -337,6 +381,56 @@ final class CardMutationOutbox {
                 try context.save()
                 throw error
             }
+        }
+    }
+
+    private static func answerAudioFields(in answer: JSONValue) -> [String: JSONValue] {
+        Dictionary(uniqueKeysWithValues: answerAudioFieldNames.compactMap { key in
+            answer[key].map { (key, $0) }
+        })
+    }
+
+    private func pendingAnswerAudioReconciliation(
+        for cardID: String
+    ) throws -> PendingAnswerAudioReconciliation? {
+        guard let userID = activeUserID else { return nil }
+        guard let marker = try answerAudioReconciliationMarker(
+            for: cardID,
+            userID: userID
+        ) else {
+            return nil
+        }
+        return try StorageCodec.decoder.decode(
+            PendingAnswerAudioReconciliation.self,
+            from: marker.payload
+        )
+    }
+
+    private func answerAudioReconciliationMarker(
+        for cardID: String,
+        userID: Int
+    ) throws -> PendingMutation? {
+        let kind = Self.answerAudioReconciliationKind
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && $0.kind == kind
+                    && $0.resourceID == cardID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    private func clearAnswerAudioReconciliationMarker(
+        for cardID: String,
+        userID: Int
+    ) throws {
+        if let marker = try answerAudioReconciliationMarker(
+            for: cardID,
+            userID: userID
+        ) {
+            context.delete(marker)
         }
     }
 

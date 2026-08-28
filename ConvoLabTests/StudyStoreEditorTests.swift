@@ -233,11 +233,14 @@ extension StudyStoreTests {
             voiceID: "fishaudio:new-voice",
             textOverride: "あたらしい"
         )
-        var draft = StudyCardDraft(card: original)
+        // Simulate dismissing and reopening the editor after regeneration. The
+        // protection must outlive the stale view snapshot that initiated it.
+        let reopenedCard = try persistedCard(in: container)
+        var draft = StudyCardDraft(card: reopenedCard)
         draft.answerAudioVoiceId = "fishaudio:new-voice"
         draft.answerAudioTextOverride = "あたらしい"
         draft.notes = "Saved note"
-        try await store.updateCard(original, draft: draft)
+        try await store.updateCard(reopenedCard, draft: draft)
 
         let stored = try persistedCard(in: container)
         XCTAssertEqual(stored.answer["answerAudio"], newAudio)

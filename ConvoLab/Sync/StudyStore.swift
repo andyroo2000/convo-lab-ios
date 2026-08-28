@@ -1218,9 +1218,7 @@ final class StudyStore {
         try updateExistingLocalCard(updated, markedDirty: true)
         try cardOutbox.stageUpdate(
             cardID: currentCard.id,
-            request: projection.request,
-            preserveSubmittedAnswerAudio:
-                card.answer["answerAudio"] != currentCard.answer["answerAudio"]
+            request: projection.request
         )
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -1352,6 +1350,10 @@ final class StudyStore {
             },
             onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
                 guard let self else { throw CancellationError() }
+                try self.cardOutbox.trackRegeneratedAnswerAudio(
+                    cardID: card.id,
+                    answer: card.answer
+                )
                 try self.reconcileCardMedia(
                     card,
                     pendingWrite: pendingWrite,

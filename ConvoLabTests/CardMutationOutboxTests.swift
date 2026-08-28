@@ -163,6 +163,55 @@ final class CardMutationOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testConfirmedRegeneratedAudioStopsWrappingLaterUpdates() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let audio: JSONValue = .object([
+            "url": .string("/api/study/media/new-answer"),
+        ])
+        let answer: JSONValue = .object([
+            "meaning": .string("meaning"),
+            "answerAudio": audio,
+            "answerAudioVoiceId": .string("fishaudio:new-voice"),
+            "answerAudioTextOverride": .string("あたらしい"),
+        ])
+        let baseCard = makeCard(id: "card-1")
+        let serverCard = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.syncId,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt,
+            answer: answer,
+            state: baseCard.state,
+            answerAudioSource: "generated",
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        let serverCardData = try StorageCodec.encoder.encode(serverCard)
+        let client = makeClient { request in
+            Self.cardSuccess(serverCardData, for: request)
+        }
+        let outbox = makeOutbox(container: container, client: client)
+        outbox.activate(userID: 7)
+        try outbox.trackRegeneratedAnswerAudio(cardID: serverCard.id, answer: answer)
+        let request = UpdateStudyCardRequest(prompt: serverCard.prompt, answer: answer)
+        _ = try outbox.stageUpdate(cardID: serverCard.id, request: request)
+        try container.mainContext.save()
+
+        try await outbox.flush { _ in }
+        XCTAssertTrue(try allMutations(in: container).isEmpty)
+
+        let ordinaryUpdate = try outbox.stageUpdate(
+            cardID: serverCard.id,
+            request: request
+        )
+        XCTAssertNoThrow(try StorageCodec.decoder.decode(
+            UpdateStudyCardRequest.self,
+            from: ordinaryUpdate.payload
+        ))
+    }
+
+    @MainActor
     func testPermanentRejectionQuarantinesMutationAndContinuesInOrder() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let attempts = LockedCounter()
