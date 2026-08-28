@@ -551,6 +551,140 @@ final class StudyAchievementTests: XCTestCase {
         XCTAssertEqual(store.progress?.metricValues["reviews.count"], 50)
     }
 
+    @MainActor
+    func testMissingOpeningProgressDoesNotReplayHistoricalAwards() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(
+            id: "review-1",
+            reviewedAt: ISO8601Milliseconds.date(from: "2026-08-28T12:00:00.000Z")!
+        ))
+
+        try installAchievementResponses(awards: [
+            award(id: "stable.first", date: "2026-08-01T12:00:00.000Z"),
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+
+        XCTAssertEqual(
+            store.prepareCurrentSessionCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
+    }
+
+    @MainActor
+    func testSessionCompletionPersistsMultipleAwardsUntilWrapUpConsumesIt() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+
+        try installAchievementResponses(awards: [
+            award(id: "voice.first", date: "2026-08-28T12:02:00.000Z"),
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+
+        let completion = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(completion.newAwardIDs, ["reviews.first", "voice.first"])
+        store.markCelebrationPresented(sessionID: completion.id)
+
+        let relaunched = StudyAchievementStore(api: client, defaults: defaults)
+        relaunched.activate(userID: 41)
+        let restored = try XCTUnwrap(relaunched.prepareInterruptedCompletion())
+        XCTAssertEqual(restored.newAwardIDs, ["reviews.first", "voice.first"])
+        XCTAssertTrue(restored.celebrationPresented)
+
+        relaunched.consumeCompletion(sessionID: restored.id)
+        let afterWrapUp = StudyAchievementStore(api: client, defaults: defaults)
+        afterWrapUp.activate(userID: 41)
+        XCTAssertNil(afterWrapUp.prepareInterruptedCompletion())
+    }
+
+    @MainActor
+    func testInterruptedCompletionDropsAnAwardRevokedByTheServer() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+
+        try installAchievementResponses(awards: [
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+        XCTAssertEqual(
+            store.prepareInterruptedCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
+
+        let relaunched = StudyAchievementStore(api: client, defaults: defaults)
+        relaunched.activate(userID: 41)
+        try installAchievementResponses(awards: [])
+        await relaunched.refresh()
+
+        XCTAssertNil(relaunched.prepareInterruptedCompletion())
+        XCTAssertNil(relaunched.achievement(id: "reviews.first"))
+
+        let afterSecondRelaunch = StudyAchievementStore(api: client, defaults: defaults)
+        afterSecondRelaunch.activate(userID: 41)
+        XCTAssertNil(afterSecondRelaunch.prepareInterruptedCompletion())
+    }
+
+    @MainActor
+    func testPreparedWrapUpCanPickUpAnAwardThatArrivesAfterRelaunch() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+
+        XCTAssertEqual(store.prepareCurrentSessionCompletion()?.newAwardIDs, [])
+
+        let relaunched = StudyAchievementStore(api: client, defaults: defaults)
+        relaunched.activate(userID: 41)
+        try installAchievementResponses(awards: [
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await relaunched.refresh()
+
+        XCTAssertEqual(
+            relaunched.prepareInterruptedCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
+    }
+
+    @MainActor
+    func testUndoAndCancelPreventAnOrdinarySessionFromBeingRestored() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+        store.undoReview(eventID: "review-1")
+        XCTAssertNil(store.prepareCurrentSessionCompletion())
+
+        store.recordReview(makeReviewRecord(id: "review-2"))
+        store.cancelCurrentSession()
+        XCTAssertNil(store.prepareInterruptedCompletion())
+    }
+
     private func makeCatalog() -> StudyAchievementCatalog {
         StudyAchievementCatalog(
             revision: "achievement-collection-v2",
@@ -649,6 +783,83 @@ final class StudyAchievementTests: XCTestCase {
             """
             {"revision":"achievement-collection-v2","metricValues":{"stable.count":0,"reviews.count":\(reviews),"voice.hours":20},"awards":[]}
             """.utf8
+        )
+    }
+
+    @MainActor
+    private func makeClient() -> APIClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        return client
+    }
+
+    private func installAchievementResponses(
+        awards: [StudyAchievementAward]
+    ) throws {
+        let catalog = makeCatalog()
+        let catalogPayload = try JSONEncoder().encode(catalog)
+        let progressPayload = try JSONSerialization.data(withJSONObject: [
+            "revision": catalog.revision,
+            "metricValues": ["stable.count": 0, "reviews.count": 25, "voice.hours": 25],
+            "awards": awards.map {
+                ["id": $0.id, "earnedAt": ISO8601Milliseconds.string(from: $0.earnedAt)]
+            },
+        ])
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let body = switch request.url?.path {
+            case "/api/achievements/catalog": catalogPayload
+            case "/api/achievements/evaluate": progressPayload
+            default: Data()
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: body.isEmpty ? 404 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+    }
+
+    @MainActor
+    private func makeReviewRecord(
+        id: String,
+        reviewedAt: Date = .now
+    ) -> StudySessionReviewRecord {
+        let card = StudyCard(
+            id: "card-\(id)",
+            syncId: nil,
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("Prompt")]),
+            answer: .object(["meaning": .string("Answer")]),
+            state: .init(
+                dueAt: .now,
+                introducedAt: .now,
+                failedAt: nil,
+                queueState: "review",
+                scheduler: .object(["stability": .number(10)]),
+                source: .object([:])
+            ),
+            answerAudioSource: nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        return StudySessionReviewRecord(
+            id: id,
+            cardBefore: card,
+            cardAfter: card,
+            rating: .good,
+            durationMilliseconds: 1_000,
+            reviewedAt: reviewedAt
         )
     }
 

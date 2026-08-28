@@ -4,10 +4,10 @@ struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
-    let milestoneStore: StudyMilestoneStore
     let achievementStore: StudyAchievementStore
     @State private var showingFailedChanges = false
-    @State private var interruptedCompletion: StudyMilestoneCompletion?
+    @State private var interruptedCompletion: StudyAchievementCompletion?
+    @State private var newAchievementIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -17,7 +17,7 @@ struct StudyHomeView: View {
                     masterySpread
                     StudyAchievementSpotlight(
                         store: achievementStore,
-                        milestoneStore: milestoneStore
+                        newAchievementIDs: newAchievementIDs
                     )
                     readiness
 
@@ -45,7 +45,6 @@ struct StudyHomeView: View {
                     Button {
                         Task {
                             await store.synchronize()
-                            _ = try? await milestoneStore.synchronize()
                             await achievementStore.refresh()
                             await refreshWaniKaniIfNeeded(force: true)
                             await refreshCalendarIfNeeded(force: true)
@@ -62,29 +61,14 @@ struct StudyHomeView: View {
             }
             .refreshable {
                 await store.synchronize()
-                _ = try? await milestoneStore.synchronize()
                 await achievementStore.refresh()
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
             .task {
                 if interruptedCompletion == nil {
-                    let snapshot = try? await milestoneStore.synchronize()
-                    let pendingAwards = snapshot?.pendingMilestones ?? []
-                    let restored = milestoneStore.prepareInterruptedCompletion(
-                        newAwards: pendingAwards
-                    ) ?? (pendingAwards.isEmpty ? nil : StudyMilestoneCompletion(
-                        id: UUID(),
-                        records: [],
-                        newAwards: pendingAwards,
-                        celebrationPresented: false
-                    ))
-                    interruptedCompletion = restored
-                    if restored?.celebrationPresented == true, !pendingAwards.isEmpty {
-                        try? await milestoneStore.acknowledgePresentation(
-                            pendingAwards.map(\.id)
-                        )
-                    }
+                    await achievementStore.refresh()
+                    interruptedCompletion = achievementStore.prepareInterruptedCompletion()
                 }
                 // AppModel owns app-wide synchronization. This surface refresh can be
                 // cancelled on tab switches and restarted when Study appears again.
@@ -109,8 +93,9 @@ struct StudyHomeView: View {
                         player: player,
                         mode: .reviews,
                         timeStore: timeStore,
-                        milestoneStore: milestoneStore,
-                        restoredCompletion: completion
+                        achievementStore: achievementStore,
+                        restoredCompletion: completion,
+                        onSessionAchievementsLanded: { newAchievementIDs = $0 }
                     )
                 }
             }
@@ -171,7 +156,8 @@ struct StudyHomeView: View {
                 player: player,
                 mode: .reviews,
                 timeStore: timeStore,
-                milestoneStore: milestoneStore
+                achievementStore: achievementStore,
+                onSessionAchievementsLanded: { newAchievementIDs = $0 }
             )
         } label: {
             HStack(spacing: 16) {
@@ -211,7 +197,7 @@ struct StudyHomeView: View {
                 player: player,
                 mode: .lessons,
                 timeStore: timeStore,
-                milestoneStore: milestoneStore
+                achievementStore: achievementStore
             )
         } label: {
             todayTile(

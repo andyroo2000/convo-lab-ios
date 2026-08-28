@@ -146,6 +146,13 @@ nonisolated struct StudyAchievementAward: Codable, Equatable, Sendable {
     let earnedAt: Date
 }
 
+struct StudyAchievementCompletion: Identifiable, Sendable {
+    let id: UUID
+    let records: [StudySessionReviewRecord]
+    let newAwardIDs: [String]
+    let celebrationPresented: Bool
+}
+
 nonisolated struct PresentedStudyAchievement: Identifiable, Equatable, Sendable {
     let family: StudyAchievementFamily
     let tier: StudyAchievementTier
@@ -266,11 +273,24 @@ nonisolated enum StudyAchievementPresentationModel {
 @MainActor
 @Observable
 final class StudyAchievementStore {
-    private struct PersistedState: Codable {
+    private struct CatalogPersistedState: Codable {
         let catalog: StudyAchievementCatalog
         let progress: StudyAchievementProgress?
         let catalogRefreshedAt: Date
         let progressRefreshedAt: Date?
+    }
+
+    private struct ReviewSession: Codable {
+        let id: UUID
+        var records: [StudySessionReviewRecord]
+        var baselineAwardIDs: [String]?
+        var newAwardIDs: [String]
+        var isReadyForPresentation: Bool
+        var celebrationPresented: Bool
+    }
+
+    private struct SessionPersistedState: Codable {
+        var activeSession: ReviewSession?
     }
 
     private static let catalogMaximumAge: TimeInterval = 24 * 60 * 60
@@ -279,7 +299,10 @@ final class StudyAchievementStore {
     private let api: APIClient
     private let mediaCache: MediaCache?
     private let defaults: UserDefaults?
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     private let persistenceKeyPrefix = "study-achievements-v1"
+    private let sessionKeyPrefix = "study-achievement-sessions-v1"
     private var activeUserID: Int?
     private var catalogRefreshedAt: Date?
     private var refreshedAt: Date?
@@ -295,6 +318,7 @@ final class StudyAchievementStore {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var progressErrorMessage: String?
+    private var sessionState = SessionPersistedState()
 
     init(
         api: APIClient,
@@ -304,6 +328,8 @@ final class StudyAchievementStore {
         self.api = api
         self.mediaCache = mediaCache
         self.defaults = defaults
+        encoder.dateEncodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601
     }
 
     var inProgressAchievements: [PresentedStudyAchievement] {
@@ -329,6 +355,7 @@ final class StudyAchievementStore {
         cancelAssetPreparation()
         activeUserID = userID
         restorePersistedState(userID: userID)
+        sessionState = loadSessionState(userID: userID)
         errorMessage = nil
         progressErrorMessage = nil
         isLoading = false
@@ -342,6 +369,7 @@ final class StudyAchievementStore {
         cancelAssetPreparation()
         activeUserID = nil
         catalog = nil
+        sessionState = SessionPersistedState()
         progress = nil
         catalogRefreshedAt = nil
         refreshedAt = nil
@@ -485,9 +513,12 @@ final class StudyAchievementStore {
 
     func deleteLocalData(userID: Int) {
         defaults?.removeObject(forKey: persistenceKey(userID: userID))
+        defaults?.removeObject(forKey: sessionKey(userID: userID))
+        defaults?.removeObject(forKey: "study-milestones-v1-\(userID)")
         guard activeUserID == userID else { return }
         refreshSequence += 1
         cancelAssetPreparation()
+        sessionState = SessionPersistedState()
         catalog = nil
         progress = nil
         catalogRefreshedAt = nil
@@ -587,7 +618,7 @@ final class StudyAchievementStore {
 
         guard let defaults,
               let data = defaults.data(forKey: persistenceKey(userID: userID)),
-              let state = try? JSONDecoder().decode(PersistedState.self, from: data),
+              let state = try? JSONDecoder().decode(CatalogPersistedState.self, from: data),
               let catalog = try? state.catalog.validated()
         else { return }
         let progress = try? state.progress?.validated()
@@ -618,7 +649,7 @@ final class StudyAchievementStore {
               let activeUserID,
               let catalog,
               let catalogRefreshedAt,
-              let data = try? JSONEncoder().encode(PersistedState(
+              let data = try? JSONEncoder().encode(CatalogPersistedState(
                   catalog: catalog,
                   progress: progress,
                   catalogRefreshedAt: catalogRefreshedAt,
@@ -637,5 +668,140 @@ final class StudyAchievementStore {
         assetPreparationTask?.cancel()
         assetPreparationTask = nil
         assetPreparationRevision = nil
+    }
+
+    func achievement(id: String) -> PresentedStudyAchievement? {
+        guard let catalog else { return nil }
+        return StudyAchievementPresentationModel.all(catalog: catalog, progress: progress)
+            .first { $0.id == id && $0.isEarned }
+    }
+
+    func beginReviewSession() {
+        guard activeUserID != nil else { return }
+        if sessionState.activeSession?.isReadyForPresentation == true { return }
+        sessionState.activeSession = ReviewSession(
+            id: UUID(),
+            records: [],
+            baselineAwardIDs: progress?.awards.map(\.id),
+            newAwardIDs: [],
+            isReadyForPresentation: false,
+            celebrationPresented: false
+        )
+        persistSessionState()
+    }
+
+    func recordReview(_ record: StudySessionReviewRecord) {
+        guard var session = sessionState.activeSession,
+              !session.isReadyForPresentation
+        else { return }
+        session.records.removeAll { $0.id == record.id }
+        session.records.append(record)
+        sessionState.activeSession = session
+        persistSessionState()
+    }
+
+    func undoReview(eventID: String) {
+        guard var session = sessionState.activeSession,
+              !session.isReadyForPresentation
+        else { return }
+        session.records.removeAll { $0.id == eventID }
+        sessionState.activeSession = session
+        persistSessionState()
+    }
+
+    func prepareCurrentSessionCompletion() -> StudyAchievementCompletion? {
+        prepareCompletion(requireNewAward: false)
+    }
+
+    func prepareInterruptedCompletion() -> StudyAchievementCompletion? {
+        prepareCompletion(requireNewAward: true)
+    }
+
+    func markCelebrationPresented(sessionID: UUID) {
+        guard var session = sessionState.activeSession, session.id == sessionID else { return }
+        session.celebrationPresented = true
+        sessionState.activeSession = session
+        persistSessionState()
+    }
+
+    func consumeCompletion(sessionID: UUID) {
+        guard sessionState.activeSession?.id == sessionID else { return }
+        sessionState.activeSession = nil
+        persistSessionState()
+    }
+
+    func cancelCurrentSession() {
+        guard sessionState.activeSession?.isReadyForPresentation != true else { return }
+        sessionState.activeSession = nil
+        persistSessionState()
+    }
+
+    private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
+        guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
+        if !session.isReadyForPresentation || !session.celebrationPresented {
+            if let progress {
+                let earnedIDs = Set(progress.awards.map(\.id))
+                let detected: [StudyAchievementAward]
+                if let baselineAwardIDs = session.baselineAwardIDs {
+                    let baseline = Set(baselineAwardIDs)
+                    detected = progress.awards.filter { !baseline.contains($0.id) }
+                } else if let firstReviewAt = session.records.map(\.reviewedAt).min() {
+                    // When the opening refresh failed, award timestamps prevent a later
+                    // successful refresh from replaying the user's entire badge history.
+                    detected = progress.awards.filter { $0.earnedAt >= firstReviewAt }
+                } else {
+                    detected = []
+                }
+                let detectedIDs = detected
+                    .sorted { $0.earnedAt < $1.earnedAt }
+                    .map(\.id)
+                let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
+                    ($0.id, $0.earnedAt)
+                })
+                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detectedIDs))
+                    .filter { earnedIDs.contains($0) }
+                    .sorted {
+                        dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
+                    }
+            } else if requireNewAward {
+                return nil
+            }
+            guard !requireNewAward || !session.newAwardIDs.isEmpty else {
+                sessionState.activeSession = session
+                persistSessionState()
+                return nil
+            }
+            session.isReadyForPresentation = true
+        }
+        sessionState.activeSession = session
+        persistSessionState()
+        return StudyAchievementCompletion(
+            id: session.id,
+            records: session.records,
+            newAwardIDs: session.newAwardIDs,
+            celebrationPresented: session.celebrationPresented
+        )
+    }
+
+    private func loadSessionState(userID: Int) -> SessionPersistedState {
+        guard let defaults,
+              let data = defaults.data(forKey: sessionKey(userID: userID))
+        else {
+            return SessionPersistedState()
+        }
+        return (try? decoder.decode(SessionPersistedState.self, from: data))
+            ?? SessionPersistedState()
+    }
+
+    private func persistSessionState() {
+        guard let defaults,
+              let activeUserID,
+              let data = try? encoder.encode(sessionState)
+        else { return }
+        defaults.set(data, forKey: sessionKey(userID: activeUserID))
+    }
+
+    private func sessionKey(userID: Int) -> String {
+        "\(sessionKeyPrefix)-\(userID)"
     }
 }
