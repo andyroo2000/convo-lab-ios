@@ -350,6 +350,7 @@ final class StudyAchievementTests: XCTestCase {
         store.activate(userID: 41)
 
         await store.refresh()
+        await store.waitForAssetPreparation()
 
         let expectedPaths = Set(catalog.offlineImageAssets.map(\.path))
         let downloadedPaths = Set(requestPaths.values.filter {
@@ -363,6 +364,66 @@ final class StudyAchievementTests: XCTestCase {
             let remoteURL = try XCTUnwrap(client.sameOriginResourceURL(asset.path))
             XCTAssertNotNil(mediaCache.localURL(for: remoteURL))
         }
+    }
+
+    @MainActor
+    func testStoreFinishesRefreshWhileBadgeDownloadsContinue() async throws {
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        let (requests, requestContinuation) = AsyncStream<(
+            URLRequest,
+            MockURLProtocol.DeferredCompletion
+        )>.makeStream()
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = { request, completion in
+            requestContinuation.yield((request, completion))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let container = try Persistence.makeContainer(inMemory: true)
+        let store = StudyAchievementStore(
+            api: client,
+            mediaCache: MediaCache(
+                initialUserID: 41,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        store.activate(userID: 41)
+        var iterator = requests.makeAsyncIterator()
+        let refreshFinished = expectation(description: "Achievement refresh finished")
+        let refreshTask = Task {
+            await store.refresh()
+            refreshFinished.fulfill()
+        }
+
+        guard let (catalogRequest, catalogCompletion) = await iterator.next() else {
+            return XCTFail("Expected the catalog request")
+        }
+        catalogCompletion(.success(response(for: catalogRequest, data: catalogPayload)))
+        guard let (progressRequest, progressCompletion) = await iterator.next() else {
+            return XCTFail("Expected the progress request")
+        }
+        progressCompletion(.success(response(
+            for: progressRequest,
+            data: progressPayload(reviews: 0)
+        )))
+        guard let (assetRequest, assetCompletion) = await iterator.next() else {
+            return XCTFail("Expected a badge asset request")
+        }
+        XCTAssertTrue(assetRequest.url?.path.hasPrefix("/achievement-assets/") == true)
+
+        await fulfillment(of: [refreshFinished], timeout: 1)
+        XCTAssertFalse(store.isLoading)
+        XCTAssertFalse(store.preparingAssetPaths.isEmpty)
+
+        store.deactivate()
+        assetCompletion(.failure(CancellationError()))
+        await refreshTask.value
     }
 
     @MainActor

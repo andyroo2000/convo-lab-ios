@@ -54,9 +54,15 @@ extension StudyStoreTests {
                 newCardQueueRefreshedAt: refreshedAt,
                 learningItems: [learningItem],
                 learningItemsNextCursor: nil,
-                learningItemsRefreshedAt: refreshedAt,
-                manualDrafts: [cachedDraft],
-                manualDraftsRefreshedAt: refreshedAt
+                learningItemsRefreshedAt: refreshedAt
+            ),
+            userID: 1
+        )
+        cache.saveManualDrafts(
+            StudyManualDraftSnapshot(
+                savedAt: refreshedAt,
+                drafts: [cachedDraft],
+                refreshedAt: refreshedAt
             ),
             userID: 1
         )
@@ -125,6 +131,7 @@ extension StudyStoreTests {
 
         try relaunchedStore.deleteLocalData(userID: 1)
         XCTAssertNil(cache.load(userID: 1))
+        XCTAssertNil(cache.loadManualDrafts(userID: 1))
         Self.retainedObservableStores.append(contentsOf: [store, relaunchedStore])
     }
 

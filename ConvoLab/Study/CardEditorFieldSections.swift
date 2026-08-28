@@ -50,6 +50,7 @@ struct CardEditorStandardFields: View {
                     axis: .vertical
                 )
                 .lineLimit(2...6)
+                .accessibilityIdentifier("card-editor-answer-meaning")
                 TextField(
                     "Japanese example (optional)",
                     text: $draft.sentenceJapanese,
@@ -104,6 +105,7 @@ struct CardEditorClozeFields: View {
                     axis: .vertical
                 )
                 .lineLimit(2...6)
+                .accessibilityIdentifier("card-editor-answer-meaning")
             }
         }
     }

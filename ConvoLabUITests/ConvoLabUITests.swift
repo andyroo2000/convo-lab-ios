@@ -115,13 +115,14 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertTrue(recoveredAnswer.waitForExistence(timeout: 8))
         XCTAssertEqual(recoveredAnswer.value as? String, "忘れない")
 
-        let recoveredMeaning = app.textFields
-            .matching(NSPredicate(format: "value == %@", "not to forget"))
-            .firstMatch
+        let recoveredMeaning = app.textFields["card-editor-answer-meaning"]
         XCTAssertTrue(recoveredMeaning.waitForExistence(timeout: 8))
-        recoveredMeaning.tap()
-        recoveredMeaning.typeKey("a", modifierFlags: .command)
-        recoveredMeaning.typeText("always remember")
+        XCTAssertEqual(recoveredMeaning.value as? String, "not to forget")
+        replaceText(
+            in: recoveredMeaning,
+            currentText: "not to forget",
+            with: "always remember"
+        )
         let retryPrepare = app.buttons["Prepare"]
         XCTAssertTrue(retryPrepare.isEnabled)
         retryPrepare.tap()
@@ -139,10 +140,9 @@ final class ConvoLabUITests: XCTestCase {
         ).count, 1)
         restagedRecovery.tap()
         XCTAssertTrue(app.navigationBars["Resume Draft"].waitForExistence(timeout: 8))
-        let restagedMeaning = app.textFields
-            .matching(NSPredicate(format: "value CONTAINS %@", "always remember"))
-            .firstMatch
+        let restagedMeaning = app.textFields["card-editor-answer-meaning"]
         XCTAssertTrue(restagedMeaning.waitForExistence(timeout: 8))
+        XCTAssertEqual(restagedMeaning.value as? String, "always remember")
     }
 
     @MainActor
@@ -216,6 +216,22 @@ final class ConvoLabUITests: XCTestCase {
             )],
             timeout: timeout
         ) == .completed
+    }
+
+    @MainActor
+    private func replaceText(
+        in element: XCUIElement,
+        currentText: String,
+        with replacement: String
+    ) {
+        element.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)
+        ).tap()
+        element.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentText.count)
+        )
+        element.typeText(replacement)
+        XCTAssertEqual(element.value as? String, replacement)
     }
 
     @MainActor

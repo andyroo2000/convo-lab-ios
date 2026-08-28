@@ -9,12 +9,8 @@ struct StudyAchievementBadgeCard: View {
     var body: some View {
         VStack(spacing: -1) {
             Group {
-                if let imageURL,
-                   let image = UIImage(contentsOfFile: imageURL.path) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
+                if let imageURL {
+                    StudyAchievementLocalArtwork(imageURL: imageURL)
                 } else if isArtworkLoading {
                     ProgressView()
                         .tint(ConvoLabTheme.navy)
@@ -89,6 +85,51 @@ struct StudyAchievementBadgeCard: View {
             "reviews": "review",
             "hours": "hour",
         ][achievement.family.unit] ?? achievement.family.unit
+    }
+}
+
+private struct StudyAchievementLocalArtwork: View {
+    let imageURL: URL
+
+    @State private var image: UIImage?
+    @State private var didFinishLoading = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+            } else if didFinishLoading {
+                Image(systemName: "photo.badge.exclamationmark")
+                    .font(.largeTitle)
+                    .foregroundStyle(ConvoLabTheme.navy.opacity(0.45))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(ConvoLabTheme.cream)
+            } else {
+                ProgressView()
+                    .tint(ConvoLabTheme.navy)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(ConvoLabTheme.cream)
+            }
+        }
+        .task(id: imageURL) {
+            image = nil
+            didFinishLoading = false
+            let data = await Self.loadData(from: imageURL)
+            guard !Task.isCancelled else { return }
+            if let data, let decodedImage = UIImage(data: data) {
+                image = await decodedImage.byPreparingForDisplay() ?? decodedImage
+            }
+            didFinishLoading = true
+        }
+    }
+
+    private nonisolated static func loadData(from url: URL) async -> Data? {
+        await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url, options: .mappedIfSafe)
+        }.value
     }
 }
 

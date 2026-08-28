@@ -449,8 +449,7 @@ final class StudyAchievementStore {
             }
             persist()
 
-            let assetTask = startAssetPreparation(for: validatedCatalog)
-            await assetTask?.value
+            startAssetPreparation(for: validatedCatalog)
         } catch {
             guard !Task.isCancelled,
                   activeUserID == requestedUserID,
@@ -468,6 +467,12 @@ final class StudyAchievementStore {
     func isPreparingImage(for achievement: PresentedStudyAchievement) -> Bool {
         guard let path = achievement.imageAsset?.path else { return false }
         return preparingAssetPaths.contains(path)
+    }
+
+    func waitForAssetPreparation() async {
+        while let assetPreparationTask {
+            await assetPreparationTask.value
+        }
     }
 
     func deleteLocalData(userID: Int) {
@@ -488,6 +493,10 @@ final class StudyAchievementStore {
         for catalog: StudyAchievementCatalog
     ) -> Task<Void, Never>? {
         guard mediaCache != nil, let userID = activeUserID else { return nil }
+        if assetPreparationRevision == catalog.revision,
+           let assetPreparationTask {
+            return assetPreparationTask
+        }
         restoreCachedAssetURLs(for: catalog)
         let missingPaths = Set(catalog.offlineImageAssets.map(\.path))
             .subtracting(cachedAssetURLs.keys)
@@ -495,11 +504,6 @@ final class StudyAchievementStore {
             preparingAssetPaths = []
             return nil
         }
-        if assetPreparationRevision == catalog.revision,
-           let assetPreparationTask {
-            return assetPreparationTask
-        }
-
         cancelAssetPreparation()
         assetPreparationSequence += 1
         let sequence = assetPreparationSequence

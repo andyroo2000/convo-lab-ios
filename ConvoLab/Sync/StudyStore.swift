@@ -411,6 +411,7 @@ final class StudyStore {
     func deactivate() {
         persistPendingOverviewSnapshot()
         persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
         accountActivationGeneration += 1
         studySettingsMutationRevision += 1
         studySettingsRefreshID = nil
@@ -492,6 +493,7 @@ final class StudyStore {
     func persistCachedState() {
         persistPendingOverviewSnapshot()
         persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -538,39 +540,41 @@ final class StudyStore {
             learningItems = snapshot.learningItems
             learningItemsNextCursor = snapshot.learningItemsNextCursor
             learningItemsRefreshedAt = snapshot.learningItemsRefreshedAt
-            snapshot.manualDrafts.forEach(manualDraftOutbox.replace)
-            manualDraftsRefreshedAt = snapshot.manualDraftsRefreshedAt
             reconcilePendingCardMutationsIntoLearningItems()
-            return
+        } else {
+            // Existing installations already have the full local card records in
+            // SwiftData. Use them as the first-launch presentation until the richer
+            // grouped catalog and authoritative queue snapshot arrive in the background.
+            var seenCardIDs = Set<String>()
+            let localNewCards = (cards + libraryCards).filter { card in
+                card.state.queueState == "new"
+                    && seenCardIDs.insert(card.id.lowercased()).inserted
+            }
+            newCardQueue = localNewCards.enumerated().map { offset, card in
+                StudyNewCardQueueItem(
+                    id: card.id,
+                    noteId: card.noteId ?? card.id,
+                    cardType: card.cardType,
+                    displayText: card.promptText,
+                    meaning: card.answerText,
+                    queuePosition: offset + 1,
+                    createdAt: card.createdAt,
+                    updatedAt: card.updatedAt
+                )
+            }
+            newCardQueueTotal = max(overview?.newCount ?? 0, newCardQueue.count)
+            newCardQueueNextCursor = nil
+            learningItems = StudyCardCatalogRepository.standaloneLearningItems(
+                from: libraryCards,
+                matching: ""
+            )
+            learningItemsNextCursor = nil
         }
 
-        // Existing installations already have the full local card records in
-        // SwiftData. Use them as the first-launch presentation until the richer
-        // grouped catalog and authoritative queue snapshot arrive in the background.
-        var seenCardIDs = Set<String>()
-        let localNewCards = (cards + libraryCards).filter { card in
-            card.state.queueState == "new"
-                && seenCardIDs.insert(card.id.lowercased()).inserted
+        if let manualDraftSnapshot = cardCatalogSnapshotCache?.loadManualDrafts(userID: userID) {
+            manualDraftSnapshot.drafts.forEach(manualDraftOutbox.replace)
+            manualDraftsRefreshedAt = manualDraftSnapshot.refreshedAt
         }
-        newCardQueue = localNewCards.enumerated().map { offset, card in
-            StudyNewCardQueueItem(
-                id: card.id,
-                noteId: card.noteId ?? card.id,
-                cardType: card.cardType,
-                displayText: card.promptText,
-                meaning: card.answerText,
-                queuePosition: offset + 1,
-                createdAt: card.createdAt,
-                updatedAt: card.updatedAt
-            )
-        }
-        newCardQueueTotal = max(overview?.newCount ?? 0, newCardQueue.count)
-        newCardQueueNextCursor = nil
-        learningItems = StudyCardCatalogRepository.standaloneLearningItems(
-            from: libraryCards,
-            matching: ""
-        )
-        learningItemsNextCursor = nil
     }
 
     func persistCardCatalogSnapshot() {
@@ -595,12 +599,22 @@ final class StudyStore {
             newCardQueueRefreshedAt: newCardQueueRefreshedAt,
             learningItems: defaultLearningItems,
             learningItemsNextCursor: defaultLearningItemsNextCursor,
-            learningItemsRefreshedAt: defaultLearningItemsRefreshedAt,
-            manualDrafts: manualDrafts,
-            manualDraftsRefreshedAt: manualDraftsRefreshedAt
+            learningItemsRefreshedAt: defaultLearningItemsRefreshedAt
         )
         cardCatalogSnapshot = snapshot
         cardCatalogSnapshotCache.save(snapshot, userID: userID)
+    }
+
+    func persistManualDraftSnapshot() {
+        guard let userID = activeUserID, let cardCatalogSnapshotCache else { return }
+        cardCatalogSnapshotCache.saveManualDrafts(
+            StudyManualDraftSnapshot(
+                savedAt: .now,
+                drafts: manualDrafts,
+                refreshedAt: manualDraftsRefreshedAt
+            ),
+            userID: userID
+        )
     }
 
     func isFresh(_ refreshedAt: Date?, maxAge: TimeInterval) -> Bool {
@@ -1011,7 +1025,7 @@ final class StudyStore {
     func refreshManualDrafts() async throws {
         try await manualDraftOutbox.refresh()
         manualDraftsRefreshedAt = .now
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
     }
 
     func refreshManualDraftsIfNeeded(maxAge: TimeInterval = 60) async throws {
@@ -1038,7 +1052,7 @@ final class StudyStore {
             imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty
         )
         let created = try await manualDraftOutbox.queueCreate(request)
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
         return created
     }
 
@@ -1095,7 +1109,7 @@ final class StudyStore {
             generation: activationGeneration
         ) else { throw CancellationError() }
         manualDraftOutbox.replace(updated)
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
         return updated
     }
 
@@ -1245,13 +1259,13 @@ final class StudyStore {
                 activationGeneration: activationGeneration
             )
         }
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
     }
 
     func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
         try requirePersistentWrites()
         try await manualDraftOutbox.deleteDraft(id: serverDraft.id)
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
     }
 
     func hasPendingDraftCommit(for draftID: String) -> Bool {
@@ -2402,13 +2416,13 @@ final class StudyStore {
 
     private func fetchManualDraft(id: String) async throws -> StudyManualCardDraft {
         let draft = try await manualDraftOutbox.fetch(id: id)
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
         return draft
     }
 
     func retryPendingDraftCreates() async throws {
         defer { manualDraftOutboxRevision &+= 1 }
-        defer { persistCardCatalogSnapshot() }
+        defer { persistManualDraftSnapshot() }
         try requirePersistentWrites()
         try await manualDraftOutbox.retryPendingCreates()
     }
@@ -2418,7 +2432,7 @@ final class StudyStore {
         activationGeneration: Int
     ) async throws {
         defer { manualDraftOutboxRevision &+= 1 }
-        defer { persistCardCatalogSnapshot() }
+        defer { persistManualDraftSnapshot() }
         try await manualDraftOutbox.retryPendingMutations { [weak self] card in
             guard let self, self.isCurrentActivation(
                 userID,
@@ -2435,7 +2449,7 @@ final class StudyStore {
     }
 
     func retryPendingDraftCommits() async throws {
-        defer { persistCardCatalogSnapshot() }
+        defer { persistManualDraftSnapshot() }
         try requirePersistentWrites()
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
@@ -2480,7 +2494,7 @@ final class StudyStore {
     // an older list request is still in flight.
     func replaceManualDraft(_ draft: StudyManualCardDraft) {
         manualDraftOutbox.replace(draft)
-        persistCardCatalogSnapshot()
+        persistManualDraftSnapshot()
     }
 
     private func loadLocalCards(userID: Int) {
