@@ -1216,7 +1216,10 @@ final class StudyStore {
         )
         let updated = projection.card
         try updateExistingLocalCard(updated, markedDirty: true)
-        try cardOutbox.stageUpdate(cardID: currentCard.id, request: projection.request)
+        try cardOutbox.stageUpdate(
+            cardID: currentCard.id,
+            request: projection.request
+        )
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -1347,6 +1350,10 @@ final class StudyStore {
             },
             onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
                 guard let self else { throw CancellationError() }
+                try self.cardOutbox.trackRegeneratedAnswerAudio(
+                    cardID: card.id,
+                    answer: card.answer
+                )
                 try self.reconcileCardMedia(
                     card,
                     pendingWrite: pendingWrite,
@@ -1829,7 +1836,8 @@ final class StudyStore {
             var acknowledgedCard = try acknowledgedCard(
                 acknowledgement.card,
                 preservingPendingReview: acknowledgement.preservingPendingReview,
-                preservingPendingEdit: acknowledgement.preservingPendingEdit
+                preservingPendingEdit: acknowledgement.preservingPendingEdit,
+                submittedAnswerAudioFields: acknowledgement.submittedAnswerAudioFields
             )
             let preservingPendingAction = try hasPendingCardAction(
                 for: acknowledgedCard
@@ -2142,9 +2150,16 @@ final class StudyStore {
     private func acknowledgedCard(
         _ serverCard: StudyCard,
         preservingPendingReview: Bool,
-        preservingPendingEdit: Bool
+        preservingPendingEdit: Bool,
+        submittedAnswerAudioFields: [String: JSONValue]? = nil
     ) throws -> StudyCard {
-        guard preservingPendingReview || preservingPendingEdit else { return serverCard }
+        guard
+            preservingPendingReview
+                || preservingPendingEdit
+                || submittedAnswerAudioFields != nil
+        else {
+            return serverCard
+        }
         guard let userID = activeUserID else { return serverCard }
 
         guard
@@ -2157,6 +2172,20 @@ final class StudyStore {
             return serverCard
         }
 
+        // Compatibility PATCH responses can contain the pre-regeneration audio
+        // projection. Reconcile the exact audio, voice, and override values that
+        // regeneration wrote atomically and the accepted update request submitted.
+        let answerAudioResponseWasStale = submittedAnswerAudioFields.map { fields in
+            fields.contains { key, value in serverCard.answer[key] != value }
+        } ?? false
+        let answer: JSONValue
+        if preservingPendingEdit {
+            answer = localCard.answer
+        } else if let submittedAnswerAudioFields {
+            answer = serverCard.answer.replacingObjectValues(submittedAnswerAudioFields)
+        } else {
+            answer = serverCard.answer
+        }
         return StudyCard(
             id: record.id,
             // Keep the persisted local key while carrying the server-resolved identity as its alias.
@@ -2166,9 +2195,11 @@ final class StudyStore {
             noteId: serverCard.noteId,
             cardType: serverCard.cardType,
             prompt: preservingPendingEdit ? localCard.prompt : serverCard.prompt,
-            answer: preservingPendingEdit ? localCard.answer : serverCard.answer,
+            answer: answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
-            answerAudioSource: serverCard.answerAudioSource,
+            answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale
+                ? localCard.answerAudioSource
+                : serverCard.answerAudioSource,
             // Current PATCH responses return computed, non-null mastery; legacy lean
             // responses may omit it. Editor input cannot clear mastery. If that contract
             // gains explicit clears, decoding must distinguish null from omission.
