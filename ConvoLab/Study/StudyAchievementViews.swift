@@ -100,6 +100,7 @@ struct StudyAchievementBadgeCard: View {
 
 struct StudyAchievementSpotlight: View {
     let store: StudyAchievementStore
+    let milestoneStore: StudyMilestoneStore
 
     var body: some View {
         let earnedAchievements = store.earnedAchievements
@@ -170,6 +171,15 @@ struct StudyAchievementSpotlight: View {
                 }
                 .padding(.vertical, 18)
             }
+
+            NavigationLink {
+                StudyMilestonesView(store: milestoneStore)
+            } label: {
+                Label("Milestone history", systemImage: "clock.arrow.circlepath")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(ConvoLabTheme.navy)
+            }
+            .padding(.top, 14)
         }
         .padding(18)
         .background(.white.opacity(0.78), in: .rect(cornerRadius: 22))
