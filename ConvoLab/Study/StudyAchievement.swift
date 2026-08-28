@@ -514,6 +514,7 @@ final class StudyAchievementStore {
     func deleteLocalData(userID: Int) {
         defaults?.removeObject(forKey: persistenceKey(userID: userID))
         defaults?.removeObject(forKey: sessionKey(userID: userID))
+        defaults?.removeObject(forKey: "study-milestones-v1-\(userID)")
         guard activeUserID == userID else { return }
         refreshSequence += 1
         cancelAssetPreparation()

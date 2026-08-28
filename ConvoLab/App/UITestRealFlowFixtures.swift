@@ -268,10 +268,6 @@ private final class UITestRealFlowComposition: ObservableObject {
         ))
         let achievementStore = StudyAchievementStore(api: api, mediaCache: mediaCache)
         achievementStore.activate(userID: userID)
-        let milestoneStore = StudyMilestoneStore(
-            defaults: try fixtureDefaults(named: "study-dashboard-milestones")
-        )
-        milestoneStore.activate(userID: userID)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let nextLessonStart = DateComponents(
@@ -312,7 +308,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 mediaCache,
                 store,
                 achievementStore,
-                milestoneStore,
                 calendarService,
                 timeStore,
                 player,

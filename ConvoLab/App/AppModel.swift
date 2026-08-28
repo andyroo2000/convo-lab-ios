@@ -31,7 +31,6 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
-    let milestones: StudyMilestoneStore
     let achievements: StudyAchievementStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
@@ -122,7 +121,6 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        let milestones = StudyMilestoneStore(api: api, defaults: accountDeletionCleanupDefaults)
         let achievements = StudyAchievementStore(
             api: api,
             mediaCache: mediaCache,
@@ -135,7 +133,6 @@ final class AppModel {
         auth = makeAuthStore(api)
         self.mediaCache = mediaCache
         self.studyTime = studyTime
-        self.milestones = milestones
         self.achievements = achievements
         self.storageStatus = storageStatus
         self.study = study
@@ -196,7 +193,6 @@ final class AppModel {
                     }
                 },
                 .milestones: { userID in
-                    milestones.deleteLocalData(userID: userID)
                     achievements.deleteLocalData(userID: userID)
                     return true
                 },
@@ -301,7 +297,6 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
-        milestones.deactivate()
         achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
@@ -352,7 +347,6 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
-        milestones.deactivate()
         achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
@@ -415,7 +409,6 @@ final class AppModel {
     private func activateLocalData(for user: CurrentUser) {
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
-        milestones.activate(userID: user.id)
         achievements.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
