@@ -239,6 +239,88 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOrdinaryCardSaveAcceptsServerAnswerAudioEnrichment() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let baseCard = makeCard(
+            id: "01J0000000000000000000000AE",
+            expression: "会社"
+        )
+        let original = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.id,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt,
+            answer: baseCard.answer.replacingObjectValues([
+                "answerAudio": .object([
+                    "url": .string("/api/study/media/answer"),
+                ]),
+            ]),
+            state: baseCard.state,
+            answerAudioSource: "generated",
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: original,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(original)
+            )
+        )
+        try container.mainContext.save()
+
+        let enrichedAudio: JSONValue = .object([
+            "url": .string("/api/study/media/answer?signature=rotated"),
+            "durationMilliseconds": .number(1_250),
+        ])
+        let response = StudyCard(
+            id: original.id,
+            syncId: original.syncId,
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer.replacingObjectValues([
+                "answerAudio": enrichedAudio,
+                "notes": .string("Saved note"),
+            ]),
+            state: original.state,
+            answerAudioSource: "generated",
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt.addingTimeInterval(1)
+        )
+        let responseData = try StorageCodec.encoder.encode(response)
+        let client = makeClient { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        var draft = StudyCardDraft(card: original)
+        draft.notes = "Saved note"
+
+        try await store.updateCard(original, draft: draft)
+
+        XCTAssertEqual(try persistedCard(in: container).answer["answerAudio"], enrichedAudio)
+    }
+
+    @MainActor
     func testRegenerateImagePersistsPlacementAndDownloadsForOfflineUse() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

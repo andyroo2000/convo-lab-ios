@@ -8,6 +8,11 @@ struct CardMutationAcknowledgement {
     let submittedAnswerAudio: JSONValue?
 }
 
+private struct CardUpdatePreservingAnswerAudio: Codable {
+    let request: UpdateStudyCardRequest
+    let submittedAnswerAudio: JSONValue
+}
+
 struct QuarantinedCardMutationError: LocalizedError {
     let count: Int
 
@@ -64,12 +69,25 @@ final class CardMutationOutbox {
     @discardableResult
     func stageUpdate(
         cardID: String,
-        request: UpdateStudyCardRequest
+        request: UpdateStudyCardRequest,
+        preserveSubmittedAnswerAudio: Bool = false
     ) throws -> PendingMutation {
-        try stage(
+        let payload: Data
+        if
+            preserveSubmittedAnswerAudio,
+            let submittedAnswerAudio = request.answer["answerAudio"]
+        {
+            payload = try StorageCodec.encoder.encode(CardUpdatePreservingAnswerAudio(
+                request: request,
+                submittedAnswerAudio: submittedAnswerAudio
+            ))
+        } else {
+            payload = try StorageCodec.encoder.encode(request)
+        }
+        return try stage(
             kind: "cardUpdate",
             cardID: cardID,
-            payload: StorageCodec.encoder.encode(request)
+            payload: payload
         )
     }
 
@@ -235,11 +253,19 @@ final class CardMutationOutbox {
                         body: request
                     )
                 case "cardUpdate":
-                    let request = try StorageCodec.decoder.decode(
-                        UpdateStudyCardRequest.self,
+                    let request: UpdateStudyCardRequest
+                    if let wrapped = try? StorageCodec.decoder.decode(
+                        CardUpdatePreservingAnswerAudio.self,
                         from: mutation.payload
-                    )
-                    submittedAnswerAudio = request.answer["answerAudio"]
+                    ) {
+                        request = wrapped.request
+                        submittedAnswerAudio = wrapped.submittedAnswerAudio
+                    } else {
+                        request = try StorageCodec.decoder.decode(
+                            UpdateStudyCardRequest.self,
+                            from: mutation.payload
+                        )
+                    }
                     serverCard = try await api.request(
                         "/api/study/cards/\(mutation.resourceID)",
                         method: "PATCH",

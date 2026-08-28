@@ -1216,7 +1216,12 @@ final class StudyStore {
         )
         let updated = projection.card
         try updateExistingLocalCard(updated, markedDirty: true)
-        try cardOutbox.stageUpdate(cardID: currentCard.id, request: projection.request)
+        try cardOutbox.stageUpdate(
+            cardID: currentCard.id,
+            request: projection.request,
+            preserveSubmittedAnswerAudio:
+                card.answer["answerAudio"] != currentCard.answer["answerAudio"]
+        )
         cards = cards.map { $0.id == currentCard.id ? updated : $0 }
         libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
         allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
@@ -2189,7 +2194,7 @@ final class StudyStore {
             prompt: preservingPendingEdit ? localCard.prompt : serverCard.prompt,
             answer: answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
-            answerAudioSource: answerAudioResponseWasStale
+            answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale
                 ? localCard.answerAudioSource
                 : serverCard.answerAudioSource,
             // Current PATCH responses return computed, non-null mastery; legacy lean
