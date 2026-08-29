@@ -27,6 +27,20 @@ extension StudyStore {
     @discardableResult
     func refreshSession() async throws -> Bool {
         guard let load = try await sessionLoadingService.load(.reviews) else { return false }
+        try await applyReviewSessionLoad(load, resettingSessionProgress: true)
+        return true
+    }
+
+    func revalidateRemainingReviewQueue() async throws {
+        guard sessionKind == "reviews", !lessonSessionIsPresented else { return }
+        guard let load = try await sessionLoadingService.load(.reviews) else { return }
+        try await applyReviewSessionLoad(load, resettingSessionProgress: false)
+    }
+
+    private func applyReviewSessionLoad(
+        _ load: StudySessionLoad,
+        resettingSessionProgress: Bool
+    ) async throws {
         let userID = load.userID
         let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
@@ -50,9 +64,16 @@ extension StudyStore {
         studySurfaceRevision += 1
         cards = activeCards
         sessionKind = "reviews"
-        sessionInitialCardCount = activeCards.count
-        sessionCompletedCardIDs = []
-        masteryAnimation = nil
+        if resettingSessionProgress {
+            sessionInitialCardCount = activeCards.count
+            sessionCompletedCardIDs = []
+            masteryAnimation = nil
+        } else {
+            sessionInitialCardCount = max(
+                sessionInitialCardCount,
+                sessionCompletedCardIDs.count + activeCards.count
+            )
+        }
         apply(pendingReviewState)
         try localCardRepository.replaceActiveSession(with: activeCards, userID: userID)
         loadLibraryCards(userID: userID)
@@ -62,8 +83,8 @@ extension StudyStore {
         await mediaCache.prepare(urls: mediaURLs, category: "active-study")
         if sessionLoadingService.isCurrent(load) {
             markPrepared(cards: activeCards)
+            lastSessionRefreshAt = .now
         }
-        return true
     }
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.
@@ -261,8 +282,36 @@ extension StudyStore {
             if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
-            try await flushSchedulingOutboxes()
-            return staged
+            let flushResult = try await flushSchedulingOutboxes()
+            let currentReviewWasProgressionLocked = flushResult
+                .progressionLockedEventIDs
+                .contains(staged.eventID)
+            if currentReviewWasProgressionLocked {
+                stagedReview = nil
+                try rollBackSessionTrackingForProgressionLock(
+                    eventID: staged.eventID,
+                    card: currentCard,
+                    userID: userID
+                )
+            }
+            if currentCard.belongsToLearningProgression
+                || !flushResult.progressionLockedEventIDs.isEmpty
+            {
+                var cardSyncError: (any Error)?
+                do {
+                    try await pullCardChangesForProgressionRevalidation(
+                        userID: userID,
+                        activationGeneration: activationGeneration
+                    )
+                } catch {
+                    cardSyncError = error
+                }
+                try await revalidateRemainingReviewQueue()
+                if let cardSyncError {
+                    throw cardSyncError
+                }
+            }
+            return stagedReview
         } catch {
             var schedulerStateRecovered = false
             if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
@@ -282,6 +331,28 @@ extension StudyStore {
             }
             return stagedReview
         }
+    }
+
+    private func rollBackSessionTrackingForProgressionLock(
+        eventID: String,
+        card: StudyCard,
+        userID: Int
+    ) throws {
+        try localCardRepository.markProgressionLocked(card, userID: userID)
+        sessionCompletedCardIDs.remove(card.id)
+        if let wasFailed = sessionFailureWasPresentByEventID.removeValue(forKey: eventID) {
+            if wasFailed {
+                sessionFailedCardIDs.insert(card.id)
+            } else {
+                sessionFailedCardIDs.remove(card.id)
+            }
+        }
+        if let animatedCard = masteryAnimation?.card,
+           StudyCardIdentity.matches(animatedCard, card)
+        {
+            masteryAnimation = nil
+        }
+        apply((try? reviewOutbox.pendingState()) ?? PendingReviewState())
     }
 
     func undoReview(eventID: String, cardBefore: StudyCard) async throws {

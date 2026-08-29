@@ -8,6 +8,7 @@ enum StudySessionPolicy {
         let excludedIdentifiers = StudyCardIdentity.normalized(identifiers)
         var seenIdentifiers: Set<String> = []
         return candidates.filter { card in
+            guard card.isProgressionAvailable else { return false }
             let cardIdentifiers = StudyCardIdentity.identifiers(for: card)
             guard
                 cardIdentifiers.isDisjoint(with: excludedIdentifiers),
@@ -52,6 +53,7 @@ enum StudySessionPolicy {
             $0.formUnion(StudyCardIdentity.identifiers(for: $1))
         }
         return libraryCards.compactMap { card in
+            guard card.isProgressionAvailable else { return nil }
             guard StudyCardIdentity.identifiers(for: card).isDisjoint(
                 with: activeCardIdentifiers
             ) else { return nil }

@@ -677,6 +677,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let state: State
     let answerAudioSource: String?
     let masteryLevel: String?
+    let variantGroupId: String?
+    let variantStatus: String?
     let introductionCohortId: String?
     let selectionPolicy: String?
     let priorityUntil: Date?
@@ -694,6 +696,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         state: State,
         answerAudioSource: String?,
         masteryLevel: String? = nil,
+        variantGroupId: String? = nil,
+        variantStatus: String? = nil,
         introductionCohortId: String? = nil,
         selectionPolicy: String? = nil,
         priorityUntil: Date? = nil,
@@ -710,6 +714,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.state = state
         self.answerAudioSource = answerAudioSource
         self.masteryLevel = masteryLevel
+        self.variantGroupId = variantGroupId
+        self.variantStatus = variantStatus
         self.introductionCohortId = introductionCohortId
         self.selectionPolicy = selectionPolicy
         self.priorityUntil = priorityUntil
@@ -731,6 +737,30 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
+            variantGroupId: variantGroupId,
+            variantStatus: variantStatus,
+            introductionCohortId: introductionCohortId,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
+    func replacingVariantStatus(_ variantStatus: String?) -> Self {
+        Self(
+            id: id,
+            syncId: syncId,
+            noteId: noteId,
+            cardType: cardType,
+            prompt: prompt,
+            answer: answer,
+            state: state,
+            answerAudioSource: answerAudioSource,
+            masteryLevel: masteryLevel,
+            variantGroupId: variantGroupId,
+            variantStatus: variantStatus,
             introductionCohortId: introductionCohortId,
             selectionPolicy: selectionPolicy,
             priorityUntil: priorityUntil,
@@ -808,6 +838,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
                 source: state.source
             ),
             answerAudioSource: answerAudioSource,
+            variantGroupId: variantGroupId,
+            variantStatus: variantStatus,
             introductionCohortId: introductionCohortId,
             selectionPolicy: selectionPolicy,
             priorityUntil: priorityUntil,
@@ -818,11 +850,21 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     func isEligibleForOfflineStudy(at date: Date) -> Bool {
+        guard isProgressionAvailable else { return false }
         guard ["learning", "review", "relearning"].contains(state.queueState) else {
             return false
         }
         guard let dueAt = state.dueAt else { return false }
         return dueAt <= date
+    }
+
+    var belongsToLearningProgression: Bool {
+        variantGroupId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    var isProgressionAvailable: Bool {
+        variantStatus == nil
+            || variantStatus?.localizedCaseInsensitiveCompare("available") == .orderedSame
     }
 }
 

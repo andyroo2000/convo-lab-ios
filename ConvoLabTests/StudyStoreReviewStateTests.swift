@@ -6,6 +6,165 @@ import XCTest
 
 extension StudyStoreTests {
     @MainActor
+    func testProgressionLockRejectionClearsFailureAndRevalidatesQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000PL",
+            expression: "進行中",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let emptySessionData = try sessionResponseData(cards: [])
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/card-review-events/batch":
+                return Self.response(
+                    statusCode: 409,
+                    data: Data(
+                        #"{"message":"Card is locked by a learning progression."}"#.utf8
+                    )
+                )
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: emptySessionData)
+            default:
+                XCTFail("Unexpected request: \(path)")
+                throw URLError(.badServerResponse)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let result = await store.recordReviewResult(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNil(result)
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/card-review-events/batch",
+                "/api/card-review-events/batch",
+                "/api/sync/feed",
+                "/api/study/session/start",
+            ]
+        )
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertNil(store.masteryAnimation)
+        XCTAssertTrue(store.failedStudyChanges.isEmpty)
+        XCTAssertTrue(
+            try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
+        )
+        let record = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.variantStatus, "locked")
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testAcceptedProgressionReviewReplacesRemainingCachedQueue() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewed = makeCard(
+            id: "01J000000000000000000000PA",
+            expression: "現在",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        let stale = makeCard(
+            id: "01J000000000000000000000PB",
+            expression: "古い待ち行列",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        let authoritative = makeCard(
+            id: "01J000000000000000000000PC",
+            expression: "次のカード"
+        )
+        for (index, card) in [reviewed, stale].enumerated() {
+            container.mainContext.insert(LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: index,
+                payload: try StorageCodec.encoder.encode(card)
+            ))
+        }
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let sessionData = try sessionResponseData(cards: [authoritative])
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/card-review-events/batch":
+                return Self.response(statusCode: 204, data: Data())
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            default:
+                XCTFail("Unexpected request: \(path)")
+                throw URLError(.badServerResponse)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let result = await store.recordReviewResult(
+            card: reviewed,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/card-review-events/batch",
+                "/api/sync/feed",
+                "/api/study/session/start",
+            ]
+        )
+        XCTAssertEqual(store.cards.map(\.id), [authoritative.id])
+        XCTAssertFalse(store.cards.contains { $0.id == stale.id })
+        XCTAssertEqual(store.sessionCompletedCardIDs, [reviewed.id])
+    }
+
+    @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

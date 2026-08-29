@@ -86,6 +86,18 @@ struct StudyCardLocalRepository {
         try context.save()
     }
 
+    func markProgressionLocked(_ card: StudyCard, userID: Int) throws {
+        guard let record = try record(matching: card, userID: userID) else { return }
+        let restoredCard = record.id == card.id
+            ? card
+            : card.replacingIdentity(id: record.id, syncId: card.reviewCardID)
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(
+            restoredCard.replacingVariantStatus("locked")
+        ))
+        record.isInActiveSession = false
+        try context.save()
+    }
+
     func updateMediaPreparedState(
         for cards: [StudyCard],
         userID: Int,

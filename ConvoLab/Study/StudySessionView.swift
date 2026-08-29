@@ -1093,7 +1093,7 @@ struct StudySessionView: View {
         .tint(color)
         .frame(maxWidth: .infinity)
         .disabled(
-            submittingReviewCardIDs.contains(card.id)
+            !submittingReviewCardIDs.isEmpty
                 || submittingCardActionIDs.contains(card.id)
                 || isUndoing
                 || store.masteryAnimation != nil

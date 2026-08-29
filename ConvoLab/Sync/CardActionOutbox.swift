@@ -367,6 +367,8 @@ enum StudyCardActionProjection {
                 state: projectedState,
                 answerAudioSource: card.answerAudioSource,
                 masteryLevel: card.masteryLevel,
+                variantGroupId: card.variantGroupId,
+                variantStatus: card.variantStatus,
                 createdAt: card.createdAt,
                 updatedAt: now
             )

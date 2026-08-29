@@ -873,6 +873,27 @@ final class StudyStore {
         allCards = published.catalog
     }
 
+    func pullCardChangesForProgressionRevalidation(
+        userID: Int,
+        activationGeneration: Int
+    ) async throws {
+        let result = try await syncCoordinator.pullChanges(
+            currentPublishedCards: publishedCards,
+            publish: publish,
+            reloadAfterCheckpointReset: {
+                self.loadLocalCards(userID: userID)
+                self.loadLibraryCards(userID: userID)
+            }
+        )
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if result == .discardedStaleResponse {
+            throw CancellationError()
+        }
+        loadLibraryCards(userID: userID)
+    }
+
     func synchronizeIfNeeded(maxAge: Duration) async {
         guard syncStatus != .syncing else { return }
         if consumedOutboxRetryRevision < outboxRetryRevision {
@@ -1984,6 +2005,8 @@ final class StudyStore {
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledgedCard.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
+                    variantGroupId: acknowledgedCard.variantGroupId,
+                    variantStatus: acknowledgedCard.variantStatus,
                     createdAt: acknowledgedCard.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )
@@ -2024,6 +2047,8 @@ final class StudyStore {
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledged.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
+                    variantGroupId: acknowledged.variantGroupId,
+                    variantStatus: acknowledged.variantStatus,
                     createdAt: acknowledged.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )
@@ -2044,27 +2069,29 @@ final class StudyStore {
         }
     }
 
-    func flushSchedulingOutboxes() async throws {
+    @discardableResult
+    func flushSchedulingOutboxes() async throws -> ReviewEventFlushResult {
         defer { reviewOutboxRevision &+= 1 }
+        var result = try reviewOutbox.discardProgressionLockedFailures()
         while true {
             let before = try reviewOutbox.pendingDeliverableCount()
                 + cardActionOutbox.pendingDeliverableCount()
-            guard before > 0 else { return }
+            guard before > 0 else { return result }
 
 #if DEBUG
             if let reviewEventOutboxFlushOverride {
                 try await reviewEventOutboxFlushOverride()
             } else {
-                try await reviewOutbox.flush()
+                result.formUnion(try await reviewOutbox.flush())
             }
 #else
-            try await reviewOutbox.flush()
+            result.formUnion(try await reviewOutbox.flush())
 #endif
             try await flushCardActionOutbox()
 
             let after = try reviewOutbox.pendingDeliverableCount()
                 + cardActionOutbox.pendingDeliverableCount()
-            guard after > 0, after < before else { return }
+            guard after > 0, after < before else { return result }
         }
     }
 
@@ -2257,6 +2284,8 @@ final class StudyStore {
                 : card.answerAudioSource,
             // Scheduling state and mastery come from the undo result; neither is editor-owned.
             masteryLevel: card.masteryLevel,
+            variantGroupId: card.variantGroupId,
+            variantStatus: card.variantStatus,
             createdAt: preserveLocalPresentation
                 ? localCard?.createdAt ?? card.createdAt
                 : card.createdAt,
@@ -2336,6 +2365,8 @@ final class StudyStore {
             masteryLevel: preservingPendingReview
                 ? localCard.masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt

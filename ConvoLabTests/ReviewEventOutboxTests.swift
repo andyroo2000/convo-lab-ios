@@ -166,6 +166,73 @@ final class ReviewEventOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testProgressionLockedReviewIsDiscardedWithoutQuarantine() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let attempts = LockedCounter()
+        let client = makeClient { request in
+            _ = attempts.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"message":"Card is locked by a learning progression."}"#.utf8)
+            )
+        }
+        let outbox = ReviewEventOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        let card = makeCard(id: "card-1")
+        _ = try outbox.stageEnqueue(
+            event: makeEvent(id: "event-1", cardID: card.id),
+            cardBefore: card
+        )
+        try container.mainContext.save()
+
+        let result = try await outbox.flush()
+
+        XCTAssertEqual(result.progressionLockedEventIDs, ["event-1"])
+        XCTAssertEqual(attempts.current, 2)
+        XCTAssertTrue(try pendingReviews(in: container).isEmpty)
+    }
+
+    @MainActor
+    func testPreviouslyQuarantinedProgressionLockIsDiscardedWithoutNetwork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let outbox = ReviewEventOutbox(
+            api: makeClient { _ in
+                XCTFail("Cleanup should not retry a known progression lock")
+                throw URLError(.unknown)
+            },
+            context: container.mainContext
+        )
+        outbox.activate(userID: 7)
+        let card = makeCard(id: "card-1")
+        let record = LocalCardRecord(
+            card: card,
+            userID: 7,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        container.mainContext.insert(record)
+        let mutation = try outbox.stageEnqueue(
+            event: makeEvent(id: "event-1", cardID: card.id),
+            cardBefore: card
+        )
+        mutation.lastError = "HTTP 409: Card is locked by a learning progression."
+        try container.mainContext.save()
+
+        let result = try outbox.discardProgressionLockedFailures()
+
+        XCTAssertEqual(result.progressionLockedEventIDs, ["event-1"])
+        XCTAssertTrue(try pendingReviews(in: container).isEmpty)
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.variantStatus, "locked")
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
     func testPendingFailureStateUsesReviewTimeThenEventIDOrder() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let outbox = ReviewEventOutbox(
@@ -258,8 +325,8 @@ final class ReviewEventOutboxTests: XCTestCase {
         XCTAssertEqual(newRequestCount.current, 1)
 
         releaseNewContinuation.yield()
-        try await newFlush.value
-        try await joinedNewFlush.value
+        _ = try await newFlush.value
+        _ = try await joinedNewFlush.value
 
         XCTAssertFalse(try pendingReviews(in: container).contains { $0.userID == 2 })
         outbox.activate(userID: 2)

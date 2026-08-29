@@ -764,6 +764,8 @@ final class CardSyncFeedRepository {
             masteryLevel: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingLocalContent
                 ? localCard.updatedAt
