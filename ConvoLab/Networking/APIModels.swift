@@ -828,6 +828,10 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         progressionFieldPresence.variantStatus ? variantStatus : fallback
     }
 
+    var includesProgressionMetadataProjection: Bool {
+        progressionFieldPresence.variantGroupId && progressionFieldPresence.variantStatus
+    }
+
     func replacingIdentity(id: String, syncId: String?) -> Self {
         Self(
             id: id,

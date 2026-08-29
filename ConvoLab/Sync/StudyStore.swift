@@ -888,9 +888,7 @@ final class StudyStore {
         guard isCurrentActivation(userID, generation: activationGeneration) else {
             throw CancellationError()
         }
-        if result == .discardedStaleResponse {
-            throw CancellationError()
-        }
+        if result == .discardedStaleResponse { return }
         loadLibraryCards(userID: userID)
     }
 
@@ -2327,6 +2325,7 @@ final class StudyStore {
             preservingPendingReview
                 || preservingPendingEdit
                 || submittedAnswerAudioFields != nil
+                || !serverCard.includesProgressionMetadataProjection
         else {
             return serverCard
         }
