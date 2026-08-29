@@ -153,6 +153,60 @@ final class StudySyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(reloadCount, 0)
     }
 
+    func testConcurrentPullsAreSerialized() async throws {
+        var callCount = 0
+        var activeCallCount = 0
+        var maximumActiveCallCount = 0
+        var firstPullContinuation: CheckedContinuation<Void, Never>?
+        let firstPullStarted = expectation(description: "first pull started")
+        var published = StudySyncCoordinator.PublishedCards(
+            session: [],
+            library: [],
+            catalog: []
+        )
+        let coordinator = StudySyncCoordinator(
+            activate: { _ in },
+            deactivate: {},
+            pullChanges: { _ in
+                callCount += 1
+                activeCallCount += 1
+                maximumActiveCallCount = max(maximumActiveCallCount, activeCallCount)
+                if callCount == 1 {
+                    firstPullStarted.fulfill()
+                    await withCheckedContinuation { continuation in
+                        firstPullContinuation = continuation
+                    }
+                }
+                activeCallCount -= 1
+                return .completed(deletedCardIdentifiers: [])
+            }
+        )
+
+        let firstPull = Task {
+            try await coordinator.pullChanges(
+                currentPublishedCards: { published },
+                publish: { published = $0 },
+                reloadAfterCheckpointReset: {}
+            )
+        }
+        await fulfillment(of: [firstPullStarted])
+        let secondPull = Task {
+            try await coordinator.pullChanges(
+                currentPublishedCards: { published },
+                publish: { published = $0 },
+                reloadAfterCheckpointReset: {}
+            )
+        }
+        await Task.yield()
+
+        firstPullContinuation?.resume()
+        _ = try await firstPull.value
+        _ = try await secondPull.value
+
+        XCTAssertEqual(callCount, 2)
+        XCTAssertEqual(maximumActiveCallCount, 1)
+    }
+
     private func makeCard(id: String) -> StudyCard {
         StudyCard(
             id: id,

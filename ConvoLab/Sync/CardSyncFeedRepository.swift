@@ -764,8 +764,14 @@ final class CardSyncFeedRepository {
             masteryLevel: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
-            variantGroupId: serverCard.variantGroupId,
-            variantStatus: serverCard.variantStatus,
+            // A present null is an authoritative unlock; an omitted key means a
+            // lean compatibility response and must retain locally-known metadata.
+            variantGroupId: serverCard.resolvedVariantGroupId(
+                fallingBackTo: localCard.variantGroupId
+            ),
+            variantStatus: serverCard.resolvedVariantStatus(
+                fallingBackTo: localCard.variantStatus
+            ),
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingLocalContent
                 ? localCard.updatedAt

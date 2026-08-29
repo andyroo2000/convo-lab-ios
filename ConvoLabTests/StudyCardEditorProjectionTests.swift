@@ -28,7 +28,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     }
 
     @MainActor
-    func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() {
+    func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() throws {
         let card = makeCard(
             masteryLevel: "guru",
             variantGroupID: "family-1",
@@ -70,6 +70,32 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         XCTAssertNil(reconciled.variantStatus)
         XCTAssertEqual(reconciled.state, update.card.state)
         XCTAssertEqual(reconciled.createdAt, update.card.createdAt)
+
+        let leanServerCard = try omittingProgressionFields(from: serverCard)
+        let leanReconciled = StudyCardEditorProjection.reconcilingMedia(
+            latest: update.card,
+            serverCard: leanServerCard,
+            prompt: update.card.prompt,
+            answer: update.card.answer,
+            answerAudioSource: "generated",
+            updatedAt: Date(timeIntervalSince1970: 400)
+        )
+        XCTAssertEqual(leanReconciled.variantGroupId, "family-1")
+        XCTAssertEqual(leanReconciled.variantStatus, "locked")
+    }
+
+    @MainActor
+    private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
+        let encoded = try StorageCodec.encoder.encode(card)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "variantGroupId")
+        object.removeValue(forKey: "variantStatus")
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
     }
 
     @MainActor

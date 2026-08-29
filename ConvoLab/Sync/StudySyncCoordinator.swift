@@ -16,6 +16,8 @@ final class StudySyncCoordinator {
     private let pullChangesOperation: @MainActor (
         _ onPageCommitted: @escaping @MainActor (PageChanges) -> Void
     ) async throws -> PullResult
+    private var pullIsInProgress = false
+    private var pullWaiters: [CheckedContinuation<Void, Never>] = []
 
     convenience init(repository: CardSyncFeedRepository) {
         self.init(
@@ -52,6 +54,9 @@ final class StudySyncCoordinator {
         publish: @escaping (PublishedCards) -> Void,
         reloadAfterCheckpointReset: () -> Void
     ) async throws -> PullResult {
+        await acquirePullPermit()
+        defer { releasePullPermit() }
+
         var sessionReconciler = StudyPublishedCardReconciler()
         var libraryReconciler = StudyPublishedCardReconciler()
         var catalogReconciler = StudyPublishedCardReconciler()
@@ -85,6 +90,24 @@ final class StudySyncCoordinator {
             break
         }
         return result
+    }
+
+    private func acquirePullPermit() async {
+        if !pullIsInProgress {
+            pullIsInProgress = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            pullWaiters.append(continuation)
+        }
+    }
+
+    private func releasePullPermit() {
+        guard !pullWaiters.isEmpty else {
+            pullIsInProgress = false
+            return
+        }
+        pullWaiters.removeFirst().resume()
     }
 
     private func prune(

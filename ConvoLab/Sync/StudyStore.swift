@@ -2376,8 +2376,12 @@ final class StudyStore {
             masteryLevel: preservingPendingReview
                 ? localCard.masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
-            variantGroupId: serverCard.variantGroupId,
-            variantStatus: serverCard.variantStatus,
+            variantGroupId: serverCard.resolvedVariantGroupId(
+                fallingBackTo: localCard.variantGroupId
+            ),
+            variantStatus: serverCard.resolvedVariantStatus(
+                fallingBackTo: localCard.variantStatus
+            ),
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt

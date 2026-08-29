@@ -668,6 +668,37 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         let source: JSONValue
     }
 
+    private struct ProgressionFieldPresence: nonisolated Hashable, Sendable {
+        let variantGroupId: Bool
+        let variantStatus: Bool
+
+        // Payload field presence affects compatibility reconciliation, not the
+        // semantic identity of an otherwise identical card.
+        nonisolated static func == (lhs: Self, rhs: Self) -> Bool { true }
+
+        nonisolated func hash(into hasher: inout Hasher) {}
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case syncId
+        case noteId
+        case cardType
+        case prompt
+        case answer
+        case state
+        case answerAudioSource
+        case masteryLevel
+        case variantGroupId
+        case variantStatus
+        case introductionCohortId
+        case selectionPolicy
+        case priorityUntil
+        case introductionAvailableAt
+        case createdAt
+        case updatedAt
+    }
+
     let id: String
     let syncId: String?
     let noteId: String?
@@ -685,6 +716,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let introductionAvailableAt: Date?
     let createdAt: Date
     let updatedAt: Date
+    private let progressionFieldPresence: ProgressionFieldPresence
 
     init(
         id: String,
@@ -722,9 +754,79 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.introductionAvailableAt = introductionAvailableAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        progressionFieldPresence = .init(
+            variantGroupId: true,
+            variantStatus: true
+        )
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        syncId = try container.decodeIfPresent(String.self, forKey: .syncId)
+        noteId = try container.decodeIfPresent(String.self, forKey: .noteId)
+        cardType = try container.decode(String.self, forKey: .cardType)
+        prompt = try container.decode(JSONValue.self, forKey: .prompt)
+        answer = try container.decode(JSONValue.self, forKey: .answer)
+        state = try container.decode(State.self, forKey: .state)
+        answerAudioSource = try container.decodeIfPresent(
+            String.self,
+            forKey: .answerAudioSource
+        )
+        masteryLevel = try container.decodeIfPresent(String.self, forKey: .masteryLevel)
+        variantGroupId = try container.decodeIfPresent(String.self, forKey: .variantGroupId)
+        variantStatus = try container.decodeIfPresent(String.self, forKey: .variantStatus)
+        introductionCohortId = try container.decodeIfPresent(
+            String.self,
+            forKey: .introductionCohortId
+        )
+        selectionPolicy = try container.decodeIfPresent(String.self, forKey: .selectionPolicy)
+        priorityUntil = try container.decodeIfPresent(Date.self, forKey: .priorityUntil)
+        introductionAvailableAt = try container.decodeIfPresent(
+            Date.self,
+            forKey: .introductionAvailableAt
+        )
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        progressionFieldPresence = .init(
+            variantGroupId: container.contains(.variantGroupId),
+            variantStatus: container.contains(.variantStatus)
+        )
+    }
+
+    nonisolated func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(syncId, forKey: .syncId)
+        try container.encodeIfPresent(noteId, forKey: .noteId)
+        try container.encode(cardType, forKey: .cardType)
+        try container.encode(prompt, forKey: .prompt)
+        try container.encode(answer, forKey: .answer)
+        try container.encode(state, forKey: .state)
+        try container.encodeIfPresent(answerAudioSource, forKey: .answerAudioSource)
+        try container.encodeIfPresent(masteryLevel, forKey: .masteryLevel)
+        try container.encode(variantGroupId, forKey: .variantGroupId)
+        try container.encode(variantStatus, forKey: .variantStatus)
+        try container.encodeIfPresent(introductionCohortId, forKey: .introductionCohortId)
+        try container.encodeIfPresent(selectionPolicy, forKey: .selectionPolicy)
+        try container.encodeIfPresent(priorityUntil, forKey: .priorityUntil)
+        try container.encodeIfPresent(
+            introductionAvailableAt,
+            forKey: .introductionAvailableAt
+        )
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 
     var reviewCardID: String { syncId ?? id }
+
+    func resolvedVariantGroupId(fallingBackTo fallback: String?) -> String? {
+        progressionFieldPresence.variantGroupId ? variantGroupId : fallback
+    }
+
+    func resolvedVariantStatus(fallingBackTo fallback: String?) -> String? {
+        progressionFieldPresence.variantStatus ? variantStatus : fallback
+    }
 
     func replacingIdentity(id: String, syncId: String?) -> Self {
         Self(
