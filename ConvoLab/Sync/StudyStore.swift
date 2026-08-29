@@ -2005,6 +2005,10 @@ final class StudyStore {
                     masteryLevel: latestLocalCard.masteryLevel,
                     variantGroupId: acknowledgedCard.variantGroupId,
                     variantStatus: acknowledgedCard.variantStatus,
+                    introductionCohortId: acknowledgedCard.introductionCohortId,
+                    selectionPolicy: acknowledgedCard.selectionPolicy,
+                    priorityUntil: acknowledgedCard.priorityUntil,
+                    introductionAvailableAt: acknowledgedCard.introductionAvailableAt,
                     createdAt: acknowledgedCard.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )
@@ -2047,6 +2051,10 @@ final class StudyStore {
                     masteryLevel: latestLocalCard.masteryLevel,
                     variantGroupId: acknowledged.variantGroupId,
                     variantStatus: acknowledged.variantStatus,
+                    introductionCohortId: acknowledged.introductionCohortId,
+                    selectionPolicy: acknowledged.selectionPolicy,
+                    priorityUntil: acknowledged.priorityUntil,
+                    introductionAvailableAt: acknowledged.introductionAvailableAt,
                     createdAt: acknowledged.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )

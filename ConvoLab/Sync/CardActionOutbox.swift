@@ -369,6 +369,10 @@ enum StudyCardActionProjection {
                 masteryLevel: card.masteryLevel,
                 variantGroupId: card.variantGroupId,
                 variantStatus: card.variantStatus,
+                introductionCohortId: card.introductionCohortId,
+                selectionPolicy: card.selectionPolicy,
+                priorityUntil: card.priorityUntil,
+                introductionAvailableAt: card.introductionAvailableAt,
                 createdAt: card.createdAt,
                 updatedAt: now
             )
