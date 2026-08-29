@@ -184,6 +184,14 @@ final class ReviewEventOutboxTests: XCTestCase {
         let outbox = ReviewEventOutbox(api: client, context: container.mainContext)
         outbox.activate(userID: 7)
         let card = makeCard(id: "card-1")
+        let record = LocalCardRecord(
+            card: card,
+            userID: 7,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.isInActiveSession = true
+        container.mainContext.insert(record)
         _ = try outbox.stageEnqueue(
             event: makeEvent(id: "event-1", cardID: card.id),
             cardBefore: card
@@ -195,6 +203,51 @@ final class ReviewEventOutboxTests: XCTestCase {
         XCTAssertEqual(result.progressionLockedEventIDs, ["event-1"])
         XCTAssertEqual(attempts.current, 2)
         XCTAssertTrue(try pendingReviews(in: container).isEmpty)
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertEqual(persisted.variantStatus, "locked")
+        XCTAssertFalse(record.isInActiveSession)
+    }
+
+    @MainActor
+    func testUnrelatedConflictRemainsQuarantined() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            Self.rejection(
+                status: 409,
+                message: "Review conflicts with a newer event.",
+                for: request
+            )
+        }
+        let outbox = ReviewEventOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        let card = makeCard(id: "card-1")
+        let record = LocalCardRecord(
+            card: card,
+            userID: 7,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        container.mainContext.insert(record)
+        _ = try outbox.stageEnqueue(
+            event: makeEvent(id: "event-1", cardID: card.id),
+            cardBefore: card
+        )
+        try container.mainContext.save()
+
+        do {
+            try await outbox.flush()
+            XCTFail("Expected the unrelated conflict to remain quarantined")
+        } catch let error as QuarantinedReviewError {
+            XCTAssertEqual(error.count, 1)
+        }
+
+        let pending = try XCTUnwrap(pendingReviews(in: container).first)
+        XCTAssertEqual(
+            pending.lastError,
+            "HTTP 409: Review conflicts with a newer event."
+        )
+        let persisted = try StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        XCTAssertNil(persisted.variantStatus)
     }
 
     @MainActor

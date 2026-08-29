@@ -382,6 +382,10 @@ final class ReviewEventOutbox {
                             message: individualMessage
                         ) {
                             result.progressionLockedEventIDs.insert(event.id)
+                            try markStoredCardProgressionLocked(
+                                matching: [mutation.resourceID, event.cardID],
+                                userID: userID
+                            )
                             context.delete(mutation)
                         } else {
                             mutation.attemptCount += 1
@@ -421,6 +425,9 @@ final class ReviewEventOutbox {
         }
     }
 
+    // The API does not expose a machine-readable error code for this conflict.
+    // Keep the comparison exact so unrelated 409s remain visible for recovery,
+    // and cover the current backend wire message with tests until one is added.
     private static let progressionLockedMessage =
         "Card is locked by a learning progression."
 
