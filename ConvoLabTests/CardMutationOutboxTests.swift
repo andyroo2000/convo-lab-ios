@@ -212,6 +212,53 @@ final class CardMutationOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testPromptAudioMismatchStillProtectsRegeneratedAnswerAudio() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let baseCard = makeCard(id: "card-1")
+        let answerAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-answer"),
+        ])
+        let answer = baseCard.answer.replacingObjectValues([
+            "answerAudio": answerAudio,
+        ])
+        let regeneratedPrompt = baseCard.prompt.replacingObjectValues([
+            "cueAudio": .object([
+                "url": .string("/api/study/media/regenerated-prompt"),
+            ]),
+        ])
+        let editedPrompt = baseCard.prompt.replacingObjectValues([
+            "cueAudio": .object([
+                "url": .string("/api/study/media/edited-prompt"),
+            ]),
+        ])
+        let serverData = try StorageCodec.encoder.encode(baseCard)
+        let client = makeClient { request in
+            Self.cardSuccess(serverData, for: request)
+        }
+        let outbox = makeOutbox(container: container, client: client)
+        outbox.activate(userID: 7)
+        try outbox.trackRegeneratedAnswerAudio(
+            cardID: baseCard.id,
+            prompt: regeneratedPrompt,
+            answer: answer
+        )
+        _ = try outbox.stageUpdate(
+            cardID: baseCard.id,
+            request: UpdateStudyCardRequest(prompt: editedPrompt, answer: answer)
+        )
+        try container.mainContext.save()
+        var acknowledgement: CardMutationAcknowledgement?
+
+        try await outbox.flush { acknowledgement = $0 }
+
+        XCTAssertNil(acknowledgement?.submittedPromptAudio)
+        XCTAssertEqual(
+            acknowledgement?.submittedAnswerAudioFields?["answerAudio"],
+            answerAudio
+        )
+    }
+
+    @MainActor
     func testAudioProtectedUpdateKeepsFailedChangeDetail() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let outbox = makeOutbox(container: container)

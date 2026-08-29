@@ -117,7 +117,7 @@ final class CardMediaMutationService {
             try ensureActive(operation)
             guard
                 let generatedAudio = serverCard.answer["answerAudio"],
-                let remoteURL = serverCard.audioURL
+                let remoteURL = generatedAudio.mediaURLs.first
             else {
                 throw MissingGeneratedCardAudioError()
             }

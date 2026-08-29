@@ -89,14 +89,15 @@ final class CardMutationOutbox {
         let pendingAudio = try pendingAnswerAudioReconciliation(for: cardID)
         if let pendingAudio,
            pendingAudio.fields["answerAudio"] == request.answer["answerAudio"],
-           pendingAudio.promptAudio == nil
-               || pendingAudio.promptAudio == request.prompt["cueAudio"],
            request.answer["answerAudio"] != nil
         {
             let submittedAnswerAudioFields = Self.answerAudioFields(in: request.answer)
+            let submittedPromptAudio = pendingAudio.promptAudio == request.prompt["cueAudio"]
+                ? pendingAudio.promptAudio
+                : nil
             payload = try StorageCodec.encoder.encode(CardUpdatePreservingAnswerAudio(
                 request: request,
-                submittedPromptAudio: pendingAudio.promptAudio,
+                submittedPromptAudio: submittedPromptAudio,
                 submittedAnswerAudioFields: submittedAnswerAudioFields
             ))
         } else {

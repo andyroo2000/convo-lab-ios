@@ -96,7 +96,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
         XCTAssertEqual(paths.values, [
             "/api/study/media/audio-a",
             "/api/study/cards/card-a/regenerate-answer-audio",
-            "/api/study/media/new-prompt",
+            "/api/study/media/audio-a",
         ])
         XCTAssertEqual(result.card.promptText, "newer")
         XCTAssertEqual(result.card.prompt["cueAudio"], newPromptAudio)
