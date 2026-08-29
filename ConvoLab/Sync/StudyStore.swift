@@ -1502,6 +1502,7 @@ final class StudyStore {
                 guard let self else { throw CancellationError() }
                 try self.cardOutbox.trackRegeneratedAnswerAudio(
                     cardID: card.id,
+                    prompt: card.prompt,
                     answer: card.answer
                 )
                 try self.reconcileCardMedia(
@@ -1987,6 +1988,7 @@ final class StudyStore {
                 acknowledgement.card,
                 preservingPendingReview: acknowledgement.preservingPendingReview,
                 preservingPendingEdit: acknowledgement.preservingPendingEdit,
+                submittedPromptAudio: acknowledgement.submittedPromptAudio,
                 submittedAnswerAudioFields: acknowledgement.submittedAnswerAudioFields
             )
             let preservingPendingAction = try hasPendingCardAction(
@@ -2335,11 +2337,13 @@ final class StudyStore {
         _ serverCard: StudyCard,
         preservingPendingReview: Bool,
         preservingPendingEdit: Bool,
+        submittedPromptAudio: JSONValue? = nil,
         submittedAnswerAudioFields: [String: JSONValue]? = nil
     ) throws -> StudyCard {
         guard
             preservingPendingReview
                 || preservingPendingEdit
+                || submittedPromptAudio != nil
                 || submittedAnswerAudioFields != nil
                 || !serverCard.includesProgressionMetadataProjection
         else {
@@ -2374,6 +2378,16 @@ final class StudyStore {
         } else {
             answer = serverCard.answer
         }
+        let prompt: JSONValue
+        if preservingPendingEdit {
+            prompt = localCard.prompt
+        } else if let submittedPromptAudio {
+            prompt = serverCard.prompt.replacingObjectValues([
+                "cueAudio": submittedPromptAudio,
+            ])
+        } else {
+            prompt = serverCard.prompt
+        }
         return StudyCard(
             id: record.id,
             // Keep the persisted local key while carrying the server-resolved identity as its alias.
@@ -2382,7 +2396,7 @@ final class StudyStore {
                 : serverCard.reviewCardID,
             noteId: serverCard.noteId,
             cardType: serverCard.cardType,
-            prompt: preservingPendingEdit ? localCard.prompt : serverCard.prompt,
+            prompt: prompt,
             answer: answer,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale

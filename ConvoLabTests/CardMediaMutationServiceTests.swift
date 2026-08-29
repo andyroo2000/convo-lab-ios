@@ -15,14 +15,39 @@ final class CardMediaMutationServiceTests: XCTestCase {
     @MainActor
     func testAnswerAudioUsesWireShapeRefreshesCacheAndReconcilesLatestCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let current = makeCard(id: "card-a", expression: "old")
-        let latest = makeCard(id: "card-a", expression: "newer")
+        let oldPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/old-prompt"),
+        ])
+        let newPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-prompt"),
+        ])
+        let currentBase = makeCard(id: "card-a", expression: "old")
+        let current = replacing(
+            currentBase,
+            prompt: currentBase.prompt.replacingObjectValues([
+                "cueAudio": oldPromptAudio,
+            ])
+        )
+        let latestBase = makeCard(id: "card-a", expression: "newer")
+        let latest = replacing(
+            latestBase,
+            prompt: latestBase.prompt.replacingObjectValues([
+                "cueAudio": oldPromptAudio,
+            ])
+        )
         let audio: JSONValue = .object(["url": .string("/api/study/media/audio-a")])
-        let server = replacing(current, answer: current.answer.replacingObjectValues([
-            "answerAudio": audio,
-            "answerAudioVoiceId": .string("voice-a"),
-            "answerAudioTextOverride": .string("override"),
-        ]), answerAudioSource: "generated")
+        let server = replacing(
+            current,
+            prompt: current.prompt.replacingObjectValues([
+                "cueAudio": newPromptAudio,
+            ]),
+            answer: current.answer.replacingObjectValues([
+                "answerAudio": audio,
+                "answerAudioVoiceId": .string("voice-a"),
+                "answerAudioTextOverride": .string("override"),
+            ]),
+            answerAudioSource: "generated"
+        )
         let serverData = try StorageCodec.encoder.encode(server)
         let paths = LockedRequestPaths()
         let mediaDownloads = LockedCounter()
@@ -71,9 +96,10 @@ final class CardMediaMutationServiceTests: XCTestCase {
         XCTAssertEqual(paths.values, [
             "/api/study/media/audio-a",
             "/api/study/cards/card-a/regenerate-answer-audio",
-            "/api/study/media/audio-a",
+            "/api/study/media/new-prompt",
         ])
         XCTAssertEqual(result.card.promptText, "newer")
+        XCTAssertEqual(result.card.prompt["cueAudio"], newPromptAudio)
         XCTAssertEqual(result.card.answer["answerAudio"], audio)
         XCTAssertEqual(reconciled, result.card)
         XCTAssertEqual(try String(contentsOf: result.localURL, encoding: .utf8), "fresh-audio")

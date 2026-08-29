@@ -121,12 +121,19 @@ extension StudyStoreTests {
         let oldAudio: JSONValue = .object([
             "url": .string("/api/study/media/old-answer"),
         ])
+        let oldPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/old-prompt"),
+        ])
         let original = StudyCard(
             id: baseCard.id,
             syncId: baseCard.id,
             noteId: baseCard.noteId,
             cardType: baseCard.cardType,
-            prompt: baseCard.prompt,
+            prompt: baseCard.prompt.replacingObjectValues([
+                "cueText": .null,
+                "cueMeaning": .null,
+                "cueAudio": oldPromptAudio,
+            ]),
             answer: baseCard.answer.replacingObjectValues([
                 "answerAudio": oldAudio,
                 "answerAudioVoiceId": .string("fishaudio:old-voice"),
@@ -150,12 +157,17 @@ extension StudyStoreTests {
         let newAudio: JSONValue = .object([
             "url": .string("/api/study/media/new-answer"),
         ])
+        let newPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-prompt"),
+        ])
         let regenerated = StudyCard(
             id: original.id,
             syncId: original.syncId,
             noteId: original.noteId,
             cardType: original.cardType,
-            prompt: original.prompt,
+            prompt: original.prompt.replacingObjectValues([
+                "cueAudio": newPromptAudio,
+            ]),
             answer: original.answer.replacingObjectValues([
                 "answerAudio": newAudio,
                 "answerAudioVoiceId": .string("fishaudio:new-voice"),
@@ -201,6 +213,12 @@ extension StudyStoreTests {
                     audio["url"] as? String,
                     "/api/study/media/new-answer"
                 )
+                let prompt = try XCTUnwrap(payload["prompt"] as? [String: Any])
+                let promptAudio = try XCTUnwrap(prompt["cueAudio"] as? [String: Any])
+                XCTAssertEqual(
+                    promptAudio["url"] as? String,
+                    "/api/study/media/new-prompt"
+                )
                 responseData = stalePatchResponseData
                 contentType = "application/json"
             } else {
@@ -243,6 +261,7 @@ extension StudyStoreTests {
         try await store.updateCard(reopenedCard, draft: draft)
 
         let stored = try persistedCard(in: container)
+        XCTAssertEqual(stored.prompt["cueAudio"], newPromptAudio)
         XCTAssertEqual(stored.answer["answerAudio"], newAudio)
         XCTAssertEqual(
             stored.answer["answerAudioVoiceId"],
