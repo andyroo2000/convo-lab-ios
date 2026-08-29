@@ -79,6 +79,32 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testLeanSessionAndReserveRefreshesPreserveProgressionLock() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "progression-card",
+            expression: "local",
+            variantGroupID: "family-1",
+            variantStatus: "locked"
+        )
+        let record = insert(local, userID: 1, queueIndex: 0, in: container)
+        try container.mainContext.save()
+        let repository = StudyCardLocalRepository(context: container.mainContext)
+        let leanServer = try omittingProgressionFields(
+            from: makeCard(id: local.id, expression: "server")
+        )
+
+        try repository.replaceActiveSession(with: [leanServer], userID: 1)
+        XCTAssertEqual(try decode(record).variantStatus, "locked")
+
+        try repository.mergeOfflineReserve([leanServer], userID: 1)
+        let persisted = try decode(record)
+        XCTAssertEqual(persisted.promptText, "server")
+        XCTAssertEqual(persisted.variantGroupId, "family-1")
+        XCTAssertEqual(persisted.variantStatus, "locked")
+    }
+
+    @MainActor
     func testReserveMergeCanPreserveActiveSessionOrder() throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let active = makeCard(id: "active", expression: "active")
@@ -360,11 +386,28 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(card)
+            ) as? [String: Any]
+        )
+        object.removeValue(forKey: "variantGroupId")
+        object.removeValue(forKey: "variantStatus")
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    @MainActor
     private func makeCard(
         id: String,
         syncId: String? = nil,
         expression: String,
-        mediaURL: String? = nil
+        mediaURL: String? = nil,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -386,6 +429,8 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "missing",
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
             createdAt: .now,
             updatedAt: .now
         )

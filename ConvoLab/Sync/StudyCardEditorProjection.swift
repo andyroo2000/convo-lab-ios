@@ -82,7 +82,10 @@ enum StudyCardEditorProjection {
         answerAudioSource: String?,
         updatedAt: Date
     ) -> StudyCard {
-        StudyCard(
+        let serverCard = serverCard.resolvingProgressionMetadata(
+            fallingBackTo: latest
+        )
+        return StudyCard(
             id: latest.id,
             syncId: serverCard.syncId ?? latest.syncId,
             noteId: serverCard.noteId ?? latest.noteId,
@@ -92,12 +95,8 @@ enum StudyCardEditorProjection {
             state: latest.state,
             answerAudioSource: answerAudioSource,
             masteryLevel: latest.masteryLevel,
-            variantGroupId: serverCard.resolvedVariantGroupId(
-                fallingBackTo: latest.variantGroupId
-            ),
-            variantStatus: serverCard.resolvedVariantStatus(
-                fallingBackTo: latest.variantStatus
-            ),
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
             createdAt: latest.createdAt,
             updatedAt: updatedAt
         )

@@ -2268,6 +2268,9 @@ final class StudyStore {
             StudyCard.self,
             from: record.payload
         )
+        let card = localCard.map {
+            card.resolvingProgressionMetadata(fallingBackTo: $0)
+        } ?? card
         let preserveLocalPresentation = preservingLocalPresentation
             || record.locallyUpdatedAt != nil
         guard record.id != card.id || preserveLocalPresentation else {
@@ -2295,6 +2298,10 @@ final class StudyStore {
             masteryLevel: card.masteryLevel,
             variantGroupId: card.variantGroupId,
             variantStatus: card.variantStatus,
+            introductionCohortId: card.introductionCohortId,
+            selectionPolicy: card.selectionPolicy,
+            priorityUntil: card.priorityUntil,
+            introductionAvailableAt: card.introductionAvailableAt,
             createdAt: preserveLocalPresentation
                 ? localCard?.createdAt ?? card.createdAt
                 : card.createdAt,
@@ -2340,6 +2347,9 @@ final class StudyStore {
         else {
             return serverCard
         }
+        let serverCard = serverCard.resolvingProgressionMetadata(
+            fallingBackTo: localCard
+        )
 
         // Compatibility PATCH responses can contain the pre-regeneration audio
         // projection. Reconcile the exact audio, voice, and override values that
@@ -2375,12 +2385,12 @@ final class StudyStore {
             masteryLevel: preservingPendingReview
                 ? localCard.masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
-            variantGroupId: serverCard.resolvedVariantGroupId(
-                fallingBackTo: localCard.variantGroupId
-            ),
-            variantStatus: serverCard.resolvedVariantStatus(
-                fallingBackTo: localCard.variantStatus
-            ),
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
+            introductionCohortId: serverCard.introductionCohortId,
+            selectionPolicy: serverCard.selectionPolicy,
+            priorityUntil: serverCard.priorityUntil,
+            introductionAvailableAt: serverCard.introductionAvailableAt,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt

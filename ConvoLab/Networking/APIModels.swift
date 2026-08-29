@@ -832,6 +832,29 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         progressionFieldPresence.variantGroupId && progressionFieldPresence.variantStatus
     }
 
+    func resolvingProgressionMetadata(fallingBackTo fallback: StudyCard) -> Self {
+        guard !includesProgressionMetadataProjection else { return self }
+        return Self(
+            id: id,
+            syncId: syncId,
+            noteId: noteId,
+            cardType: cardType,
+            prompt: prompt,
+            answer: answer,
+            state: state,
+            answerAudioSource: answerAudioSource,
+            masteryLevel: masteryLevel,
+            variantGroupId: resolvedVariantGroupId(fallingBackTo: fallback.variantGroupId),
+            variantStatus: resolvedVariantStatus(fallingBackTo: fallback.variantStatus),
+            introductionCohortId: introductionCohortId,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
     func replacingIdentity(id: String, syncId: String?) -> Self {
         Self(
             id: id,

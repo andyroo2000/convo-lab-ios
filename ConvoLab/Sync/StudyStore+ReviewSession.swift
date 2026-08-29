@@ -159,12 +159,19 @@ extension StudyStore {
             guard !StudyCardIdentity.matches(card, any: pendingDeleteIdentifiers) else {
                 return nil
             }
-            guard StudyCardIdentity.matches(card, any: pendingActionIdentifiers) else {
-                return card
+            let localCard = try currentLocalCardIfPresent(for: card)
+            let resolvedCard = localCard.map {
+                card.resolvingProgressionMetadata(fallingBackTo: $0)
+            } ?? card
+            guard StudyCardIdentity.matches(
+                resolvedCard,
+                any: pendingActionIdentifiers
+            ) else {
+                return resolvedCard
             }
             // A server session fetched while an action is queued must not replace
             // the durable optimistic schedule with the older server snapshot.
-            return try currentLocalCardIfPresent(for: card) ?? card
+            return localCard ?? resolvedCard
         }
         return StudySessionPolicy.eligibleCards(
             from: candidatesWithoutPendingDeletes,

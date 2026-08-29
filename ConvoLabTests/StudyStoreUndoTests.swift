@@ -143,6 +143,76 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testServerUndoLeanResponsePreservesProgressionLock() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000LU",
+            expression: "取り消す",
+            variantGroupID: "family-1",
+            variantStatus: "locked"
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+        let overview = StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+        var leanCard = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(card)
+            ) as? [String: Any]
+        )
+        leanCard.removeValue(forKey: "variantGroupId")
+        leanCard.removeValue(forKey: "variantStatus")
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "reviewLogId": "server-event",
+            "card": leanCard,
+            "overview": try JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(overview)
+            ),
+        ])
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.undoReview(eventID: "server-event", cardBefore: card)
+
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.variantGroupId, "family-1")
+        XCTAssertEqual(persisted.variantStatus, "locked")
+        XCTAssertEqual(store.cards.first?.variantStatus, "locked")
+    }
+
+    @MainActor
     func testUndoSyncedReviewUsesCanonicalUndoResponse() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

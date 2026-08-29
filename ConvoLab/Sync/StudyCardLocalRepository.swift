@@ -22,11 +22,18 @@ struct StudyCardLocalRepository {
                 // keep them current even while local card content remains dirty.
                 record.queueIndex = index
                 guard record.locallyUpdatedAt == nil else { continue }
-                let rebasedCard = record.id == card.id
-                    ? card
-                    : card.replacingIdentity(
+                let storedCard = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                )
+                let resolvedCard = storedCard.map {
+                    card.resolvingProgressionMetadata(fallingBackTo: $0)
+                } ?? card
+                let rebasedCard = record.id == resolvedCard.id
+                    ? resolvedCard
+                    : resolvedCard.replacingIdentity(
                         id: record.id,
-                        syncId: card.reviewCardID
+                        syncId: resolvedCard.reviewCardID
                     )
                 record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt
@@ -61,11 +68,18 @@ struct StudyCardLocalRepository {
                     record.queueIndex = index
                 }
                 guard record.locallyUpdatedAt == nil else { continue }
-                let rebasedCard = record.id == card.id
-                    ? card
-                    : card.replacingIdentity(
+                let storedCard = try? StorageCodec.decoder.decode(
+                    StudyCard.self,
+                    from: record.payload
+                )
+                let resolvedCard = storedCard.map {
+                    card.resolvingProgressionMetadata(fallingBackTo: $0)
+                } ?? card
+                let rebasedCard = record.id == resolvedCard.id
+                    ? resolvedCard
+                    : resolvedCard.replacingIdentity(
                         id: record.id,
-                        syncId: card.reviewCardID
+                        syncId: resolvedCard.reviewCardID
                     )
                 record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt

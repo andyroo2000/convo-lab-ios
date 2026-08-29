@@ -744,7 +744,13 @@ final class CardSyncFeedRepository {
         preservingPendingReview: Bool,
         preservingLocalContent: Bool
     ) -> StudyCard {
-        guard let localCard, preservingPendingReview || preservingLocalContent else {
+        guard let localCard else {
+            return serverCard
+        }
+        let serverCard = serverCard.resolvingProgressionMetadata(
+            fallingBackTo: localCard
+        )
+        guard preservingPendingReview || preservingLocalContent else {
             return serverCard
         }
         return StudyCard(
@@ -764,14 +770,12 @@ final class CardSyncFeedRepository {
             masteryLevel: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
-            // A present null is an authoritative unlock; an omitted key means a
-            // lean compatibility response and must retain locally-known metadata.
-            variantGroupId: serverCard.resolvedVariantGroupId(
-                fallingBackTo: localCard.variantGroupId
-            ),
-            variantStatus: serverCard.resolvedVariantStatus(
-                fallingBackTo: localCard.variantStatus
-            ),
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
+            introductionCohortId: serverCard.introductionCohortId,
+            selectionPolicy: serverCard.selectionPolicy,
+            priorityUntil: serverCard.priorityUntil,
+            introductionAvailableAt: serverCard.introductionAvailableAt,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingLocalContent
                 ? localCard.updatedAt
