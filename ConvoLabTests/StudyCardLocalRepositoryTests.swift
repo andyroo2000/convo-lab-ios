@@ -228,21 +228,23 @@ final class StudyCardLocalRepositoryTests: XCTestCase {
     }
 
     @MainActor
-    func testProgressionLockRestoresRejectedCardAndPreventsOfflineReactivation() throws {
+    func testProgressionLockPreservesDirtyPayloadAndPreventsOfflineReactivation() throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let cardBefore = makeCard(id: "locked-card", expression: "before")
         let optimisticCard = makeCard(id: cardBefore.id, expression: "optimistic")
         let record = insert(optimisticCard, userID: 1, queueIndex: 0, in: container)
+        record.locallyUpdatedAt = Date(timeIntervalSince1970: 100)
         try container.mainContext.save()
         let repository = StudyCardLocalRepository(context: container.mainContext)
 
         try repository.markProgressionLocked(cardBefore, userID: 1)
 
         let persisted = try decode(record)
-        XCTAssertEqual(persisted.promptText, "before")
+        XCTAssertEqual(persisted.promptText, "optimistic")
         XCTAssertEqual(persisted.variantStatus, "locked")
         XCTAssertFalse(persisted.isProgressionAvailable)
         XCTAssertFalse(record.isInActiveSession)
+        XCTAssertEqual(record.locallyUpdatedAt, Date(timeIntervalSince1970: 100))
     }
 
     @MainActor
