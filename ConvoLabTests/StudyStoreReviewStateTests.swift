@@ -288,6 +288,69 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testProgressionRevalidationPreservesEarlierPullFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000PE",
+            expression: "失敗順序",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let client = makeClient { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/card-review-events/batch":
+                return Self.response(statusCode: 204, data: Data())
+            case "/api/sync/feed":
+                throw URLError(.notConnectedToInternet)
+            case "/api/study/session/start":
+                return Self.response(
+                    statusCode: 422,
+                    data: Data(#"{"message":"Session revalidation failed"}"#.utf8)
+                )
+            default:
+                XCTFail("Unexpected request: \(path)")
+                throw URLError(.badServerResponse)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        _ = await store.recordReviewResult(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/card-review-events/batch",
+                "/api/sync/feed",
+                "/api/study/session/start",
+            ]
+        )
+        XCTAssertEqual(store.syncStatus, .offline)
+    }
+
+    @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

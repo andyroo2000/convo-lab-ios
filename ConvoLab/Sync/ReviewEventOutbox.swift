@@ -82,6 +82,7 @@ final class ReviewEventOutbox {
 
     private let api: APIClient
     private let context: ModelContext
+    private let localCardRepository: StudyCardLocalRepository
     private var activeUserID: Int?
     private var flushTask: Task<ReviewEventFlushResult, Error>?
     private var generation = 0
@@ -89,6 +90,7 @@ final class ReviewEventOutbox {
     init(api: APIClient, context: ModelContext) {
         self.api = api
         self.context = context
+        localCardRepository = StudyCardLocalRepository(context: context)
     }
 
     func activate(userID: Int) {
@@ -174,7 +176,7 @@ final class ReviewEventOutbox {
         for mutation in failed where Self.isProgressionLockedFailure(mutation.lastError) {
             if let event = try? decode(mutation.payload).event {
                 result.progressionLockedEventIDs.insert(event.id)
-                try markStoredCardProgressionLocked(
+                try localCardRepository.markProgressionLocked(
                     matching: [mutation.resourceID, event.cardID],
                     userID: userID
                 )
@@ -382,7 +384,7 @@ final class ReviewEventOutbox {
                             message: individualMessage
                         ) {
                             result.progressionLockedEventIDs.insert(event.id)
-                            try markStoredCardProgressionLocked(
+                            try localCardRepository.markProgressionLocked(
                                 matching: [mutation.resourceID, event.cardID],
                                 userID: userID
                             )
@@ -441,27 +443,6 @@ final class ReviewEventOutbox {
         message?.trimmingCharacters(in: .whitespacesAndNewlines)
             .localizedCaseInsensitiveCompare("HTTP 409: \(progressionLockedMessage)")
             == .orderedSame
-    }
-
-    private func markStoredCardProgressionLocked(
-        matching identifiers: Set<String>,
-        userID: Int
-    ) throws {
-        let normalizedIdentifiers = StudyCardIdentity.normalized(identifiers)
-        for record in try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        ) where !normalizedIdentifiers.isDisjoint(with: [record.normalizedID, record.syncID]) {
-            guard let card = try? StorageCodec.decoder.decode(
-                StudyCard.self,
-                from: record.payload
-            ) else { continue }
-            record.replacePayload(encoded: try StorageCodec.encoder.encode(
-                card.replacingVariantStatus("locked")
-            ))
-            record.isInActiveSession = false
-        }
     }
 
     private func ensureActive(userID: Int, generation: Int) throws {

@@ -95,16 +95,33 @@ struct StudyCardLocalRepository {
     }
 
     func markProgressionLocked(_ card: StudyCard, userID: Int) throws {
-        guard let record = try record(matching: card, userID: userID) else { return }
-        let currentCard = try StorageCodec.decoder.decode(
-            StudyCard.self,
-            from: record.payload
+        try markProgressionLocked(
+            matching: StudyCardIdentity.identifiers(for: card),
+            userID: userID
         )
-        record.replacePayload(encoded: try StorageCodec.encoder.encode(
-            currentCard.replacingVariantStatus("locked")
-        ))
-        record.isInActiveSession = false
-        try context.save()
+    }
+
+    func markProgressionLocked(
+        matching identifiers: Set<String>,
+        userID: Int
+    ) throws {
+        let normalizedIdentifiers = StudyCardIdentity.normalized(identifiers)
+        var changed = false
+        for record in try records(userID: userID)
+        where !normalizedIdentifiers.isDisjoint(with: [record.normalizedID, record.syncID]) {
+            guard let currentCard = try? StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: record.payload
+            ) else { continue }
+            record.replacePayload(encoded: try StorageCodec.encoder.encode(
+                currentCard.replacingVariantStatus("locked")
+            ))
+            record.isInActiveSession = false
+            changed = true
+        }
+        if changed {
+            try context.save()
+        }
     }
 
     private func resolvedProgressionMetadata(

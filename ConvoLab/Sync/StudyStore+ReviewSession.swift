@@ -320,7 +320,11 @@ extension StudyStore {
                 } catch {
                     cardSyncError = error
                 }
-                try await revalidateRemainingReviewQueue()
+                do {
+                    try await revalidateRemainingReviewQueue()
+                } catch {
+                    cardSyncError = cardSyncError ?? error
+                }
                 deferredFlushError = deferredFlushError ?? cardSyncError
             }
             if let deferredFlushError {
