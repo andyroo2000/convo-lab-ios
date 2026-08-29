@@ -198,6 +198,61 @@ final class ReviewEventOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testProgressionLockResultSurvivesMixedPermanentFailure() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let eventIDs = try Self.eventIDs(in: request)
+            if eventIDs.count > 1 {
+                return Self.rejection(
+                    status: 422,
+                    message: "Batch contains an invalid review",
+                    for: request
+                )
+            }
+            if eventIDs == ["event-locked"] {
+                return Self.rejection(
+                    status: 409,
+                    message: "Card is locked by a learning progression.",
+                    for: request
+                )
+            }
+            return Self.rejection(
+                status: 422,
+                message: "Invalid review",
+                for: request
+            )
+        }
+        let outbox = ReviewEventOutbox(api: client, context: container.mainContext)
+        outbox.activate(userID: 7)
+        let lockedCard = makeCard(id: "locked-card")
+        let invalidCard = makeCard(id: "invalid-card")
+        _ = try outbox.stageEnqueue(
+            event: makeEvent(id: "event-locked", cardID: lockedCard.id),
+            cardBefore: lockedCard
+        )
+        _ = try outbox.stageEnqueue(
+            event: makeEvent(id: "event-invalid", cardID: invalidCard.id),
+            cardBefore: invalidCard
+        )
+        try container.mainContext.save()
+
+        do {
+            try await outbox.flush()
+            XCTFail("Expected the invalid review to remain quarantined")
+        } catch let failure as ReviewEventFlushFailure {
+            XCTAssertEqual(failure.result.progressionLockedEventIDs, ["event-locked"])
+            let quarantine = try XCTUnwrap(
+                failure.underlyingError as? QuarantinedReviewError
+            )
+            XCTAssertEqual(quarantine.count, 1)
+        }
+
+        let pending = try XCTUnwrap(pendingReviews(in: container).first)
+        XCTAssertEqual(pending.resourceID, invalidCard.id)
+        XCTAssertEqual(pending.lastError, "HTTP 422: Invalid review")
+    }
+
+    @MainActor
     func testPreviouslyQuarantinedProgressionLockIsDiscardedWithoutNetwork() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let outbox = ReviewEventOutbox(
@@ -384,12 +439,32 @@ final class ReviewEventOutboxTests: XCTestCase {
         )
     }
 
-    private static func firstEventID(in request: URLRequest) throws -> String {
+    private static func rejection(
+        status: Int,
+        message: String,
+        for request: URLRequest
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            try! JSONSerialization.data(withJSONObject: ["message": message])
+        )
+    }
+
+    private static func eventIDs(in request: URLRequest) throws -> [String] {
         let body = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
         )
         let events = try XCTUnwrap(body["events"] as? [[String: Any]])
-        return try XCTUnwrap(events.first?["id"] as? String)
+        return events.compactMap { $0["id"] as? String }
+    }
+
+    private static func firstEventID(in request: URLRequest) throws -> String {
+        try XCTUnwrap(eventIDs(in: request).first)
     }
 
     private func makeEvent(

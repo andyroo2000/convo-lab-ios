@@ -63,9 +63,18 @@ struct QuarantinedReviewError: LocalizedError {
 struct ReviewEventFlushResult: Equatable {
     var progressionLockedEventIDs: Set<String> = []
 
+    var isEmpty: Bool { progressionLockedEventIDs.isEmpty }
+
     mutating func formUnion(_ other: Self) {
         progressionLockedEventIDs.formUnion(other.progressionLockedEventIDs)
     }
+}
+
+struct ReviewEventFlushFailure: LocalizedError {
+    let result: ReviewEventFlushResult
+    let underlyingError: any Error
+
+    var errorDescription: String? { underlyingError.localizedDescription }
 }
 
 final class ReviewEventOutbox {
@@ -321,7 +330,8 @@ final class ReviewEventOutbox {
     ) async throws -> ReviewEventFlushResult {
         var quarantinedCount = 0
         var result = ReviewEventFlushResult()
-        while true {
+        do {
+            while true {
             try ensureActive(userID: userID, generation: generation)
             let descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
@@ -399,12 +409,16 @@ final class ReviewEventOutbox {
                 try context.save()
                 throw error
             }
-        }
+            }
 
-        if quarantinedCount > 0 {
-            throw QuarantinedReviewError(count: quarantinedCount)
+            if quarantinedCount > 0 {
+                throw QuarantinedReviewError(count: quarantinedCount)
+            }
+            return result
+        } catch {
+            guard !result.isEmpty else { throw error }
+            throw ReviewEventFlushFailure(result: result, underlyingError: error)
         }
-        return result
     }
 
     private static let progressionLockedMessage =

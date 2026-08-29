@@ -2073,25 +2073,36 @@ final class StudyStore {
     func flushSchedulingOutboxes() async throws -> ReviewEventFlushResult {
         defer { reviewOutboxRevision &+= 1 }
         var result = try reviewOutbox.discardProgressionLockedFailures()
-        while true {
-            let before = try reviewOutbox.pendingDeliverableCount()
-                + cardActionOutbox.pendingDeliverableCount()
-            guard before > 0 else { return result }
+        do {
+            while true {
+                let before = try reviewOutbox.pendingDeliverableCount()
+                    + cardActionOutbox.pendingDeliverableCount()
+                guard before > 0 else { return result }
 
 #if DEBUG
-            if let reviewEventOutboxFlushOverride {
-                try await reviewEventOutboxFlushOverride()
-            } else {
-                result.formUnion(try await reviewOutbox.flush())
-            }
+                if let reviewEventOutboxFlushOverride {
+                    try await reviewEventOutboxFlushOverride()
+                } else {
+                    result.formUnion(try await reviewOutbox.flush())
+                }
 #else
-            result.formUnion(try await reviewOutbox.flush())
+                result.formUnion(try await reviewOutbox.flush())
 #endif
-            try await flushCardActionOutbox()
+                try await flushCardActionOutbox()
 
-            let after = try reviewOutbox.pendingDeliverableCount()
-                + cardActionOutbox.pendingDeliverableCount()
-            guard after > 0, after < before else { return result }
+                let after = try reviewOutbox.pendingDeliverableCount()
+                    + cardActionOutbox.pendingDeliverableCount()
+                guard after > 0, after < before else { return result }
+            }
+        } catch let failure as ReviewEventFlushFailure {
+            result.formUnion(failure.result)
+            throw ReviewEventFlushFailure(
+                result: result,
+                underlyingError: failure.underlyingError
+            )
+        } catch {
+            guard !result.isEmpty else { throw error }
+            throw ReviewEventFlushFailure(result: result, underlyingError: error)
         }
     }
 
@@ -2572,7 +2583,8 @@ final class StudyStore {
     }
 
     private func handleSyncError(_ error: any Error) {
-        if let urlError = error as? URLError, [
+        let classifiedError = Self.underlyingReviewFlushError(error)
+        if let urlError = classifiedError as? URLError, [
             .notConnectedToInternet,
             .networkConnectionLost,
             .timedOut,
@@ -2581,15 +2593,20 @@ final class StudyStore {
         ].contains(urlError.code) {
             syncStatus = .offline
         } else {
-            syncStatus = .failed(error.localizedDescription)
+            syncStatus = .failed(classifiedError.localizedDescription)
         }
     }
 
     static func requiresAutomaticRetry(_ error: any Error) -> Bool {
-        !(error is QuarantinedCardMutationError
-            || error is QuarantinedCardActionError
-            || error is QuarantinedReviewError
-            || error is FSRSReviewScheduler.InvalidSchedulerTimestampError)
+        let classifiedError = underlyingReviewFlushError(error)
+        return !(classifiedError is QuarantinedCardMutationError
+            || classifiedError is QuarantinedCardActionError
+            || classifiedError is QuarantinedReviewError
+            || classifiedError is FSRSReviewScheduler.InvalidSchedulerTimestampError)
+    }
+
+    private static func underlyingReviewFlushError(_ error: any Error) -> any Error {
+        (error as? ReviewEventFlushFailure)?.underlyingError ?? error
     }
 
     func markOutboxRetryNeeded(for error: any Error) {

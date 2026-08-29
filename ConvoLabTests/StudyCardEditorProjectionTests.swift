@@ -29,7 +29,11 @@ final class StudyCardEditorProjectionTests: XCTestCase {
 
     @MainActor
     func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() {
-        let card = makeCard(masteryLevel: "guru")
+        let card = makeCard(
+            masteryLevel: "guru",
+            variantGroupID: "family-1",
+            variantStatus: "locked"
+        )
         var draft = StudyCardDraft(card: card)
         draft.cueText = "updated"
         let update = StudyCardEditorProjection.updating(
@@ -39,6 +43,8 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         )
 
         XCTAssertEqual(update.card.masteryLevel, "guru")
+        XCTAssertEqual(update.card.variantGroupId, "family-1")
+        XCTAssertEqual(update.card.variantStatus, "locked")
         XCTAssertEqual(update.card.state, card.state)
         XCTAssertEqual(update.card.createdAt, card.createdAt)
         XCTAssertEqual(update.request.prompt, update.card.prompt)
@@ -60,6 +66,8 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         XCTAssertEqual(reconciled.id, update.card.id)
         XCTAssertEqual(reconciled.syncId, "canonical-sync-id")
         XCTAssertEqual(reconciled.masteryLevel, "guru")
+        XCTAssertNil(reconciled.variantGroupId)
+        XCTAssertNil(reconciled.variantStatus)
         XCTAssertEqual(reconciled.state, update.card.state)
         XCTAssertEqual(reconciled.createdAt, update.card.createdAt)
     }
@@ -68,7 +76,9 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     private func makeCard(
         id: String = "local-id",
         syncId: String? = "local-sync-id",
-        masteryLevel: String?
+        masteryLevel: String?,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -87,6 +97,8 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             ),
             answerAudioSource: "generated",
             masteryLevel: masteryLevel,
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 20)
         )

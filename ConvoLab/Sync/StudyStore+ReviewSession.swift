@@ -282,7 +282,14 @@ extension StudyStore {
             if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
-            let flushResult = try await flushSchedulingOutboxes()
+            let flushResult: ReviewEventFlushResult
+            var deferredFlushError: (any Error)?
+            do {
+                flushResult = try await flushSchedulingOutboxes()
+            } catch let failure as ReviewEventFlushFailure {
+                flushResult = failure.result
+                deferredFlushError = failure.underlyingError
+            }
             let currentReviewWasProgressionLocked = flushResult
                 .progressionLockedEventIDs
                 .contains(staged.eventID)
@@ -307,9 +314,10 @@ extension StudyStore {
                     cardSyncError = error
                 }
                 try await revalidateRemainingReviewQueue()
-                if let cardSyncError {
-                    throw cardSyncError
-                }
+                deferredFlushError = deferredFlushError ?? cardSyncError
+            }
+            if let deferredFlushError {
+                throw deferredFlushError
             }
             return stagedReview
         } catch {

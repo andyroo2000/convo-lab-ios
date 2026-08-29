@@ -92,8 +92,8 @@ enum StudyCardEditorProjection {
             state: latest.state,
             answerAudioSource: answerAudioSource,
             masteryLevel: latest.masteryLevel,
-            variantGroupId: serverCard.variantGroupId ?? latest.variantGroupId,
-            variantStatus: serverCard.variantStatus ?? latest.variantStatus,
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
             createdAt: latest.createdAt,
             updatedAt: updatedAt
         )
