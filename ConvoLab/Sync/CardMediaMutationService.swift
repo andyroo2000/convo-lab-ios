@@ -117,7 +117,7 @@ final class CardMediaMutationService {
             try ensureActive(operation)
             guard
                 let generatedAudio = serverCard.answer["answerAudio"],
-                let remoteURL = serverCard.audioURL
+                let remoteURL = generatedAudio.mediaURLs.first
             else {
                 throw MissingGeneratedCardAudioError()
             }
@@ -129,10 +129,22 @@ final class CardMediaMutationService {
             let latest = try latestCard()
             let pendingWrite = try hasPendingWrite(latest.id)
             let serverUpdatedAt = max(latest.updatedAt, serverCard.updatedAt)
+            let prompt = if
+                let generatedPromptAudio = serverCard.prompt["cueAudio"],
+                !generatedPromptAudio.mediaURLs.isEmpty
+            {
+                // Audio-led recognition cards play cueAudio on the front. The
+                // regeneration endpoint updates it alongside answerAudio.
+                latest.prompt.replacingObjectValues([
+                    "cueAudio": generatedPromptAudio,
+                ])
+            } else {
+                latest.prompt
+            }
             let updated = StudyCardEditorProjection.reconcilingMedia(
                 latest: latest,
                 serverCard: serverCard,
-                prompt: latest.prompt,
+                prompt: prompt,
                 answer: latest.answer.replacingObjectValues([
                     "answerAudio": generatedAudio,
                     "answerAudioVoiceId": serverCard.answer["answerAudioVoiceId"]

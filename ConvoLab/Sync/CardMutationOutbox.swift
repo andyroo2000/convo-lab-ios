@@ -5,16 +5,19 @@ struct CardMutationAcknowledgement {
     let card: StudyCard
     let preservingPendingReview: Bool
     let preservingPendingEdit: Bool
+    let submittedPromptAudio: JSONValue?
     let submittedAnswerAudioFields: [String: JSONValue]?
 }
 
 private struct CardUpdatePreservingAnswerAudio: Codable {
     let request: UpdateStudyCardRequest
+    let submittedPromptAudio: JSONValue?
     let submittedAnswerAudioFields: [String: JSONValue]
 }
 
 private struct PendingAnswerAudioReconciliation: Codable {
     let fields: [String: JSONValue]
+    let promptAudio: JSONValue?
 }
 
 struct QuarantinedCardMutationError: LocalizedError {
@@ -89,8 +92,12 @@ final class CardMutationOutbox {
            request.answer["answerAudio"] != nil
         {
             let submittedAnswerAudioFields = Self.answerAudioFields(in: request.answer)
+            let submittedPromptAudio = pendingAudio.promptAudio == request.prompt["cueAudio"]
+                ? pendingAudio.promptAudio
+                : nil
             payload = try StorageCodec.encoder.encode(CardUpdatePreservingAnswerAudio(
                 request: request,
+                submittedPromptAudio: submittedPromptAudio,
                 submittedAnswerAudioFields: submittedAnswerAudioFields
             ))
         } else {
@@ -109,12 +116,19 @@ final class CardMutationOutbox {
         )
     }
 
-    func trackRegeneratedAnswerAudio(cardID: String, answer: JSONValue) throws {
+    func trackRegeneratedAnswerAudio(
+        cardID: String,
+        prompt: JSONValue? = nil,
+        answer: JSONValue
+    ) throws {
         guard let userID = activeUserID else { throw CancellationError() }
         let fields = Self.answerAudioFields(in: answer)
         guard fields["answerAudio"] != nil else { return }
         let payload = try StorageCodec.encoder.encode(
-            PendingAnswerAudioReconciliation(fields: fields)
+            PendingAnswerAudioReconciliation(
+                fields: fields,
+                promptAudio: prompt?["cueAudio"]
+            )
         )
         if let marker = try answerAudioReconciliationMarker(
             for: cardID,
@@ -299,6 +313,7 @@ final class CardMutationOutbox {
             do {
                 let clientResourceID = mutation.resourceID
                 let serverCard: StudyCard?
+                var submittedPromptAudio: JSONValue?
                 var submittedAnswerAudioFields: [String: JSONValue]?
                 switch mutation.kind {
                 case "cardCreate":
@@ -318,6 +333,7 @@ final class CardMutationOutbox {
                         from: mutation.payload
                     ) {
                         request = wrapped.request
+                        submittedPromptAudio = wrapped.submittedPromptAudio
                         submittedAnswerAudioFields = wrapped.submittedAnswerAudioFields
                     } else {
                         request = try StorageCodec.decoder.decode(
@@ -362,12 +378,15 @@ final class CardMutationOutbox {
                             for: serverCard.id
                         ),
                         preservingPendingEdit: preservingPendingEdit,
+                        submittedPromptAudio: submittedPromptAudio,
                         submittedAnswerAudioFields: submittedAnswerAudioFields
                     ))
                     if let submittedAnswerAudioFields,
                        submittedAnswerAudioFields.allSatisfy({ key, value in
                            serverCard.answer[key] == value
-                       })
+                       }),
+                       submittedPromptAudio == nil
+                           || serverCard.prompt["cueAudio"] == submittedPromptAudio
                     {
                         try clearAnswerAudioReconciliationMarker(
                             for: clientResourceID,
