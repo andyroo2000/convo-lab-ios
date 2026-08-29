@@ -22,11 +22,15 @@ struct StudyCardLocalRepository {
                 // keep them current even while local card content remains dirty.
                 record.queueIndex = index
                 guard record.locallyUpdatedAt == nil else { continue }
-                let rebasedCard = record.id == card.id
-                    ? card
-                    : card.replacingIdentity(
+                let resolvedCard = resolvedProgressionMetadata(
+                    for: card,
+                    storedIn: record
+                )
+                let rebasedCard = record.id == resolvedCard.id
+                    ? resolvedCard
+                    : resolvedCard.replacingIdentity(
                         id: record.id,
-                        syncId: card.reviewCardID
+                        syncId: resolvedCard.reviewCardID
                     )
                 record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt
@@ -61,11 +65,15 @@ struct StudyCardLocalRepository {
                     record.queueIndex = index
                 }
                 guard record.locallyUpdatedAt == nil else { continue }
-                let rebasedCard = record.id == card.id
-                    ? card
-                    : card.replacingIdentity(
+                let resolvedCard = resolvedProgressionMetadata(
+                    for: card,
+                    storedIn: record
+                )
+                let rebasedCard = record.id == resolvedCard.id
+                    ? resolvedCard
+                    : resolvedCard.replacingIdentity(
                         id: record.id,
-                        syncId: card.reviewCardID
+                        syncId: resolvedCard.reviewCardID
                     )
                 record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
                 record.serverUpdatedAt = card.updatedAt
@@ -84,6 +92,48 @@ struct StudyCardLocalRepository {
             }
         }
         try context.save()
+    }
+
+    func markProgressionLocked(_ card: StudyCard, userID: Int) throws {
+        try markProgressionLocked(
+            matching: StudyCardIdentity.identifiers(for: card),
+            userID: userID
+        )
+    }
+
+    func markProgressionLocked(
+        matching identifiers: Set<String>,
+        userID: Int
+    ) throws {
+        let normalizedIdentifiers = StudyCardIdentity.normalized(identifiers)
+        var changed = false
+        for record in try records(userID: userID)
+        where !normalizedIdentifiers.isDisjoint(with: [record.normalizedID, record.syncID]) {
+            guard let currentCard = try? StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: record.payload
+            ) else { continue }
+            record.replacePayload(encoded: try StorageCodec.encoder.encode(
+                currentCard.replacingVariantStatus("locked")
+            ))
+            record.isInActiveSession = false
+            changed = true
+        }
+        if changed {
+            try context.save()
+        }
+    }
+
+    private func resolvedProgressionMetadata(
+        for card: StudyCard,
+        storedIn record: LocalCardRecord
+    ) -> StudyCard {
+        guard !card.includesProgressionMetadataProjection else { return card }
+        guard let storedCard = try? StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: record.payload
+        ) else { return card }
+        return card.resolvingProgressionMetadata(fallingBackTo: storedCard)
     }
 
     func updateMediaPreparedState(

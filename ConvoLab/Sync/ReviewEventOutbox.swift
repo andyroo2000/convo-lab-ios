@@ -60,18 +60,37 @@ struct QuarantinedReviewError: LocalizedError {
     }
 }
 
+struct ReviewEventFlushResult: Equatable {
+    var progressionLockedEventIDs: Set<String> = []
+
+    var isEmpty: Bool { progressionLockedEventIDs.isEmpty }
+
+    mutating func formUnion(_ other: Self) {
+        progressionLockedEventIDs.formUnion(other.progressionLockedEventIDs)
+    }
+}
+
+struct ReviewEventFlushFailure: LocalizedError {
+    let result: ReviewEventFlushResult
+    let underlyingError: any Error
+
+    var errorDescription: String? { underlyingError.localizedDescription }
+}
+
 final class ReviewEventOutbox {
     private static let uploadBatchSize = 100
 
     private let api: APIClient
     private let context: ModelContext
+    private let localCardRepository: StudyCardLocalRepository
     private var activeUserID: Int?
-    private var flushTask: Task<Void, Error>?
+    private var flushTask: Task<ReviewEventFlushResult, Error>?
     private var generation = 0
 
     init(api: APIClient, context: ModelContext) {
         self.api = api
         self.context = context
+        localCardRepository = StudyCardLocalRepository(context: context)
     }
 
     func activate(userID: Int) {
@@ -123,15 +142,16 @@ final class ReviewEventOutbox {
         return mutation
     }
 
-    func flush() async throws {
+    @discardableResult
+    func flush() async throws -> ReviewEventFlushResult {
         if let flushTask {
             return try await flushTask.value
         }
-        guard let userID = activeUserID else { return }
+        guard let userID = activeUserID else { return ReviewEventFlushResult() }
         let operationGeneration = generation
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try await drain(userID: userID, generation: operationGeneration)
+            guard let self else { return ReviewEventFlushResult() }
+            return try await drain(userID: userID, generation: operationGeneration)
         }
         flushTask = task
         defer {
@@ -139,7 +159,35 @@ final class ReviewEventOutbox {
                 flushTask = nil
             }
         }
-        try await task.value
+        return try await task.value
+    }
+
+    func discardProgressionLockedFailures() throws -> ReviewEventFlushResult {
+        guard let userID = activeUserID else { return ReviewEventFlushResult() }
+        let failed = try context.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.userID == userID && $0.kind == "review" && $0.lastError != nil
+                }
+            )
+        )
+        var result = ReviewEventFlushResult()
+        var discardedAny = false
+        for mutation in failed where Self.isProgressionLockedFailure(mutation.lastError) {
+            if let event = try? decode(mutation.payload).event {
+                result.progressionLockedEventIDs.insert(event.id)
+                try localCardRepository.markProgressionLocked(
+                    matching: [mutation.resourceID, event.cardID],
+                    userID: userID
+                )
+            }
+            context.delete(mutation)
+            discardedAny = true
+        }
+        if discardedAny {
+            try context.save()
+        }
+        return result
     }
 
     func waitForCurrentFlush() async {
@@ -278,9 +326,14 @@ final class ReviewEventOutbox {
         )
     }
 
-    private func drain(userID: Int, generation: Int) async throws {
+    private func drain(
+        userID: Int,
+        generation: Int
+    ) async throws -> ReviewEventFlushResult {
         var quarantinedCount = 0
-        while true {
+        var result = ReviewEventFlushResult()
+        do {
+            while true {
             try ensureActive(userID: userID, generation: generation)
             let descriptor = FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
@@ -326,11 +379,23 @@ final class ReviewEventOutbox {
                         where [400, 404, 409, 410, 422].contains(individualStatus)
                     {
                         try ensureActive(userID: userID, generation: generation)
-                        mutation.attemptCount += 1
-                        mutation.lastAttemptAt = .now
-                        mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
+                        if Self.isProgressionLocked(
+                            status: individualStatus,
+                            message: individualMessage
+                        ) {
+                            result.progressionLockedEventIDs.insert(event.id)
+                            try localCardRepository.markProgressionLocked(
+                                matching: [mutation.resourceID, event.cardID],
+                                userID: userID
+                            )
+                            context.delete(mutation)
+                        } else {
+                            mutation.attemptCount += 1
+                            mutation.lastAttemptAt = .now
+                            mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
+                            quarantinedCount += 1
+                        }
                         try context.save()
-                        quarantinedCount += 1
                     } catch {
                         try ensureActive(userID: userID, generation: generation)
                         mutation.attemptCount += 1
@@ -350,11 +415,34 @@ final class ReviewEventOutbox {
                 try context.save()
                 throw error
             }
-        }
+            }
 
-        if quarantinedCount > 0 {
-            throw QuarantinedReviewError(count: quarantinedCount)
+            if quarantinedCount > 0 {
+                throw QuarantinedReviewError(count: quarantinedCount)
+            }
+            return result
+        } catch {
+            guard !result.isEmpty else { throw error }
+            throw ReviewEventFlushFailure(result: result, underlyingError: error)
         }
+    }
+
+    // The API does not expose a machine-readable error code for this conflict.
+    // Keep the comparison exact so unrelated 409s remain visible for recovery,
+    // and cover the current backend wire message with tests until one is added.
+    private static let progressionLockedMessage =
+        "Card is locked by a learning progression."
+
+    private static func isProgressionLocked(status: Int, message: String) -> Bool {
+        status == 409
+            && message.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(progressionLockedMessage) == .orderedSame
+    }
+
+    private static func isProgressionLockedFailure(_ message: String?) -> Bool {
+        message?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare("HTTP 409: \(progressionLockedMessage)")
+            == .orderedSame
     }
 
     private func ensureActive(userID: Int, generation: Int) throws {

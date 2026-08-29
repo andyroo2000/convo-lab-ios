@@ -556,14 +556,22 @@ extension StudyStoreTests {
             id: "01J00000000000000000000Q4",
             expression: "Original",
             queueState: "review",
-            dueAt: .now
+            dueAt: .now,
+            introductionCohortID: "cohort-1",
+            selectionPolicy: "priority",
+            priorityUntil: Date(timeIntervalSince1970: 600),
+            introductionAvailableAt: Date(timeIntervalSince1970: 700)
         )
         try insertLocalCard(card, userID: 1, container: container)
         let editedServerCard = makeCard(
             id: card.id,
             expression: "Edited",
             queueState: "review",
-            dueAt: card.state.dueAt
+            dueAt: card.state.dueAt,
+            introductionCohortID: card.introductionCohortId,
+            selectionPolicy: card.selectionPolicy,
+            priorityUntil: card.priorityUntil,
+            introductionAvailableAt: card.introductionAvailableAt
         )
         let editedServerData = try StorageCodec.encoder.encode(editedServerCard)
         let phase = LockedCounter()
@@ -589,7 +597,15 @@ extension StudyStoreTests {
 
         XCTAssertEqual(optimistic.promptText, "Edited")
         XCTAssertEqual(optimistic.state.queueState, "suspended")
-        XCTAssertEqual(try persistedCard(in: container).state.queueState, "suspended")
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.state.queueState, "suspended")
+        XCTAssertEqual(persisted.introductionCohortId, "cohort-1")
+        XCTAssertEqual(persisted.selectionPolicy, "priority")
+        XCTAssertEqual(persisted.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            persisted.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         let pendingKinds = try container.mainContext.fetch(
             FetchDescriptor<PendingMutation>()
         ).map(\.kind)
@@ -603,7 +619,11 @@ extension StudyStoreTests {
             id: "01J00000000000000000000Q5",
             expression: "Ordered actions",
             queueState: "review",
-            dueAt: .now
+            dueAt: .now,
+            introductionCohortID: "cohort-1",
+            selectionPolicy: "priority",
+            priorityUntil: Date(timeIntervalSince1970: 600),
+            introductionAvailableAt: Date(timeIntervalSince1970: 700)
         )
         try insertLocalCard(card, userID: 1, container: container)
         let futureDueAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -655,6 +675,13 @@ extension StudyStoreTests {
             mode: .customDate,
             dueAt: futureDueAt
         )
+        XCTAssertEqual(firstProjection.introductionCohortId, "cohort-1")
+        XCTAssertEqual(firstProjection.selectionPolicy, "priority")
+        XCTAssertEqual(firstProjection.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            firstProjection.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(latestProjection.state.queueState, "review")
         XCTAssertEqual(latestProjection.state.dueAt, futureDueAt)
         _ = online.next()
@@ -665,7 +692,15 @@ extension StudyStoreTests {
             try StorageCodec.decoder.decode(StudyCardActionRequest.self, from: $0).action
         }
         XCTAssertEqual(deliveredActions, [.suspend, .setDue])
-        XCTAssertEqual(try persistedCard(in: container).state.dueAt, futureDueAt)
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.state.dueAt, futureDueAt)
+        XCTAssertEqual(persisted.introductionCohortId, "cohort-1")
+        XCTAssertEqual(persisted.selectionPolicy, "priority")
+        XCTAssertEqual(persisted.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            persisted.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(
             try container.mainContext.fetchCount(
                 FetchDescriptor<PendingMutation>(
@@ -768,6 +803,12 @@ extension StudyStoreTests {
             ),
             answerAudioSource: card.answerAudioSource,
             masteryLevel: card.masteryLevel,
+            variantGroupId: card.variantGroupId,
+            variantStatus: card.variantStatus,
+            introductionCohortId: card.introductionCohortId,
+            selectionPolicy: card.selectionPolicy,
+            priorityUntil: card.priorityUntil,
+            introductionAvailableAt: card.introductionAvailableAt,
             createdAt: card.createdAt,
             updatedAt: .now
         )

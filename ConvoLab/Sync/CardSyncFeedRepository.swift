@@ -744,7 +744,13 @@ final class CardSyncFeedRepository {
         preservingPendingReview: Bool,
         preservingLocalContent: Bool
     ) -> StudyCard {
-        guard let localCard, preservingPendingReview || preservingLocalContent else {
+        guard let localCard else {
+            return serverCard
+        }
+        let serverCard = serverCard.resolvingProgressionMetadata(
+            fallingBackTo: localCard
+        )
+        guard preservingPendingReview || preservingLocalContent else {
             return serverCard
         }
         return StudyCard(
@@ -764,6 +770,12 @@ final class CardSyncFeedRepository {
             masteryLevel: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
+            introductionCohortId: serverCard.introductionCohortId,
+            selectionPolicy: serverCard.selectionPolicy,
+            priorityUntil: serverCard.priorityUntil,
+            introductionAvailableAt: serverCard.introductionAvailableAt,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingLocalContent
                 ? localCard.updatedAt

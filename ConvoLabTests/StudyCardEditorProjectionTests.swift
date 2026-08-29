@@ -28,8 +28,16 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     }
 
     @MainActor
-    func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() {
-        let card = makeCard(masteryLevel: "guru")
+    func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() throws {
+        let card = makeCard(
+            masteryLevel: "guru",
+            variantGroupID: "family-1",
+            variantStatus: "locked",
+            introductionCohortID: "cohort-1",
+            selectionPolicy: "priority",
+            priorityUntil: Date(timeIntervalSince1970: 600),
+            introductionAvailableAt: Date(timeIntervalSince1970: 700)
+        )
         var draft = StudyCardDraft(card: card)
         draft.cueText = "updated"
         let update = StudyCardEditorProjection.updating(
@@ -39,6 +47,15 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         )
 
         XCTAssertEqual(update.card.masteryLevel, "guru")
+        XCTAssertEqual(update.card.variantGroupId, "family-1")
+        XCTAssertEqual(update.card.variantStatus, "locked")
+        XCTAssertEqual(update.card.introductionCohortId, "cohort-1")
+        XCTAssertEqual(update.card.selectionPolicy, "priority")
+        XCTAssertEqual(update.card.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            update.card.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(update.card.state, card.state)
         XCTAssertEqual(update.card.createdAt, card.createdAt)
         XCTAssertEqual(update.request.prompt, update.card.prompt)
@@ -60,15 +77,56 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         XCTAssertEqual(reconciled.id, update.card.id)
         XCTAssertEqual(reconciled.syncId, "canonical-sync-id")
         XCTAssertEqual(reconciled.masteryLevel, "guru")
+        XCTAssertNil(reconciled.variantGroupId)
+        XCTAssertNil(reconciled.variantStatus)
+        XCTAssertEqual(reconciled.introductionCohortId, "cohort-1")
+        XCTAssertEqual(reconciled.selectionPolicy, "priority")
+        XCTAssertEqual(reconciled.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            reconciled.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(reconciled.state, update.card.state)
         XCTAssertEqual(reconciled.createdAt, update.card.createdAt)
+
+        let leanServerCard = try omittingProgressionFields(from: serverCard)
+        let leanReconciled = StudyCardEditorProjection.reconcilingMedia(
+            latest: update.card,
+            serverCard: leanServerCard,
+            prompt: update.card.prompt,
+            answer: update.card.answer,
+            answerAudioSource: "generated",
+            updatedAt: Date(timeIntervalSince1970: 400)
+        )
+        XCTAssertEqual(leanReconciled.variantGroupId, "family-1")
+        XCTAssertEqual(leanReconciled.variantStatus, "locked")
+    }
+
+    @MainActor
+    private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
+        let encoded = try StorageCodec.encoder.encode(card)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "variantGroupId")
+        object.removeValue(forKey: "variantStatus")
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
     }
 
     @MainActor
     private func makeCard(
         id: String = "local-id",
         syncId: String? = "local-sync-id",
-        masteryLevel: String?
+        masteryLevel: String?,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil,
+        introductionCohortID: String? = nil,
+        selectionPolicy: String? = nil,
+        priorityUntil: Date? = nil,
+        introductionAvailableAt: Date? = nil
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -87,6 +145,12 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             ),
             answerAudioSource: "generated",
             masteryLevel: masteryLevel,
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
+            introductionCohortId: introductionCohortID,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 20)
         )

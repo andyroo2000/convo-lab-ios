@@ -110,7 +110,13 @@ extension StudyStoreTests {
         queueState: String = "review",
         dueAt: Date? = nil,
         scheduler: JSONValue? = nil,
-        masteryLevel: String? = nil
+        masteryLevel: String? = nil,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil,
+        introductionCohortID: String? = nil,
+        selectionPolicy: String? = nil,
+        priorityUntil: Date? = nil,
+        introductionAvailableAt: Date? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let mediaURL {
@@ -133,6 +139,12 @@ extension StudyStoreTests {
             ),
             answerAudioSource: "missing",
             masteryLevel: masteryLevel,
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
+            introductionCohortId: introductionCohortID,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
             createdAt: .now,
             updatedAt: .now
         )

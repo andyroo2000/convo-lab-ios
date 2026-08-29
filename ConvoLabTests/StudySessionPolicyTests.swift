@@ -84,11 +84,48 @@ final class StudySessionPolicyTests: XCTestCase {
         )
     }
 
+    func testProgressionLockedCardsAreExcludedFromOnlineAndOfflineQueues() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let locked = makeCard(
+            id: "locked",
+            queueState: "review",
+            dueAt: now.addingTimeInterval(-1),
+            variantGroupID: "family-1",
+            variantStatus: "locked"
+        )
+        let available = makeCard(
+            id: "available",
+            queueState: "review",
+            dueAt: now,
+            variantGroupID: "family-1",
+            variantStatus: "available"
+        )
+
+        XCTAssertEqual(
+            StudySessionPolicy.eligibleCards(
+                from: [locked, available],
+                excluding: []
+            ).map(\.id),
+            ["available"]
+        )
+        XCTAssertFalse(locked.isEligibleForOfflineStudy(at: now))
+        XCTAssertEqual(
+            StudySessionPolicy.nextOfflineDueAt(
+                activeCards: [],
+                libraryCards: [locked, available],
+                at: now.addingTimeInterval(-2)
+            ),
+            available.state.dueAt
+        )
+    }
+
     private func makeCard(
         id: String,
         syncID: String? = nil,
         queueState: String,
-        dueAt: Date
+        dueAt: Date,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -106,6 +143,8 @@ final class StudySessionPolicyTests: XCTestCase {
                 source: .object([:])
             ),
             answerAudioSource: "missing",
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
             createdAt: .now,
             updatedAt: .now
         )

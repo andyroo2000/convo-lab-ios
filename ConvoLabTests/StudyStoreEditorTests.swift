@@ -338,6 +338,92 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOrdinaryCardSavePreservesProgressionLockFromLeanResponse() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let baseCard = makeCard(
+            id: "01J0000000000000000000000PL",
+            expression: "会社"
+        )
+        let original = StudyCard(
+            id: baseCard.id,
+            syncId: baseCard.id,
+            noteId: baseCard.noteId,
+            cardType: baseCard.cardType,
+            prompt: baseCard.prompt,
+            answer: baseCard.answer,
+            state: baseCard.state,
+            answerAudioSource: baseCard.answerAudioSource,
+            variantGroupId: "family-1",
+            variantStatus: "locked",
+            createdAt: baseCard.createdAt,
+            updatedAt: baseCard.updatedAt
+        )
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: original,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(original)
+            )
+        )
+        try container.mainContext.save()
+
+        let response = StudyCard(
+            id: original.id,
+            syncId: original.syncId,
+            noteId: original.noteId,
+            cardType: original.cardType,
+            prompt: original.prompt,
+            answer: original.answer.replacingObjectValues([
+                "notes": .string("Saved note"),
+            ]),
+            state: original.state,
+            answerAudioSource: original.answerAudioSource,
+            createdAt: original.createdAt,
+            updatedAt: original.updatedAt.addingTimeInterval(1)
+        )
+        var responseObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(response)
+            ) as? [String: Any]
+        )
+        responseObject.removeValue(forKey: "variantGroupId")
+        responseObject.removeValue(forKey: "variantStatus")
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let client = makeClient { request in
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        var draft = StudyCardDraft(card: original)
+        draft.notes = "Saved note"
+
+        try await store.updateCard(original, draft: draft)
+
+        let persisted = try persistedCard(in: container)
+        XCTAssertEqual(persisted.answer["notes"]?.stringValue, "Saved note")
+        XCTAssertEqual(persisted.variantGroupId, "family-1")
+        XCTAssertEqual(persisted.variantStatus, "locked")
+    }
+
+    @MainActor
     func testRegenerateImagePersistsPlacementAndDownloadsForOfflineUse() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(

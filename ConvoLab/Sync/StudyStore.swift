@@ -874,6 +874,25 @@ final class StudyStore {
         allCards = published.catalog
     }
 
+    func pullCardChangesForProgressionRevalidation(
+        userID: Int,
+        activationGeneration: Int
+    ) async throws {
+        let result = try await syncCoordinator.pullChanges(
+            currentPublishedCards: publishedCards,
+            publish: publish,
+            reloadAfterCheckpointReset: {
+                self.loadLocalCards(userID: userID)
+                self.loadLibraryCards(userID: userID)
+            }
+        )
+        guard isCurrentActivation(userID, generation: activationGeneration) else {
+            throw CancellationError()
+        }
+        if result == .discardedStaleResponse { return }
+        loadLibraryCards(userID: userID)
+    }
+
     func synchronizeIfNeeded(maxAge: Duration) async {
         guard syncStatus != .syncing else { return }
         if consumedOutboxRetryRevision < outboxRetryRevision {
@@ -1985,6 +2004,12 @@ final class StudyStore {
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledgedCard.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
+                    variantGroupId: acknowledgedCard.variantGroupId,
+                    variantStatus: acknowledgedCard.variantStatus,
+                    introductionCohortId: acknowledgedCard.introductionCohortId,
+                    selectionPolicy: acknowledgedCard.selectionPolicy,
+                    priorityUntil: acknowledgedCard.priorityUntil,
+                    introductionAvailableAt: acknowledgedCard.introductionAvailableAt,
                     createdAt: acknowledgedCard.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )
@@ -2025,6 +2050,12 @@ final class StudyStore {
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledged.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
+                    variantGroupId: acknowledged.variantGroupId,
+                    variantStatus: acknowledged.variantStatus,
+                    introductionCohortId: acknowledged.introductionCohortId,
+                    selectionPolicy: acknowledged.selectionPolicy,
+                    priorityUntil: acknowledged.priorityUntil,
+                    introductionAvailableAt: acknowledged.introductionAvailableAt,
                     createdAt: acknowledged.createdAt,
                     updatedAt: latestLocalCard.updatedAt
                 )
@@ -2045,27 +2076,40 @@ final class StudyStore {
         }
     }
 
-    func flushSchedulingOutboxes() async throws {
+    @discardableResult
+    func flushSchedulingOutboxes() async throws -> ReviewEventFlushResult {
         defer { reviewOutboxRevision &+= 1 }
-        while true {
-            let before = try reviewOutbox.pendingDeliverableCount()
-                + cardActionOutbox.pendingDeliverableCount()
-            guard before > 0 else { return }
+        var result = try reviewOutbox.discardProgressionLockedFailures()
+        do {
+            while true {
+                let before = try reviewOutbox.pendingDeliverableCount()
+                    + cardActionOutbox.pendingDeliverableCount()
+                guard before > 0 else { return result }
 
 #if DEBUG
-            if let reviewEventOutboxFlushOverride {
-                try await reviewEventOutboxFlushOverride()
-            } else {
-                try await reviewOutbox.flush()
-            }
+                if let reviewEventOutboxFlushOverride {
+                    try await reviewEventOutboxFlushOverride()
+                } else {
+                    result.formUnion(try await reviewOutbox.flush())
+                }
 #else
-            try await reviewOutbox.flush()
+                result.formUnion(try await reviewOutbox.flush())
 #endif
-            try await flushCardActionOutbox()
+                try await flushCardActionOutbox()
 
-            let after = try reviewOutbox.pendingDeliverableCount()
-                + cardActionOutbox.pendingDeliverableCount()
-            guard after > 0, after < before else { return }
+                let after = try reviewOutbox.pendingDeliverableCount()
+                    + cardActionOutbox.pendingDeliverableCount()
+                guard after > 0, after < before else { return result }
+            }
+        } catch let failure as ReviewEventFlushFailure {
+            result.formUnion(failure.result)
+            throw ReviewEventFlushFailure(
+                result: result,
+                underlyingError: failure.underlyingError
+            )
+        } catch {
+            guard !result.isEmpty else { throw error }
+            throw ReviewEventFlushFailure(result: result, underlyingError: error)
         }
     }
 
@@ -2233,6 +2277,9 @@ final class StudyStore {
             StudyCard.self,
             from: record.payload
         )
+        let card = localCard.map {
+            card.resolvingProgressionMetadata(fallingBackTo: $0)
+        } ?? card
         let preserveLocalPresentation = preservingLocalPresentation
             || record.locallyUpdatedAt != nil
         guard record.id != card.id || preserveLocalPresentation else {
@@ -2258,6 +2305,12 @@ final class StudyStore {
                 : card.answerAudioSource,
             // Scheduling state and mastery come from the undo result; neither is editor-owned.
             masteryLevel: card.masteryLevel,
+            variantGroupId: card.variantGroupId,
+            variantStatus: card.variantStatus,
+            introductionCohortId: card.introductionCohortId,
+            selectionPolicy: card.selectionPolicy,
+            priorityUntil: card.priorityUntil,
+            introductionAvailableAt: card.introductionAvailableAt,
             createdAt: preserveLocalPresentation
                 ? localCard?.createdAt ?? card.createdAt
                 : card.createdAt,
@@ -2288,6 +2341,7 @@ final class StudyStore {
             preservingPendingReview
                 || preservingPendingEdit
                 || submittedAnswerAudioFields != nil
+                || !serverCard.includesProgressionMetadataProjection
         else {
             return serverCard
         }
@@ -2302,6 +2356,9 @@ final class StudyStore {
         else {
             return serverCard
         }
+        let serverCard = serverCard.resolvingProgressionMetadata(
+            fallingBackTo: localCard
+        )
 
         // Compatibility PATCH responses can contain the pre-regeneration audio
         // projection. Reconcile the exact audio, voice, and override values that
@@ -2337,6 +2394,12 @@ final class StudyStore {
             masteryLevel: preservingPendingReview
                 ? localCard.masteryLevel
                 : serverCard.masteryLevel ?? localCard.masteryLevel,
+            variantGroupId: serverCard.variantGroupId,
+            variantStatus: serverCard.variantStatus,
+            introductionCohortId: serverCard.introductionCohortId,
+            selectionPolicy: serverCard.selectionPolicy,
+            priorityUntil: serverCard.priorityUntil,
+            introductionAvailableAt: serverCard.introductionAvailableAt,
             createdAt: serverCard.createdAt,
             updatedAt: preservingPendingReview || preservingPendingEdit
                 ? localCard.updatedAt
@@ -2542,7 +2605,8 @@ final class StudyStore {
     }
 
     private func handleSyncError(_ error: any Error) {
-        if let urlError = error as? URLError, [
+        let classifiedError = Self.underlyingReviewFlushError(error)
+        if let urlError = classifiedError as? URLError, [
             .notConnectedToInternet,
             .networkConnectionLost,
             .timedOut,
@@ -2551,15 +2615,20 @@ final class StudyStore {
         ].contains(urlError.code) {
             syncStatus = .offline
         } else {
-            syncStatus = .failed(error.localizedDescription)
+            syncStatus = .failed(classifiedError.localizedDescription)
         }
     }
 
     static func requiresAutomaticRetry(_ error: any Error) -> Bool {
-        !(error is QuarantinedCardMutationError
-            || error is QuarantinedCardActionError
-            || error is QuarantinedReviewError
-            || error is FSRSReviewScheduler.InvalidSchedulerTimestampError)
+        let classifiedError = underlyingReviewFlushError(error)
+        return !(classifiedError is QuarantinedCardMutationError
+            || classifiedError is QuarantinedCardActionError
+            || classifiedError is QuarantinedReviewError
+            || classifiedError is FSRSReviewScheduler.InvalidSchedulerTimestampError)
+    }
+
+    private static func underlyingReviewFlushError(_ error: any Error) -> any Error {
+        (error as? ReviewEventFlushFailure)?.underlyingError ?? error
     }
 
     func markOutboxRetryNeeded(for error: any Error) {

@@ -16,6 +16,12 @@ final class StudySyncCoordinator {
     private let pullChangesOperation: @MainActor (
         _ onPageCommitted: @escaping @MainActor (PageChanges) -> Void
     ) async throws -> PullResult
+    private struct PullWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    private var pullIsInProgress = false
+    private var pullWaiters: [PullWaiter] = []
 
     convenience init(repository: CardSyncFeedRepository) {
         self.init(
@@ -52,6 +58,9 @@ final class StudySyncCoordinator {
         publish: @escaping (PublishedCards) -> Void,
         reloadAfterCheckpointReset: () -> Void
     ) async throws -> PullResult {
+        try await acquirePullPermit()
+        defer { releasePullPermit() }
+
         var sessionReconciler = StudyPublishedCardReconciler()
         var libraryReconciler = StudyPublishedCardReconciler()
         var catalogReconciler = StudyPublishedCardReconciler()
@@ -85,6 +94,51 @@ final class StudySyncCoordinator {
             break
         }
         return result
+    }
+
+    private func acquirePullPermit() async throws {
+        try Task.checkCancellation()
+        if !pullIsInProgress {
+            pullIsInProgress = true
+            return
+        }
+        let waiterID = UUID()
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    pullWaiters.append(PullWaiter(
+                        id: waiterID,
+                        continuation: continuation
+                    ))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelPullWaiter(id: waiterID)
+            }
+        }
+        guard acquired else { throw CancellationError() }
+        if Task.isCancelled {
+            releasePullPermit()
+            throw CancellationError()
+        }
+    }
+
+    private func cancelPullWaiter(id: UUID) {
+        guard let index = pullWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        pullWaiters.remove(at: index).continuation.resume(returning: false)
+    }
+
+    private func releasePullPermit() {
+        guard !pullWaiters.isEmpty else {
+            pullIsInProgress = false
+            return
+        }
+        pullWaiters.removeFirst().continuation.resume(returning: true)
     }
 
     private func prune(

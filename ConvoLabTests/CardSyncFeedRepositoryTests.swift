@@ -60,6 +60,51 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testOrdinaryLeanFeedMergePreservesProgressionLock() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(
+            id: "progression-card",
+            expression: "local",
+            variantGroupID: "family-1",
+            variantStatus: "locked"
+        )
+        let server = makeCard(id: local.id, expression: "server")
+        let localID = local.id
+        insert(local, userID: 1, in: container)
+        try container.mainContext.save()
+        let batchData = try Self.batchData(
+            [server],
+            omittingProgressionMetadata: true
+        )
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, localID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let persisted = try XCTUnwrap(try cards(for: 1, in: container).first)
+        XCTAssertEqual(persisted.promptText, "server")
+        XCTAssertEqual(persisted.variantGroupId, "family-1")
+        XCTAssertEqual(persisted.variantStatus, "locked")
+    }
+
+    @MainActor
     func testFeedEntryOrderControlsDeleteAndUpsertOutcome() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let restored = makeCard(id: "restored", expression: "restored-server")
@@ -1602,7 +1647,9 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         expression: String,
         audioURL: String? = nil,
         queueState: String = "review",
-        masteryLevel: String? = nil
+        masteryLevel: String? = nil,
+        variantGroupID: String? = nil,
+        variantStatus: String? = nil
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let audioURL {
@@ -1625,6 +1672,8 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
             ),
             answerAudioSource: "missing",
             masteryLevel: masteryLevel,
+            variantGroupId: variantGroupID,
+            variantStatus: variantStatus,
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 20)
         )
@@ -1651,9 +1700,21 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
-    private static func batchData(_ cards: [StudyCard]) throws -> Data {
-        let values = try cards.map {
-            try JSONSerialization.jsonObject(with: StorageCodec.encoder.encode($0))
+    private static func batchData(
+        _ cards: [StudyCard],
+        omittingProgressionMetadata: Bool = false
+    ) throws -> Data {
+        let values = try cards.map { card in
+            var value = try XCTUnwrap(
+                JSONSerialization.jsonObject(
+                    with: StorageCodec.encoder.encode(card)
+                ) as? [String: Any]
+            )
+            if omittingProgressionMetadata {
+                value.removeValue(forKey: "variantGroupId")
+                value.removeValue(forKey: "variantStatus")
+            }
+            return value
         }
         return try JSONSerialization.data(withJSONObject: ["cards": values])
     }
