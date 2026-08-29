@@ -22,13 +22,10 @@ struct StudyCardLocalRepository {
                 // keep them current even while local card content remains dirty.
                 record.queueIndex = index
                 guard record.locallyUpdatedAt == nil else { continue }
-                let storedCard = try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
+                let resolvedCard = resolvedProgressionMetadata(
+                    for: card,
+                    storedIn: record
                 )
-                let resolvedCard = storedCard.map {
-                    card.resolvingProgressionMetadata(fallingBackTo: $0)
-                } ?? card
                 let rebasedCard = record.id == resolvedCard.id
                     ? resolvedCard
                     : resolvedCard.replacingIdentity(
@@ -68,13 +65,10 @@ struct StudyCardLocalRepository {
                     record.queueIndex = index
                 }
                 guard record.locallyUpdatedAt == nil else { continue }
-                let storedCard = try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
+                let resolvedCard = resolvedProgressionMetadata(
+                    for: card,
+                    storedIn: record
                 )
-                let resolvedCard = storedCard.map {
-                    card.resolvingProgressionMetadata(fallingBackTo: $0)
-                } ?? card
                 let rebasedCard = record.id == resolvedCard.id
                     ? resolvedCard
                     : resolvedCard.replacingIdentity(
@@ -110,6 +104,18 @@ struct StudyCardLocalRepository {
         ))
         record.isInActiveSession = false
         try context.save()
+    }
+
+    private func resolvedProgressionMetadata(
+        for card: StudyCard,
+        storedIn record: LocalCardRecord
+    ) -> StudyCard {
+        guard !card.includesProgressionMetadataProjection else { return card }
+        guard let storedCard = try? StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: record.payload
+        ) else { return card }
+        return card.resolvingProgressionMetadata(fallingBackTo: storedCard)
     }
 
     func updateMediaPreparedState(

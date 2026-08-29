@@ -32,7 +32,11 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         let card = makeCard(
             masteryLevel: "guru",
             variantGroupID: "family-1",
-            variantStatus: "locked"
+            variantStatus: "locked",
+            introductionCohortID: "cohort-1",
+            selectionPolicy: "priority",
+            priorityUntil: Date(timeIntervalSince1970: 600),
+            introductionAvailableAt: Date(timeIntervalSince1970: 700)
         )
         var draft = StudyCardDraft(card: card)
         draft.cueText = "updated"
@@ -45,6 +49,13 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         XCTAssertEqual(update.card.masteryLevel, "guru")
         XCTAssertEqual(update.card.variantGroupId, "family-1")
         XCTAssertEqual(update.card.variantStatus, "locked")
+        XCTAssertEqual(update.card.introductionCohortId, "cohort-1")
+        XCTAssertEqual(update.card.selectionPolicy, "priority")
+        XCTAssertEqual(update.card.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            update.card.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(update.card.state, card.state)
         XCTAssertEqual(update.card.createdAt, card.createdAt)
         XCTAssertEqual(update.request.prompt, update.card.prompt)
@@ -68,6 +79,13 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         XCTAssertEqual(reconciled.masteryLevel, "guru")
         XCTAssertNil(reconciled.variantGroupId)
         XCTAssertNil(reconciled.variantStatus)
+        XCTAssertEqual(reconciled.introductionCohortId, "cohort-1")
+        XCTAssertEqual(reconciled.selectionPolicy, "priority")
+        XCTAssertEqual(reconciled.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(
+            reconciled.introductionAvailableAt,
+            Date(timeIntervalSince1970: 700)
+        )
         XCTAssertEqual(reconciled.state, update.card.state)
         XCTAssertEqual(reconciled.createdAt, update.card.createdAt)
 
@@ -104,7 +122,11 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         syncId: String? = "local-sync-id",
         masteryLevel: String?,
         variantGroupID: String? = nil,
-        variantStatus: String? = nil
+        variantStatus: String? = nil,
+        introductionCohortID: String? = nil,
+        selectionPolicy: String? = nil,
+        priorityUntil: Date? = nil,
+        introductionAvailableAt: Date? = nil
     ) -> StudyCard {
         StudyCard(
             id: id,
@@ -125,6 +147,10 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             masteryLevel: masteryLevel,
             variantGroupId: variantGroupID,
             variantStatus: variantStatus,
+            introductionCohortId: introductionCohortID,
+            selectionPolicy: selectionPolicy,
+            priorityUntil: priorityUntil,
+            introductionAvailableAt: introductionAvailableAt,
             createdAt: Date(timeIntervalSince1970: 10),
             updatedAt: Date(timeIntervalSince1970: 20)
         )

@@ -67,6 +67,10 @@ enum StudyCardEditorProjection {
                 masteryLevel: card.masteryLevel,
                 variantGroupId: card.variantGroupId,
                 variantStatus: card.variantStatus,
+                introductionCohortId: card.introductionCohortId,
+                selectionPolicy: card.selectionPolicy,
+                priorityUntil: card.priorityUntil,
+                introductionAvailableAt: card.introductionAvailableAt,
                 createdAt: card.createdAt,
                 updatedAt: date
             ),
@@ -97,6 +101,12 @@ enum StudyCardEditorProjection {
             masteryLevel: latest.masteryLevel,
             variantGroupId: serverCard.variantGroupId,
             variantStatus: serverCard.variantStatus,
+            introductionCohortId: serverCard.introductionCohortId
+                ?? latest.introductionCohortId,
+            selectionPolicy: serverCard.selectionPolicy ?? latest.selectionPolicy,
+            priorityUntil: serverCard.priorityUntil ?? latest.priorityUntil,
+            introductionAvailableAt: serverCard.introductionAvailableAt
+                ?? latest.introductionAvailableAt,
             createdAt: latest.createdAt,
             updatedAt: updatedAt
         )
