@@ -237,7 +237,7 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
-    func testReadOnlyRefreshUsesProgressEndpointForSessionBaseline() async throws {
+    func testReadOnlyRefreshDoesNotSatisfyAuthoritativeEvaluationFreshness() async throws {
         let catalogPayload = try JSONEncoder().encode(makeCatalog())
         let progressPayload = progressPayload(reviews: 25)
         let requestMethods = LockedRequestPaths()
@@ -247,7 +247,7 @@ final class StudyAchievementTests: XCTestCase {
             requestMethods.append("\(request.httpMethod ?? "") \(path)")
             let body = switch path {
             case "/api/achievements/catalog": catalogPayload
-            case "/api/achievements/progress": progressPayload
+            case "/api/achievements/progress", "/api/achievements/evaluate": progressPayload
             default: Data()
             }
             return (
@@ -272,10 +272,15 @@ final class StudyAchievementTests: XCTestCase {
         store.activate(userID: 41)
 
         await store.refresh(evaluate: false)
+        await store.refreshIfNeeded(maxAge: 60, evaluate: true)
 
         XCTAssertEqual(
             requestMethods.values,
-            ["GET /api/achievements/catalog", "GET /api/achievements/progress"]
+            [
+                "GET /api/achievements/catalog",
+                "GET /api/achievements/progress",
+                "POST /api/achievements/evaluate",
+            ]
         )
         XCTAssertEqual(store.progress?.metricValues["reviews.count"], 25)
     }
@@ -331,6 +336,33 @@ final class StudyAchievementTests: XCTestCase {
         let completion = try XCTUnwrap(store.prepareCurrentSessionCompletion())
         XCTAssertEqual(completion.records.map(\.id), ["review-1"])
         XCTAssertEqual(completion.newAwardIDs, ["reviews.first"])
+    }
+
+    @MainActor
+    func testReadyCompletionBaselineCannotBeRewrittenByALateRead() async throws {
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+
+        try installAchievementResponses(awards: [
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+        XCTAssertEqual(
+            store.prepareCurrentSessionCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
+
+        store.refreshCurrentSessionBaseline()
+
+        XCTAssertEqual(
+            store.prepareCurrentSessionCompletion()?.newAwardIDs,
+            ["reviews.first"]
+        )
     }
 
     @MainActor

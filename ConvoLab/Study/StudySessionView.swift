@@ -737,6 +737,8 @@ struct StudySessionView: View {
                             ProgressView()
                             Text("Finalizing…")
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Finalizing session")
                     } else {
                         Text("Done")
                     }
