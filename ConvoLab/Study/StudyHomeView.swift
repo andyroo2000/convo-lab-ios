@@ -359,16 +359,21 @@ struct StudyHomeView: View {
                     .background(ConvoLabTheme.cyan.opacity(0.18), in: .capsule)
             }
 
-            let target = store.offlineReadinessTarget
-            let prepared = store.offlineReserveIsCurrent
-                ? min(store.preparedCardCount, target)
-                : 0
-            ProgressView(value: Double(prepared), total: Double(max(target, 1)))
-                .tint(ConvoLabTheme.cyan)
-                .accessibilityLabel("Offline readiness")
-                .accessibilityValue(
-                    "\(prepared) of \(target) cards ready"
-                )
+            if store.offlineReserveIsCurrent {
+                let target = store.offlineReadinessTarget
+                let prepared = min(store.preparedCardCount, target)
+                ProgressView(value: Double(prepared), total: Double(max(target, 1)))
+                    .tint(ConvoLabTheme.cyan)
+                    .accessibilityLabel("Offline readiness")
+                    .accessibilityValue(
+                        "\(prepared) of \(target) cards ready"
+                    )
+            } else {
+                Text("Sync to refresh offline coverage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Offline readiness unavailable")
+            }
 
             syncStatus
 
