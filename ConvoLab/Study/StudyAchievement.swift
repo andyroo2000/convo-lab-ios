@@ -146,7 +146,7 @@ nonisolated struct StudyAchievementAward: Codable, Equatable, Sendable {
     let earnedAt: Date
 }
 
-struct StudyAchievementCompletion: Identifiable, Sendable {
+struct StudyAchievementCompletion: Identifiable, Equatable, Sendable {
     let id: UUID
     let records: [StudySessionReviewRecord]
     let newAwardIDs: [String]
@@ -278,6 +278,7 @@ final class StudyAchievementStore {
         let progress: StudyAchievementProgress?
         let catalogRefreshedAt: Date
         let progressRefreshedAt: Date?
+        let evaluatedAt: Date?
     }
 
     private struct ReviewSession: Codable {
@@ -305,7 +306,8 @@ final class StudyAchievementStore {
     private let sessionKeyPrefix = "study-achievement-sessions-v1"
     private var activeUserID: Int?
     private var catalogRefreshedAt: Date?
-    private var refreshedAt: Date?
+    private var progressRefreshedAt: Date?
+    private var evaluatedAt: Date?
     private var refreshSequence = 0
     private var assetPreparationSequence = 0
     private var assetPreparationRevision: String?
@@ -372,7 +374,8 @@ final class StudyAchievementStore {
         sessionState = SessionPersistedState()
         progress = nil
         catalogRefreshedAt = nil
-        refreshedAt = nil
+        progressRefreshedAt = nil
+        evaluatedAt = nil
         cachedAssetURLs = [:]
         preparingAssetPaths = []
         errorMessage = nil
@@ -380,14 +383,15 @@ final class StudyAchievementStore {
         isLoading = false
     }
 
-    func refreshIfNeeded(maxAge: TimeInterval = 60) async {
-        if let refreshedAt, Date.now.timeIntervalSince(refreshedAt) < maxAge {
+    func refreshIfNeeded(maxAge: TimeInterval = 60, evaluate: Bool = true) async {
+        let freshnessDate = evaluate ? evaluatedAt : progressRefreshedAt
+        if let freshnessDate, Date.now.timeIntervalSince(freshnessDate) < maxAge {
             return
         }
-        await performRefresh()
+        await performRefresh(evaluate: evaluate)
     }
 
-    func refresh() async {
+    func refresh(evaluate: Bool = true) async {
         let requestedUserID = activeUserID
         let requestedSequence = refreshSequence
         while isLoading {
@@ -400,10 +404,10 @@ final class StudyAchievementStore {
                   refreshSequence == requestedSequence
             else { return }
         }
-        await performRefresh()
+        await performRefresh(evaluate: evaluate)
     }
 
-    private func performRefresh() async {
+    private func performRefresh(evaluate: Bool) async {
         guard let requestedUserID = activeUserID, !isLoading else { return }
         refreshSequence += 1
         let sequence = refreshSequence
@@ -443,8 +447,10 @@ final class StudyAchievementStore {
             var loadedProgressError: String?
             do {
                 let response: StudyAchievementProgress = try await api.request(
-                    "/api/achievements/evaluate",
-                    method: "POST"
+                    evaluate
+                        ? "/api/achievements/evaluate"
+                        : "/api/achievements/progress",
+                    method: evaluate ? "POST" : "GET"
                 )
                 let validatedProgress = try response.validated()
                 loadedProgress = validatedProgress.revision == validatedCatalog.revision
@@ -469,7 +475,12 @@ final class StudyAchievementStore {
             catalog = validatedCatalog
             catalogRefreshedAt = loadedCatalogRefreshedAt
             progress = loadedProgress
-            refreshedAt = .now
+            if loadedProgressError == nil, loadedProgress != nil {
+                progressRefreshedAt = .now
+                if evaluate {
+                    evaluatedAt = .now
+                }
+            }
             errorMessage = nil
             progressErrorMessage = loadedProgressError
             if catalogChanged {
@@ -522,7 +533,8 @@ final class StudyAchievementStore {
         catalog = nil
         progress = nil
         catalogRefreshedAt = nil
-        refreshedAt = nil
+        progressRefreshedAt = nil
+        evaluatedAt = nil
         cachedAssetURLs = [:]
         preparingAssetPaths = []
     }
@@ -612,7 +624,8 @@ final class StudyAchievementStore {
         catalog = nil
         progress = nil
         catalogRefreshedAt = nil
-        refreshedAt = nil
+        progressRefreshedAt = nil
+        evaluatedAt = nil
         cachedAssetURLs = [:]
         preparingAssetPaths = []
 
@@ -625,7 +638,8 @@ final class StudyAchievementStore {
         self.catalog = catalog
         self.progress = progress?.revision == catalog.revision ? progress : nil
         catalogRefreshedAt = state.catalogRefreshedAt
-        refreshedAt = state.progressRefreshedAt
+        progressRefreshedAt = state.progressRefreshedAt
+        evaluatedAt = state.evaluatedAt
         restoreCachedAssetURLs(for: catalog)
     }
 
@@ -653,7 +667,8 @@ final class StudyAchievementStore {
                   catalog: catalog,
                   progress: progress,
                   catalogRefreshedAt: catalogRefreshedAt,
-                  progressRefreshedAt: refreshedAt
+                  progressRefreshedAt: progressRefreshedAt,
+                  evaluatedAt: evaluatedAt
               ))
         else { return }
         defaults.set(data, forKey: persistenceKey(userID: activeUserID))
@@ -700,6 +715,20 @@ final class StudyAchievementStore {
         persistSessionState()
     }
 
+    func refreshCurrentSessionBaseline() {
+        guard var session = sessionState.activeSession,
+              !session.isReadyForPresentation
+                || (!session.celebrationPresented && session.newAwardIDs.isEmpty),
+              let progress
+        else { return }
+        let baseline = Set(session.baselineAwardIDs ?? [])
+            .union(progress.awards.map(\.id))
+        session.baselineAwardIDs = Array(baseline)
+        session.newAwardIDs.removeAll { baseline.contains($0) }
+        sessionState.activeSession = session
+        persistSessionState()
+    }
+
     func undoReview(eventID: String) {
         guard var session = sessionState.activeSession,
               !session.isReadyForPresentation
@@ -738,7 +767,7 @@ final class StudyAchievementStore {
 
     private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
         guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
-        if !session.isReadyForPresentation || !session.celebrationPresented {
+        if !session.isReadyForPresentation || !session.celebrationPresented || progress != nil {
             if let progress {
                 let earnedIDs = Set(progress.awards.map(\.id))
                 let detected: [StudyAchievementAward]
@@ -758,11 +787,19 @@ final class StudyAchievementStore {
                 let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
                     ($0.id, $0.earnedAt)
                 })
-                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detectedIDs))
-                    .filter { earnedIDs.contains($0) }
+                let retainedIDs = session.newAwardIDs.filter { earnedIDs.contains($0) }
+                let retainedIDSet = Set(retainedIDs)
+                let appendedIDs = detectedIDs
+                    .filter { !retainedIDSet.contains($0) }
                     .sorted {
                         dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
                     }
+                session.newAwardIDs = retainedIDs + appendedIDs
+                if !appendedIDs.isEmpty {
+                    // A completed optimistic carousel must reopen only for awards
+                    // discovered by the authoritative evaluation.
+                    session.celebrationPresented = false
+                }
             } else if requireNewAward {
                 return nil
             }

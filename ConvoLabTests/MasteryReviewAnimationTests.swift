@@ -126,4 +126,82 @@ final class MasteryReviewAnimationTests: XCTestCase {
             )
         )
     }
+
+    @MainActor
+    func testWrapUpWaitsForAuthoritativeCompletionBeforeDismissal() {
+        XCTAssertFalse(
+            StudySessionView.canDismissWrapUp(isCompletionRefreshPending: true)
+        )
+        XCTAssertTrue(
+            StudySessionView.canDismissWrapUp(isCompletionRefreshPending: false)
+        )
+    }
+
+    @MainActor
+    func testMatchingDeferredCompletionDoesNotRewindAwardPresentation() {
+        let sessionID = UUID()
+        let current = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: ["reviews.first", "reviews.second"],
+            celebrationPresented: false
+        )
+        let matchingRefresh = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: current.newAwardIDs,
+            celebrationPresented: true
+        )
+        let newlyEarnedRefresh = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: current.newAwardIDs + ["reviews.third"],
+            celebrationPresented: false
+        )
+
+        XCTAssertFalse(StudySessionView.shouldResetCompletionPresentation(
+            current: current,
+            updated: matchingRefresh
+        ))
+        XCTAssertFalse(StudySessionView.shouldResetCompletionPresentation(
+            current: current,
+            updated: newlyEarnedRefresh
+        ))
+
+        let midCarousel = StudySessionView.reconciledCompletionPresentation(
+            current: current,
+            updated: newlyEarnedRefresh,
+            currentAwardIDs: current.newAwardIDs,
+            currentAwardIndex: 1,
+            celebrationPresented: false
+        )
+        XCTAssertEqual(midCarousel.awardIDs, [
+            "reviews.first",
+            "reviews.second",
+            "reviews.third",
+        ])
+        XCTAssertEqual(midCarousel.currentAwardIndex, 1)
+        XCTAssertFalse(midCarousel.celebrationPresented)
+
+        let finishedCarousel = StudySessionView.reconciledCompletionPresentation(
+            current: StudyAchievementCompletion(
+                id: sessionID,
+                records: [],
+                newAwardIDs: ["reviews.first"],
+                celebrationPresented: true
+            ),
+            updated: StudyAchievementCompletion(
+                id: sessionID,
+                records: [],
+                newAwardIDs: ["reviews.first", "reviews.third"],
+                celebrationPresented: false
+            ),
+            currentAwardIDs: ["reviews.first"],
+            currentAwardIndex: 0,
+            celebrationPresented: true
+        )
+        XCTAssertEqual(finishedCarousel.awardIDs, ["reviews.first", "reviews.third"])
+        XCTAssertEqual(finishedCarousel.currentAwardIndex, 1)
+        XCTAssertFalse(finishedCarousel.celebrationPresented)
+    }
 }

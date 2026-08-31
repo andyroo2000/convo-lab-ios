@@ -37,9 +37,17 @@ extension StudyStore {
         return true
     }
 
-    func revalidateRemainingReviewQueue() async throws {
+    func revalidateRemainingReviewQueue(
+        expectedStudySurfaceRevision: Int? = nil
+    ) async throws {
         guard sessionKind == "reviews", !lessonSessionIsPresented else { return }
+        if let expectedStudySurfaceRevision {
+            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
+        }
         guard let load = try await sessionLoadingService.load(.reviews) else { return }
+        if let expectedStudySurfaceRevision {
+            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
+        }
         try await applyReviewSessionLoad(load, resettingSessionProgress: false)
     }
 
@@ -230,6 +238,7 @@ extension StudyStore {
         }
         defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
+        let presentationRevision = studySurfaceRevision
         var stagedReview: StagedStudyReview?
         do {
             // Scheduling must succeed before the durable event is staged. If the
@@ -320,21 +329,11 @@ extension StudyStore {
             if currentCard.belongsToLearningProgression
                 || !flushResult.progressionLockedEventIDs.isEmpty
             {
-                var cardSyncError: (any Error)?
-                do {
-                    try await pullCardChangesForProgressionRevalidation(
-                        userID: userID,
-                        activationGeneration: activationGeneration
-                    )
-                } catch {
-                    cardSyncError = error
-                }
-                do {
-                    try await revalidateRemainingReviewQueue()
-                } catch {
-                    cardSyncError = cardSyncError ?? error
-                }
-                deferredFlushError = deferredFlushError ?? cardSyncError
+                scheduleProgressionRevalidation(
+                    userID: userID,
+                    activationGeneration: activationGeneration,
+                    presentationRevision: presentationRevision
+                )
             }
             if let deferredFlushError {
                 throw deferredFlushError
@@ -358,6 +357,49 @@ extension StudyStore {
                 )
             }
             return stagedReview
+        }
+    }
+
+    private func scheduleProgressionRevalidation(
+        userID: Int,
+        activationGeneration: Int,
+        presentationRevision: Int
+    ) {
+        Task { [weak self] in
+            guard let self,
+                  isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
+            else { return }
+            var firstError: (any Error)?
+            do {
+                try await pullCardChangesForProgressionRevalidation(
+                    userID: userID,
+                    activationGeneration: activationGeneration
+                )
+            } catch {
+                firstError = error
+            }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
+            else { return }
+            do {
+                try await revalidateRemainingReviewQueue(
+                    expectedStudySurfaceRevision: presentationRevision
+                )
+            } catch {
+                firstError = firstError ?? error
+            }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
+            else { return }
+            if let firstError {
+                markOutboxRetryNeeded(for: firstError)
+                handleSyncError(
+                    firstError,
+                    for: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
         }
     }
 

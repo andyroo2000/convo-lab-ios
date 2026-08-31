@@ -44,7 +44,8 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
-    @State private var isPreparingCompletion = false
+    @State private var isCompletionRefreshPending = false
+    @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
     @State private var lessonPresentationID = UUID()
@@ -74,6 +75,11 @@ struct StudySessionView: View {
         _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
+        _wrapUpSummary = State(
+            initialValue: StudySessionWrapUpSummary.build(
+                from: restoredCompletion?.records ?? []
+            )
+        )
         _sessionCompletion = State(initialValue: restoredCompletion)
         _completionAchievements = State(
             initialValue: restoredCompletion?.newAwardIDs.compactMap {
@@ -105,10 +111,6 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyCloseLessonButton")
             }
         }
-    }
-
-    private var wrapUpSummary: StudySessionWrapUpSummary {
-        StudySessionWrapUpSummary.build(from: sessionReviewRecords)
     }
 
     private var reviewSessionComplete: Bool {
@@ -146,7 +148,7 @@ struct StudySessionView: View {
         .paperBackground()
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
-                Task { await endReviewSession() }
+                endReviewSession()
             }
                 .frame(width: 0, height: 0)
         }
@@ -179,9 +181,6 @@ struct StudySessionView: View {
                 insertion: .move(edge: .trailing),
                 removal: .move(edge: .leading)
             ))
-        } else if isPreparingCompletion {
-            ProgressView("Preparing your wrap-up…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .lessons, lessonPreview {
             lessonPreviewContent
         } else if displayingCompletion, !practiceMode {
@@ -295,7 +294,7 @@ struct StudySessionView: View {
             {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("End session") {
-                        Task { await endReviewSession() }
+                        endReviewSession()
                     }
                     .disabled(
                         !submittingReviewCardIDs.isEmpty
@@ -359,14 +358,18 @@ struct StudySessionView: View {
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
-                _ = try? await store.refreshSession()
-                await achievementStore?.refresh()
                 achievementStore?.beginReviewSession()
+                _ = try? await store.refreshSession()
+                await achievementStore?.refreshIfNeeded(maxAge: 60, evaluate: false)
+                achievementStore?.refreshCurrentSessionBaseline()
             }
         }
         .onChange(of: reviewSessionComplete) { _, isComplete in
             guard isComplete, sessionCompletion == nil else { return }
-            Task { await prepareSessionCompletion() }
+            prepareSessionCompletion()
+        }
+        .onChange(of: sessionReviewRecords) { _, records in
+            wrapUpSummary = StudySessionWrapUpSummary.build(from: records)
         }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
@@ -722,17 +725,31 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudySessionAchievements")
                 }
 
-                Button("Done") {
+                Button {
                     if let completionID = sessionCompletion?.id {
                         achievementStore?.consumeCompletion(sessionID: completionID)
                     }
                     onSessionAchievementsLanded(Set(completionAchievements.map(\.id)))
                     dismiss()
+                } label: {
+                    if isCompletionRefreshPending {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Finalizing…")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Finalizing session")
+                    } else {
+                        Text("Done")
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ConvoLabTheme.navy)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
+                .disabled(!Self.canDismissWrapUp(
+                    isCompletionRefreshPending: isCompletionRefreshPending
+                ))
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
             .frame(maxWidth: 560)
@@ -1249,29 +1266,106 @@ struct StudySessionView: View {
         }
     }
 
-    private func endReviewSession() async {
+    private func endReviewSession() {
         player.stop()
         guard !sessionReviewRecords.isEmpty else {
             achievementStore?.cancelCurrentSession()
             dismiss()
             return
         }
-        await prepareSessionCompletion()
+        prepareSessionCompletion()
     }
 
-    private func prepareSessionCompletion() async {
-        guard !isPreparingCompletion else { return }
-        isPreparingCompletion = true
-        defer { isPreparingCompletion = false }
+    private func prepareSessionCompletion() {
+        guard !sessionWasEnded else { return }
         sessionWasEnded = true
-        await achievementStore?.refresh()
         let completion = achievementStore?.prepareCurrentSessionCompletion()
+        applySessionCompletion(completion)
+        isCompletionRefreshPending = true
+
+        Task { @MainActor in
+            defer { isCompletionRefreshPending = false }
+            await achievementStore?.refresh()
+            guard sessionWasEnded,
+                  sessionCompletion?.id == completion?.id
+            else { return }
+            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion()
+            guard refreshedCompletion?.id == completion?.id else { return }
+            applySessionCompletion(refreshedCompletion)
+        }
+    }
+
+    private func applySessionCompletion(_ completion: StudyAchievementCompletion?) {
+        let presentation = Self.reconciledCompletionPresentation(
+            current: sessionCompletion,
+            updated: completion,
+            currentAwardIDs: completionAchievements.map(\.id),
+            currentAwardIndex: currentAwardIndex,
+            celebrationPresented: celebrationPresented
+        )
         sessionCompletion = completion
-        completionAchievements = completion?.newAwardIDs.compactMap {
+        completionAchievements = presentation.awardIDs.compactMap {
             achievementStore?.achievement(id: $0)
-        } ?? []
-        currentAwardIndex = 0
-        celebrationPresented = sessionCompletion?.celebrationPresented ?? true
+        }
+        currentAwardIndex = presentation.currentAwardIndex
+        celebrationPresented = presentation.celebrationPresented
+    }
+
+    nonisolated static func canDismissWrapUp(
+        isCompletionRefreshPending: Bool
+    ) -> Bool {
+        !isCompletionRefreshPending
+    }
+
+    nonisolated static func shouldResetCompletionPresentation(
+        current: StudyAchievementCompletion?,
+        updated: StudyAchievementCompletion?
+    ) -> Bool {
+        current?.id != updated?.id
+            || current?.records != updated?.records
+    }
+
+    nonisolated static func reconciledCompletionPresentation(
+        current: StudyAchievementCompletion?,
+        updated: StudyAchievementCompletion?,
+        currentAwardIDs: [String],
+        currentAwardIndex: Int,
+        celebrationPresented: Bool
+    ) -> (
+        awardIDs: [String],
+        currentAwardIndex: Int,
+        celebrationPresented: Bool
+    ) {
+        let updatedAwardIDs = updated?.newAwardIDs ?? []
+        if shouldResetCompletionPresentation(current: current, updated: updated) {
+            return (
+                updatedAwardIDs,
+                0,
+                updated?.celebrationPresented ?? true
+            )
+        }
+
+        let updatedAwardIDSet = Set(updatedAwardIDs)
+        let retainedAwardIDs = currentAwardIDs.filter { updatedAwardIDSet.contains($0) }
+        let currentAwardIDSet = Set(currentAwardIDs)
+        let appendedAwardIDs = updatedAwardIDs.filter { !currentAwardIDSet.contains($0) }
+        let reconciledAwardIDs = retainedAwardIDs + appendedAwardIDs
+        let maximumIndex = max(0, reconciledAwardIDs.count - 1)
+
+        if celebrationPresented, !appendedAwardIDs.isEmpty {
+            return (
+                reconciledAwardIDs,
+                min(retainedAwardIDs.count, maximumIndex),
+                false
+            )
+        }
+
+        return (
+            reconciledAwardIDs,
+            min(currentAwardIndex, maximumIndex),
+            appendedAwardIDs.isEmpty
+                && (celebrationPresented || updated?.celebrationPresented == true)
+        )
     }
 }
 
