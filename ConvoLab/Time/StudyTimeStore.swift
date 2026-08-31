@@ -447,7 +447,6 @@ final class StudyTimeStore {
         clientSessionID: String? = nil
     ) async throws -> String? {
         try mutationRepository.requirePersistentWrites()
-        guard let userID = activeUserID else { return nil }
         let operation = StorageWriteOperation.recordCompleted(
             activity: activity,
             source: source,
@@ -455,6 +454,11 @@ final class StudyTimeStore {
             startedAt: startedAt,
             duration: max(0, min(duration, 86_400))
         )
+        guard let userID = activeUserID else {
+            let error = StudyTimeSessionMutationError.sessionUnavailable
+            setStorageWriteError(error, for: operation)
+            throw error
+        }
         let result: StudyTimeSessionMutationRepository.CompletedMutation
         do {
             result = try await mutationRepository.recordCompleted(

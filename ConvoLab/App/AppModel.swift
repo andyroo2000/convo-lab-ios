@@ -61,6 +61,7 @@ final class AppModel {
         makeAPIClient: (URL) -> APIClient = { APIClient(baseURL: $0) },
         makeAuthStore: (APIClient) -> AuthStore = { AuthStore(api: $0) },
         makeStudyTimeStore: ((APIClient, ModelContext, StorageMode) -> StudyTimeStore)? = nil,
+        satoriReaderTracking: SatoriReaderTrackingStore = .shared,
         makeAudioPlayer: () -> AudioPlayer = { AudioPlayer() },
         makeStudyAudioPlayer: ((AudioPlayer) -> StudyAudioPlayer)? = nil,
         accountDeletionCleanupDefaults: UserDefaults = .standard
@@ -110,9 +111,6 @@ final class AppModel {
                 context: timeContainer.mainContext,
                 storageMode: studyTimeStorageMode
             )
-        let satoriReaderTracking = SatoriReaderTrackingStore(
-            defaults: accountDeletionCleanupDefaults
-        )
         let study = StudyStore(
             api: api,
             context: container.mainContext,

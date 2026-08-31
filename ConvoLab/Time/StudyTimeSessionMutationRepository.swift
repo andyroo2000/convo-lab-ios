@@ -247,7 +247,10 @@ final class StudyTimeSessionMutationRepository {
         userID: Int
     ) async throws -> CompletedMutation {
         if let clientSessionID,
-           let existing = record(clientSessionID: clientSessionID, userID: userID)
+           let existing = recordIncludingTombstones(
+               clientSessionID: clientSessionID,
+               userID: userID
+           )
         {
             return CompletedMutation(session: existing.session, calendarWarning: nil)
         }
@@ -603,13 +606,23 @@ final class StudyTimeSessionMutationRepository {
         clientSessionID: String,
         userID: Int
     ) -> LocalStudyActivitySession? {
+        recordIncludingTombstones(
+            clientSessionID: clientSessionID,
+            userID: userID
+        ).flatMap { $0.isTombstone ? nil : $0 }
+    }
+
+    private func recordIncludingTombstones(
+        clientSessionID: String,
+        userID: Int
+    ) -> LocalStudyActivitySession? {
         var descriptor = FetchDescriptor<LocalStudyActivitySession>(
             predicate: #Predicate {
                 $0.userID == userID && $0.clientSessionID == clientSessionID
             }
         )
         descriptor.fetchLimit = 1
-        return try? context.fetch(descriptor).first(where: { !$0.isTombstone })
+        return try? context.fetch(descriptor).first
     }
 
     private func complete(
