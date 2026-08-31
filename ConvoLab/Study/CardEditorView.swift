@@ -236,7 +236,7 @@ struct CardEditorView: View {
                 }
                 .disabled(isDraftCommitPending)
 
-                if card?.mediaURLs.isEmpty == false {
+                if card?.rawMediaURLs.isEmpty == false {
                     Section {
                         Label(
                             "Existing media stays offline. Image placement controls which faces show the image.",

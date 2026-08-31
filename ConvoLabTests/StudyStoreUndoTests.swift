@@ -683,11 +683,9 @@ extension StudyStoreTests {
             newCardsPerDay: 10,
             newCardsAvailableToday: 0
         )
-        let cardJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(serverCard),
-                encoding: .utf8
-            )
+        let cardJSON = try cardJSONWithPresentation(
+            serverCard,
+            frontHeading: "Stale projected server expression"
         )
         let overviewJSON = try XCTUnwrap(
             String(
@@ -739,6 +737,7 @@ extension StudyStoreTests {
         )
         XCTAssertEqual(restoredCard.id, canonicalID)
         XCTAssertEqual(restoredCard.promptText, "Local pending edit")
+        XCTAssertNil(restoredCard.serverPresentation)
         XCTAssertEqual(restoredCard.masteryLevel, "apprentice")
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
@@ -763,39 +762,9 @@ extension StudyStoreTests {
         container.mainContext.insert(record)
         try container.mainContext.save()
 
-        var cardObject = try XCTUnwrap(
-            JSONSerialization.jsonObject(
-                with: StorageCodec.encoder.encode(serverCard)
-            ) as? [String: Any]
-        )
-        cardObject["presentation"] = [
-            "version": 1,
-            "front": [
-                "mode": "text",
-                "text": "Projected front",
-                "ruby": NSNull(),
-                "hint": NSNull(),
-                "media": ["audio": NSNull(), "image": NSNull()],
-                "autoplayAudio": false,
-            ],
-            "answer": [
-                "heading": "Projected answer",
-                "ruby": NSNull(),
-                "restored": NSNull(),
-                "meaning": NSNull(),
-                "sentences": [
-                    "japanese": ["text": NSNull(), "ruby": NSNull()],
-                    "english": ["text": NSNull(), "ruby": NSNull()],
-                ],
-                "notes": [],
-                "media": ["image": NSNull()],
-                "audio": NSNull(),
-                "pitchAccent": NSNull(),
-            ],
-        ]
-        let projectedCardData = try JSONSerialization.data(withJSONObject: cardObject)
-        let projectedCardJSON = try XCTUnwrap(
-            String(data: projectedCardData, encoding: .utf8)
+        let projectedCardJSON = try cardJSONWithPresentation(
+            serverCard,
+            frontHeading: "Projected front"
         )
         let overviewJSON = try XCTUnwrap(
             String(
@@ -848,5 +817,48 @@ extension StudyStoreTests {
         XCTAssertEqual(restoredCard.serverPresentation?.version, 1)
         XCTAssertEqual(restoredCard.presentation.front.heading, "Projected front")
         XCTAssertEqual(store.cards.first?.serverPresentation, restoredCard.serverPresentation)
+    }
+
+    @MainActor
+    private func cardJSONWithPresentation(
+        _ card: StudyCard,
+        frontHeading: String
+    ) throws -> String {
+        var cardObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(card)
+            ) as? [String: Any]
+        )
+        cardObject["presentation"] = [
+            "version": 1,
+            "front": [
+                "mode": "text",
+                "text": frontHeading,
+                "ruby": NSNull(),
+                "hint": NSNull(),
+                "media": ["audio": NSNull(), "image": NSNull()],
+                "autoplayAudio": false,
+            ],
+            "answer": [
+                "heading": "Projected answer",
+                "ruby": NSNull(),
+                "restored": NSNull(),
+                "meaning": NSNull(),
+                "sentences": [
+                    "japanese": ["text": NSNull(), "ruby": NSNull()],
+                    "english": ["text": NSNull(), "ruby": NSNull()],
+                ],
+                "notes": [],
+                "media": ["image": NSNull()],
+                "audio": NSNull(),
+                "pitchAccent": NSNull(),
+            ],
+        ]
+        return try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: cardObject),
+                encoding: .utf8
+            )
+        )
     }
 }

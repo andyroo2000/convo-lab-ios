@@ -169,6 +169,14 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
         XCTAssertEqual(card.rawPromptImageURL, URL(string: "/media/raw-prompt.png"))
         XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
+        XCTAssertFalse(card.rawMediaURLs.isEmpty)
+
+        let noProjectedMedia = try decodedCard(presentation: minimalPresentation(
+            frontAudio: "null",
+            pitchAccent: "null"
+        ))
+        XCTAssertTrue(noProjectedMedia.mediaURLs.isEmpty)
+        XCTAssertFalse(noProjectedMedia.rawMediaURLs.isEmpty)
     }
 
     func testMissingAndFuturePresentationVersionsUseRawCompatibilityProjection() throws {

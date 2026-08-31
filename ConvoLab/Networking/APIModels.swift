@@ -1267,7 +1267,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
 
     var mediaURLs: [URL] {
         guard serverPresentation != nil else {
-            return prompt.mediaURLs + answer.mediaURLs
+            return rawMediaURLs
         }
         let projected = presentation
         return [
@@ -1277,6 +1277,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             projected.back.imageURL,
         ].compactMap(\.self)
     }
+
+    var rawMediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
 
     func reviewSchedule(
         _ rating: ReviewRating,

@@ -2366,6 +2366,12 @@ final class StudyStore {
         guard record.id != card.id || preserveLocalPresentation else {
             return card
         }
+        let restoredServerPresentation: StudyCardPresentationV1?
+        if preserveLocalPresentation, let localCard {
+            restoredServerPresentation = localCard.serverPresentation
+        } else {
+            restoredServerPresentation = card.serverPresentation
+        }
 
         return StudyCard(
             id: record.id,
@@ -2383,9 +2389,7 @@ final class StudyStore {
             answer: preserveLocalPresentation
                 ? localCard?.answer ?? card.answer
                 : card.answer,
-            serverPresentation: preserveLocalPresentation
-                ? localCard?.serverPresentation ?? card.serverPresentation
-                : card.serverPresentation,
+            serverPresentation: restoredServerPresentation,
             state: card.state,
             answerAudioSource: preserveLocalPresentation
                 ? localCard?.answerAudioSource ?? card.answerAudioSource
