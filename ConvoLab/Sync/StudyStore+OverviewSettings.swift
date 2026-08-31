@@ -2,18 +2,23 @@ import Foundation
 import SwiftData
 
 extension StudyStore {
-    func refreshCapabilities() async {
-        guard let userID = activeUserID else { return }
+    @discardableResult
+    func refreshCapabilities() async -> Bool {
+        guard let userID = activeUserID else { return false }
         let activationGeneration = accountActivationGeneration
         do {
             let response: StudyCapabilities = try await api.request(
                 "/api/study/capabilities"
             )
-            guard isCurrentActivation(userID, generation: activationGeneration) else { return }
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
             capabilities = response
+            return true
         } catch {
             // The compiled contract remains available for offline startup and
             // older deployments. The next foreground sync retries this read.
+            return false
         }
     }
 
@@ -105,7 +110,9 @@ extension StudyStore {
     func updateNewCardsPerDay(_ value: Int) async -> Bool {
         await updateStudySettings(
             newCardsPerDay: value,
-            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5,
+            lessonBatchSize: studySettings?.lessonBatchSize
+                ?? overview?.lessonBatchSize
+                ?? capabilities.settings.lessonBatchSize.default,
             newCardLaneWeights: studySettings?.newCardLaneWeights
         )
     }

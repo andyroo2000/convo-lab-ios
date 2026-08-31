@@ -48,7 +48,9 @@ enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable,
         }
     }
 
-    nonisolated var category: StudyActivityCategory {
+    /// Compiled compatibility used only when no cached/server capability exists
+    /// or when decoding a legacy response that omitted its derived category.
+    nonisolated var offlineFallbackCategory: StudyActivityCategory {
         switch self {
         case .cardReview: .review
         case .dailyAudio: .listen
@@ -56,6 +58,78 @@ enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable,
         case .tv, .podcast, .reading, .other: .immerse
         case .conversation: .conversation
         case .wanikaniReview: .wanikani
+        }
+    }
+}
+
+struct StudyActivityCategoryAuthority {
+    private static let cacheKeyPrefix = "study-activity-categories-by-activity-v1"
+
+    private let defaults: UserDefaults
+    private var activeUserID: Int?
+    private(set) var categoriesByActivity: [StudyActivityKind: StudyActivityCategory]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        categoriesByActivity = Self.offlineFallback
+    }
+
+    mutating func activate(userID: Int) {
+        activeUserID = userID
+        categoriesByActivity = Self.decodedMap(
+            from: defaults.data(forKey: Self.cacheKey(userID: userID))
+        ) ?? Self.offlineFallback
+    }
+
+    mutating func deactivate() {
+        activeUserID = nil
+        categoriesByActivity = Self.offlineFallback
+    }
+
+    func deleteCachedMap(userID: Int) {
+        defaults.removeObject(forKey: Self.cacheKey(userID: userID))
+    }
+
+    func category(for activity: StudyActivityKind) -> StudyActivityCategory {
+        categoriesByActivity[activity] ?? activity.offlineFallbackCategory
+    }
+
+    mutating func apply(_ capabilities: StudyCapabilities.StudyActivity) {
+        guard let activeUserID else { return }
+        let decoded = Self.decodedMap(from: capabilities.categoriesByActivity)
+        categoriesByActivity = Self.offlineFallback.merging(decoded) { _, server in server }
+        if let data = try? JSONEncoder().encode(capabilities.categoriesByActivity) {
+            defaults.set(data, forKey: Self.cacheKey(userID: activeUserID))
+        }
+    }
+
+    private static func cacheKey(userID: Int) -> String {
+        "\(cacheKeyPrefix).\(userID)"
+    }
+
+    private static var offlineFallback: [StudyActivityKind: StudyActivityCategory] {
+        StudyActivityKind.allCases.reduce(into: [:]) {
+            $0[$1] = $1.offlineFallbackCategory
+        }
+    }
+
+    private static func decodedMap(
+        from data: Data?
+    ) -> [StudyActivityKind: StudyActivityCategory]? {
+        guard let data,
+              let raw = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return nil }
+        return decodedMap(from: raw)
+    }
+
+    private static func decodedMap(
+        from raw: [String: String]
+    ) -> [StudyActivityKind: StudyActivityCategory] {
+        raw.reduce(into: [:]) { result, entry in
+            guard let activity = StudyActivityKind(rawValue: entry.key),
+                  let category = StudyActivityCategory(rawValue: entry.value)
+            else { return }
+            result[activity] = category
         }
     }
 }
@@ -163,7 +237,7 @@ struct StudyActivitySession: nonisolated Codable, Identifiable, Equatable, Senda
         clientSessionId = try values.decode(String.self, forKey: .clientSessionId)
         activity = try values.decode(StudyActivityKind.self, forKey: .activity)
         category = try values.decodeIfPresent(StudyActivityCategory.self, forKey: .category)
-            ?? activity.category
+            ?? activity.offlineFallbackCategory
         source = try values.decode(StudyActivitySource.self, forKey: .source)
         // Missing/null identifies rows from before the origin contract. Provider
         // imports did not exist in that payload shape, and canonical responses

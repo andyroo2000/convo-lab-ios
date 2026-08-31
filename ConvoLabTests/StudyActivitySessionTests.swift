@@ -5,6 +5,75 @@ import XCTest
 
 @MainActor
 final class StudyActivitySessionTests: XCTestCase {
+    func testServerActivityCategoryMapReclassifiesLocalStateAndSurvivesOfflineRelaunch() throws {
+        let defaultsName = "StudyActivitySessionTests.category-authority.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let firstContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+        let firstStore = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: firstContainer.mainContext,
+            activityCategoryDefaults: defaults
+        )
+        firstStore.activate(userID: 42)
+
+        XCTAssertTrue(firstStore.start(activity: .reading, source: .manual))
+        XCTAssertEqual(firstStore.active?.category, .immerse)
+        firstContainer.mainContext.insert(LocalStudyActivitySession(
+            active: StudyTimeActiveSession(
+                clientSessionID: "other-account-active",
+                category: .immerse,
+                activity: .reading,
+                source: .manual,
+                name: nil,
+                startedAt: .now,
+                cardsCreated: 0
+            ),
+            userID: 84
+        ))
+        try firstContainer.mainContext.save()
+
+        firstStore.applyStudyActivityCapabilities(.init(categoriesByActivity: [
+            StudyActivityKind.reading.rawValue: StudyActivityCategory.conversation.rawValue,
+        ]))
+
+        XCTAssertEqual(firstStore.active?.category, .conversation)
+        let persistedRecords = try firstContainer.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(
+            persistedRecords.first { $0.userID == 42 }?.category,
+            "conversation"
+        )
+        XCTAssertEqual(
+            persistedRecords.first { $0.userID == 84 }?.category,
+            "immerse"
+        )
+
+        let otherAccountContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+        let otherAccountStore = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: otherAccountContainer.mainContext,
+            activityCategoryDefaults: defaults
+        )
+        otherAccountStore.activate(userID: 84)
+        XCTAssertTrue(otherAccountStore.start(activity: .reading, source: .manual))
+        XCTAssertEqual(otherAccountStore.active?.category, .immerse)
+
+        let offlineContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+        let offlineStore = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: offlineContainer.mainContext,
+            activityCategoryDefaults: defaults
+        )
+        offlineStore.activate(userID: 42)
+        XCTAssertTrue(offlineStore.start(activity: .reading, source: .manual))
+        XCTAssertEqual(offlineStore.active?.category, .conversation)
+        retainSaveFixtures(firstContainer, firstStore)
+        retainSaveFixtures(otherAccountContainer, otherAccountStore)
+        retainSaveFixtures(offlineContainer, offlineStore)
+    }
+
     func testManualEntryRequestsEditableSessionsOnlyOnFirstExpansion() {
         XCTAssertFalse(
             StudyTimeManualEntryLoading.shouldRequestEntries(
@@ -786,18 +855,18 @@ final class StudyActivitySessionTests: XCTestCase {
     }
 
     func testActivitiesMapToOnePrimaryCategory() {
-        XCTAssertEqual(StudyActivityKind.cardReview.category, .review)
-        XCTAssertEqual(StudyActivityKind.dailyAudio.category, .listen)
-        XCTAssertEqual(StudyActivityKind.cardCreation.category, .create)
-        XCTAssertEqual(StudyActivityKind.tv.category, .immerse)
-        XCTAssertEqual(StudyActivityKind.podcast.category, .immerse)
-        XCTAssertEqual(StudyActivityKind.reading.category, .immerse)
-        XCTAssertEqual(StudyActivityKind.conversation.category, .conversation)
-        XCTAssertEqual(StudyActivityKind.wanikaniReview.category, .wanikani)
-        XCTAssertEqual(StudyActivityKind.other.category, .immerse)
+        XCTAssertEqual(StudyActivityKind.cardReview.offlineFallbackCategory, .review)
+        XCTAssertEqual(StudyActivityKind.dailyAudio.offlineFallbackCategory, .listen)
+        XCTAssertEqual(StudyActivityKind.cardCreation.offlineFallbackCategory, .create)
+        XCTAssertEqual(StudyActivityKind.tv.offlineFallbackCategory, .immerse)
+        XCTAssertEqual(StudyActivityKind.podcast.offlineFallbackCategory, .immerse)
+        XCTAssertEqual(StudyActivityKind.reading.offlineFallbackCategory, .immerse)
+        XCTAssertEqual(StudyActivityKind.conversation.offlineFallbackCategory, .conversation)
+        XCTAssertEqual(StudyActivityKind.wanikaniReview.offlineFallbackCategory, .wanikani)
+        XCTAssertEqual(StudyActivityKind.other.offlineFallbackCategory, .immerse)
     }
 
-    func testPersistedLegacyCategoryIsCanonicalizedFromActivity() throws {
+    func testPersistedCategoryRetainsLastKnownAuthorityClassification() throws {
         let conversation = StudyActivitySession(
             id: nil,
             clientSessionId: "018f22d2-6d38-7000-8000-000000000002",
@@ -814,7 +883,7 @@ final class StudyActivitySessionTests: XCTestCase {
         let record = LocalStudyActivitySession(session: conversation, userID: 42)
         record.category = StudyActivityCategory.immerse.rawValue
 
-        XCTAssertEqual(try XCTUnwrap(record.session).category, .conversation)
+        XCTAssertEqual(try XCTUnwrap(record.session).category, .immerse)
     }
 
     func testBatchEncodesRetrySafeClientIdentityAndOutputMetrics() throws {

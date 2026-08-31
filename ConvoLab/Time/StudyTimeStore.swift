@@ -15,6 +15,7 @@ final class StudyTimeStore {
     private let googleCalendar: any GoogleCalendarConnectionServing
     private let googleCalendarAuthorizer: any GoogleCalendarAuthorizing
     private let now: () -> Date
+    private var activityCategoryAuthority: StudyActivityCategoryAuthority
     private(set) var sessions: [StudyActivitySession] = []
     private(set) var editableSessions: [StudyActivitySession] = []
     private(set) var editableSessionsNextCursor: String?
@@ -48,6 +49,7 @@ final class StudyTimeStore {
         googleCalendarAuthorizer: (any GoogleCalendarAuthorizing)? = nil,
         weeklyRecapService: (any WeeklyStudyRecapServing)? = nil,
         snapshotCache: (any StudyTimeSnapshotCaching)? = nil,
+        activityCategoryDefaults: UserDefaults = .standard,
         now: @escaping () -> Date = { .now }
     ) {
         self.api = api
@@ -74,11 +76,34 @@ final class StudyTimeStore {
         self.googleCalendar = googleCalendar ?? LiveGoogleCalendarConnectionService(api: api)
         self.googleCalendarAuthorizer = googleCalendarAuthorizer
             ?? LiveGoogleCalendarAuthorizer()
+        activityCategoryAuthority = StudyActivityCategoryAuthority(
+            defaults: activityCategoryDefaults
+        )
         self.now = now
+    }
+
+    func applyStudyActivityCapabilities(_ capabilities: StudyCapabilities.StudyActivity) {
+        guard let activeUserID else { return }
+        activityCategoryAuthority.apply(capabilities)
+        try? mutationRepository.reclassifyLocalSessions(
+            userID: activeUserID
+        ) { [activityCategoryAuthority] activity in
+            activityCategoryAuthority.category(for: activity)
+        }
+        loadLocalSessions()
+        sessions = sessions.map(reclassifying)
+        active = active.map(reclassifying)
+        editableSessions = editableSessions.map(reclassifying)
     }
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        activityCategoryAuthority.activate(userID: userID)
+        try? mutationRepository.reclassifyLocalSessions(
+            userID: userID
+        ) { [activityCategoryAuthority] activity in
+            activityCategoryAuthority.category(for: activity)
+        }
         synchronizationCoordinator.activate(userID: userID)
         insightsController.activate(userID: userID)
         googleCalendarRequestGeneration += 1
@@ -108,6 +133,7 @@ final class StudyTimeStore {
         } ?? true
         await pushPending()
         activeUserID = nil
+        activityCategoryAuthority.deactivate()
         sessions = []
         editableSessions = []
         editableSessionsNextCursor = nil
@@ -340,6 +366,7 @@ final class StudyTimeStore {
             let result = try mutationRepository.start(
                 replacing: previousActive,
                 activity: activity,
+                category: activityCategoryAuthority.category(for: activity),
                 source: source,
                 name: name,
                 at: date,
@@ -463,6 +490,7 @@ final class StudyTimeStore {
         do {
             result = try await mutationRepository.recordCompleted(
                 activity: activity,
+                category: activityCategoryAuthority.category(for: activity),
                 source: source,
                 name: name,
                 startedAt: startedAt,
@@ -511,6 +539,7 @@ final class StudyTimeStore {
             result = try await mutationRepository.update(
                 session: session,
                 activity: activity,
+                category: activityCategoryAuthority.category(for: activity),
                 name: name,
                 startedAt: startedAt,
                 duration: duration,
@@ -579,6 +608,7 @@ final class StudyTimeStore {
     func deleteLocalData(userID: Int) throws {
         synchronizationCoordinator.markLocalMutation()
         insightsController.deleteLocalData(userID: userID)
+        activityCategoryAuthority.deleteCachedMap(userID: userID)
         try mutationRepository.deleteLocalData(userID: userID)
         if activeUserID == userID {
             sessions = []
@@ -692,6 +722,36 @@ final class StudyTimeStore {
         guard let loaded else { return }
         sessions = loaded.sessions
         active = loaded.active
+    }
+
+    private func reclassifying(_ session: StudyActivitySession) -> StudyActivitySession {
+        StudyActivitySession(
+            id: session.id,
+            clientSessionId: session.clientSessionId,
+            category: activityCategoryAuthority.category(for: session.activity),
+            activity: session.activity,
+            source: session.source,
+            origin: session.origin,
+            unknownOriginRawValue: session.unknownOriginRawValue,
+            name: session.name,
+            startedAt: session.startedAt,
+            endedAt: session.endedAt,
+            durationMs: session.durationMs,
+            audioPlaybackMs: session.audioPlaybackMs,
+            cardsCreated: session.cardsCreated
+        )
+    }
+
+    private func reclassifying(_ session: ActiveSession) -> ActiveSession {
+        ActiveSession(
+            clientSessionID: session.clientSessionID,
+            category: activityCategoryAuthority.category(for: session.activity),
+            activity: session.activity,
+            source: session.source,
+            name: session.name,
+            startedAt: session.startedAt,
+            cardsCreated: session.cardsCreated
+        )
     }
 
     @discardableResult

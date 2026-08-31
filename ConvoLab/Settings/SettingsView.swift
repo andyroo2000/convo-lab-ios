@@ -329,10 +329,14 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task {
-                async let capabilities: Void = model.study.refreshCapabilities()
+                if await model.study.refreshCapabilities() {
+                    model.studyTime.applyStudyActivityCapabilities(
+                        model.study.capabilities.studyActivity
+                    )
+                }
                 async let studySettings: Void = model.study.refreshStudySettings()
                 async let calendar: Void = model.studyTime.loadGoogleCalendarConnection()
-                _ = await (capabilities, studySettings, calendar)
+                _ = await (studySettings, calendar)
                 if let settings = model.study.studySettings {
                     let limits = model.study.capabilities.settings
                     newCardsPerDay = min(

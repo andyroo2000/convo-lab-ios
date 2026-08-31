@@ -7,7 +7,8 @@ final class LocalStudyActivitySession {
     var clientSessionID: String
     var userID: Int
     var serverID: String?
-    // Retained for store compatibility; activity is the category source of truth.
+    // Materialized from the last-known server capability map so local/offline
+    // presentation stays aligned with the API's activity classification.
     var category: String
     var activity: String
     var source: String
@@ -69,7 +70,8 @@ final class LocalStudyActivitySession {
         return StudyActivitySession(
             id: serverID,
             clientSessionId: clientSessionID,
-            category: activity.category,
+            category: StudyActivityCategory(rawValue: category)
+                ?? activity.offlineFallbackCategory,
             activity: activity,
             source: source,
             origin: recognizedOrigin ?? .legacy,
@@ -93,7 +95,8 @@ final class LocalStudyActivitySession {
         }
         return StudyTimeStore.ActiveSession(
             clientSessionID: clientSessionID,
-            category: activity.category,
+            category: StudyActivityCategory(rawValue: category)
+                ?? activity.offlineFallbackCategory,
             activity: activity,
             source: source,
             name: name,

@@ -1052,7 +1052,9 @@ final class StudyStore {
         reading: String,
         meaning: String
     ) async throws {
-        var draft = StudyCardDraft()
+        var draft = StudyCardDraft(
+            defaultAnswerAudioVoiceID: capabilities.cardAuthoring.defaultAnswerAudioVoiceId
+        )
         draft.cueText = expression
         draft.cueReading = reading
         draft.answerExpression = expression
@@ -1357,7 +1359,10 @@ final class StudyStore {
         reading: String,
         answer: String
     ) async throws {
-        var draft = StudyCardDraft(card: card)
+        var draft = StudyCardDraft(
+            card: card,
+            defaultAnswerAudioVoiceID: capabilities.cardAuthoring.defaultAnswerAudioVoiceId
+        )
         draft.cueText = prompt
         draft.cueReading = reading
         draft.answerExpression = prompt

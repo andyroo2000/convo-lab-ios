@@ -14,6 +14,7 @@ final class StudyCapabilitiesTests: XCTestCase {
         XCTAssertEqual(capabilities.cardAuthoring.limits.imagePromptCharacters, 321)
         XCTAssertEqual(capabilities.cardAuthoring.creationKinds.last, "future-kind")
         XCTAssertEqual(capabilities.offlineReserve.days, 7)
+        XCTAssertEqual(capabilities.studyActivity.categoriesByActivity["reading"], "conversation")
     }
 
     func testSettingsValidationUsesAdvertisedRanges() throws {
@@ -33,7 +34,8 @@ final class StudyCapabilitiesTests: XCTestCase {
             cardAuthoring: fallback.cardAuthoring,
             dailyAudio: fallback.dailyAudio,
             offlineReserve: fallback.offlineReserve,
-            imports: fallback.imports
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
         )
 
         XCTAssertTrue(StudySettingsPolicy.accepts(
@@ -160,9 +162,114 @@ final class StudyCapabilitiesTests: XCTestCase {
         )
     }
 
+    func testConvenienceCardMutationsUseAdvertisedAnswerVoice() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let fallback = StudyCapabilities.fallback
+        store.capabilities = StudyCapabilities(
+            version: fallback.version,
+            settings: fallback.settings,
+            cardAuthoring: .init(
+                creationKinds: fallback.cardAuthoring.creationKinds,
+                imagePlacements: fallback.cardAuthoring.imagePlacements,
+                previewAudioRoles: fallback.cardAuthoring.previewAudioRoles,
+                defaultAnswerAudioVoiceId: "server-advertised-voice",
+                defaultFemaleAnswerAudioVoiceId: fallback.cardAuthoring
+                    .defaultFemaleAnswerAudioVoiceId,
+                limits: fallback.cardAuthoring.limits
+            ),
+            dailyAudio: fallback.dailyAudio,
+            offlineReserve: fallback.offlineReserve,
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
+        )
+
+        try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
+        let created = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(
+            created.answer["answerAudioVoiceId"]?.stringValue,
+            "server-advertised-voice"
+        )
+
+        let existing = StudyCard(
+            id: "01J0000000000000000000000CV",
+            syncId: nil,
+            noteId: nil,
+            revision: 1,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("old")]),
+            answer: .object(["meaning": .string("old")]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let updateContainer = try Persistence.makeContainer(inMemory: true)
+        updateContainer.mainContext.insert(LocalCardRecord(
+            card: existing,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(existing)
+        ))
+        try updateContainer.mainContext.save()
+        let updateStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: updateContainer.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: updateContainer.mainContext
+            )
+        )
+        updateStore.capabilities = store.capabilities
+
+        try await updateStore.updateCard(
+            existing,
+            prompt: "犬",
+            reading: "いぬ",
+            answer: "dog"
+        )
+        XCTAssertEqual(
+            updateStore.libraryCards.first?.answer["answerAudioVoiceId"]?.stringValue,
+            "server-advertised-voice"
+        )
+    }
+
     private var capabilityData: Data {
         Data(
             #"{"version":2,"settings":{"newCardsPerDay":{"default":12,"min":1,"max":40},"lessonBatchSize":{"default":6,"min":4,"max":8},"reviewTimeBudgetMinutes":{"default":75,"min":30,"max":180},"newCardLaneWeights":{"standard":{"default":4,"min":2,"max":12},"lessonFollowup":{"default":2,"min":1,"max":9},"wanikani":{"default":1,"min":0,"max":7}}},"cardAuthoring":{"creationKinds":["text-recognition","future-kind"],"imagePlacements":["none","future-place"],"previewAudioRoles":["prompt","future-role"],"defaultAnswerAudioVoiceId":"voice-default","defaultFemaleAnswerAudioVoiceId":"voice-female","limits":{"combinedPayloadBytes":12000,"payloadDepth":6,"imagePromptCharacters":321,"imageUploadBytes":456000}},"dailyAudio":{"targetDurationMinutes":{"default":25,"min":10,"max":50}},"offlineReserve":{"days":7,"maxScheduledCards":777},"imports":{"maxArchiveBytes":999999}}"#.utf8
+        ).replacingOccurrences(
+            of: #""imports":{"maxArchiveBytes":999999}}"#,
+            with: #""imports":{"maxArchiveBytes":999999},"studyActivity":{"categoriesByActivity":{"card_review":"review","daily_audio":"listen","card_creation":"create","tv":"immerse","podcast":"immerse","reading":"conversation","conversation":"conversation","wanikani_review":"wanikani","other":"immerse"}}}"#
         )
     }
 }

@@ -580,12 +580,19 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
         let maxArchiveBytes: Int
     }
 
+    struct StudyActivity: nonisolated Codable, Equatable, Sendable {
+        // Raw identifiers keep a future activity/category from invalidating the
+        // rest of the capabilities contract on an older client.
+        let categoriesByActivity: [String: String]
+    }
+
     let version: Int
     let settings: Settings
     let cardAuthoring: CardAuthoring
     let dailyAudio: DailyAudio
     let offlineReserve: OfflineReserve
     let imports: Imports
+    let studyActivity: StudyActivity
 
     static let fallback = Self(
         version: 1,
@@ -616,7 +623,12 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
             targetDurationMinutes: IntegerSetting(default: 30, min: 5, max: 60)
         ),
         offlineReserve: OfflineReserve(days: 5, maxScheduledCards: 1_000),
-        imports: Imports(maxArchiveBytes: 2_147_483_648)
+        imports: Imports(maxArchiveBytes: 2_147_483_648),
+        studyActivity: StudyActivity(
+            categoriesByActivity: StudyActivityKind.allCases.reduce(into: [:]) {
+                $0[$1.rawValue] = $1.offlineFallbackCategory.rawValue
+            }
+        )
     )
 }
 

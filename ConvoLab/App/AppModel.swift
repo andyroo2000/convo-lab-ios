@@ -109,7 +109,8 @@ final class AppModel {
             ?? StudyTimeStore(
                 api: api,
                 context: timeContainer.mainContext,
-                storageMode: studyTimeStorageMode
+                storageMode: studyTimeStorageMode,
+                activityCategoryDefaults: accountDeletionCleanupDefaults
             )
         let study = StudyStore(
             api: api,
@@ -399,7 +400,9 @@ final class AppModel {
         // Session/settings publication clamps server values against this contract,
         // so load it before the authority-dependent study synchronization begins.
         // A failed read intentionally retains the compiled offline fallback.
-        await study.refreshCapabilities()
+        if await study.refreshCapabilities() {
+            studyTime.applyStudyActivityCapabilities(study.capabilities.studyActivity)
+        }
         async let studySync: Void = study.synchronize()
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()

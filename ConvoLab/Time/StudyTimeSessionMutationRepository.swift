@@ -155,9 +155,30 @@ final class StudyTimeSessionMutationRepository {
         }
     }
 
+    func reclassifyLocalSessions(
+        userID: Int,
+        categoryForActivity: (StudyActivityKind) -> StudyActivityCategory
+    ) throws {
+        let records = try context.fetch(FetchDescriptor<LocalStudyActivitySession>(
+            predicate: #Predicate { $0.userID == userID }
+        ))
+        var changed = false
+        for record in records {
+            guard let activity = StudyActivityKind(rawValue: record.activity) else { continue }
+            let category = categoryForActivity(activity).rawValue
+            guard record.category != category else { continue }
+            record.category = category
+            changed = true
+        }
+        if changed {
+            try contextSaver.save()
+        }
+    }
+
     func start(
         replacing current: StudyTimeActiveSession?,
         activity: StudyActivityKind,
+        category: StudyActivityCategory,
         source: StudyActivitySource,
         name: String?,
         at date: Date,
@@ -175,7 +196,7 @@ final class StudyTimeSessionMutationRepository {
 
         let session = StudyTimeActiveSession(
             clientSessionID: UUID().uuidString.lowercased(),
-            category: activity.category,
+            category: category,
             activity: activity,
             source: source,
             name: name,
@@ -241,6 +262,7 @@ final class StudyTimeSessionMutationRepository {
 
     func recordCompleted(
         activity: StudyActivityKind,
+        category: StudyActivityCategory,
         source: StudyActivitySource,
         name: String?,
         startedAt: Date,
@@ -277,7 +299,7 @@ final class StudyTimeSessionMutationRepository {
         }
         let session = StudyTimeActiveSession(
             clientSessionID: clientSessionID ?? UUID().uuidString.lowercased(),
-            category: activity.category,
+            category: category,
             activity: activity,
             source: effectiveSource,
             name: name,
@@ -306,6 +328,7 @@ final class StudyTimeSessionMutationRepository {
     func update(
         session: StudyActivitySession,
         activity: StudyActivityKind,
+        category: StudyActivityCategory,
         name: String?,
         startedAt: Date,
         duration: TimeInterval,
@@ -344,7 +367,7 @@ final class StudyTimeSessionMutationRepository {
                 throw error
             }
         }
-        record.category = activity.category.rawValue
+        record.category = category.rawValue
         record.activity = activity.rawValue
         record.name = name
         record.startedAt = startedAt
