@@ -44,7 +44,7 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
-    @State private var isPreparingCompletion = false
+    @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
     @State private var lessonPresentationID = UUID()
@@ -74,6 +74,11 @@ struct StudySessionView: View {
         _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
         _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
+        _wrapUpSummary = State(
+            initialValue: StudySessionWrapUpSummary.build(
+                from: restoredCompletion?.records ?? []
+            )
+        )
         _sessionCompletion = State(initialValue: restoredCompletion)
         _completionAchievements = State(
             initialValue: restoredCompletion?.newAwardIDs.compactMap {
@@ -105,10 +110,6 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyCloseLessonButton")
             }
         }
-    }
-
-    private var wrapUpSummary: StudySessionWrapUpSummary {
-        StudySessionWrapUpSummary.build(from: sessionReviewRecords)
     }
 
     private var reviewSessionComplete: Bool {
@@ -146,7 +147,7 @@ struct StudySessionView: View {
         .paperBackground()
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
-                Task { await endReviewSession() }
+                endReviewSession()
             }
                 .frame(width: 0, height: 0)
         }
@@ -179,9 +180,6 @@ struct StudySessionView: View {
                 insertion: .move(edge: .trailing),
                 removal: .move(edge: .leading)
             ))
-        } else if isPreparingCompletion {
-            ProgressView("Preparing your wrap-up…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .lessons, lessonPreview {
             lessonPreviewContent
         } else if displayingCompletion, !practiceMode {
@@ -295,7 +293,7 @@ struct StudySessionView: View {
             {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("End session") {
-                        Task { await endReviewSession() }
+                        endReviewSession()
                     }
                     .disabled(
                         !submittingReviewCardIDs.isEmpty
@@ -359,14 +357,18 @@ struct StudySessionView: View {
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
-                _ = try? await store.refreshSession()
-                await achievementStore?.refresh()
                 achievementStore?.beginReviewSession()
+                _ = try? await store.refreshSession()
+                await achievementStore?.refreshIfNeeded(maxAge: 60, evaluate: false)
+                achievementStore?.refreshCurrentSessionBaseline()
             }
         }
         .onChange(of: reviewSessionComplete) { _, isComplete in
             guard isComplete, sessionCompletion == nil else { return }
-            Task { await prepareSessionCompletion() }
+            prepareSessionCompletion()
+        }
+        .onChange(of: sessionReviewRecords) { _, records in
+            wrapUpSummary = StudySessionWrapUpSummary.build(from: records)
         }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
@@ -1249,23 +1251,34 @@ struct StudySessionView: View {
         }
     }
 
-    private func endReviewSession() async {
+    private func endReviewSession() {
         player.stop()
         guard !sessionReviewRecords.isEmpty else {
             achievementStore?.cancelCurrentSession()
             dismiss()
             return
         }
-        await prepareSessionCompletion()
+        prepareSessionCompletion()
     }
 
-    private func prepareSessionCompletion() async {
-        guard !isPreparingCompletion else { return }
-        isPreparingCompletion = true
-        defer { isPreparingCompletion = false }
+    private func prepareSessionCompletion() {
+        guard !sessionWasEnded else { return }
         sessionWasEnded = true
-        await achievementStore?.refresh()
         let completion = achievementStore?.prepareCurrentSessionCompletion()
+        applySessionCompletion(completion)
+
+        Task { @MainActor in
+            await achievementStore?.refresh()
+            guard sessionWasEnded,
+                  sessionCompletion?.id == completion?.id
+            else { return }
+            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion()
+            guard refreshedCompletion?.id == completion?.id else { return }
+            applySessionCompletion(refreshedCompletion)
+        }
+    }
+
+    private func applySessionCompletion(_ completion: StudyAchievementCompletion?) {
         sessionCompletion = completion
         completionAchievements = completion?.newAwardIDs.compactMap {
             achievementStore?.achievement(id: $0)

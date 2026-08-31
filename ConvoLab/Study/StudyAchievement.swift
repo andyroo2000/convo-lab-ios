@@ -380,14 +380,14 @@ final class StudyAchievementStore {
         isLoading = false
     }
 
-    func refreshIfNeeded(maxAge: TimeInterval = 60) async {
+    func refreshIfNeeded(maxAge: TimeInterval = 60, evaluate: Bool = true) async {
         if let refreshedAt, Date.now.timeIntervalSince(refreshedAt) < maxAge {
             return
         }
-        await performRefresh()
+        await performRefresh(evaluate: evaluate)
     }
 
-    func refresh() async {
+    func refresh(evaluate: Bool = true) async {
         let requestedUserID = activeUserID
         let requestedSequence = refreshSequence
         while isLoading {
@@ -400,10 +400,10 @@ final class StudyAchievementStore {
                   refreshSequence == requestedSequence
             else { return }
         }
-        await performRefresh()
+        await performRefresh(evaluate: evaluate)
     }
 
-    private func performRefresh() async {
+    private func performRefresh(evaluate: Bool) async {
         guard let requestedUserID = activeUserID, !isLoading else { return }
         refreshSequence += 1
         let sequence = refreshSequence
@@ -443,8 +443,10 @@ final class StudyAchievementStore {
             var loadedProgressError: String?
             do {
                 let response: StudyAchievementProgress = try await api.request(
-                    "/api/achievements/evaluate",
-                    method: "POST"
+                    evaluate
+                        ? "/api/achievements/evaluate"
+                        : "/api/achievements/progress",
+                    method: evaluate ? "POST" : "GET"
                 )
                 let validatedProgress = try response.validated()
                 loadedProgress = validatedProgress.revision == validatedCatalog.revision
@@ -696,6 +698,18 @@ final class StudyAchievementStore {
         else { return }
         session.records.removeAll { $0.id == record.id }
         session.records.append(record)
+        sessionState.activeSession = session
+        persistSessionState()
+    }
+
+    func refreshCurrentSessionBaseline() {
+        guard var session = sessionState.activeSession,
+              let progress
+        else { return }
+        let baseline = Set(session.baselineAwardIDs ?? [])
+            .union(progress.awards.map(\.id))
+        session.baselineAwardIDs = Array(baseline)
+        session.newAwardIDs.removeAll { baseline.contains($0) }
         sessionState.activeSession = session
         persistSessionState()
     }

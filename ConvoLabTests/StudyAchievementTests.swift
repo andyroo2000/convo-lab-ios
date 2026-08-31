@@ -237,6 +237,103 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
+    func testReadOnlyRefreshUsesProgressEndpointForSessionBaseline() async throws {
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        let progressPayload = progressPayload(reviews: 25)
+        let requestMethods = LockedRequestPaths()
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            requestMethods.append("\(request.httpMethod ?? "") \(path)")
+            let body = switch path {
+            case "/api/achievements/catalog": catalogPayload
+            case "/api/achievements/progress": progressPayload
+            default: Data()
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: body.isEmpty ? 404 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let store = StudyAchievementStore(api: client)
+        store.activate(userID: 41)
+
+        await store.refresh(evaluate: false)
+
+        XCTAssertEqual(
+            requestMethods.values,
+            ["GET /api/achievements/catalog", "GET /api/achievements/progress"]
+        )
+        XCTAssertEqual(store.progress?.metricValues["reviews.count"], 25)
+    }
+
+    @MainActor
+    func testReadOnlyRefreshCanUpdateBaselineWithoutDiscardingRecordedReviews() async throws {
+        let catalogPayload = try JSONEncoder().encode(makeCatalog())
+        let historicalAward = award(id: "stable.first", date: "2026-08-01T12:00:00.000Z")
+        let newAward = award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z")
+        let progressPayloads = LockedRequestBodies()
+        progressPayloads.append(try achievementProgressPayload(awards: [historicalAward]))
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let body = switch request.url?.path {
+            case "/api/achievements/catalog": catalogPayload
+            case "/api/achievements/progress", "/api/achievements/evaluate":
+                progressPayloads.values.last ?? Data()
+            default: Data()
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: body.isEmpty ? 404 : 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                body
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        Self.retainedClients.append(client)
+        let store = StudyAchievementStore(api: client)
+        store.activate(userID: 41)
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+        let localCompletion = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(localCompletion.records.map(\.id), ["review-1"])
+        XCTAssertTrue(localCompletion.newAwardIDs.isEmpty)
+
+        await store.refresh(evaluate: false)
+        store.refreshCurrentSessionBaseline()
+        progressPayloads.append(
+            try achievementProgressPayload(awards: [historicalAward, newAward])
+        )
+        await store.refresh()
+
+        let completion = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(completion.records.map(\.id), ["review-1"])
+        XCTAssertEqual(completion.newAwardIDs, ["reviews.first"])
+    }
+
+    @MainActor
     func testStoreRestoresSnapshotImmediatelyAndReusesFreshCatalog() async throws {
         let defaults = try makeDefaults()
         let catalogPayload = try JSONEncoder().encode(makeCatalog())
@@ -803,13 +900,7 @@ final class StudyAchievementTests: XCTestCase {
     ) throws {
         let catalog = makeCatalog()
         let catalogPayload = try JSONEncoder().encode(catalog)
-        let progressPayload = try JSONSerialization.data(withJSONObject: [
-            "revision": catalog.revision,
-            "metricValues": ["stable.count": 0, "reviews.count": 25, "voice.hours": 25],
-            "awards": awards.map {
-                ["id": $0.id, "earnedAt": ISO8601Milliseconds.string(from: $0.earnedAt)]
-            },
-        ])
+        let progressPayload = try achievementProgressPayload(awards: awards)
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = { request in
             let body = switch request.url?.path {
@@ -827,6 +918,18 @@ final class StudyAchievementTests: XCTestCase {
                 body
             )
         }
+    }
+
+    private func achievementProgressPayload(
+        awards: [StudyAchievementAward]
+    ) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "revision": makeCatalog().revision,
+            "metricValues": ["stable.count": 0, "reviews.count": 25, "voice.hours": 25],
+            "awards": awards.map {
+                ["id": $0.id, "earnedAt": ISO8601Milliseconds.string(from: $0.earnedAt)]
+            },
+        ])
     }
 
     @MainActor

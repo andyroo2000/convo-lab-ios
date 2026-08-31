@@ -62,6 +62,7 @@ extension StudyStoreTests {
             duration: nil
         )
 
+        await waitUntil { paths.values.count == 4 }
         XCTAssertNil(result)
         XCTAssertEqual(
             paths.values,
@@ -183,6 +184,7 @@ extension StudyStoreTests {
             duration: nil
         )
 
+        await waitUntil { paths.values.count == 5 }
         XCTAssertNil(result)
         XCTAssertEqual(
             paths.values,
@@ -273,6 +275,9 @@ extension StudyStoreTests {
             duration: nil
         )
 
+        for _ in 0..<100 where store.cards.map(\.id) != [authoritative.id] {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertNotNil(result)
         XCTAssertEqual(
             paths.values,
@@ -339,6 +344,7 @@ extension StudyStoreTests {
             duration: nil
         )
 
+        await waitUntil { paths.values.count == 3 }
         XCTAssertEqual(
             paths.values,
             [
@@ -348,6 +354,70 @@ extension StudyStoreTests {
             ]
         )
         XCTAssertEqual(store.syncStatus, .offline)
+    }
+
+    @MainActor
+    func testAcceptedProgressionReviewDoesNotWaitForQueueRevalidation() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let card = makeCard(
+            id: "01J000000000000000000000PF",
+            expression: "すぐ終わる",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        ))
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let deferredPull = LockedDeferredResponse()
+        let emptySessionData = try sessionResponseData(cards: [])
+        let client = makeDeferredClient { request, completion in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/card-review-events/batch":
+                completion(.success(Self.response(statusCode: 204, data: Data())))
+            case "/api/sync/feed":
+                deferredPull.hold(completion)
+            case "/api/study/session/start":
+                completion(.success(Self.response(data: emptySessionData)))
+            default:
+                XCTFail("Unexpected request: \(path)")
+                completion(.failure(URLError(.badServerResponse)))
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let result = await store.recordReviewResult(
+            card: card,
+            rating: .good,
+            duration: nil
+        )
+
+        XCTAssertNotNil(result)
+        await deferredPull.waitUntilPending()
+        XCTAssertEqual(
+            paths.values,
+            ["/api/card-review-events/batch", "/api/sync/feed"]
+        )
+
+        deferredPull.succeed(with: Self.response(data: Data(
+            #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+        )))
+        await waitUntil { paths.values.count == 3 }
     }
 
     @MainActor

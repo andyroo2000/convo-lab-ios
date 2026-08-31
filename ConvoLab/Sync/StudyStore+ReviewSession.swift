@@ -318,21 +318,10 @@ extension StudyStore {
             if currentCard.belongsToLearningProgression
                 || !flushResult.progressionLockedEventIDs.isEmpty
             {
-                var cardSyncError: (any Error)?
-                do {
-                    try await pullCardChangesForProgressionRevalidation(
-                        userID: userID,
-                        activationGeneration: activationGeneration
-                    )
-                } catch {
-                    cardSyncError = error
-                }
-                do {
-                    try await revalidateRemainingReviewQueue()
-                } catch {
-                    cardSyncError = cardSyncError ?? error
-                }
-                deferredFlushError = deferredFlushError ?? cardSyncError
+                scheduleProgressionRevalidation(
+                    userID: userID,
+                    activationGeneration: activationGeneration
+                )
             }
             if let deferredFlushError {
                 throw deferredFlushError
@@ -356,6 +345,39 @@ extension StudyStore {
                 )
             }
             return stagedReview
+        }
+    }
+
+    private func scheduleProgressionRevalidation(
+        userID: Int,
+        activationGeneration: Int
+    ) {
+        Task { [weak self] in
+            guard let self,
+                  isCurrentActivation(userID, generation: activationGeneration)
+            else { return }
+            var firstError: (any Error)?
+            do {
+                try await pullCardChangesForProgressionRevalidation(
+                    userID: userID,
+                    activationGeneration: activationGeneration
+                )
+            } catch {
+                firstError = error
+            }
+            do {
+                try await revalidateRemainingReviewQueue()
+            } catch {
+                firstError = firstError ?? error
+            }
+            if let firstError {
+                markOutboxRetryNeeded(for: firstError)
+                handleSyncError(
+                    firstError,
+                    for: userID,
+                    activationGeneration: activationGeneration
+                )
+            }
         }
     }
 
