@@ -443,7 +443,8 @@ final class StudyTimeStore {
         name: String?,
         startedAt: Date,
         duration: TimeInterval,
-        addToCalendar: Bool = false
+        addToCalendar: Bool = false,
+        clientSessionID: String? = nil
     ) async throws -> String? {
         try mutationRepository.requirePersistentWrites()
         guard let userID = activeUserID else { return nil }
@@ -463,6 +464,7 @@ final class StudyTimeStore {
                 startedAt: startedAt,
                 duration: duration,
                 addToCalendar: addToCalendar,
+                clientSessionID: clientSessionID,
                 userID: userID
             )
         } catch {

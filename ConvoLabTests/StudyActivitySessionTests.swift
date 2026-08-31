@@ -538,6 +538,35 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store, saves, calendar)
     }
 
+    func testRecordCompletedUsesStableClientIDForIdempotentShortcutImport() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.activate(userID: 42)
+
+        for _ in 0..<2 {
+            _ = try await store.recordCompleted(
+                activity: .reading,
+                source: .automatic,
+                name: "Satori Reader",
+                startedAt: startedAt,
+                duration: 900,
+                clientSessionID: "satori-session"
+            )
+        }
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.clientSessionID, "satori-session")
+        XCTAssertEqual(records.first?.source, StudyActivitySource.automatic.rawValue)
+        XCTAssertEqual(records.first?.activity, StudyActivityKind.reading.rawValue)
+    }
+
     func testDeleteSaveFailureRollsBackTombstoneAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)

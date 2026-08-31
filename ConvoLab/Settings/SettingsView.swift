@@ -169,6 +169,25 @@ struct SettingsView: View {
 
                 googleCalendarSection
 
+                Section("More Integrations") {
+                    NavigationLink {
+                        SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
+                    } label: {
+                        LabeledContent {
+                            Text(satoriReaderStatus)
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Label("Satori Reader", systemImage: "book.pages")
+                        }
+                    }
+                    .accessibilityIdentifier("SatoriReaderIntegrationLink")
+                    Text(
+                        "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+
                 Section("WaniKani") {
                     if model.study.wanikaniConnected {
                         LabeledContent("WaniKani", value: "Connected")
@@ -369,6 +388,14 @@ struct SettingsView: View {
         guard let days = model.study.offlineReserveDays else { return "Not synced" }
         guard model.study.offlineReserveIsCurrent else { return "Expired" }
         return "\(days) \(days == 1 ? "day" : "days")"
+    }
+
+    private var satoriReaderStatus: String {
+        switch model.satoriReaderTracking.snapshot().detectionStatus {
+        case .notDetected: "Set Up"
+        case .partiallyDetected: "Check Setup"
+        case .detected: "Detected"
+        }
     }
 
     private func laneWeightBinding(

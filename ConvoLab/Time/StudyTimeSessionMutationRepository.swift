@@ -243,8 +243,14 @@ final class StudyTimeSessionMutationRepository {
         startedAt: Date,
         duration: TimeInterval,
         addToCalendar: Bool,
+        clientSessionID: String?,
         userID: Int
     ) async throws -> CompletedMutation {
+        if let clientSessionID,
+           let existing = record(clientSessionID: clientSessionID, userID: userID)
+        {
+            return CompletedMutation(session: existing.session, calendarWarning: nil)
+        }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
         var effectiveSource = source
@@ -264,7 +270,7 @@ final class StudyTimeSessionMutationRepository {
             }
         }
         let session = StudyTimeActiveSession(
-            clientSessionID: UUID().uuidString.lowercased(),
+            clientSessionID: clientSessionID ?? UUID().uuidString.lowercased(),
             category: activity.category,
             activity: activity,
             source: effectiveSource,
