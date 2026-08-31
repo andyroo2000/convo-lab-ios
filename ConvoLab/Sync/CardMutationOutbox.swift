@@ -171,6 +171,7 @@ final class CardMutationOutbox {
 
     func flush(
         onDrainFinished: @escaping () -> Void = {},
+        onRevisionConflict: @escaping (StudyCard) throws -> Void = { _ in },
         onAcknowledgedCard: @escaping (CardMutationAcknowledgement) throws -> Void
     ) async throws {
         if let flushTask {
@@ -184,6 +185,7 @@ final class CardMutationOutbox {
                 userID: userID,
                 generation: operationGeneration,
                 onDrainFinished: onDrainFinished,
+                onRevisionConflict: onRevisionConflict,
                 onAcknowledgedCard: onAcknowledgedCard
             )
         }
@@ -209,14 +211,9 @@ final class CardMutationOutbox {
 
     func pendingWriteIdentifiers() throws -> Set<String> {
         guard let userID = activeUserID else { return [] }
-        return Set(try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID
-                        && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                }
-            )
-        ).map { $0.resourceID.lowercased() })
+        return Set(try pendingCardWrites(userID: userID).map {
+            $0.resourceID.lowercased()
+        })
     }
 
     func hasPendingDelete(for card: StudyCard) throws -> Bool {
@@ -239,15 +236,28 @@ final class CardMutationOutbox {
 
     func hasPendingCardWrite(for cardID: String) throws -> Bool {
         guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
+        let normalizedCardID = cardID.lowercased()
+        return try pendingCardWrites(userID: userID).contains {
+            $0.resourceID.lowercased() == normalizedCardID
+        }
+    }
+
+    private func pendingCardWrites(userID: Int) throws -> [PendingMutation] {
+        let creates = try context.fetch(FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.userID == userID
-                    && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                    && $0.resourceID == cardID
+                    && $0.kind == "cardCreate"
+                    && $0.lastError == nil
             }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
+        ))
+        let updates = try context.fetch(FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && $0.kind == "cardUpdate"
+                    && $0.lastError == nil
+            }
+        ))
+        return creates + updates
     }
 
     func hasPendingMutation(for cardID: String, userID: Int) throws -> Bool {
@@ -286,6 +296,7 @@ final class CardMutationOutbox {
         userID: Int,
         generation: Int,
         onDrainFinished: () -> Void,
+        onRevisionConflict: (StudyCard) throws -> Void,
         onAcknowledgedCard: (CardMutationAcknowledgement) throws -> Void
     ) async throws {
         defer { onDrainFinished() }
@@ -344,7 +355,8 @@ final class CardMutationOutbox {
                     serverCard = try await api.request(
                         "/api/study/cards/\(mutation.resourceID)",
                         method: "PATCH",
-                        body: request
+                        body: request,
+                        decodingStudyCardRevisionConflict: true
                     )
                 case "cardDelete":
                     try await api.request(
@@ -401,6 +413,15 @@ final class CardMutationOutbox {
             {
                 try ensureActive(userID: userID, generation: generation)
                 context.delete(mutation)
+                try context.save()
+            } catch let conflict as StudyCardRevisionConflictError {
+                try ensureActive(userID: userID, generation: generation)
+                quarantinedCount += try quarantineRevisionConflicts(
+                    for: mutation,
+                    userID: userID,
+                    message: conflict.message
+                )
+                try onRevisionConflict(conflict.currentCard)
                 try context.save()
             } catch let APIClientError.rejected(status, message)
                 where [400, 404, 409, 410, 422].contains(status)
@@ -558,6 +579,32 @@ final class CardMutationOutbox {
         )
         descriptor.fetchLimit = 1
         return try !context.fetch(descriptor).isEmpty
+    }
+
+    private func quarantineRevisionConflicts(
+        for mutation: PendingMutation,
+        userID: Int,
+        message: String
+    ) throws -> Int {
+        let normalizedResourceID = mutation.resourceID.lowercased()
+        let descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && $0.kind == "cardUpdate"
+                    && $0.lastError == nil
+            }
+        )
+        let conflicts = try context.fetch(descriptor).filter {
+            $0.resourceID.lowercased() == normalizedResourceID
+        }
+        let attemptedAt = Date.now
+        for conflict in conflicts {
+            conflict.attemptCount += 1
+            conflict.lastAttemptAt = attemptedAt
+            conflict.lastError = "HTTP 409 [\(StudyCardRevisionConflictError.code)]: \(message)"
+        }
+        try context.save()
+        return conflicts.count
     }
 
     private func ensureActive(userID: Int, generation: Int) throws {

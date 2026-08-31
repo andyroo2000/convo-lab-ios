@@ -23,6 +23,7 @@ enum StudyCardEditorProjection {
                 id: id,
                 syncId: id,
                 noteId: nil,
+                revision: 0,
                 cardType: draft.cardType.rawValue,
                 prompt: prompt,
                 answer: answer,
@@ -54,11 +55,17 @@ enum StudyCardEditorProjection {
     ) -> Update {
         let prompt = draft.prompt(merging: card.prompt)
         let answer = draft.answer(merging: card.answer)
+        let projectedRevision = if prompt == card.prompt && answer == card.answer {
+            card.revision
+        } else {
+            card.revision.map { $0 == Int.max ? Int.max : $0 + 1 }
+        }
         return Update(
             card: StudyCard(
                 id: card.id,
                 syncId: card.syncId,
                 noteId: card.noteId,
+                revision: projectedRevision,
                 cardType: card.cardType,
                 prompt: prompt,
                 answer: answer,
@@ -74,7 +81,11 @@ enum StudyCardEditorProjection {
                 createdAt: card.createdAt,
                 updatedAt: date
             ),
-            request: UpdateStudyCardRequest(prompt: prompt, answer: answer)
+            request: UpdateStudyCardRequest(
+                prompt: prompt,
+                answer: answer,
+                expectedRevision: card.revision
+            )
         )
     }
 
@@ -93,6 +104,7 @@ enum StudyCardEditorProjection {
             id: latest.id,
             syncId: serverCard.syncId ?? latest.syncId,
             noteId: serverCard.noteId ?? latest.noteId,
+            revision: serverCard.revision,
             cardType: latest.cardType,
             prompt: prompt,
             answer: answer,

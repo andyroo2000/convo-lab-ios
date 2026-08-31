@@ -221,6 +221,7 @@ final class APIClientTests: XCTestCase {
           "id": "98f42a62-8303-410e-ad4d-5a69c55911bb",
           "syncId": "01J00000000000000000000000",
           "noteId": null,
+          "revision": 4,
           "cardType": "recognition",
           "prompt": {"cueText": "犬"},
           "answer": {"meaning": "dog"},
@@ -266,6 +267,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(card.answerText, "dog")
         XCTAssertEqual(card.id, "98f42a62-8303-410e-ad4d-5a69c55911bb")
         XCTAssertEqual(card.reviewCardID, "01J00000000000000000000000")
+        XCTAssertEqual(card.revision, 4)
         XCTAssertEqual(card.introductionCohortId, "01J11111111111111111111111")
         XCTAssertEqual(card.selectionPolicy, "spaced_siblings")
         XCTAssertNotNil(card.priorityUntil)
@@ -275,12 +277,31 @@ final class APIClientTests: XCTestCase {
             JSONSerialization.jsonObject(with: Data(cardJSON.utf8)) as? [String: Any]
         )
         cachedPayload.removeValue(forKey: "syncId")
+        cachedPayload.removeValue(forKey: "revision")
         let legacyCard = try StorageCodec.decoder.decode(
             StudyCard.self,
             from: JSONSerialization.data(withJSONObject: cachedPayload)
         )
         XCTAssertNil(legacyCard.syncId)
         XCTAssertEqual(legacyCard.reviewCardID, legacyCard.id)
+        XCTAssertNil(legacyCard.revision)
+    }
+
+    @MainActor
+    func testLegacyPersistedCardUpdateDefaultsExpectedRevision() throws {
+        let payload = Data(#"{"prompt":{"cueText":"犬"},"answer":{"meaning":"dog"}}"#.utf8)
+
+        let request = try StorageCodec.decoder.decode(
+            UpdateStudyCardRequest.self,
+            from: payload
+        )
+
+        XCTAssertNil(request.expectedRevision)
+        let encoded = try StorageCodec.encoder.encode(request)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        XCTAssertNil(object["expectedRevision"])
     }
 
     @MainActor

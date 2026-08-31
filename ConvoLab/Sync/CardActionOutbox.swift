@@ -361,6 +361,7 @@ enum StudyCardActionProjection {
                 id: card.id,
                 syncId: card.syncId,
                 noteId: card.noteId,
+                revision: card.revision,
                 cardType: card.cardType,
                 prompt: card.prompt,
                 answer: card.answer,

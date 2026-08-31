@@ -17,6 +17,15 @@ enum APIClientError: LocalizedError {
     }
 }
 
+struct StudyCardRevisionConflictError: LocalizedError {
+    static let code = "card_revision_conflict"
+
+    let message: String
+    let currentCard: StudyCard
+
+    var errorDescription: String? { message }
+}
+
 @Observable
 final class APIClient {
     private let baseURL: URL
@@ -48,6 +57,7 @@ final class APIClient {
         body: (any Encodable)? = nil,
         timeout: TimeInterval = 45,
         authorizationToken: String? = nil,
+        decodingStudyCardRevisionConflict: Bool = false,
         response: Response.Type = Response.self
     ) async throws -> Response {
         let data = try await sendRequest(
@@ -56,7 +66,8 @@ final class APIClient {
             query: query,
             body: body,
             timeout: timeout,
-            authorizationToken: authorizationToken
+            authorizationToken: authorizationToken,
+            decodingStudyCardRevisionConflict: decodingStudyCardRevisionConflict
         )
         do {
             return try await Self.decode(Response.self, from: data)
@@ -89,7 +100,8 @@ final class APIClient {
         query: [URLQueryItem],
         body: (any Encodable)?,
         timeout: TimeInterval,
-        authorizationToken: String? = nil
+        authorizationToken: String? = nil,
+        decodingStudyCardRevisionConflict: Bool = false
     ) async throws -> Data {
         var components = URLComponents(
             url: baseURL.appending(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
@@ -119,6 +131,19 @@ final class APIClient {
             throw APIClientError.invalidResponse
         }
         guard 200..<300 ~= httpResponse.statusCode else {
+            if decodingStudyCardRevisionConflict,
+               httpResponse.statusCode == 409,
+               let conflict = try? Self.decoder.decode(
+                   StudyCardRevisionConflictPayload.self,
+                   from: data
+               ),
+               conflict.code == StudyCardRevisionConflictError.code
+            {
+                throw StudyCardRevisionConflictError(
+                    message: conflict.message,
+                    currentCard: conflict.card
+                )
+            }
             let message = (try? Self.decoder.decode(ErrorPayload.self, from: data).message)
                 ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
             throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
@@ -268,6 +293,12 @@ final class APIClient {
 
     private struct ErrorPayload: Decodable {
         let message: String
+    }
+
+    private struct StudyCardRevisionConflictPayload: Decodable {
+        let code: String
+        let message: String
+        let card: StudyCard
     }
 
     private struct AnyEncodable: Encodable {

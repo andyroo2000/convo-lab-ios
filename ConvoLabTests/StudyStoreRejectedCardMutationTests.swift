@@ -209,6 +209,88 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testRevisionConflictRestoresCurrentServerCardAndQuarantinesEdit() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let loadedCard = makeCard(
+            id: "01J00000000000000000000C0",
+            revision: 3,
+            expression: "読み込み時"
+        )
+        let currentServerCard = makeCard(
+            id: loadedCard.id,
+            revision: 4,
+            expression: "サーバー最新"
+        )
+        let record = LocalCardRecord(
+            card: loadedCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(loadedCard)
+        )
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let currentCardObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(currentServerCard)
+        )
+        let conflictData = try JSONSerialization.data(withJSONObject: [
+            "code": "card_revision_conflict",
+            "message": "Study card content changed since it was loaded.",
+            "card": currentCardObject,
+        ])
+        let loadedCardID = loadedCard.id
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/cards/\(loadedCardID)")
+            XCTAssertEqual(request.httpMethod, "PATCH")
+            let body = try requestBody(request)
+            let update = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(update["expectedRevision"] as? Int, 3)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                conflictData
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.updateCard(
+            loadedCard,
+            prompt: "ローカル編集",
+            reading: "",
+            answer: "local edit"
+        )
+
+        let restored = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(restored.promptText, "サーバー最新")
+        XCTAssertEqual(restored.revision, 4)
+        XCTAssertNil(record.locallyUpdatedAt)
+        let persisted = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: record.payload
+        )
+        XCTAssertEqual(persisted.promptText, "サーバー最新")
+        XCTAssertEqual(persisted.revision, 4)
+        let failure = try XCTUnwrap(store.failedStudyChanges.first)
+        XCTAssertEqual(failure.kind, .cardUpdate)
+        XCTAssertTrue(failure.errorMessage.contains("card_revision_conflict"))
+        XCTAssertFalse(failure.isRetryable)
+    }
+
+    @MainActor
     func testDiscardingOlderRejectedCardUpdatePreservesNewerPendingEdit() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let serverCard = makeCard(

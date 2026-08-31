@@ -608,6 +608,51 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testQuarantinedEditDoesNotBlockLaterAuthoritativeServerUpsert() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = makeCard(id: "conflicted", expression: "resolved server snapshot")
+        let server = makeCard(id: local.id, expression: "newer server edit")
+        let localID = local.id
+        insert(local, userID: 1, in: container)
+        let quarantined = PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: local.id.uppercased(),
+            payload: Data()
+        )
+        quarantined.lastError = "HTTP 409 [card_revision_conflict]: stale edit"
+        container.mainContext.insert(quarantined)
+        try container.mainContext.save()
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, localID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(
+            api: client,
+            context: container.mainContext
+        )
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let stored = try XCTUnwrap(try cards(for: 1, in: container).first)
+        XCTAssertEqual(stored.promptText, "newer server edit")
+        XCTAssertEqual(try checkpoint(for: 1, in: container), 1)
+        XCTAssertEqual(quarantined.lastError, "HTTP 409 [card_revision_conflict]: stale edit")
+    }
+
+    @MainActor
     func testServerUpsertReconcilesCanonicalDuplicateIntoDirtyLocalAlias() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let local = makeCard(
