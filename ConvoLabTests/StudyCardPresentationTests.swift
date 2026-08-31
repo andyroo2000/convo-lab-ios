@@ -242,6 +242,29 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(wrapUp.toughestCards.first?.card.answerText, "No answer text")
     }
 
+    func testKnownPresentationAuxiliaryLabelsSkipEmptyRubyForTypedText() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":"   ","hint":null,
+            "media":{"audio":null,"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER ANSWER","ruby":"","restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+          }
+        }
+        """#)
+
+        XCTAssertEqual(card.promptText, "SERVER FRONT")
+        XCTAssertEqual(card.answerText, "SERVER ANSWER")
+    }
+
     func testKnownPresentationV1RejectsMalformedTypedMediaAndPitchAccent() {
         let unresolvedPitch = #"""
         {

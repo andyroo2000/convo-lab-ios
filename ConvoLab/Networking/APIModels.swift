@@ -1221,15 +1221,13 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
 
     var promptText: String {
         if let serverPresentation {
-            if let heading = auxiliaryPlainText(
-                serverPresentation.front.ruby ?? serverPresentation.front.text
-            ) {
+            if let heading = auxiliaryPlainText(serverPresentation.front.ruby)
+                ?? auxiliaryPlainText(serverPresentation.front.text) {
                 return heading
             }
             if serverPresentation.front.mode == .media {
-                return auxiliaryPlainText(
-                    serverPresentation.answer.ruby ?? serverPresentation.answer.heading
-                )
+                return auxiliaryPlainText(serverPresentation.answer.ruby)
+                    ?? auxiliaryPlainText(serverPresentation.answer.heading)
                     ?? auxiliaryDisplayText(serverPresentation.answer.meaning)
                     ?? "Media prompt"
             }
@@ -1251,9 +1249,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
 
     var answerText: String {
         if let serverPresentation {
-            let heading = auxiliaryPlainText(
-                serverPresentation.answer.ruby ?? serverPresentation.answer.heading
-            )
+            let heading = auxiliaryPlainText(serverPresentation.answer.ruby)
+                ?? auxiliaryPlainText(serverPresentation.answer.heading)
             let restored = auxiliaryPlainText(serverPresentation.answer.restored)
             let meaning = auxiliaryDisplayText(serverPresentation.answer.meaning)
             if serverPresentation.front.mode == .cloze {
