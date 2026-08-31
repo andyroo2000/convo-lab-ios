@@ -743,4 +743,110 @@ extension StudyStoreTests {
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
     }
+
+    @MainActor
+    func testUndoReviewKeepsServerPresentationWhenDirtyLocalPayloadIsCorrupt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cardID = "01J0000000000000000000001X"
+        let serverCard = makeCard(
+            id: cardID,
+            expression: "Server raw expression",
+            queueState: "review"
+        )
+        let record = LocalCardRecord(
+            card: serverCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: Data("corrupt-local-card".utf8)
+        )
+        record.locallyUpdatedAt = Date(timeIntervalSince1970: 1_000)
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        var cardObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(serverCard)
+            ) as? [String: Any]
+        )
+        cardObject["presentation"] = [
+            "version": 1,
+            "front": [
+                "mode": "text",
+                "text": "Projected front",
+                "ruby": NSNull(),
+                "hint": NSNull(),
+                "media": ["audio": NSNull(), "image": NSNull()],
+                "autoplayAudio": false,
+            ],
+            "answer": [
+                "heading": "Projected answer",
+                "ruby": NSNull(),
+                "restored": NSNull(),
+                "meaning": NSNull(),
+                "sentences": [
+                    "japanese": ["text": NSNull(), "ruby": NSNull()],
+                    "english": ["text": NSNull(), "ruby": NSNull()],
+                ],
+                "notes": [],
+                "media": ["image": NSNull()],
+                "audio": NSNull(),
+                "pitchAccent": NSNull(),
+            ],
+        ]
+        let projectedCardData = try JSONSerialization.data(withJSONObject: cardObject)
+        let projectedCardJSON = try XCTUnwrap(
+            String(data: projectedCardData, encoding: .utf8)
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(StudyOverview(
+                    dueCount: 1,
+                    newCount: 0,
+                    reviewCount: 1,
+                    newCardsPerDay: 10,
+                    newCardsAvailableToday: 0
+                )),
+                encoding: .utf8
+            )
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "review-event-id",
+                      "card": \(projectedCardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.undoReview(eventID: "review-event-id", cardBefore: serverCard)
+
+        let restoredRecord = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let restoredCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: restoredRecord.payload
+        )
+        XCTAssertEqual(restoredCard.serverPresentation?.version, 1)
+        XCTAssertEqual(restoredCard.presentation.front.heading, "Projected front")
+        XCTAssertEqual(store.cards.first?.serverPresentation, restoredCard.serverPresentation)
+    }
 }

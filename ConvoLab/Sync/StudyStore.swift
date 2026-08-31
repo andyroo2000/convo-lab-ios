@@ -2384,7 +2384,7 @@ final class StudyStore {
                 ? localCard?.answer ?? card.answer
                 : card.answer,
             serverPresentation: preserveLocalPresentation
-                ? localCard?.serverPresentation
+                ? localCard?.serverPresentation ?? card.serverPresentation
                 : card.serverPresentation,
             state: card.state,
             answerAudioSource: preserveLocalPresentation

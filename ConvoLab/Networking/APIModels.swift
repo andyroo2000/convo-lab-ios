@@ -845,6 +845,8 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
             case resolvedBy
         }
 
+        // A v1 pitch payload is present only after server resolution; other statuses
+        // are contract drift and intentionally fail the known-version decode.
         private enum Status: String, nonisolated Codable {
             case resolved
         }
