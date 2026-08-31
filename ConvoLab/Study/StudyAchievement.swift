@@ -146,7 +146,7 @@ nonisolated struct StudyAchievementAward: Codable, Equatable, Sendable {
     let earnedAt: Date
 }
 
-struct StudyAchievementCompletion: Identifiable, Sendable {
+struct StudyAchievementCompletion: Identifiable, Equatable, Sendable {
     let id: UUID
     let records: [StudySessionReviewRecord]
     let newAwardIDs: [String]

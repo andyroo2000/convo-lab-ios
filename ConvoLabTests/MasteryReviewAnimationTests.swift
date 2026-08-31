@@ -126,4 +126,46 @@ final class MasteryReviewAnimationTests: XCTestCase {
             )
         )
     }
+
+    @MainActor
+    func testWrapUpWaitsForAuthoritativeCompletionBeforeDismissal() {
+        XCTAssertFalse(
+            StudySessionView.canDismissWrapUp(isCompletionRefreshPending: true)
+        )
+        XCTAssertTrue(
+            StudySessionView.canDismissWrapUp(isCompletionRefreshPending: false)
+        )
+    }
+
+    @MainActor
+    func testMatchingDeferredCompletionDoesNotRewindAwardPresentation() {
+        let sessionID = UUID()
+        let current = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: ["reviews.first", "reviews.second"],
+            celebrationPresented: false
+        )
+        let matchingRefresh = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: current.newAwardIDs,
+            celebrationPresented: true
+        )
+        let newlyEarnedRefresh = StudyAchievementCompletion(
+            id: sessionID,
+            records: [],
+            newAwardIDs: current.newAwardIDs + ["reviews.third"],
+            celebrationPresented: false
+        )
+
+        XCTAssertFalse(StudySessionView.shouldResetCompletionPresentation(
+            current: current,
+            updated: matchingRefresh
+        ))
+        XCTAssertTrue(StudySessionView.shouldResetCompletionPresentation(
+            current: current,
+            updated: newlyEarnedRefresh
+        ))
+    }
 }
