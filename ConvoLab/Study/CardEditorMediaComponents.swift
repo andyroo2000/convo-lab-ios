@@ -14,6 +14,8 @@ struct CardEditorImageSection: View {
     let showsMissingCurrentImage: Bool
     let supportsUserPhoto: Bool
     let creationKind: StudyCardCreationKind
+    let maximumPromptCharacters: Int
+    let availablePlacements: [StudyCardDraft.ImagePlacement]
     let isRegeneratingImage: Bool
     let isBusy: Bool
     let onStagePhoto: (UIImage) -> Void
@@ -55,13 +57,15 @@ struct CardEditorImageSection: View {
                 )
                 .lineLimit(2...6)
                 .disabled(isRegeneratingImage)
-                Text("\(trimmedPrompt.count)/1,000")
+                Text("\(trimmedPrompt.count)/\(maximumPromptCharacters.formatted())")
                     .font(.caption)
-                    .foregroundStyle(trimmedPrompt.count > 1_000 ? .red : .secondary)
+                    .foregroundStyle(
+                        trimmedPrompt.count > maximumPromptCharacters ? .red : .secondary
+                    )
             }
 
             Picker("Image placement", selection: $draft.imagePlacement) {
-                ForEach(StudyCardDraft.ImagePlacement.allCases) { placement in
+                ForEach(availablePlacements) { placement in
                     Text(placement.title).tag(placement)
                 }
             }
@@ -116,7 +120,7 @@ struct CardEditorImageSection: View {
                     isBusy
                         || draft.imagePlacement == .none
                         || trimmedPrompt.isEmpty
-                        || trimmedPrompt.count > 1_000
+                        || trimmedPrompt.count > maximumPromptCharacters
                 )
             } else {
                 Text(

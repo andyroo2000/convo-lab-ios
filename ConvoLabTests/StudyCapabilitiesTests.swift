@@ -1,0 +1,282 @@
+import XCTest
+@testable import ConvoLab
+
+@MainActor
+final class StudyCapabilitiesTests: XCTestCase {
+    func testDecodesAuthoritativeCapabilityContractAndPreservesUnknownIdentifiers() throws {
+        let capabilities = try JSONDecoder().decode(
+            StudyCapabilities.self,
+            from: capabilityData
+        )
+
+        XCTAssertEqual(capabilities.version, 2)
+        XCTAssertEqual(capabilities.settings.lessonBatchSize.range, 4...8)
+        XCTAssertEqual(capabilities.cardAuthoring.limits.imagePromptCharacters, 321)
+        XCTAssertEqual(capabilities.cardAuthoring.creationKinds.last, "future-kind")
+        XCTAssertEqual(capabilities.offlineReserve.days, 7)
+        XCTAssertEqual(capabilities.studyActivity.categoriesByActivity["reading"], "conversation")
+    }
+
+    func testSettingsValidationUsesAdvertisedRanges() throws {
+        let fallback = StudyCapabilities.fallback
+        let capabilities = StudyCapabilities(
+            version: fallback.version,
+            settings: .init(
+                newCardsPerDay: .init(default: 12, min: 10, max: 20),
+                lessonBatchSize: .init(default: 6, min: 4, max: 8),
+                reviewTimeBudgetMinutes: .init(default: 60, min: 30, max: 120),
+                newCardLaneWeights: .init(
+                    standard: .init(default: 2, min: 2, max: 5),
+                    lessonFollowup: .init(default: 1, min: 1, max: 4),
+                    wanikani: .init(default: 0, min: 0, max: 3)
+                )
+            ),
+            cardAuthoring: fallback.cardAuthoring,
+            dailyAudio: fallback.dailyAudio,
+            offlineReserve: fallback.offlineReserve,
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
+        )
+
+        XCTAssertTrue(StudySettingsPolicy.accepts(
+            newCardsPerDay: 10,
+            lessonBatchSize: 8,
+            reviewTimeBudgetMinutes: 120,
+            newCardLaneWeights: .init(standard: 2, lessonFollowup: 1, wanikani: 3),
+            capabilities: capabilities
+        ))
+        XCTAssertFalse(StudySettingsPolicy.accepts(
+            newCardsPerDay: 9,
+            lessonBatchSize: 8,
+            reviewTimeBudgetMinutes: 120,
+            capabilities: capabilities
+        ))
+    }
+
+    func testRejectsMalformedCapabilityBoundsBeforeTheyCanReachUIRanges() {
+        let inverted = capabilityData.replacingOccurrences(
+            of: #""lessonBatchSize":{"default":6,"min":4,"max":8}"#,
+            with: #""lessonBatchSize":{"default":6,"min":8,"max":4}"#
+        )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(StudyCapabilities.self, from: inverted)
+        )
+
+        let outOfBoundsDefault = capabilityData.replacingOccurrences(
+            of: #""lessonBatchSize":{"default":6,"min":4,"max":8}"#,
+            with: #""lessonBatchSize":{"default":9,"min":4,"max":8}"#
+        )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(StudyCapabilities.self, from: outOfBoundsDefault)
+        )
+    }
+
+    func testStoreRefreshesCapabilitiesFromDedicatedEndpoint() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let responseData = capabilityData
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/study/capabilities")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                responseData
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        await store.refreshCapabilities()
+
+        XCTAssertEqual(store.capabilities.version, 2)
+        XCTAssertEqual(store.capabilities.cardAuthoring.limits.imagePromptCharacters, 321)
+    }
+
+    func testDailyAudioSelectionReconcilesToAdvertisedDefaultAndRange() {
+        let capabilities = StudyCapabilities.DailyAudio(
+            targetDurationMinutes: .init(default: 45, min: 40, max: 50)
+        )
+
+        XCTAssertEqual(
+            DailyAudioEditionDuration.available(for: capabilities),
+            [.fortyFiveMinutes]
+        )
+        XCTAssertEqual(
+            DailyAudioEditionDuration.preferred(for: capabilities),
+            .fortyFiveMinutes
+        )
+        XCTAssertEqual(
+            DailyAudioEditionDuration.reconciling(
+                .fortyFiveMinutes,
+                userSelected: true,
+                with: StudyCapabilities.fallback.dailyAudio
+            ),
+            .fortyFiveMinutes
+        )
+        XCTAssertEqual(
+            DailyAudioEditionDuration.reconciling(
+                .fifteenMinutes,
+                userSelected: true,
+                with: capabilities
+            ),
+            .fortyFiveMinutes
+        )
+    }
+
+    func testExistingCardEditPreservesItsInertCreationKindWhenCapabilitiesShrink() {
+        XCTAssertEqual(
+            CardEditorView.resolveCreationKind(
+                .textRecognition,
+                isEditingExistingCard: true,
+                preservesDraftKind: false,
+                advertisedCreationKinds: [.productionImage]
+            ),
+            .textRecognition
+        )
+        XCTAssertEqual(
+            CardEditorView.resolveCreationKind(
+                .textRecognition,
+                isEditingExistingCard: false,
+                preservesDraftKind: false,
+                advertisedCreationKinds: [.productionImage]
+            ),
+            .productionImage
+        )
+    }
+
+    func testConvenienceCardMutationsUseAdvertisedAnswerVoice() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let client = APIClient(
+            baseURL: URL(string: "https://learning-os.example")!,
+            session: URLSession(configuration: configuration)
+        )
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let fallback = StudyCapabilities.fallback
+        store.capabilities = StudyCapabilities(
+            version: fallback.version,
+            settings: fallback.settings,
+            cardAuthoring: .init(
+                creationKinds: fallback.cardAuthoring.creationKinds,
+                imagePlacements: fallback.cardAuthoring.imagePlacements,
+                previewAudioRoles: fallback.cardAuthoring.previewAudioRoles,
+                defaultAnswerAudioVoiceId: "server-advertised-voice",
+                defaultFemaleAnswerAudioVoiceId: fallback.cardAuthoring
+                    .defaultFemaleAnswerAudioVoiceId,
+                limits: fallback.cardAuthoring.limits
+            ),
+            dailyAudio: fallback.dailyAudio,
+            offlineReserve: fallback.offlineReserve,
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
+        )
+
+        try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
+        let created = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(
+            created.answer["answerAudioVoiceId"]?.stringValue,
+            "server-advertised-voice"
+        )
+
+        let existing = StudyCard(
+            id: "01J0000000000000000000000CV",
+            syncId: nil,
+            noteId: nil,
+            revision: 1,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("old")]),
+            answer: .object(["meaning": .string("old")]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let updateContainer = try Persistence.makeContainer(inMemory: true)
+        updateContainer.mainContext.insert(LocalCardRecord(
+            card: existing,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(existing)
+        ))
+        try updateContainer.mainContext.save()
+        let updateStore = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: updateContainer.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: updateContainer.mainContext
+            )
+        )
+        updateStore.capabilities = store.capabilities
+
+        try await updateStore.updateCard(
+            existing,
+            prompt: "犬",
+            reading: "いぬ",
+            answer: "dog"
+        )
+        XCTAssertEqual(
+            updateStore.libraryCards.first?.answer["answerAudioVoiceId"]?.stringValue,
+            "server-advertised-voice"
+        )
+    }
+
+    private var capabilityData: Data {
+        Data(
+            #"{"version":2,"settings":{"newCardsPerDay":{"default":12,"min":1,"max":40},"lessonBatchSize":{"default":6,"min":4,"max":8},"reviewTimeBudgetMinutes":{"default":75,"min":30,"max":180},"newCardLaneWeights":{"standard":{"default":4,"min":2,"max":12},"lessonFollowup":{"default":2,"min":1,"max":9},"wanikani":{"default":1,"min":0,"max":7}}},"cardAuthoring":{"creationKinds":["text-recognition","future-kind"],"imagePlacements":["none","future-place"],"previewAudioRoles":["prompt","future-role"],"defaultAnswerAudioVoiceId":"voice-default","defaultFemaleAnswerAudioVoiceId":"voice-female","limits":{"combinedPayloadBytes":12000,"payloadDepth":6,"imagePromptCharacters":321,"imageUploadBytes":456000}},"dailyAudio":{"targetDurationMinutes":{"default":25,"min":10,"max":50}},"offlineReserve":{"days":7,"maxScheduledCards":777},"imports":{"maxArchiveBytes":999999}}"#.utf8
+        ).replacingOccurrences(
+            of: #""imports":{"maxArchiveBytes":999999}}"#,
+            with: #""imports":{"maxArchiveBytes":999999},"studyActivity":{"categoriesByActivity":{"card_review":"review","daily_audio":"listen","card_creation":"create","tv":"immerse","podcast":"immerse","reading":"conversation","conversation":"conversation","wanikani_review":"wanikani","other":"immerse"}}}"#
+        )
+    }
+}
+
+private extension Data {
+    func replacingOccurrences(of target: String, with replacement: String) -> Data {
+        let source = String(decoding: self, as: UTF8.self)
+        return Data(source.replacingOccurrences(of: target, with: replacement).utf8)
+    }
+}

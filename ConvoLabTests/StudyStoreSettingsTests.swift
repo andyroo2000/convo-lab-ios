@@ -109,7 +109,6 @@ extension StudyStoreTests {
                 context: container.mainContext
             )
         )
-
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
         XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
@@ -119,6 +118,55 @@ extension StudyStoreTests {
         XCTAssertTrue(saved)
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 24)
         XCTAssertNil(store.studySettingsErrorMessage)
+    }
+
+    @MainActor
+    func testNewCardLimitUpdateUsesAdvertisedLessonDefaultWithoutLoadedSettings() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let body = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Int]
+            )
+            XCTAssertEqual(body["lessonBatchSize"], 7)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"newCardsPerDay":24,"lessonBatchSize":7}"#.utf8)
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        let fallback = StudyCapabilities.fallback
+        store.capabilities = StudyCapabilities(
+            version: fallback.version,
+            settings: .init(
+                newCardsPerDay: fallback.settings.newCardsPerDay,
+                lessonBatchSize: .init(default: 7, min: 3, max: 10),
+                reviewTimeBudgetMinutes: fallback.settings.reviewTimeBudgetMinutes,
+                newCardLaneWeights: fallback.settings.newCardLaneWeights
+            ),
+            cardAuthoring: fallback.cardAuthoring,
+            dailyAudio: fallback.dailyAudio,
+            offlineReserve: fallback.offlineReserve,
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
+        )
+
+        let saved = await store.updateNewCardsPerDay(24)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.studySettings?.lessonBatchSize, 7)
     }
 
     @MainActor

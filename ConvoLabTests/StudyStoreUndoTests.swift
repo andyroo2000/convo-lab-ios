@@ -298,6 +298,8 @@ extension StudyStoreTests {
                 with: try requestBody(request)
             ) as? [String: Any]
             let eventID = try XCTUnwrap(body?["reviewLogId"] as? String)
+            XCTAssertNil(body?["currentOverview"])
+            XCTAssertNil(body?["current_overview"])
             undoEventIDs.append(eventID)
             return (
                 HTTPURLResponse(

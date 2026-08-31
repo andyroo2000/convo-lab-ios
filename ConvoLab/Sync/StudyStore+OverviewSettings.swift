@@ -2,6 +2,26 @@ import Foundation
 import SwiftData
 
 extension StudyStore {
+    @discardableResult
+    func refreshCapabilities() async -> Bool {
+        guard let userID = activeUserID else { return false }
+        let activationGeneration = accountActivationGeneration
+        do {
+            let response: StudyCapabilities = try await api.request(
+                "/api/study/capabilities"
+            )
+            guard isCurrentActivation(userID, generation: activationGeneration) else {
+                return false
+            }
+            capabilities = response
+            return true
+        } catch {
+            // The compiled contract remains available for offline startup and
+            // older deployments. The next foreground sync retries this read.
+            return false
+        }
+    }
+
     func refreshOverview(timeZone: TimeZone = .autoupdatingCurrent) async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
@@ -28,7 +48,8 @@ extension StudyStore {
             let responseSettings = StudySettingsPolicy.settings(
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
-                existingLaneWeights: studySettings?.newCardLaneWeights
+                existingLaneWeights: studySettings?.newCardLaneWeights,
+                capabilities: capabilities
             )
             let canPublishResponseSettings = studySettingsMutationRevision
                 == settingsMutationRevision
@@ -66,7 +87,8 @@ extension StudyStore {
             else { return }
             let resolvedResponse = StudySettingsPolicy.resolving(
                 response,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
+                capabilities: capabilities
             )
             studySettings = resolvedResponse
             if let current = overview {
@@ -88,7 +110,9 @@ extension StudyStore {
     func updateNewCardsPerDay(_ value: Int) async -> Bool {
         await updateStudySettings(
             newCardsPerDay: value,
-            lessonBatchSize: studySettings?.lessonBatchSize ?? overview?.lessonBatchSize ?? 5,
+            lessonBatchSize: studySettings?.lessonBatchSize
+                ?? overview?.lessonBatchSize
+                ?? capabilities.settings.lessonBatchSize.default,
             newCardLaneWeights: studySettings?.newCardLaneWeights
         )
     }
@@ -106,7 +130,8 @@ extension StudyStore {
                 newCardsPerDay: newCardsPerDay,
                 lessonBatchSize: lessonBatchSize,
                 reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
-                newCardLaneWeights: newCardLaneWeights
+                newCardLaneWeights: newCardLaneWeights,
+                capabilities: capabilities
             )
         else { return false }
         let activationGeneration = accountActivationGeneration
@@ -144,7 +169,8 @@ extension StudyStore {
                 response,
                 requestedReviewTimeBudget: reviewTimeBudgetMinutes,
                 requestedLaneWeights: newCardLaneWeights,
-                fallbackReviewTimeBudget: resolvedReviewTimeBudget()
+                fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
+                capabilities: capabilities
             )
             studySettings = resolvedResponse
             if let current = overview {
@@ -180,8 +206,10 @@ extension StudyStore {
         overview = cachedOverview
         studySettings = StudySettingsPolicy.settings(
             from: cachedOverview,
-            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes ?? 90,
-            existingLaneWeights: studySettings?.newCardLaneWeights
+            fallbackReviewTimeBudget: cachedOverview.reviewTimeBudgetMinutes
+                ?? capabilities.settings.reviewTimeBudgetMinutes.default,
+            existingLaneWeights: studySettings?.newCardLaneWeights,
+            capabilities: capabilities
         )
     }
 

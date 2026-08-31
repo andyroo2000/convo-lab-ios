@@ -109,7 +109,8 @@ final class AppModel {
             ?? StudyTimeStore(
                 api: api,
                 context: timeContainer.mainContext,
-                storageMode: studyTimeStorageMode
+                storageMode: studyTimeStorageMode,
+                activityCategoryDefaults: accountDeletionCleanupDefaults
             )
         let study = StudyStore(
             api: api,
@@ -396,9 +397,19 @@ final class AppModel {
         }
         activateLocalData(for: user)
         await importPendingSatoriReaderSessions()
-        async let studySync: Void = study.synchronize()
+        // These operations consume already-materialized payloads and their own API
+        // resources; neither derives mutations or presentation from study capabilities.
+        // Start them promptly while preserving capability authority for study/time sync.
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
+        // Session/settings publication clamps server values against this contract,
+        // and activity sync publishes category-derived aggregates, so load it before
+        // either authority-dependent synchronization begins.
+        // A failed read intentionally retains the compiled offline fallback.
+        if await study.refreshCapabilities() {
+            studyTime.applyStudyActivityCapabilities(study.capabilities.studyActivity)
+        }
+        async let studySync: Void = study.synchronize()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
         async let achievementRefresh: Void = achievements.refresh()

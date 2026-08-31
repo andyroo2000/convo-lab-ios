@@ -168,6 +168,102 @@ final class AppModelStorageTests: XCTestCase {
         Self.retainedObservableStores.append(model)
     }
 
+    func testSynchronizationOverlapsIndependentRefreshesWhileCapabilitiesGateStudySync() async throws {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let paths = LockedRequestPaths()
+        let capabilityData = try JSONEncoder().encode(StudyCapabilities.fallback)
+        let (capabilityStarted, capabilityStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (dailyAudioStarted, dailyAudioStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseCapability, releaseCapabilityContinuation) = AsyncStream<Void>.makeStream()
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = { request, completion in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            guard let url = request.url else {
+                completion(.failure(URLError(.badURL)))
+                return
+            }
+            switch path {
+            case "/api/study/capabilities":
+                capabilityStartedContinuation.yield()
+                Task {
+                    var releaseIterator = releaseCapability.makeAsyncIterator()
+                    _ = await releaseIterator.next()
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: url,
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        capabilityData
+                    )))
+                }
+            case "/api/daily-audio-practice":
+                dailyAudioStartedContinuation.yield()
+                completion(.failure(URLError(.notConnectedToInternet)))
+            default:
+                completion(.failure(URLError(.notConnectedToInternet)))
+            }
+        }
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let defaultsName = "AppModelStorageTests.capability-order.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAPIClient: { baseURL in
+                APIClient(
+                    baseURL: baseURL,
+                    session: URLSession(configuration: configuration)
+                )
+            },
+            makeAuthStore: { api in
+                AuthStore(api: api, keychain: credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+
+        let synchronization = Task { await model.synchronize() }
+        var capabilityIterator = capabilityStarted.makeAsyncIterator()
+        var dailyAudioIterator = dailyAudioStarted.makeAsyncIterator()
+        _ = await capabilityIterator.next()
+        _ = await dailyAudioIterator.next()
+
+        XCTAssertFalse(paths.values.contains("/api/sync/feed"))
+
+        releaseCapabilityContinuation.yield()
+        await synchronization.value
+
+        let completedPaths = paths.values
+        XCTAssertLessThan(
+            try XCTUnwrap(completedPaths.firstIndex(of: "/api/study/capabilities")),
+            try XCTUnwrap(completedPaths.firstIndex(of: "/api/sync/feed"))
+        )
+        Self.retainedObservableStores.append(model)
+    }
+
     func testLaunchReportsMainStoreFallbackAndRejectsCardWrites() async throws {
         let model = AppModel(
             configuration: testConfiguration(),
