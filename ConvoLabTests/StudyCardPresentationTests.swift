@@ -201,7 +201,7 @@ final class StudyCardPresentationTests: XCTestCase {
         """#
         let malformedPresentations = [
             minimalPresentation(frontAudio: #""not-an-object""#, pitchAccent: "null"),
-            minimalPresentation(frontAudio: #"{"id":null}"#, pitchAccent: "null"),
+            minimalPresentation(frontAudio: #"{"id":42}"#, pitchAccent: "null"),
             minimalPresentation(frontAudio: "null", pitchAccent: unresolvedPitch),
             minimalPresentation(frontAudio: "null", pitchAccent: mismatchedPitch),
         ]
@@ -209,6 +209,38 @@ final class StudyCardPresentationTests: XCTestCase {
         for presentation in malformedPresentations {
             XCTAssertThrowsError(try decodedCard(presentation: presentation))
         }
+
+        XCTAssertNoThrow(try decodedCard(presentation: minimalPresentation(
+            frontAudio: #"{"id":null,"filename":null,"url":null,"mediaKind":null,"source":null}"#,
+            pitchAccent: "null"
+        )))
+    }
+
+    func testServerPresentationSuppressesDuplicateClozeAnswerDetail() throws {
+        let card = try decodedCard(
+            presentation: #"""
+            {
+              "version":1,
+              "front":{
+                "mode":"text","text":"RAW FRONT","ruby":null,"hint":null,
+                "media":{"audio":null,"image":null},"autoplayAudio":false
+              },
+              "answer":{
+                "heading":null,"ruby":null,"restored":null,"meaning":"RAW MEANING",
+                "sentences":{
+                  "japanese":{"text":null,"ruby":null},
+                  "english":{"text":null,"ruby":null}
+                },
+                "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+              }
+            }
+            """#,
+            cardType: "cloze",
+            rawExpression: "RAW MEANING"
+        )
+
+        XCTAssertEqual(card.answerText, "RAW MEANING")
+        XCTAssertNil(card.answerDetailText)
     }
 
     func testOptimisticSchedulingPreservesProjectionWhileContentEditsInvalidateIt() throws {
@@ -773,21 +805,25 @@ final class StudyCardPresentationTests: XCTestCase {
         )
     }
 
-    private func decodedCard(presentation: String?) throws -> StudyCard {
+    private func decodedCard(
+        presentation: String?,
+        cardType: String = "recognition",
+        rawExpression: String = "RAW ANSWER"
+    ) throws -> StudyCard {
         let presentationField = presentation.map { ",\"presentation\":\($0)" } ?? ""
         return try StorageCodec.decoder.decode(
             StudyCard.self,
             from: Data(#"""
             {
               "id":"01J60000000000000000000001","syncId":null,"noteId":null,
-              "revision":3,"cardType":"recognition",
+              "revision":3,"cardType":"\#(cardType)",
               "prompt":{
                 "cueText":"RAW FRONT","cueMeaning":"RAW HINT",
                 "cueAudio":{"url":"/media/raw-prompt.mp3"},
                 "cueImage":{"url":"/media/raw-prompt.png"}
               },
               "answer":{
-                "expression":"RAW ANSWER","meaning":"RAW MEANING",
+                "expression":"\#(rawExpression)","meaning":"RAW MEANING",
                 "answerAudio":{"url":"/media/raw-answer.mp3"},
                 "answerImage":{"url":"/media/raw-answer.png"}
               }

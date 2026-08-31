@@ -824,19 +824,11 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
 
         nonisolated init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = container.contains(.id)
-                ? try container.decode(String.self, forKey: .id)
-                : nil
-            filename = container.contains(.filename)
-                ? try container.decode(String.self, forKey: .filename)
-                : nil
+            id = try container.decodeIfPresent(String.self, forKey: .id)
+            filename = try container.decodeIfPresent(String.self, forKey: .filename)
             url = try container.decodeIfPresent(String.self, forKey: .url)
-            mediaKind = container.contains(.mediaKind)
-                ? try container.decode(String.self, forKey: .mediaKind)
-                : nil
-            source = container.contains(.source)
-                ? try container.decode(String.self, forKey: .source)
-                : nil
+            mediaKind = try container.decodeIfPresent(String.self, forKey: .mediaKind)
+            source = try container.decodeIfPresent(String.self, forKey: .source)
         }
     }
 
@@ -1264,7 +1256,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     var answerDetailText: String? {
         guard cardType == "cloze" else { return nil }
         if serverPresentation != nil {
-            return presentation.back.textBlocks.first { $0.role == .meaning }?.text
+            let detail = presentation.back.textBlocks.first { $0.role == .meaning }?.text
+            return detail == answerText ? nil : detail
         }
         let detail = answer.firstNonEmptyString(for: ["meaning", "translation"])
         return detail == answerText ? nil : detail
