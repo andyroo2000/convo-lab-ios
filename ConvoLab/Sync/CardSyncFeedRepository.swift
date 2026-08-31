@@ -514,7 +514,8 @@ final class CardSyncFeedRepository {
         let preservesLocalContent = matchingRecords.contains {
             $0.locallyUpdatedAt != nil
         } || pending.contains {
-            $0.kind == "cardCreate" || $0.kind == "cardUpdate"
+            ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
+                && $0.lastError == nil
         }
         var merged = mergedCard(
             serverCard,
