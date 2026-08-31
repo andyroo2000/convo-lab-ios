@@ -754,6 +754,13 @@ final class CardSyncFeedRepository {
         guard preservingPendingReview || preservingLocalContent else {
             return serverCard
         }
+        let retainedPresentation = if preservingLocalContent {
+            localCard.cardType == serverCard.cardType
+                ? localCard.serverPresentation
+                : nil
+        } else {
+            serverCard.serverPresentation
+        }
         return StudyCard(
             id: serverCard.id,
             syncId: serverCard.syncId ?? localCard.syncId,
@@ -762,9 +769,10 @@ final class CardSyncFeedRepository {
             cardType: serverCard.cardType,
             prompt: preservingLocalContent ? localCard.prompt : serverCard.prompt,
             answer: preservingLocalContent ? localCard.answer : serverCard.answer,
-            serverPresentation: preservingLocalContent
-                ? localCard.serverPresentation
-                : serverCard.serverPresentation,
+            // A presentation is derived for a specific card type and content
+            // snapshot. A racing server type change must not relabel the dirty
+            // local projection with the new type.
+            serverPresentation: retainedPresentation,
             state: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).state
                 : serverCard.state,

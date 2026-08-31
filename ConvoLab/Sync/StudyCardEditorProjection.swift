@@ -111,7 +111,9 @@ enum StudyCardEditorProjection {
             cardType: latest.cardType,
             prompt: prompt,
             answer: answer,
-            serverPresentation: prompt == serverCard.prompt && answer == serverCard.answer
+            serverPresentation: latest.cardType == serverCard.cardType
+                && prompt == serverCard.prompt
+                && answer == serverCard.answer
                 ? serverCard.serverPresentation
                 : nil,
             state: latest.state,
