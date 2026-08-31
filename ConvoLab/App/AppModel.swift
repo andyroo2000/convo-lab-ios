@@ -31,6 +31,7 @@ final class AppModel {
     let audioPlayer: AudioPlayer
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
+    let satoriReaderTracking: SatoriReaderTrackingStore
     let achievements: StudyAchievementStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
@@ -60,6 +61,7 @@ final class AppModel {
         makeAPIClient: (URL) -> APIClient = { APIClient(baseURL: $0) },
         makeAuthStore: (APIClient) -> AuthStore = { AuthStore(api: $0) },
         makeStudyTimeStore: ((APIClient, ModelContext, StorageMode) -> StudyTimeStore)? = nil,
+        satoriReaderTracking: SatoriReaderTrackingStore = .shared,
         makeAudioPlayer: () -> AudioPlayer = { AudioPlayer() },
         makeStudyAudioPlayer: ((AudioPlayer) -> StudyAudioPlayer)? = nil,
         accountDeletionCleanupDefaults: UserDefaults = .standard
@@ -133,6 +135,7 @@ final class AppModel {
         auth = makeAuthStore(api)
         self.mediaCache = mediaCache
         self.studyTime = studyTime
+        self.satoriReaderTracking = satoriReaderTracking
         self.achievements = achievements
         self.storageStatus = storageStatus
         self.study = study
@@ -182,6 +185,7 @@ final class AppModel {
                     }
                 },
                 .studyTime: { userID in
+                    satoriReaderTracking.removeAccountData(userID: userID)
                     guard studyTimeStorageMode == .persistent else {
                         return false
                     }
@@ -242,6 +246,8 @@ final class AppModel {
             } else {
                 activateLocalData(for: user)
             }
+        } else {
+            satoriReaderTracking.setActiveUserID(nil)
         }
     }
 
@@ -250,7 +256,10 @@ final class AppModel {
         // removed them, and a signed-out relaunch must still finish local purging.
         await retryAccountDeletionCleanup()
         await auth.restore()
-        guard case .signedIn = auth.state else { return }
+        guard case .signedIn = auth.state else {
+            satoriReaderTracking.setActiveUserID(nil)
+            return
+        }
         // Only a credential restored at cold launch can establish ownership of
         // rows created by the pre-account-scoping app. Never mark the migration
         // complete while running against the emergency in-memory store.
@@ -271,6 +280,7 @@ final class AppModel {
     func applicationDidBecomeActive() async {
         study.activateOfflineDueCards()
         if case .signedIn = auth.state {
+            await importPendingSatoriReaderSessions()
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
             async let draftCreateRetry: Void = retryPendingDraftCreates()
             async let dailyAudioRefresh: Void = dailyAudio.refreshIfNeeded(
@@ -300,6 +310,7 @@ final class AppModel {
         achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
+        satoriReaderTracking.setActiveUserID(nil)
         await auth.logout()
     }
 
@@ -384,6 +395,7 @@ final class AppModel {
             }
         }
         activateLocalData(for: user)
+        await importPendingSatoriReaderSessions()
         async let studySync: Void = study.synchronize()
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
@@ -412,5 +424,30 @@ final class AppModel {
         achievements.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
+        satoriReaderTracking.setActiveUserID(user.id)
+    }
+
+    func importPendingSatoriReaderSessions() async {
+        guard case let .signedIn(user) = auth.state else { return }
+        for session in satoriReaderTracking.pendingSessions(userID: user.id) {
+            do {
+                _ = try await studyTime.recordCompleted(
+                    activity: .reading,
+                    source: .automatic,
+                    name: "Satori Reader",
+                    startedAt: session.startedAt,
+                    duration: session.duration,
+                    clientSessionID: session.id
+                )
+                satoriReaderTracking.acknowledge(
+                    sessionID: session.id,
+                    userID: user.id
+                )
+            } catch {
+                // Keep this and later receipts durable so a future foreground
+                // activation can retry after storage becomes available.
+                break
+            }
+        }
     }
 }

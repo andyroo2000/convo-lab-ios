@@ -443,10 +443,10 @@ final class StudyTimeStore {
         name: String?,
         startedAt: Date,
         duration: TimeInterval,
-        addToCalendar: Bool = false
+        addToCalendar: Bool = false,
+        clientSessionID: String? = nil
     ) async throws -> String? {
         try mutationRepository.requirePersistentWrites()
-        guard let userID = activeUserID else { return nil }
         let operation = StorageWriteOperation.recordCompleted(
             activity: activity,
             source: source,
@@ -454,6 +454,11 @@ final class StudyTimeStore {
             startedAt: startedAt,
             duration: max(0, min(duration, 86_400))
         )
+        guard let userID = activeUserID else {
+            let error = StudyTimeSessionMutationError.accountUnavailable
+            setStorageWriteError(error, for: operation)
+            throw error
+        }
         let result: StudyTimeSessionMutationRepository.CompletedMutation
         do {
             result = try await mutationRepository.recordCompleted(
@@ -463,6 +468,7 @@ final class StudyTimeStore {
                 startedAt: startedAt,
                 duration: duration,
                 addToCalendar: addToCalendar,
+                clientSessionID: clientSessionID,
                 userID: userID
             )
         } catch {

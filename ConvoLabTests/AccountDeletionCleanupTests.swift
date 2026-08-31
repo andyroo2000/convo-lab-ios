@@ -106,6 +106,14 @@ final class AccountDeletionCleanupTests: XCTestCase {
             LocalStudyActivitySession(session: studyTimeSession(), userID: 42)
         )
         try timeContainer.mainContext.save()
+        let tracking = SatoriReaderTrackingStore(defaults: defaults)
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        tracking.setActiveUserID(42)
+        tracking.recordStart(at: startedAt)
+        tracking.recordStop(at: startedAt.addingTimeInterval(600))
+        tracking.setActiveUserID(84)
+        tracking.recordStart(at: startedAt.addingTimeInterval(1_000))
+        tracking.recordStop(at: startedAt.addingTimeInterval(1_600))
         let model = AppModel(
             configuration: AppConfiguration(
                 apiBaseURL: URL(string: "https://example.test")!
@@ -115,6 +123,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
             makeAuthStore: { api in
                 AuthStore(api: api, keychain: EmptyCredentialStore())
             },
+            satoriReaderTracking: tracking,
             accountDeletionCleanupDefaults: defaults
         )
 
@@ -137,6 +146,8 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertTrue(model.accountDeletionCleanupFailures.isEmpty)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .complete)
         XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
+        XCTAssertTrue(tracking.pendingSessions(userID: 42).isEmpty)
+        XCTAssertEqual(tracking.pendingSessions(userID: 84).count, 1)
     }
 
     func testConfirmedAccountDeletionSchedulesEveryCleanupBeforeFailedAttempts() async throws {

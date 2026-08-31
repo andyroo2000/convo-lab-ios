@@ -538,6 +538,102 @@ final class StudyActivitySessionTests: XCTestCase {
         retainSaveFixtures(container, store, saves, calendar)
     }
 
+    func testRecordCompletedUsesStableClientIDForIdempotentShortcutImport() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.activate(userID: 42)
+
+        for _ in 0..<2 {
+            _ = try await store.recordCompleted(
+                activity: .reading,
+                source: .automatic,
+                name: "Satori Reader",
+                startedAt: startedAt,
+                duration: 900,
+                clientSessionID: "satori-session"
+            )
+        }
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.clientSessionID, "satori-session")
+        XCTAssertEqual(records.first?.source, StudyActivitySource.automatic.rawValue)
+        XCTAssertEqual(records.first?.activity, StudyActivityKind.reading.rawValue)
+    }
+
+    func testInactiveStoreKeepsCompletedShortcutImportRetryable() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+
+        do {
+            _ = try await store.recordCompleted(
+                activity: .reading,
+                source: .automatic,
+                name: "Satori Reader",
+                startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                duration: 900,
+                clientSessionID: "satori-session"
+            )
+            XCTFail("An inactive import should remain retryable")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Sign in before recording study time."
+            )
+        }
+
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            0
+        )
+    }
+
+    func testStableClientIDDeduplicatesAgainstATombstone() async throws {
+        let container = try StudyTimePersistence.makeContainer(inMemory: true)
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let existing = LocalStudyActivitySession(
+            session: makeSession(
+                source: .manual,
+                clientSessionId: "satori-session"
+            ),
+            userID: 42
+        )
+        existing.isTombstone = true
+        container.mainContext.insert(existing)
+        try container.mainContext.save()
+        let store = StudyTimeStore(
+            api: makeClient { _ in throw URLError(.notConnectedToInternet) },
+            context: container.mainContext
+        )
+        store.activate(userID: 42)
+
+        _ = try await store.recordCompleted(
+            activity: .reading,
+            source: .automatic,
+            name: "Satori Reader",
+            startedAt: startedAt,
+            duration: 900,
+            clientSessionID: "satori-session"
+        )
+
+        let records = try container.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertTrue(records[0].isTombstone)
+    }
+
     func testDeleteSaveFailureRollsBackTombstoneAndCanRetry() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let original = makeSession(source: .manual)

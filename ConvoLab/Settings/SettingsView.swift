@@ -4,6 +4,7 @@ struct SettingsView: View {
     let model: AppModel
     let user: CurrentUser
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var wanikaniAPIToken = ""
     @State private var confirmingWaniKaniDisconnect = false
     @State private var confirmingCalendarDisconnect = false
@@ -18,6 +19,7 @@ struct SettingsView: View {
     @State private var laneWeights: StudyNewCardLaneWeights?
     @State private var studySettingsSaved = false
     @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
+    @State private var satoriReaderSnapshot: SatoriReaderTrackingSnapshot
 
     init(model: AppModel, user: CurrentUser) {
         self.model = model
@@ -39,6 +41,9 @@ struct SettingsView: View {
             initialValue: min(max(initialReviewTimeBudgetMinutes, 15), 240)
         )
         _laneWeights = State(initialValue: model.study.studySettings?.newCardLaneWeights)
+        _satoriReaderSnapshot = State(
+            initialValue: model.satoriReaderTracking.snapshot()
+        )
     }
 
     var body: some View {
@@ -168,6 +173,25 @@ struct SettingsView: View {
                 }
 
                 googleCalendarSection
+
+                Section("More Integrations") {
+                    NavigationLink {
+                        SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
+                    } label: {
+                        LabeledContent {
+                            Text(satoriReaderStatus)
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Label("Satori Reader", systemImage: "book.pages")
+                        }
+                    }
+                    .accessibilityIdentifier("SatoriReaderIntegrationLink")
+                    Text(
+                        "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
 
                 Section("WaniKani") {
                     if model.study.wanikaniConnected {
@@ -363,12 +387,30 @@ struct SettingsView: View {
         .sheet(isPresented: $showingFailedStudyChanges) {
             FailedStudyChangesView(store: model.study)
         }
+        .onAppear(perform: refreshSatoriReaderStatus)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                refreshSatoriReaderStatus()
+            }
+        }
     }
 
     private var offlineStudyWindow: String {
         guard let days = model.study.offlineReserveDays else { return "Not synced" }
         guard model.study.offlineReserveIsCurrent else { return "Expired" }
         return "\(days) \(days == 1 ? "day" : "days")"
+    }
+
+    private var satoriReaderStatus: String {
+        switch satoriReaderSnapshot.detectionStatus {
+        case .notDetected: "Set Up"
+        case .partiallyDetected: "Check Setup"
+        case .detected: "Detected"
+        }
+    }
+
+    private func refreshSatoriReaderStatus() {
+        satoriReaderSnapshot = model.satoriReaderTracking.snapshot()
     }
 
     private func laneWeightBinding(

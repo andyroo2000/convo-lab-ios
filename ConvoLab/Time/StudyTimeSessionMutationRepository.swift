@@ -83,6 +83,7 @@ enum StudyTimeSessionMutationError: LocalizedError {
     case readOnlySession
     case calendarEventUnavailable
     case sessionUnavailable
+    case accountUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -92,6 +93,8 @@ enum StudyTimeSessionMutationError: LocalizedError {
             "The linked calendar event is not available on this device."
         case .sessionUnavailable:
             "This study entry is no longer available. Refresh and try again."
+        case .accountUnavailable:
+            "Sign in before recording study time."
         }
     }
 }
@@ -243,8 +246,17 @@ final class StudyTimeSessionMutationRepository {
         startedAt: Date,
         duration: TimeInterval,
         addToCalendar: Bool,
+        clientSessionID: String?,
         userID: Int
     ) async throws -> CompletedMutation {
+        if let clientSessionID,
+           let existing = recordIncludingTombstones(
+               clientSessionID: clientSessionID,
+               userID: userID
+           )
+        {
+            return CompletedMutation(session: existing.session, calendarWarning: nil)
+        }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
         var effectiveSource = source
@@ -264,7 +276,7 @@ final class StudyTimeSessionMutationRepository {
             }
         }
         let session = StudyTimeActiveSession(
-            clientSessionID: UUID().uuidString.lowercased(),
+            clientSessionID: clientSessionID ?? UUID().uuidString.lowercased(),
             category: activity.category,
             activity: activity,
             source: effectiveSource,
@@ -597,13 +609,23 @@ final class StudyTimeSessionMutationRepository {
         clientSessionID: String,
         userID: Int
     ) -> LocalStudyActivitySession? {
+        recordIncludingTombstones(
+            clientSessionID: clientSessionID,
+            userID: userID
+        ).flatMap { $0.isTombstone ? nil : $0 }
+    }
+
+    private func recordIncludingTombstones(
+        clientSessionID: String,
+        userID: Int
+    ) -> LocalStudyActivitySession? {
         var descriptor = FetchDescriptor<LocalStudyActivitySession>(
             predicate: #Predicate {
                 $0.userID == userID && $0.clientSessionID == clientSessionID
             }
         )
         descriptor.fetchLimit = 1
-        return try? context.fetch(descriptor).first(where: { !$0.isTombstone })
+        return try? context.fetch(descriptor).first
     }
 
     private func complete(

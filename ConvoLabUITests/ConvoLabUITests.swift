@@ -181,6 +181,31 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testSatoriReaderSetupIsDiscoverableOnlyThroughSettings() {
+        let app = launchFixture("calendar-connection", reset: true)
+        let integration = app.buttons["SatoriReaderIntegrationLink"]
+        for _ in 0..<3 where !integration.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(integration.waitForExistence(timeout: 8))
+        integration.tap()
+
+        XCTAssertTrue(app.navigationBars["Satori Reader"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Tracking not detected"].exists)
+        XCTAssertTrue(app.staticTexts["1. Track opening Satori Reader"].exists)
+        let startTest = app.buttons["Start Test"]
+        for _ in 0..<3 where !startTest.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(startTest.waitForExistence(timeout: 8))
+        let openShortcuts = app.buttons["Open Shortcuts"]
+        for _ in 0..<2 where !openShortcuts.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(openShortcuts.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
     func testStudyDashboardUsesCompactSourceDrivenPresentation() {
         let app = launchFixture("study-dashboard", reset: true)
         XCTAssertTrue(app.staticTexts["Ready to learn"].waitForExistence(timeout: 8))
