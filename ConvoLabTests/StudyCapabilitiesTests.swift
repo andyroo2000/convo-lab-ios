@@ -51,6 +51,24 @@ final class StudyCapabilitiesTests: XCTestCase {
         ))
     }
 
+    func testRejectsMalformedCapabilityBoundsBeforeTheyCanReachUIRanges() {
+        let inverted = capabilityData.replacingOccurrences(
+            of: #""lessonBatchSize":{"default":6,"min":4,"max":8}"#,
+            with: #""lessonBatchSize":{"default":6,"min":8,"max":4}"#
+        )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(StudyCapabilities.self, from: inverted)
+        )
+
+        let outOfBoundsDefault = capabilityData.replacingOccurrences(
+            of: #""lessonBatchSize":{"default":6,"min":4,"max":8}"#,
+            with: #""lessonBatchSize":{"default":9,"min":4,"max":8}"#
+        )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(StudyCapabilities.self, from: outOfBoundsDefault)
+        )
+    }
+
     func testStoreRefreshesCapabilitiesFromDedicatedEndpoint() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let responseData = capabilityData
@@ -99,12 +117,38 @@ final class StudyCapabilitiesTests: XCTestCase {
             DailyAudioEditionDuration.available(for: capabilities),
             [.fortyFiveMinutes]
         )
-        XCTAssertEqual(DailyAudioEditionDuration.preferred(for: capabilities), .fortyFiveMinutes)
+        XCTAssertEqual(
+            DailyAudioEditionDuration.preferred(for: capabilities),
+            .fortyFiveMinutes
+        )
+        XCTAssertEqual(
+            DailyAudioEditionDuration.reconciling(
+                .fortyFiveMinutes,
+                userSelected: true,
+                with: StudyCapabilities.fallback.dailyAudio
+            ),
+            .fortyFiveMinutes
+        )
+        XCTAssertEqual(
+            DailyAudioEditionDuration.reconciling(
+                .fifteenMinutes,
+                userSelected: true,
+                with: capabilities
+            ),
+            .fortyFiveMinutes
+        )
     }
 
     private var capabilityData: Data {
         Data(
             #"{"version":2,"settings":{"newCardsPerDay":{"default":12,"min":1,"max":40},"lessonBatchSize":{"default":6,"min":4,"max":8},"reviewTimeBudgetMinutes":{"default":75,"min":30,"max":180},"newCardLaneWeights":{"standard":{"default":4,"min":2,"max":12},"lessonFollowup":{"default":2,"min":1,"max":9},"wanikani":{"default":1,"min":0,"max":7}}},"cardAuthoring":{"creationKinds":["text-recognition","future-kind"],"imagePlacements":["none","future-place"],"previewAudioRoles":["prompt","future-role"],"defaultAnswerAudioVoiceId":"voice-default","defaultFemaleAnswerAudioVoiceId":"voice-female","limits":{"combinedPayloadBytes":12000,"payloadDepth":6,"imagePromptCharacters":321,"imageUploadBytes":456000}},"dailyAudio":{"targetDurationMinutes":{"default":25,"min":10,"max":50}},"offlineReserve":{"days":7,"maxScheduledCards":777},"imports":{"maxArchiveBytes":999999}}"#.utf8
         )
+    }
+}
+
+private extension Data {
+    func replacingOccurrences(of target: String, with replacement: String) -> Data {
+        let source = String(decoding: self, as: UTF8.self)
+        return Data(source.replacingOccurrences(of: target, with: replacement).utf8)
     }
 }

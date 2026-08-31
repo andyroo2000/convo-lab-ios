@@ -504,7 +504,36 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
         let min: Int
         let max: Int
 
-        var range: ClosedRange<Int> { min...max }
+        var range: ClosedRange<Int> {
+            Swift.min(min, max)...Swift.max(min, max)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case `default`, min, max
+        }
+
+        nonisolated init(default: Int, min: Int, max: Int) {
+            self.default = `default`
+            self.min = min
+            self.max = max
+        }
+
+        nonisolated init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            let decodedDefault = try values.decode(Int.self, forKey: .default)
+            let decodedMin = try values.decode(Int.self, forKey: .min)
+            let decodedMax = try values.decode(Int.self, forKey: .max)
+            guard decodedMin <= decodedMax,
+                  decodedMin...decodedMax ~= decodedDefault
+            else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .default,
+                    in: values,
+                    debugDescription: "Capability default and bounds must form a valid range."
+                )
+            }
+            self.init(default: decodedDefault, min: decodedMin, max: decodedMax)
+        }
     }
 
     struct Settings: nonisolated Codable, Equatable, Sendable {

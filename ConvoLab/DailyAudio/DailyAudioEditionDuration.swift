@@ -27,4 +27,16 @@ enum DailyAudioEditionDuration: Int, CaseIterable, Identifiable, Sendable {
             abs($0.rawValue - target) < abs($1.rawValue - target)
         } ?? .thirtyMinutes
     }
+
+    static func reconciling(
+        _ current: Self,
+        userSelected: Bool,
+        with capabilities: StudyCapabilities.DailyAudio
+    ) -> Self {
+        let options = available(for: capabilities)
+        if userSelected, options.contains(current) {
+            return current
+        }
+        return preferred(for: capabilities)
+    }
 }

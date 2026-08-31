@@ -20,6 +20,7 @@ struct DailyAudioView: View {
     @State private var trackInteractionResetTask: Task<Void, Never>?
     @State private var selectedPlayerTrack: DailyAudioTrack?
     @State private var selectedEdition: DailyAudioEditionDuration
+    @State private var selectedEditionWasUserSelected = false
 
     private let dayCardSpacing = CGFloat(16)
     private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
@@ -139,8 +140,10 @@ struct DailyAudioView: View {
                 }
             }
             .onChange(of: capabilities) { _, updatedCapabilities in
-                selectedEdition = DailyAudioEditionDuration.preferred(
-                    for: updatedCapabilities
+                selectedEdition = DailyAudioEditionDuration.reconciling(
+                    selectedEdition,
+                    userSelected: selectedEditionWasUserSelected,
+                    with: updatedCapabilities
                 )
             }
             .onChange(
@@ -196,7 +199,16 @@ struct DailyAudioView: View {
                 .foregroundStyle(ConvoLabTheme.navy)
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
-            Picker("Edition Length", selection: $selectedEdition) {
+            Picker(
+                "Edition Length",
+                selection: Binding(
+                    get: { selectedEdition },
+                    set: { edition in
+                        selectedEdition = edition
+                        selectedEditionWasUserSelected = true
+                    }
+                )
+            ) {
                 ForEach(availableEditions) { edition in
                     Text(edition.label).tag(edition)
                 }
