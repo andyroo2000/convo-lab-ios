@@ -587,7 +587,7 @@ final class StudyActivitySessionTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error.localizedDescription,
-                "This study entry is no longer available. Refresh and try again."
+                "Sign in before recording study time."
             )
         }
 

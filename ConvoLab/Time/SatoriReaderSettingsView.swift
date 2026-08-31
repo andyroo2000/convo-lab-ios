@@ -141,6 +141,7 @@ struct SatoriReaderSettingsView: View {
             Text(text)
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 
     private func refresh() {

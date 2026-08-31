@@ -455,7 +455,7 @@ final class StudyTimeStore {
             duration: max(0, min(duration, 86_400))
         )
         guard let userID = activeUserID else {
-            let error = StudyTimeSessionMutationError.sessionUnavailable
+            let error = StudyTimeSessionMutationError.accountUnavailable
             setStorageWriteError(error, for: operation)
             throw error
         }

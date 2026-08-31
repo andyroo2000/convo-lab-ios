@@ -64,6 +64,110 @@ final class AppModelStorageTests: XCTestCase {
         Self.retainedObservableStores.append(model)
     }
 
+    func testSatoriImportRecordsAcknowledgesAndScopesPendingSessions() async throws {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let defaultsName = "AppModelStorageTests.satori-import.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let tracking = SatoriReaderTrackingStore(defaults: defaults)
+        let timeContainer = try StudyTimePersistence.makeContainer(inMemory: true)
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in timeContainer },
+            makeAPIClient: makeOfflineClient,
+            makeAuthStore: { api in
+                AuthStore(api: api, keychain: credentials)
+            },
+            satoriReaderTracking: tracking,
+            accountDeletionCleanupDefaults: defaults
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        tracking.recordStart(at: startedAt)
+        tracking.recordStop(at: startedAt.addingTimeInterval(600))
+        let expected = try XCTUnwrap(tracking.pendingSessions(userID: user.id).first)
+        tracking.setActiveUserID(84)
+        tracking.recordStart(at: startedAt.addingTimeInterval(1_000))
+        tracking.recordStop(at: startedAt.addingTimeInterval(1_600))
+        tracking.setActiveUserID(user.id)
+
+        await model.importPendingSatoriReaderSessions()
+
+        let records = try timeContainer.mainContext.fetch(
+            FetchDescriptor<LocalStudyActivitySession>()
+        )
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].userID, user.id)
+        XCTAssertEqual(records[0].clientSessionID, expected.id)
+        XCTAssertEqual(records[0].activity, StudyActivityKind.reading.rawValue)
+        XCTAssertEqual(records[0].source, StudyActivitySource.automatic.rawValue)
+        XCTAssertTrue(tracking.pendingSessions(userID: user.id).isEmpty)
+        XCTAssertEqual(tracking.pendingSessions(userID: 84).count, 1)
+        Self.retainedObservableStores.append(model)
+    }
+
+    func testSatoriImportFailureLeavesCurrentAndLaterSessionsQueued() async throws {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let defaultsName = "AppModelStorageTests.satori-retry.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let tracking = SatoriReaderTrackingStore(defaults: defaults)
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { inMemory in
+                guard inMemory else { throw TestFailure.unavailable }
+                return try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAPIClient: makeOfflineClient,
+            makeAuthStore: { api in
+                AuthStore(api: api, keychain: credentials)
+            },
+            satoriReaderTracking: tracking,
+            accountDeletionCleanupDefaults: defaults
+        )
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        for offset in [TimeInterval(0), 1_000] {
+            tracking.recordStart(at: startedAt.addingTimeInterval(offset))
+            tracking.recordStop(at: startedAt.addingTimeInterval(offset + 600))
+        }
+
+        await model.importPendingSatoriReaderSessions()
+
+        XCTAssertEqual(tracking.pendingSessions(userID: user.id).count, 2)
+        XCTAssertEqual(
+            try model.studyTimeContainer.mainContext.fetchCount(
+                FetchDescriptor<LocalStudyActivitySession>()
+            ),
+            0
+        )
+        Self.retainedObservableStores.append(model)
+    }
+
     func testLaunchReportsMainStoreFallbackAndRejectsCardWrites() async throws {
         let model = AppModel(
             configuration: testConfiguration(),
@@ -281,6 +385,17 @@ final class AppModelStorageTests: XCTestCase {
 
     private func testConfiguration() -> AppConfiguration {
         AppConfiguration(apiBaseURL: URL(string: "https://example.com")!)
+    }
+
+    private func makeOfflineClient(baseURL: URL) -> APIClient {
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        return APIClient(
+            baseURL: baseURL,
+            session: URLSession(configuration: configuration)
+        )
     }
 
     private func assertStorageError(_ error: any Error, domain: StorageDomain) {

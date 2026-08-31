@@ -83,6 +83,7 @@ enum StudyTimeSessionMutationError: LocalizedError {
     case readOnlySession
     case calendarEventUnavailable
     case sessionUnavailable
+    case accountUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -92,6 +93,8 @@ enum StudyTimeSessionMutationError: LocalizedError {
             "The linked calendar event is not available on this device."
         case .sessionUnavailable:
             "This study entry is no longer available. Refresh and try again."
+        case .accountUnavailable:
+            "Sign in before recording study time."
         }
     }
 }

@@ -427,7 +427,7 @@ final class AppModel {
         satoriReaderTracking.setActiveUserID(user.id)
     }
 
-    private func importPendingSatoriReaderSessions() async {
+    func importPendingSatoriReaderSessions() async {
         guard case let .signedIn(user) = auth.state else { return }
         for session in satoriReaderTracking.pendingSessions(userID: user.id) {
             do {
