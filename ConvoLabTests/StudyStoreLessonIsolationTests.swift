@@ -609,6 +609,50 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testIntroductionCohortLessonRefreshUsesSameContractMaximum() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = (0..<11).map { index in
+            makeCard(
+                id: String(format: "01K%023d", index),
+                expression: "Oversized cohort lesson card \(index)",
+                queueState: "new"
+            )
+        }
+        let data = try sessionResponseData(cards: lessonCards, lessonBatchSize: 10)
+        let client = makeClient { request in
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/study/introduction-cohorts/01K00000000000000000000000/lessons/start"
+            )
+            return Self.response(data: data)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertTrue(store.beginLessonSessionPresentation(
+            cohortID: "01K00000000000000000000000"
+        ))
+
+        do {
+            try await store.refreshLessons()
+            XCTFail("Expected an oversized cohort lesson response to be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The lesson response contained more cards than the client contract allows."
+            )
+        }
+        XCTAssertTrue(store.cards.isEmpty)
+    }
+
+    @MainActor
     func testLessonFollowupCohortRemainsActiveAcrossBatchesAndClearsOnExit() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let lessonCard = makeCard(

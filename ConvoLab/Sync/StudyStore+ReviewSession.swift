@@ -108,6 +108,8 @@ extension StudyStore {
         guard let load = try await sessionLoadingService.load(loadKind) else { return false }
         let userID = load.userID
         let session = load.response.session
+        // Both ordinary and introduction-cohort lesson endpoints are bounded by
+        // the API's lesson_batch_size setting (currently 3...10).
         guard session.cards.count <= StudySettingsPolicy.lessonBatchSizeRange.upperBound else {
             throw OversizedLessonSessionError()
         }
