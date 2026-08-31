@@ -1220,6 +1220,21 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var promptText: String {
+        if let serverPresentation {
+            if let heading = auxiliaryPlainText(
+                serverPresentation.front.ruby ?? serverPresentation.front.text
+            ) {
+                return heading
+            }
+            if serverPresentation.front.mode == .media {
+                return auxiliaryPlainText(
+                    serverPresentation.answer.ruby ?? serverPresentation.answer.heading
+                )
+                    ?? auxiliaryDisplayText(serverPresentation.answer.meaning)
+                    ?? "Media prompt"
+            }
+            return "Study card"
+        }
         if let heading = presentation.front.heading {
             return StudyRubyDocument.parse(heading, knownKanji: []).plainText
         }
@@ -1235,12 +1250,16 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var answerText: String {
-        if serverPresentation != nil, cardType != "cloze" {
-            return presentation.back.textBlocks.first { $0.role == .meaning }?.text
-                ?? presentation.back.heading.map {
-                    StudyRubyDocument.parse($0, knownKanji: []).plainText
-                }
-                ?? "No answer text"
+        if let serverPresentation {
+            let heading = auxiliaryPlainText(
+                serverPresentation.answer.ruby ?? serverPresentation.answer.heading
+            )
+            let restored = auxiliaryPlainText(serverPresentation.answer.restored)
+            let meaning = auxiliaryDisplayText(serverPresentation.answer.meaning)
+            if serverPresentation.front.mode == .cloze {
+                return heading ?? restored ?? meaning ?? "No answer text"
+            }
+            return meaning ?? heading ?? restored ?? "No answer text"
         }
         if cardType == "cloze" {
             return presentation.back.heading.map {
@@ -1279,6 +1298,22 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var rawMediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
+
+    private func auxiliaryDisplayText(_ rawValue: String?) -> String? {
+        guard let displayText = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !displayText.isEmpty
+        else {
+            return nil
+        }
+        return displayText
+    }
+
+    private func auxiliaryPlainText(_ rawValue: String?) -> String? {
+        guard let displayText = auxiliaryDisplayText(rawValue) else { return nil }
+        let plainText = StudyRubyDocument.parse(displayText, knownKanji: []).plainText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return plainText.isEmpty ? nil : plainText
+    }
 
     func reviewSchedule(
         _ rating: ReviewRating,

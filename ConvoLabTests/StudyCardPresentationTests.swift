@@ -194,6 +194,54 @@ final class StudyCardPresentationTests: XCTestCase {
         }
     }
 
+    func testKnownPresentationExplicitNullAuxiliaryLabelsNeverUseDivergentRawContent() throws {
+        let textCard = try decodedCard(presentation: nullPresentation(mode: "text"))
+        let mediaCard = try decodedCard(presentation: nullPresentation(mode: "media"))
+        let clozeCard = try decodedCard(
+            presentation: nullPresentation(mode: "cloze"),
+            cardType: "cloze"
+        )
+
+        XCTAssertEqual(textCard.promptText, "Study card")
+        XCTAssertEqual(mediaCard.promptText, "Media prompt")
+        XCTAssertEqual(clozeCard.promptText, "Study card")
+        for card in [textCard, mediaCard, clozeCard] {
+            XCTAssertEqual(card.answerText, "No answer text")
+            XCTAssertFalse(card.promptText.contains("RAW"))
+            XCTAssertFalse(card.answerText.contains("RAW"))
+        }
+        XCTAssertNil(clozeCard.answerDetailText)
+
+        XCTAssertTrue(
+            StudyCardCatalogRepository.cards([textCard], matching: "RAW FRONT").isEmpty
+        )
+        XCTAssertEqual(
+            StudyCardCatalogRepository.cards([textCard], matching: "Study card").map(\.id),
+            [textCard.id]
+        )
+        let catalogItem = try XCTUnwrap(
+            StudyCardCatalogRepository.standaloneLearningItems(
+                from: [textCard],
+                matching: ""
+            ).first
+        )
+        XCTAssertEqual(catalogItem.representativeCard.displayText, "Study card")
+        XCTAssertEqual(catalogItem.representativeCard.meaning, "No answer text")
+
+        let wrapUp = StudySessionWrapUpSummary.build(from: [
+            StudySessionReviewRecord(
+                id: "review-1",
+                cardBefore: textCard,
+                cardAfter: nil,
+                rating: .again,
+                durationMilliseconds: 1_000,
+                reviewedAt: .now
+            ),
+        ])
+        XCTAssertEqual(wrapUp.toughestCards.first?.card.promptText, "Study card")
+        XCTAssertEqual(wrapUp.toughestCards.first?.card.answerText, "No answer text")
+    }
+
     func testKnownPresentationV1RejectsMalformedTypedMediaAndPitchAccent() {
         let unresolvedPitch = #"""
         {
@@ -864,6 +912,26 @@ final class StudyCardPresentationTests: XCTestCase {
             },
             "notes":[],"media":{"image":null},"audio":null,
             "pitchAccent":\#(pitchAccent)
+          }
+        }
+        """#
+    }
+
+    private func nullPresentation(mode: String) -> String {
+        #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"\#(mode)","text":null,"ruby":null,"hint":null,
+            "media":{"audio":null,"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":null,"ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
           }
         }
         """#
