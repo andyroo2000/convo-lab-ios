@@ -93,4 +93,16 @@ final class SatoriReaderTrackingStoreTests: XCTestCase {
         XCTAssertEqual(session.startedAt, currentStart)
         XCTAssertEqual(session.duration, 24 * 60 * 60)
     }
+
+    func testRemovingAccountClearsItsInFlightSession() {
+        let store = SatoriReaderTrackingStore(defaults: defaults)
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        store.setActiveUserID(42)
+        store.recordStart(at: startedAt)
+
+        store.removeAccountData(userID: 42)
+        store.recordStop(at: startedAt.addingTimeInterval(600))
+
+        XCTAssertTrue(store.pendingSessions(userID: 42).isEmpty)
+    }
 }
