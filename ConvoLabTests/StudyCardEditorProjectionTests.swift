@@ -127,6 +127,27 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     }
 
     @MainActor
+    func testMediaReconciliationDropsPresentationAfterRacingCardTypeChange() throws {
+        let latest = makeCard(revision: 4, masteryLevel: nil)
+        let serverCard = try withPresentation(
+            makeCard(revision: 5, masteryLevel: nil),
+            cardType: "production"
+        )
+
+        let reconciled = StudyCardEditorProjection.reconcilingMedia(
+            latest: latest,
+            serverCard: serverCard,
+            prompt: serverCard.prompt,
+            answer: serverCard.answer,
+            answerAudioSource: "generated",
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        XCTAssertEqual(reconciled.cardType, "recognition")
+        XCTAssertNil(reconciled.serverPresentation)
+    }
+
+    @MainActor
     func testLegacyCachedCardUpdateOmitsUnknownRevision() {
         let card = makeCard(revision: nil, masteryLevel: nil)
         var draft = StudyCardDraft(card: card)
@@ -155,6 +176,42 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: object)
         )
     }
+
+    @MainActor
+    private func withPresentation(
+        _ card: StudyCard,
+        cardType: String? = nil
+    ) throws -> StudyCard {
+        let encoded = try StorageCodec.encoder.encode(card)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["cardType"] = cardType ?? card.cardType
+        object["presentation"] = Self.presentationFixture
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    @MainActor private static let presentationFixture: [String: Any] = [
+        "version": 1,
+        "front": [
+            "mode": "text", "text": "projected", "ruby": NSNull(),
+            "hint": NSNull(), "media": ["audio": NSNull(), "image": NSNull()],
+            "autoplayAudio": false,
+        ],
+        "answer": [
+            "heading": "answer", "ruby": NSNull(), "restored": NSNull(),
+            "meaning": "meaning",
+            "sentences": [
+                "japanese": ["text": NSNull(), "ruby": NSNull()],
+                "english": ["text": NSNull(), "ruby": NSNull()],
+            ],
+            "notes": [], "media": ["image": NSNull()],
+            "audio": NSNull(), "pitchAccent": NSNull(),
+        ],
+    ]
 
     @MainActor
     private func makeCard(

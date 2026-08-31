@@ -608,6 +608,54 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingLocalEditDropsPresentationAfterRacingServerCardTypeChange() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let local = try withPresentation(
+            makeCard(id: "type-race", expression: "same content")
+        )
+        let server = try withPresentation(
+            makeCard(
+                id: local.id,
+                expression: "same content",
+                cardType: "production"
+            )
+        )
+        let cardID = local.id
+        let record = insert(local, userID: 1, in: container)
+        record.locallyUpdatedAt = Date(timeIntervalSince1970: 100)
+        container.mainContext.insert(PendingMutation(
+            kind: "cardUpdate",
+            userID: 1,
+            resourceID: local.id,
+            payload: Data()
+        ))
+        try container.mainContext.save()
+        let batchData = try Self.batchData([server])
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Self.feedData(
+                    entries: [(1, cardID, "update")],
+                    nextCheckpoint: 1,
+                    hasMore: false
+                ))
+            case "/api/study/cards/batch":
+                return Self.response(data: batchData)
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        let repository = CardSyncFeedRepository(api: client, context: container.mainContext)
+        repository.activate(userID: 1)
+
+        _ = try await repository.pullChanges()
+
+        let stored = try XCTUnwrap(cards(for: 1, in: container).first)
+        XCTAssertEqual(stored.cardType, "production")
+        XCTAssertNil(stored.serverPresentation)
+    }
+
+    @MainActor
     func testQuarantinedEditDoesNotBlockLaterAuthoritativeServerUpsert() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let local = makeCard(id: "conflicted", expression: "resolved server snapshot")
@@ -1694,7 +1742,8 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
         queueState: String = "review",
         masteryLevel: String? = nil,
         variantGroupID: String? = nil,
-        variantStatus: String? = nil
+        variantStatus: String? = nil,
+        cardType: String = "recognition"
     ) -> StudyCard {
         var prompt: [String: JSONValue] = ["cueText": .string(expression)]
         if let audioURL {
@@ -1704,7 +1753,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
             id: id,
             syncId: syncId,
             noteId: nil,
-            cardType: "recognition",
+            cardType: cardType,
             prompt: .object(prompt),
             answer: .object(["meaning": .string("meaning")]),
             state: .init(
@@ -1723,6 +1772,38 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 20)
         )
     }
+
+    @MainActor
+    private func withPresentation(_ card: StudyCard) throws -> StudyCard {
+        let encoded = try StorageCodec.encoder.encode(card)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["presentation"] = Self.presentationFixture
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    @MainActor private static let presentationFixture: [String: Any] = [
+        "version": 1,
+        "front": [
+            "mode": "text", "text": "projected", "ruby": NSNull(),
+            "hint": NSNull(), "media": ["audio": NSNull(), "image": NSNull()],
+            "autoplayAudio": false,
+        ],
+        "answer": [
+            "heading": "answer", "ruby": NSNull(), "restored": NSNull(),
+            "meaning": "meaning",
+            "sentences": [
+                "japanese": ["text": NSNull(), "ruby": NSNull()],
+                "english": ["text": NSNull(), "ruby": NSNull()],
+            ],
+            "notes": [], "media": ["image": NSNull()],
+            "audio": NSNull(), "pitchAccent": NSNull(),
+        ],
+    ]
 
     private static func feedData(
         entries: [(Int64, String, String)],
