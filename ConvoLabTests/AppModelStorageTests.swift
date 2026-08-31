@@ -168,6 +168,72 @@ final class AppModelStorageTests: XCTestCase {
         Self.retainedObservableStores.append(model)
     }
 
+    func testSynchronizationLoadsCapabilitiesBeforeAuthorityDependentStudySync() async throws {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+        let paths = LockedRequestPaths()
+        let capabilityData = try JSONEncoder().encode(StudyCapabilities.fallback)
+        MockURLProtocol.deferredHandler = nil
+        MockURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            guard path == "/api/study/capabilities" else {
+                throw URLError(.notConnectedToInternet)
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                capabilityData
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+            MockURLProtocol.deferredHandler = nil
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let defaultsName = "AppModelStorageTests.capability-order.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAPIClient: { baseURL in
+                APIClient(
+                    baseURL: baseURL,
+                    session: URLSession(configuration: configuration)
+                )
+            },
+            makeAuthStore: { api in
+                AuthStore(api: api, keychain: credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+
+        await model.synchronize()
+
+        XCTAssertEqual(paths.values.first, "/api/study/capabilities")
+        Self.retainedObservableStores.append(model)
+    }
+
     func testLaunchReportsMainStoreFallbackAndRejectsCardWrites() async throws {
         let model = AppModel(
             configuration: testConfiguration(),

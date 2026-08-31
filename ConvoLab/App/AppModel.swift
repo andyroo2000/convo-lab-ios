@@ -396,7 +396,10 @@ final class AppModel {
         }
         activateLocalData(for: user)
         await importPendingSatoriReaderSessions()
-        async let studyCapabilities: Void = study.refreshCapabilities()
+        // Session/settings publication clamps server values against this contract,
+        // so load it before the authority-dependent study synchronization begins.
+        // A failed read intentionally retains the compiled offline fallback.
+        await study.refreshCapabilities()
         async let studySync: Void = study.synchronize()
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
@@ -405,7 +408,6 @@ final class AppModel {
         async let achievementRefresh: Void = achievements.refresh()
         _ = await (
             studySync,
-            studyCapabilities,
             draftCreateRetry,
             audioRefresh,
             timeSync,

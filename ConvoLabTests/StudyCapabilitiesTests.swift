@@ -139,6 +139,27 @@ final class StudyCapabilitiesTests: XCTestCase {
         )
     }
 
+    func testExistingCardEditPreservesItsInertCreationKindWhenCapabilitiesShrink() {
+        XCTAssertEqual(
+            CardEditorView.resolveCreationKind(
+                .textRecognition,
+                isEditingExistingCard: true,
+                preservesDraftKind: false,
+                advertisedCreationKinds: [.productionImage]
+            ),
+            .textRecognition
+        )
+        XCTAssertEqual(
+            CardEditorView.resolveCreationKind(
+                .textRecognition,
+                isEditingExistingCard: false,
+                preservesDraftKind: false,
+                advertisedCreationKinds: [.productionImage]
+            ),
+            .productionImage
+        )
+    }
+
     private var capabilityData: Data {
         Data(
             #"{"version":2,"settings":{"newCardsPerDay":{"default":12,"min":1,"max":40},"lessonBatchSize":{"default":6,"min":4,"max":8},"reviewTimeBudgetMinutes":{"default":75,"min":30,"max":180},"newCardLaneWeights":{"standard":{"default":4,"min":2,"max":12},"lessonFollowup":{"default":2,"min":1,"max":9},"wanikani":{"default":1,"min":0,"max":7}}},"cardAuthoring":{"creationKinds":["text-recognition","future-kind"],"imagePlacements":["none","future-place"],"previewAudioRoles":["prompt","future-role"],"defaultAnswerAudioVoiceId":"voice-default","defaultFemaleAnswerAudioVoiceId":"voice-female","limits":{"combinedPayloadBytes":12000,"payloadDepth":6,"imagePromptCharacters":321,"imageUploadBytes":456000}},"dailyAudio":{"targetDurationMinutes":{"default":25,"min":10,"max":50}},"offlineReserve":{"days":7,"maxScheduledCards":777},"imports":{"maxArchiveBytes":999999}}"#.utf8

@@ -89,13 +89,12 @@ struct CardEditorView: View {
         let requestedCreationKind = serverDraft?.creationKind
             ?? initialCreationKind
             ?? .textRecognition
-        let preservesExistingKind = serverDraft != nil || initialDraft != nil
-        let canUseRequestedKind = preservesExistingKind
-            || advertisedCreationKinds.isEmpty
-            || advertisedCreationKinds.contains(requestedCreationKind)
-        let resolvedCreationKind = canUseRequestedKind
-            ? requestedCreationKind
-            : advertisedCreationKinds[0]
+        let resolvedCreationKind = Self.resolveCreationKind(
+            requestedCreationKind,
+            isEditingExistingCard: card != nil,
+            preservesDraftKind: serverDraft != nil || initialDraft != nil,
+            advertisedCreationKinds: advertisedCreationKinds
+        )
         if card == nil, serverDraft == nil {
             resolvedInitialDraft.cardType = resolvedCreationKind.cardType
             resolvedInitialDraft.isAudioLedPrompt = resolvedCreationKind == .audioRecognition
@@ -117,6 +116,21 @@ struct CardEditorView: View {
             && serverDraft == nil
             && initialDraft != nil
             && initialClientDraftID != nil
+    }
+
+    static func resolveCreationKind(
+        _ requestedCreationKind: StudyCardCreationKind,
+        isEditingExistingCard: Bool,
+        preservesDraftKind: Bool,
+        advertisedCreationKinds: [StudyCardCreationKind]
+    ) -> StudyCardCreationKind {
+        let preservesExistingKind = isEditingExistingCard || preservesDraftKind
+        let canUseRequestedKind = preservesExistingKind
+            || advertisedCreationKinds.isEmpty
+            || advertisedCreationKinds.contains(requestedCreationKind)
+        return canUseRequestedKind
+            ? requestedCreationKind
+            : advertisedCreationKinds[0]
     }
 
     var body: some View {
