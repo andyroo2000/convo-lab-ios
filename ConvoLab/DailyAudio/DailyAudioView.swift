@@ -32,20 +32,13 @@ struct DailyAudioView: View {
         self.store = store
         self.player = player
         self.capabilities = capabilities
-        let target = capabilities.targetDurationMinutes.default
-        let options = DailyAudioEditionDuration.allCases.filter {
-            capabilities.targetDurationMinutes.range.contains($0.rawValue)
-        }
-        _selectedEdition = State(initialValue: options.min {
-            abs($0.rawValue - target) < abs($1.rawValue - target)
-        } ?? .thirtyMinutes)
+        _selectedEdition = State(
+            initialValue: DailyAudioEditionDuration.preferred(for: capabilities)
+        )
     }
 
     private var availableEditions: [DailyAudioEditionDuration] {
-        let advertised = DailyAudioEditionDuration.allCases.filter {
-            capabilities.targetDurationMinutes.range.contains($0.rawValue)
-        }
-        return advertised.isEmpty ? DailyAudioEditionDuration.allCases : advertised
+        DailyAudioEditionDuration.available(for: capabilities)
     }
 
     private var selectedPractice: DailyAudioPractice? {
@@ -144,6 +137,11 @@ struct DailyAudioView: View {
                 if selectedPracticeID == nil || !ids.contains(selectedPracticeID ?? "") {
                     selectedPracticeID = ids.first
                 }
+            }
+            .onChange(of: capabilities) { _, updatedCapabilities in
+                selectedEdition = DailyAudioEditionDuration.preferred(
+                    for: updatedCapabilities
+                )
             }
             .onChange(
                 of: store.practices.flatMap(\.tracks).map {
