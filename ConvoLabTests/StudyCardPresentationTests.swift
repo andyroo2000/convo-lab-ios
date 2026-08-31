@@ -83,6 +83,31 @@ final class StudyCardPresentationTests: XCTestCase {
         }
     }
 
+    func testKnownPresentationV1RejectsMalformedTypedMediaAndPitchAccent() {
+        let unresolvedPitch = #"""
+        {
+          "status":"unresolved","expression":"答え","reading":"こたえ",
+          "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
+        }
+        """#
+        let mismatchedPitch = #"""
+        {
+          "status":"resolved","expression":"答え","reading":"こたえ",
+          "morae":["こ","た","え"],"pattern":[0,1],"patternName":"平板"
+        }
+        """#
+        let malformedPresentations = [
+            minimalPresentation(frontAudio: #""not-an-object""#, pitchAccent: "null"),
+            minimalPresentation(frontAudio: #"{"id":null}"#, pitchAccent: "null"),
+            minimalPresentation(frontAudio: "null", pitchAccent: unresolvedPitch),
+            minimalPresentation(frontAudio: "null", pitchAccent: mismatchedPitch),
+        ]
+
+        for presentation in malformedPresentations {
+            XCTAssertThrowsError(try decodedCard(presentation: presentation))
+        }
+    }
+
     func testOptimisticSchedulingPreservesProjectionWhileContentEditsInvalidateIt() throws {
         let card = try decodedCard(presentation: #"""
         {
@@ -672,6 +697,27 @@ final class StudyCardPresentationTests: XCTestCase {
             }
             """#.utf8)
         )
+    }
+
+    private func minimalPresentation(frontAudio: String, pitchAccent: String) -> String {
+        #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"front","ruby":null,"hint":null,
+            "media":{"audio":\#(frontAudio),"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":"answer","ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,
+            "pitchAccent":\#(pitchAccent)
+          }
+        }
+        """#
     }
 
     private func media(url: String, kind: String) -> JSONValue {

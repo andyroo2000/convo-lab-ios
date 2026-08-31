@@ -243,10 +243,27 @@ private extension StudyCardPresentationV1 {
                 imageURL: answer.media.image?.studyMediaURL,
                 isMediaLed: false,
                 pitchAccent: answer.pitchAccent.map {
-                    JSONValue.object(["pitchAccent": $0]).studyPitchAccent
-                } ?? nil
+                    .init(
+                        expression: $0.expression,
+                        reading: $0.reading,
+                        morae: $0.morae,
+                        pattern: $0.pattern,
+                        patternName: $0.patternName
+                    )
+                }
             )
         )
+    }
+}
+
+private extension StudyCardPresentationV1.MediaReference {
+    var studyMediaURL: URL? {
+        guard let rawURL = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawURL.isEmpty
+        else {
+            return nil
+        }
+        return URL(string: rawURL)
     }
 }
 

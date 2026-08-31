@@ -807,6 +807,97 @@ struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
 }
 
 struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
+    struct MediaReference: nonisolated Codable, Hashable, Sendable {
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case filename
+            case url
+            case mediaKind
+            case source
+        }
+
+        let id: String?
+        let filename: String?
+        let url: String?
+        let mediaKind: String?
+        let source: String?
+
+        nonisolated init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = container.contains(.id)
+                ? try container.decode(String.self, forKey: .id)
+                : nil
+            filename = container.contains(.filename)
+                ? try container.decode(String.self, forKey: .filename)
+                : nil
+            url = try container.decodeIfPresent(String.self, forKey: .url)
+            mediaKind = container.contains(.mediaKind)
+                ? try container.decode(String.self, forKey: .mediaKind)
+                : nil
+            source = container.contains(.source)
+                ? try container.decode(String.self, forKey: .source)
+                : nil
+        }
+    }
+
+    struct PitchAccent: nonisolated Codable, Hashable, Sendable {
+        private enum CodingKeys: String, CodingKey {
+            case status
+            case expression
+            case reading
+            case pitchNum
+            case morae
+            case pattern
+            case patternName
+            case source
+            case resolvedBy
+        }
+
+        private enum Status: String, nonisolated Codable {
+            case resolved
+        }
+
+        private let status: Status
+        let expression: String
+        let reading: String
+        let pitchNum: Int?
+        let morae: [String]
+        let pattern: [Int]
+        let patternName: String
+        let source: String?
+        let resolvedBy: String?
+
+        nonisolated init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            status = try container.decode(Status.self, forKey: .status)
+            expression = try container.decode(String.self, forKey: .expression)
+            reading = try container.decode(String.self, forKey: .reading)
+            pitchNum = try container.decodeIfPresent(Int.self, forKey: .pitchNum)
+            morae = try container.decode([String].self, forKey: .morae)
+            pattern = try container.decode([Int].self, forKey: .pattern)
+            patternName = try container.decode(String.self, forKey: .patternName)
+            source = try container.decodeIfPresent(String.self, forKey: .source)
+            resolvedBy = try container.decodeIfPresent(String.self, forKey: .resolvedBy)
+
+            guard
+                !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !reading.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !patternName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !morae.isEmpty,
+                morae.count == pattern.count,
+                morae.allSatisfy({
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }),
+                pattern.allSatisfy({ $0 == 0 || $0 == 1 })
+            else {
+                throw DecodingError.dataCorrupted(.init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Resolved pitch accent was malformed."
+                ))
+            }
+        }
+    }
+
     struct Front: nonisolated Codable, Hashable, Sendable {
         enum Mode: String, nonisolated Codable, Hashable, Sendable {
             case text
@@ -815,8 +906,8 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
         }
 
         struct Media: nonisolated Codable, Hashable, Sendable {
-            let audio: JSONValue?
-            let image: JSONValue?
+            let audio: MediaReference?
+            let image: MediaReference?
         }
 
         let mode: Mode
@@ -839,7 +930,7 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
         }
 
         struct Media: nonisolated Codable, Hashable, Sendable {
-            let image: JSONValue?
+            let image: MediaReference?
         }
 
         let heading: String?
@@ -849,8 +940,8 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
         let sentences: Sentences
         let notes: [String]
         let media: Media
-        let audio: JSONValue?
-        let pitchAccent: JSONValue?
+        let audio: MediaReference?
+        let pitchAccent: PitchAccent?
     }
 
     let version: Int
