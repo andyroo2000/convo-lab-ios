@@ -38,15 +38,31 @@
                         "sortOrder": 0,
                         "scriptUnitsJson": [
                             {
-                                "kind": "target_language",
-                                "text": "会社"
+                                "type": "marker",
+                                "label": "Recall"
+                            },
+                            {
+                                "type": "narration_L1",
+                                "text": "company",
+                                "voiceId": ""
+                            },
+                            {
+                                "type": "L2",
+                                "text": "会社",
+                                "voiceId": ""
                             }
                         ],
                         "audioUrl": "/audio/drill.mp3",
                         "timingData": [
                             {
-                                "startMs": 0,
-                                "endMs": 1200
+                                "unitIndex": 1,
+                                "startTime": 0,
+                                "endTime": 600
+                            },
+                            {
+                                "unitIndex": 2,
+                                "startTime": 600,
+                                "endTime": 1200
                             }
                         ],
                         "approxDurationSeconds": 120,
