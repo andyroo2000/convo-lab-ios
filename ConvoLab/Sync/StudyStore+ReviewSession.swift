@@ -1,6 +1,12 @@
 import Foundation
 
 extension StudyStore {
+    private struct OversizedLessonSessionError: LocalizedError {
+        var errorDescription: String? {
+            "The lesson response contained more cards than the client contract allows."
+        }
+    }
+
     func loadNextReviewBatch() async {
         guard let userID = activeUserID, sessionKind == "reviews", cards.isEmpty else {
             return
@@ -102,6 +108,9 @@ extension StudyStore {
         guard let load = try await sessionLoadingService.load(loadKind) else { return false }
         let userID = load.userID
         let session = load.response.session
+        guard session.cards.count <= StudySettingsPolicy.lessonBatchSizeRange.upperBound else {
+            throw OversizedLessonSessionError()
+        }
         let pendingReviewState = try reviewOutbox.pendingState()
         let lessonCards = try eligibleSessionCards(
             from: session.cards,

@@ -360,11 +360,14 @@ struct StudyHomeView: View {
             }
 
             let target = store.offlineReadinessTarget
-            ProgressView(value: Double(min(store.preparedCardCount, target)), total: Double(max(target, 1)))
+            let prepared = store.offlineReserveIsCurrent
+                ? min(store.preparedCardCount, target)
+                : 0
+            ProgressView(value: Double(prepared), total: Double(max(target, 1)))
                 .tint(ConvoLabTheme.cyan)
                 .accessibilityLabel("Offline readiness")
                 .accessibilityValue(
-                    "\(min(store.preparedCardCount, target)) of \(target) cards ready"
+                    "\(prepared) of \(target) cards ready"
                 )
 
             syncStatus
