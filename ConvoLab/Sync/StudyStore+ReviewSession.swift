@@ -37,9 +37,17 @@ extension StudyStore {
         return true
     }
 
-    func revalidateRemainingReviewQueue() async throws {
+    func revalidateRemainingReviewQueue(
+        expectedStudySurfaceRevision: Int? = nil
+    ) async throws {
         guard sessionKind == "reviews", !lessonSessionIsPresented else { return }
+        if let expectedStudySurfaceRevision {
+            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
+        }
         guard let load = try await sessionLoadingService.load(.reviews) else { return }
+        if let expectedStudySurfaceRevision {
+            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
+        }
         try await applyReviewSessionLoad(load, resettingSessionProgress: false)
     }
 
@@ -228,6 +236,7 @@ extension StudyStore {
         }
         defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
+        let presentationRevision = studySurfaceRevision
         var stagedReview: StagedStudyReview?
         do {
             // Scheduling must succeed before the durable event is staged. If the
@@ -320,7 +329,8 @@ extension StudyStore {
             {
                 scheduleProgressionRevalidation(
                     userID: userID,
-                    activationGeneration: activationGeneration
+                    activationGeneration: activationGeneration,
+                    presentationRevision: presentationRevision
                 )
             }
             if let deferredFlushError {
@@ -350,11 +360,13 @@ extension StudyStore {
 
     private func scheduleProgressionRevalidation(
         userID: Int,
-        activationGeneration: Int
+        activationGeneration: Int,
+        presentationRevision: Int
     ) {
         Task { [weak self] in
             guard let self,
-                  isCurrentActivation(userID, generation: activationGeneration)
+                  isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
             else { return }
             var firstError: (any Error)?
             do {
@@ -365,11 +377,19 @@ extension StudyStore {
             } catch {
                 firstError = error
             }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
+            else { return }
             do {
-                try await revalidateRemainingReviewQueue()
+                try await revalidateRemainingReviewQueue(
+                    expectedStudySurfaceRevision: presentationRevision
+                )
             } catch {
                 firstError = firstError ?? error
             }
+            guard isCurrentActivation(userID, generation: activationGeneration),
+                  studySurfaceRevision == presentationRevision
+            else { return }
             if let firstError {
                 markOutboxRetryNeeded(for: firstError)
                 handleSyncError(

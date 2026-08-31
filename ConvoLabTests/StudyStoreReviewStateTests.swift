@@ -421,6 +421,82 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testProgressionRevalidationCannotReplaceANewerReviewSession() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let reviewed = makeCard(
+            id: "01J000000000000000000000PG",
+            expression: "前のセッション",
+            variantGroupID: "progression-family",
+            variantStatus: "available"
+        )
+        let current = makeCard(
+            id: "01J000000000000000000000PH",
+            expression: "現在のセッション"
+        )
+        container.mainContext.insert(LocalCardRecord(
+            card: reviewed,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(reviewed)
+        ))
+        try container.mainContext.save()
+        let paths = LockedRequestPaths()
+        let deferredPull = LockedDeferredResponse()
+        let currentSessionData = try sessionResponseData(cards: [current])
+        let client = makeDeferredClient { request, completion in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            switch path {
+            case "/api/card-review-events/batch":
+                completion(.success(Self.response(statusCode: 204, data: Data())))
+            case "/api/sync/feed":
+                deferredPull.hold(completion)
+            case "/api/study/session/start":
+                completion(.success(Self.response(data: currentSessionData)))
+            default:
+                XCTFail("Unexpected request: \(path)")
+                completion(.failure(URLError(.badServerResponse)))
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        let result = await store.recordReviewResult(
+            card: reviewed,
+            rating: .good,
+            duration: nil
+        )
+        XCTAssertNotNil(result)
+        await deferredPull.waitUntilPending()
+
+        try await store.refreshSession()
+        XCTAssertEqual(store.cards.map(\.id), [current.id])
+
+        deferredPull.succeed(with: Self.response(data: Data(
+            #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+        )))
+        try? await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(store.cards.map(\.id), [current.id])
+        XCTAssertEqual(
+            paths.values,
+            [
+                "/api/card-review-events/batch",
+                "/api/sync/feed",
+                "/api/study/session/start",
+            ]
+        )
+    }
+
+    @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
