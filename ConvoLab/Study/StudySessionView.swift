@@ -1296,20 +1296,19 @@ struct StudySessionView: View {
     }
 
     private func applySessionCompletion(_ completion: StudyAchievementCompletion?) {
-        let shouldResetPresentation = Self.shouldResetCompletionPresentation(
+        let presentation = Self.reconciledCompletionPresentation(
             current: sessionCompletion,
-            updated: completion
+            updated: completion,
+            currentAwardIDs: completionAchievements.map(\.id),
+            currentAwardIndex: currentAwardIndex,
+            celebrationPresented: celebrationPresented
         )
         sessionCompletion = completion
-        completionAchievements = completion?.newAwardIDs.compactMap {
+        completionAchievements = presentation.awardIDs.compactMap {
             achievementStore?.achievement(id: $0)
-        } ?? []
-        guard shouldResetPresentation else {
-            celebrationPresented = celebrationPresented || completion?.celebrationPresented == true
-            return
         }
-        currentAwardIndex = 0
-        celebrationPresented = sessionCompletion?.celebrationPresented ?? true
+        currentAwardIndex = presentation.currentAwardIndex
+        celebrationPresented = presentation.celebrationPresented
     }
 
     nonisolated static func canDismissWrapUp(
@@ -1324,7 +1323,49 @@ struct StudySessionView: View {
     ) -> Bool {
         current?.id != updated?.id
             || current?.records != updated?.records
-            || current?.newAwardIDs != updated?.newAwardIDs
+    }
+
+    nonisolated static func reconciledCompletionPresentation(
+        current: StudyAchievementCompletion?,
+        updated: StudyAchievementCompletion?,
+        currentAwardIDs: [String],
+        currentAwardIndex: Int,
+        celebrationPresented: Bool
+    ) -> (
+        awardIDs: [String],
+        currentAwardIndex: Int,
+        celebrationPresented: Bool
+    ) {
+        let updatedAwardIDs = updated?.newAwardIDs ?? []
+        if shouldResetCompletionPresentation(current: current, updated: updated) {
+            return (
+                updatedAwardIDs,
+                0,
+                updated?.celebrationPresented ?? true
+            )
+        }
+
+        let updatedAwardIDSet = Set(updatedAwardIDs)
+        let retainedAwardIDs = currentAwardIDs.filter { updatedAwardIDSet.contains($0) }
+        let currentAwardIDSet = Set(currentAwardIDs)
+        let appendedAwardIDs = updatedAwardIDs.filter { !currentAwardIDSet.contains($0) }
+        let reconciledAwardIDs = retainedAwardIDs + appendedAwardIDs
+        let maximumIndex = max(0, reconciledAwardIDs.count - 1)
+
+        if celebrationPresented, !appendedAwardIDs.isEmpty {
+            return (
+                reconciledAwardIDs,
+                min(retainedAwardIDs.count, maximumIndex),
+                false
+            )
+        }
+
+        return (
+            reconciledAwardIDs,
+            min(currentAwardIndex, maximumIndex),
+            appendedAwardIDs.isEmpty
+                && (celebrationPresented || updated?.celebrationPresented == true)
+        )
     }
 }
 

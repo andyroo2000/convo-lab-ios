@@ -767,7 +767,7 @@ final class StudyAchievementStore {
 
     private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
         guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
-        if !session.isReadyForPresentation || !session.celebrationPresented {
+        if !session.isReadyForPresentation || !session.celebrationPresented || progress != nil {
             if let progress {
                 let earnedIDs = Set(progress.awards.map(\.id))
                 let detected: [StudyAchievementAward]
@@ -787,11 +787,19 @@ final class StudyAchievementStore {
                 let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
                     ($0.id, $0.earnedAt)
                 })
-                session.newAwardIDs = Array(Set(session.newAwardIDs).union(detectedIDs))
-                    .filter { earnedIDs.contains($0) }
+                let retainedIDs = session.newAwardIDs.filter { earnedIDs.contains($0) }
+                let retainedIDSet = Set(retainedIDs)
+                let appendedIDs = detectedIDs
+                    .filter { !retainedIDSet.contains($0) }
                     .sorted {
                         dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
                     }
+                session.newAwardIDs = retainedIDs + appendedIDs
+                if !appendedIDs.isEmpty {
+                    // A completed optimistic carousel must reopen only for awards
+                    // discovered by the authoritative evaluation.
+                    session.celebrationPresented = false
+                }
             } else if requireNewAward {
                 return nil
             }

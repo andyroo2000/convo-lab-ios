@@ -163,9 +163,45 @@ final class MasteryReviewAnimationTests: XCTestCase {
             current: current,
             updated: matchingRefresh
         ))
-        XCTAssertTrue(StudySessionView.shouldResetCompletionPresentation(
+        XCTAssertFalse(StudySessionView.shouldResetCompletionPresentation(
             current: current,
             updated: newlyEarnedRefresh
         ))
+
+        let midCarousel = StudySessionView.reconciledCompletionPresentation(
+            current: current,
+            updated: newlyEarnedRefresh,
+            currentAwardIDs: current.newAwardIDs,
+            currentAwardIndex: 1,
+            celebrationPresented: false
+        )
+        XCTAssertEqual(midCarousel.awardIDs, [
+            "reviews.first",
+            "reviews.second",
+            "reviews.third",
+        ])
+        XCTAssertEqual(midCarousel.currentAwardIndex, 1)
+        XCTAssertFalse(midCarousel.celebrationPresented)
+
+        let finishedCarousel = StudySessionView.reconciledCompletionPresentation(
+            current: StudyAchievementCompletion(
+                id: sessionID,
+                records: [],
+                newAwardIDs: ["reviews.first"],
+                celebrationPresented: true
+            ),
+            updated: StudyAchievementCompletion(
+                id: sessionID,
+                records: [],
+                newAwardIDs: ["reviews.first", "reviews.third"],
+                celebrationPresented: false
+            ),
+            currentAwardIDs: ["reviews.first"],
+            currentAwardIndex: 0,
+            celebrationPresented: true
+        )
+        XCTAssertEqual(finishedCarousel.awardIDs, ["reviews.first", "reviews.third"])
+        XCTAssertEqual(finishedCarousel.currentAwardIndex, 1)
+        XCTAssertFalse(finishedCarousel.celebrationPresented)
     }
 }

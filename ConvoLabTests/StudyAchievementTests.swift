@@ -797,6 +797,36 @@ final class StudyAchievementTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishedOptimisticCelebrationReopensOnlyForLateAuthoritativeAward() async throws {
+        let defaults = try makeDefaults()
+        let client = makeClient()
+        try installAchievementResponses(awards: [])
+        let store = StudyAchievementStore(api: client, defaults: defaults)
+        store.activate(userID: 41)
+        await store.refresh()
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "review-1"))
+
+        try installAchievementResponses(awards: [
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+        ])
+        await store.refresh()
+        let optimistic = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(optimistic.newAwardIDs, ["reviews.first"])
+        store.markCelebrationPresented(sessionID: optimistic.id)
+
+        try installAchievementResponses(awards: [
+            award(id: "reviews.first", date: "2026-08-28T12:01:00.000Z"),
+            award(id: "voice.first", date: "2026-08-28T12:02:00.000Z"),
+        ])
+        await store.refresh()
+
+        let authoritative = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(authoritative.newAwardIDs, ["reviews.first", "voice.first"])
+        XCTAssertFalse(authoritative.celebrationPresented)
+    }
+
+    @MainActor
     func testUndoAndCancelPreventAnOrdinarySessionFromBeingRestored() async throws {
         let defaults = try makeDefaults()
         let client = makeClient()
