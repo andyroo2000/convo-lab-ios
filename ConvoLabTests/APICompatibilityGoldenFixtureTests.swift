@@ -5,13 +5,13 @@ import XCTest
 
 @MainActor
 final class APICompatibilityGoldenFixtureTests: XCTestCase {
-    private static let providerCommit = "c2ed3d75bbad869c6481e1c38368806ff931c689"
-    private static let manifestSHA256 = "b47b88e44f4df0eb73ec18476d027f5b1e5b65762da8e319df7dff8ebad2f444"
+    private static let providerCommit = "6f557e9ff7819bfee6c12d6e845ac28056475bdb"
+    private static let manifestSHA256 = "fd156e09c95b0c731be8a5599af4fbd4d619174667de448dc1c42d6ffa2f0c1c"
 
     private static let expectedFixtures: [String: ExpectedFixture] = [
         "study-card-summary.v1": .init(
             file: "study-card-summary-v1",
-            sha256: "8be018c25fc3bb661abb1a88b92e6f54e1d9026913a5882c6b524e1da111811a",
+            sha256: "cd39937adbe982905d11313101f4dfc65f59b1e80c7337b6c6eb67794570ccb8",
             producer: "App\\Http\\Resources\\Study\\StudyCardSummaryResource"
         ),
         "google-calendar-connection.v1": .init(
@@ -26,7 +26,7 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         ),
         "daily-audio-practice.v1": .init(
             file: "daily-audio-practice-v1",
-            sha256: "ad4e45a304e743f04b8f2e8d492917ea844ed3df599e0e7dfae1552e2fb6dcf1",
+            sha256: "b0583b74f2afe089cdcd9ee0f172b0a2c735e483c6cc80fa96da112cd63be2c1",
             producer: "App\\Http\\Resources\\Study\\DailyAudioPracticeResource"
         ),
         "personal-weekly-recap.v1": .init(
@@ -167,10 +167,12 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertEqual(ready.status, "ready")
         XCTAssertEqual(ready.tracks.count, 2)
         let drill = try XCTUnwrap(ready.tracks.first)
-        XCTAssertEqual(drill.scriptUnitsJson?.first?.type, "L2")
-        XCTAssertEqual(drill.scriptUnitsJson?.first?.text, "会社")
+        XCTAssertEqual(drill.scriptUnitsJson?[1].type, "narration_L1")
+        XCTAssertEqual(drill.scriptUnitsJson?[2].type, "L2")
+        XCTAssertEqual(drill.scriptUnitsJson?[2].text, "会社")
         XCTAssertEqual(drill.timingData, [
-            DailyAudioTiming(unitIndex: 0, startTime: 0, endTime: 1_200),
+            DailyAudioTiming(unitIndex: 1, startTime: 0, endTime: 600),
+            DailyAudioTiming(unitIndex: 2, startTime: 600, endTime: 1_200),
         ])
         XCTAssertEqual(drill.formattedDuration, "2:00")
         XCTAssertNil(ready.tracks.last?.timingData)
@@ -185,19 +187,22 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertTrue(failed.tracks.isEmpty)
     }
 
-    func testCanonicalDailyAudioTimingsAlignWithNonMarkerScriptUnits() async throws {
+    func testCanonicalDailyAudioTimingsReferenceNonMarkerScriptUnits() async throws {
         let track: DailyAudioTrack = try await decode(
             payload: Data(#"""
             {
               "id":"track-1","practiceId":"practice-1","mode":"drill","status":"ready",
               "title":"Mixed script","sortOrder":0,
               "scriptUnitsJson":[
-                {"kind":"marker","text":null},
-                {"kind":"native_language","text":"company"},
-                {"kind":"target_language","text":"会社"}
+                {"type":"marker","text":null},
+                {"type":"narration_L1","text":"company"},
+                {"type":"L2","text":"会社"}
               ],
               "audioUrl":"/audio/mixed.mp3",
-              "timingData":[{"startMs":0,"endMs":1200},{"startMs":1200,"endMs":2450}],
+              "timingData":[
+                {"unitIndex":1,"startTime":0,"endTime":1200},
+                {"unitIndex":2,"startTime":1200,"endTime":2450}
+              ],
               "approxDurationSeconds":2.45,"updatedAt":"2026-08-24T08:04:00.000Z"
             }
             """#.utf8),
@@ -218,34 +223,14 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         )
     }
 
-    func testLegacyDailyAudioTimingWithoutScriptDropsTrackHighlighting() async throws {
-        let track: DailyAudioTrack = try await decode(
-            payload: Data(#"""
-            {
-              "id":"track-2","practiceId":"practice-1","mode":"context","status":"ready",
-              "title":"Partial track","sortOrder":1,"scriptUnitsJson":null,
-              "audioUrl":"/audio/partial.mp3","timingData":[{"startMs":0,"endMs":1200}],
-              "approxDurationSeconds":1.2,"updatedAt":"2026-08-24T08:04:00.000Z"
-            }
-            """#.utf8),
-            path: "/api/daily-audio-practice/fixture/partial-track"
-        )
-
-        XCTAssertNil(track.scriptUnitsJson)
-        XCTAssertNil(track.timingData)
-    }
-
-    func testDailyAudioTrackRejectsMixedExplicitAndLegacyTimingIndexes() async throws {
+    func testDailyAudioTrackRejectsLegacyTimingFields() async throws {
         let payload = Data(#"""
         {
           "id":"track-3","practiceId":"practice-1","mode":"drill","status":"ready",
-          "title":"Mixed timing formats","sortOrder":2,
-          "scriptUnitsJson":[{"type":"L1","text":"company"},{"type":"L2","text":"会社"}],
+          "title":"Legacy timing format","sortOrder":2,
+          "scriptUnitsJson":[{"type":"L2","text":"会社"}],
           "audioUrl":"/audio/mixed.mp3",
-          "timingData":[
-            {"unitIndex":0,"startTime":0,"endTime":1200},
-            {"startMs":1200,"endMs":2450}
-          ],
+          "timingData":[{"startMs":0,"endMs":2450}],
           "approxDurationSeconds":2.45,"updatedAt":"2026-08-24T08:04:00.000Z"
         }
         """#.utf8)
@@ -255,10 +240,33 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
                 payload: payload,
                 path: "/api/daily-audio-practice/fixture/mixed-timing-formats"
             )
-            XCTFail("Expected mixed timing formats to be rejected.")
+            XCTFail("Expected legacy timing fields to be rejected.")
         } catch APIClientError.decoding(path: let path, details: let details) {
             XCTAssertEqual(path, "/api/daily-audio-practice/fixture/mixed-timing-formats")
             XCTAssertTrue(details.contains("timingData"))
+        }
+    }
+
+    func testDailyAudioTrackRejectsLegacyScriptUnitKind() async throws {
+        let payload = Data(#"""
+        {
+          "id":"track-4","practiceId":"practice-1","mode":"drill","status":"ready",
+          "title":"Legacy script format","sortOrder":3,
+          "scriptUnitsJson":[{"kind":"target_language","text":"会社"}],
+          "audioUrl":"/audio/legacy-script.mp3","timingData":null,
+          "approxDurationSeconds":2.45,"updatedAt":"2026-08-24T08:04:00.000Z"
+        }
+        """#.utf8)
+
+        do {
+            let _: DailyAudioTrack = try await decode(
+                payload: payload,
+                path: "/api/daily-audio-practice/fixture/legacy-script-unit"
+            )
+            XCTFail("Expected a legacy script-unit kind to be rejected.")
+        } catch APIClientError.decoding(path: let path, details: let details) {
+            XCTAssertEqual(path, "/api/daily-audio-practice/fixture/legacy-script-unit")
+            XCTAssertTrue(details.contains("scriptUnitsJson"))
         }
     }
 
