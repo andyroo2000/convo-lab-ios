@@ -359,6 +359,68 @@ final class CardMutationOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testRevisionConflictQuarantinesDependentEditsAndReturnsServerTruth() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let requests = LockedCounter()
+        let currentCard = makeCard(id: "card-1", cue: "server", revision: 9)
+        let cardObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(currentCard)
+        )
+        let conflictData = try JSONSerialization.data(withJSONObject: [
+            "code": "card_revision_conflict",
+            "message": "Study card content changed since it was loaded.",
+            "card": cardObject,
+        ])
+        let client = makeClient { request in
+            _ = requests.next()
+            let body = try requestBody(request)
+            let submitted = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(submitted["expectedRevision"] as? Int, 7)
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                conflictData
+            )
+        }
+        let outbox = makeOutbox(container: container, client: client)
+        outbox.activate(userID: 7)
+        _ = try outbox.stageUpdate(
+            cardID: currentCard.id,
+            request: makeUpdateRequest(cue: "first", expectedRevision: 7)
+        )
+        _ = try outbox.stageUpdate(
+            cardID: currentCard.id.uppercased(),
+            request: makeUpdateRequest(cue: "second", expectedRevision: 8)
+        )
+        try container.mainContext.save()
+        var reconciledCard: StudyCard?
+
+        do {
+            try await outbox.flush(
+                onRevisionConflict: { reconciledCard = $0 }
+            ) { _ in }
+            XCTFail("Expected revision-conflicted edits to be quarantined")
+        } catch let error as QuarantinedCardMutationError {
+            XCTAssertEqual(error.count, 2)
+        }
+
+        XCTAssertEqual(requests.current, 1)
+        XCTAssertEqual(reconciledCard?.promptText, "server")
+        XCTAssertEqual(reconciledCard?.revision, 9)
+        let quarantined = try cardMutations(in: container, userID: 7)
+        XCTAssertEqual(quarantined.count, 2)
+        XCTAssertTrue(quarantined.allSatisfy {
+            $0.lastError?.contains("card_revision_conflict") == true
+        })
+    }
+
+    @MainActor
     func testMissingDeleteIsAcknowledgedAndRemoved() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let requests = LockedRequestPaths()
@@ -542,10 +604,15 @@ final class CardMutationOutboxTests: XCTestCase {
         )
     }
 
-    private func makeUpdateRequest(cue: String) -> UpdateStudyCardRequest {
+    @MainActor
+    private func makeUpdateRequest(
+        cue: String,
+        expectedRevision: Int = 0
+    ) -> UpdateStudyCardRequest {
         UpdateStudyCardRequest(
             prompt: .object(["cueText": .string(cue)]),
-            answer: .object(["meaning": .string("meaning")])
+            answer: .object(["meaning": .string("meaning")]),
+            expectedRevision: expectedRevision
         )
     }
 
@@ -570,13 +637,15 @@ final class CardMutationOutboxTests: XCTestCase {
     private func makeCard(
         id: String,
         syncID: String? = nil,
-        cue: String = "cue"
+        cue: String = "cue",
+        revision: Int = 0
     ) -> StudyCard {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         return StudyCard(
             id: id,
             syncId: syncID,
             noteId: nil,
+            revision: revision,
             cardType: "recognition",
             prompt: .object(["cueText": .string(cue)]),
             answer: .object(["meaning": .string("meaning")]),

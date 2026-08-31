@@ -757,6 +757,7 @@ final class CardSyncFeedRepository {
             id: serverCard.id,
             syncId: serverCard.syncId ?? localCard.syncId,
             noteId: serverCard.noteId,
+            revision: preservingLocalContent ? localCard.revision : serverCard.revision,
             cardType: serverCard.cardType,
             prompt: preservingLocalContent ? localCard.prompt : serverCard.prompt,
             answer: preservingLocalContent ? localCard.answer : serverCard.answer,

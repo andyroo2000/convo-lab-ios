@@ -1995,6 +1995,12 @@ final class StudyStore {
                     )
                 }
                 loadLibraryCards(userID: userID)
+            },
+            onRevisionConflict: { [weak self] serverCard in
+                guard let self, self.activeUserID == userID else {
+                    throw CancellationError()
+                }
+                try applyCardRevisionConflict(serverCard)
             }
         ) { [weak self] acknowledgement in
             guard let self, self.activeUserID == userID else {
@@ -2016,6 +2022,7 @@ final class StudyStore {
                     id: acknowledgedCard.id,
                     syncId: acknowledgedCard.syncId,
                     noteId: acknowledgedCard.noteId,
+                    revision: acknowledgedCard.revision,
                     cardType: acknowledgedCard.cardType,
                     prompt: acknowledgedCard.prompt,
                     answer: acknowledgedCard.answer,
@@ -2042,6 +2049,45 @@ final class StudyStore {
         }
     }
 
+    private func applyCardRevisionConflict(_ serverCard: StudyCard) throws {
+        let preservingPendingReview = try hasPendingReview(for: serverCard)
+        let preservingPendingAction = try hasPendingCardAction(for: serverCard)
+        var authoritativeContent = try acknowledgedCard(
+            serverCard,
+            preservingPendingReview: preservingPendingReview,
+            preservingPendingEdit: false
+        )
+        if preservingPendingAction {
+            let latestLocalCard = try currentLocalCard(for: serverCard)
+            authoritativeContent = StudyCard(
+                id: authoritativeContent.id,
+                syncId: authoritativeContent.syncId,
+                noteId: authoritativeContent.noteId,
+                revision: authoritativeContent.revision,
+                cardType: authoritativeContent.cardType,
+                prompt: authoritativeContent.prompt,
+                answer: authoritativeContent.answer,
+                state: latestLocalCard.state,
+                answerAudioSource: authoritativeContent.answerAudioSource,
+                masteryLevel: latestLocalCard.masteryLevel,
+                variantGroupId: authoritativeContent.variantGroupId,
+                variantStatus: authoritativeContent.variantStatus,
+                introductionCohortId: authoritativeContent.introductionCohortId,
+                selectionPolicy: authoritativeContent.selectionPolicy,
+                priorityUntil: authoritativeContent.priorityUntil,
+                introductionAvailableAt: authoritativeContent.introductionAvailableAt,
+                createdAt: authoritativeContent.createdAt,
+                updatedAt: latestLocalCard.updatedAt
+            )
+        }
+        try updateExistingLocalCard(
+            authoritativeContent,
+            markedDirty: preservingPendingReview || preservingPendingAction,
+            serverUpdatedAt: serverCard.updatedAt,
+            missingRecordError: MissingAcknowledgedCardError()
+        )
+    }
+
     private func flushCardActionOutbox() async throws {
         guard let userID = activeUserID else { return }
         try await cardActionOutbox.flush { [weak self] acknowledgement in
@@ -2062,6 +2108,7 @@ final class StudyStore {
                     id: acknowledged.id,
                     syncId: acknowledged.syncId,
                     noteId: acknowledged.noteId,
+                    revision: acknowledged.revision,
                     cardType: acknowledged.cardType,
                     prompt: acknowledged.prompt,
                     answer: acknowledged.answer,
@@ -2308,6 +2355,9 @@ final class StudyStore {
             id: record.id,
             syncId: card.syncId ?? localCard?.syncId,
             noteId: card.noteId,
+            revision: preserveLocalPresentation
+                ? localCard?.revision ?? card.revision
+                : card.revision,
             cardType: preserveLocalPresentation
                 ? localCard?.cardType ?? card.cardType
                 : card.cardType,
@@ -2411,6 +2461,7 @@ final class StudyStore {
                 ? serverCard.syncId ?? localCard.syncId
                 : serverCard.reviewCardID,
             noteId: serverCard.noteId,
+            revision: preservingPendingEdit ? localCard.revision : serverCard.revision,
             cardType: serverCard.cardType,
             prompt: prompt,
             answer: answer,

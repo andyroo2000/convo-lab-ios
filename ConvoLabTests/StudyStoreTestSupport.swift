@@ -105,6 +105,7 @@ extension StudyStoreTests {
     func makeCard(
         id: String,
         syncId: String? = nil,
+        revision: Int = 0,
         expression: String,
         mediaURL: String? = nil,
         queueState: String = "review",
@@ -126,6 +127,7 @@ extension StudyStoreTests {
             id: id,
             syncId: syncId,
             noteId: nil,
+            revision: revision,
             cardType: "recognition",
             prompt: .object(prompt),
             answer: .object(["meaning": .string("meaning")]),

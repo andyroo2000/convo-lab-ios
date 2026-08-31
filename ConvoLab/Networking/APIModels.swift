@@ -697,6 +697,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         case id
         case syncId
         case noteId
+        case revision
         case cardType
         case prompt
         case answer
@@ -716,6 +717,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let id: String
     let syncId: String?
     let noteId: String?
+    let revision: Int
     let cardType: String
     let prompt: JSONValue
     let answer: JSONValue
@@ -736,6 +738,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         id: String,
         syncId: String? = nil,
         noteId: String?,
+        revision: Int = 0,
         cardType: String,
         prompt: JSONValue,
         answer: JSONValue,
@@ -754,6 +757,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.id = id
         self.syncId = syncId
         self.noteId = noteId
+        self.revision = revision
         self.cardType = cardType
         self.prompt = prompt
         self.answer = answer
@@ -779,6 +783,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         syncId = try container.decodeIfPresent(String.self, forKey: .syncId)
         noteId = try container.decodeIfPresent(String.self, forKey: .noteId)
+        revision = try container.decodeIfPresent(Int.self, forKey: .revision) ?? 0
         cardType = try container.decode(String.self, forKey: .cardType)
         prompt = try container.decode(JSONValue.self, forKey: .prompt)
         answer = try container.decode(JSONValue.self, forKey: .answer)
@@ -813,6 +818,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(syncId, forKey: .syncId)
         try container.encodeIfPresent(noteId, forKey: .noteId)
+        try container.encode(revision, forKey: .revision)
         try container.encode(cardType, forKey: .cardType)
         try container.encode(prompt, forKey: .prompt)
         try container.encode(answer, forKey: .answer)
@@ -852,6 +858,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             id: id,
             syncId: syncId,
             noteId: noteId,
+            revision: revision,
             cardType: cardType,
             prompt: prompt,
             answer: answer,
@@ -874,6 +881,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             id: id,
             syncId: syncId,
             noteId: noteId,
+            revision: revision,
             cardType: cardType,
             prompt: prompt,
             answer: answer,
@@ -896,6 +904,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             id: id,
             syncId: syncId,
             noteId: noteId,
+            revision: revision,
             cardType: cardType,
             prompt: prompt,
             answer: answer,
@@ -968,6 +977,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             id: id,
             syncId: syncId,
             noteId: noteId,
+            revision: revision,
             cardType: cardType,
             prompt: prompt,
             answer: answer,
@@ -1499,6 +1509,34 @@ struct CreateStudyCardRequest: Codable {
 struct UpdateStudyCardRequest: Codable {
     let prompt: JSONValue
     let answer: JSONValue
+    let expectedRevision: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case prompt
+        case answer
+        case expectedRevision
+    }
+
+    init(
+        prompt: JSONValue,
+        answer: JSONValue,
+        expectedRevision: Int = 0
+    ) {
+        self.prompt = prompt
+        self.answer = answer
+        self.expectedRevision = expectedRevision
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(JSONValue.self, forKey: .prompt)
+        answer = try container.decode(JSONValue.self, forKey: .answer)
+        // Outbox rows written by earlier app versions predate optimistic revisions.
+        expectedRevision = try container.decodeIfPresent(
+            Int.self,
+            forKey: .expectedRevision
+        ) ?? 0
+    }
 }
 
 struct KnownKanjiSnapshot: nonisolated Codable, Equatable, Sendable {

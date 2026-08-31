@@ -30,6 +30,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     @MainActor
     func testUpdateAndMediaProjectionsPreserveUntouchedCardMetadata() throws {
         let card = makeCard(
+            revision: 7,
             masteryLevel: "guru",
             variantGroupID: "family-1",
             variantStatus: "locked",
@@ -47,6 +48,8 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         )
 
         XCTAssertEqual(update.card.masteryLevel, "guru")
+        XCTAssertEqual(update.request.expectedRevision, 7)
+        XCTAssertEqual(update.card.revision, 8)
         XCTAssertEqual(update.card.variantGroupId, "family-1")
         XCTAssertEqual(update.card.variantStatus, "locked")
         XCTAssertEqual(update.card.introductionCohortId, "cohort-1")
@@ -64,6 +67,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         let serverCard = makeCard(
             id: "server-id",
             syncId: "canonical-sync-id",
+            revision: 12,
             masteryLevel: nil
         )
         let reconciled = StudyCardEditorProjection.reconcilingMedia(
@@ -76,6 +80,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         )
         XCTAssertEqual(reconciled.id, update.card.id)
         XCTAssertEqual(reconciled.syncId, "canonical-sync-id")
+        XCTAssertEqual(reconciled.revision, 12)
         XCTAssertEqual(reconciled.masteryLevel, "guru")
         XCTAssertNil(reconciled.variantGroupId)
         XCTAssertNil(reconciled.variantStatus)
@@ -103,6 +108,24 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     }
 
     @MainActor
+    func testNoOpUpdateKeepsRevisionWhileStillSendingExpectation() {
+        let initialCard = makeCard(revision: 6, masteryLevel: nil)
+        let normalized = StudyCardEditorProjection.updating(
+            initialCard,
+            with: StudyCardDraft(card: initialCard),
+            at: Date(timeIntervalSince1970: 100)
+        ).card
+        let projection = StudyCardEditorProjection.updating(
+            normalized,
+            with: StudyCardDraft(card: normalized),
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        XCTAssertEqual(projection.request.expectedRevision, 7)
+        XCTAssertEqual(projection.card.revision, 7)
+    }
+
+    @MainActor
     private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
         let encoded = try StorageCodec.encoder.encode(card)
         var object = try XCTUnwrap(
@@ -120,6 +143,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     private func makeCard(
         id: String = "local-id",
         syncId: String? = "local-sync-id",
+        revision: Int = 0,
         masteryLevel: String?,
         variantGroupID: String? = nil,
         variantStatus: String? = nil,
@@ -132,6 +156,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             id: id,
             syncId: syncId,
             noteId: "note-id",
+            revision: revision,
             cardType: "recognition",
             prompt: .object(["cueText": .string("original")]),
             answer: .object(["meaning": .string("meaning")]),
