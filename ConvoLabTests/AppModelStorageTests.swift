@@ -168,7 +168,7 @@ final class AppModelStorageTests: XCTestCase {
         Self.retainedObservableStores.append(model)
     }
 
-    func testSynchronizationLoadsCapabilitiesBeforeAuthorityDependentStudySync() async throws {
+    func testSynchronizationOverlapsIndependentRefreshesWhileCapabilitiesGateStudySync() async throws {
         let user = CurrentUser(
             id: 42,
             name: "Andrew",
@@ -184,22 +184,39 @@ final class AppModelStorageTests: XCTestCase {
         ])
         let paths = LockedRequestPaths()
         let capabilityData = try JSONEncoder().encode(StudyCapabilities.fallback)
-        MockURLProtocol.deferredHandler = nil
-        MockURLProtocol.handler = { request in
+        let (capabilityStarted, capabilityStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (dailyAudioStarted, dailyAudioStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseCapability, releaseCapabilityContinuation) = AsyncStream<Void>.makeStream()
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = { request, completion in
             let path = request.url?.path ?? ""
             paths.append(path)
-            guard path == "/api/study/capabilities" else {
-                throw URLError(.notConnectedToInternet)
+            guard let url = request.url else {
+                completion(.failure(URLError(.badURL)))
+                return
             }
-            return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                capabilityData
-            )
+            switch path {
+            case "/api/study/capabilities":
+                capabilityStartedContinuation.yield()
+                Task {
+                    var releaseIterator = releaseCapability.makeAsyncIterator()
+                    _ = await releaseIterator.next()
+                    completion(.success((
+                        HTTPURLResponse(
+                            url: url,
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        capabilityData
+                    )))
+                }
+            case "/api/daily-audio-practice":
+                dailyAudioStartedContinuation.yield()
+                completion(.failure(URLError(.notConnectedToInternet)))
+            default:
+                completion(.failure(URLError(.notConnectedToInternet)))
+            }
         }
         defer {
             MockURLProtocol.handler = nil
@@ -228,9 +245,22 @@ final class AppModelStorageTests: XCTestCase {
             accountDeletionCleanupDefaults: defaults
         )
 
-        await model.synchronize()
+        let synchronization = Task { await model.synchronize() }
+        var capabilityIterator = capabilityStarted.makeAsyncIterator()
+        var dailyAudioIterator = dailyAudioStarted.makeAsyncIterator()
+        _ = await capabilityIterator.next()
+        _ = await dailyAudioIterator.next()
 
-        XCTAssertEqual(paths.values.first, "/api/study/capabilities")
+        XCTAssertFalse(paths.values.contains("/api/sync/feed"))
+
+        releaseCapabilityContinuation.yield()
+        await synchronization.value
+
+        let completedPaths = paths.values
+        XCTAssertLessThan(
+            try XCTUnwrap(completedPaths.firstIndex(of: "/api/study/capabilities")),
+            try XCTUnwrap(completedPaths.firstIndex(of: "/api/sync/feed"))
+        )
         Self.retainedObservableStores.append(model)
     }
 
