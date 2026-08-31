@@ -1275,11 +1275,12 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var answerDetailText: String? {
-        guard cardType == "cloze" else { return nil }
-        if serverPresentation != nil {
+        if let serverPresentation {
+            guard serverPresentation.front.mode == .cloze else { return nil }
             let detail = presentation.back.textBlocks.first { $0.role == .meaning }?.text
             return detail == answerText ? nil : detail
         }
+        guard cardType == "cloze" else { return nil }
         let detail = answer.firstNonEmptyString(for: ["meaning", "translation"])
         return detail == answerText ? nil : detail
     }
