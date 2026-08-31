@@ -1,28 +1,28 @@
 import Foundation
 
 enum StudySettingsPolicy {
-    static let newCardsPerDayRange = 0...1_000
-    static let lessonBatchSizeRange = 3...10
-    static let reviewTimeBudgetRange = 15...240
-    static let standardLaneWeightRange = 1...20
-    static let priorityLaneWeightRange = 0...20
-
     static func accepts(
         newCardsPerDay: Int,
         lessonBatchSize: Int,
         reviewTimeBudgetMinutes: Int?,
-        newCardLaneWeights: StudyNewCardLaneWeights? = nil
+        newCardLaneWeights: StudyNewCardLaneWeights? = nil,
+        capabilities: StudyCapabilities = .fallback
     ) -> Bool {
-        newCardsPerDayRange.contains(newCardsPerDay)
-            && lessonBatchSizeRange.contains(lessonBatchSize)
-            && reviewTimeBudgetMinutes.map(reviewTimeBudgetRange.contains) ?? true
-            && newCardLaneWeights.map(accepts) ?? true
+        capabilities.settings.newCardsPerDay.range.contains(newCardsPerDay)
+            && capabilities.settings.lessonBatchSize.range.contains(lessonBatchSize)
+            && reviewTimeBudgetMinutes.map(
+                capabilities.settings.reviewTimeBudgetMinutes.range.contains
+            ) ?? true
+            && newCardLaneWeights.map {
+                accepts($0, capabilities: capabilities)
+            } ?? true
     }
 
     static func resolvedReviewTimeBudget(
         responseOverview: StudyOverview? = nil,
         settings: StudySettings?,
-        currentOverview: StudyOverview?
+        currentOverview: StudyOverview?,
+        capabilities: StudyCapabilities = .fallback
     ) -> Int {
         clampedReviewTimeBudget(
             responseOverview?.reviewTimeBudgetMinutes
@@ -30,14 +30,16 @@ enum StudySettingsPolicy {
                 ?? settings?.reviewTimeBudgetMinutes
                 ?? currentOverview?.reviewTimeBudgetMinutes
                 ?? currentOverview?.learningReadiness?.reviewTimeBudgetMinutes
-                ?? 90
+                ?? capabilities.settings.reviewTimeBudgetMinutes.default,
+            capabilities: capabilities
         )
     }
 
     static func settings(
         from overview: StudyOverview,
         fallbackReviewTimeBudget: Int,
-        existingLaneWeights: StudyNewCardLaneWeights? = nil
+        existingLaneWeights: StudyNewCardLaneWeights? = nil,
+        capabilities: StudyCapabilities = .fallback
     ) -> StudySettings {
         StudySettings(
             newCardsPerDay: overview.newCardsPerDay,
@@ -45,7 +47,8 @@ enum StudySettingsPolicy {
             reviewTimeBudgetMinutes: clampedReviewTimeBudget(
                 overview.reviewTimeBudgetMinutes
                     ?? overview.learningReadiness?.reviewTimeBudgetMinutes
-                    ?? fallbackReviewTimeBudget
+                    ?? fallbackReviewTimeBudget,
+                capabilities: capabilities
             ),
             newCardLaneWeights: existingLaneWeights
         )
@@ -55,7 +58,8 @@ enum StudySettingsPolicy {
         _ response: StudySettings,
         requestedReviewTimeBudget: Int? = nil,
         requestedLaneWeights: StudyNewCardLaneWeights? = nil,
-        fallbackReviewTimeBudget: Int
+        fallbackReviewTimeBudget: Int,
+        capabilities: StudyCapabilities = .fallback
     ) -> StudySettings {
         StudySettings(
             newCardsPerDay: response.newCardsPerDay,
@@ -63,7 +67,8 @@ enum StudySettingsPolicy {
             reviewTimeBudgetMinutes: clampedReviewTimeBudget(
                 response.includesReviewTimeBudgetMinutes
                     ? response.reviewTimeBudgetMinutes
-                    : requestedReviewTimeBudget ?? fallbackReviewTimeBudget
+                    : requestedReviewTimeBudget ?? fallbackReviewTimeBudget,
+                capabilities: capabilities
             ),
             newCardLaneWeights: response.newCardLaneWeights ?? requestedLaneWeights
         )
@@ -92,13 +97,21 @@ enum StudySettingsPolicy {
         )
     }
 
-    private static func clampedReviewTimeBudget(_ value: Int) -> Int {
-        min(max(value, reviewTimeBudgetRange.lowerBound), reviewTimeBudgetRange.upperBound)
+    private static func clampedReviewTimeBudget(
+        _ value: Int,
+        capabilities: StudyCapabilities
+    ) -> Int {
+        let range = capabilities.settings.reviewTimeBudgetMinutes.range
+        return min(max(value, range.lowerBound), range.upperBound)
     }
 
-    private static func accepts(_ weights: StudyNewCardLaneWeights) -> Bool {
-        standardLaneWeightRange.contains(weights.standard)
-            && priorityLaneWeightRange.contains(weights.lessonFollowup)
-            && priorityLaneWeightRange.contains(weights.wanikani)
+    private static func accepts(
+        _ weights: StudyNewCardLaneWeights,
+        capabilities: StudyCapabilities
+    ) -> Bool {
+        let limits = capabilities.settings.newCardLaneWeights
+        return limits.standard.range.contains(weights.standard)
+            && limits.lessonFollowup.range.contains(weights.lessonFollowup)
+            && limits.wanikani.range.contains(weights.wanikani)
     }
 }

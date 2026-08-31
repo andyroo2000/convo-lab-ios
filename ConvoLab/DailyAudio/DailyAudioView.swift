@@ -8,6 +8,7 @@ struct DailyAudioView: View {
 
     let store: DailyAudioStore
     let player: AudioPlayer
+    let capabilities: StudyCapabilities.DailyAudio
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedPracticeID: String?
     @State private var confirmingRegeneration = false
@@ -18,10 +19,34 @@ struct DailyAudioView: View {
     @State private var suppressTrackInteractions = false
     @State private var trackInteractionResetTask: Task<Void, Never>?
     @State private var selectedPlayerTrack: DailyAudioTrack?
-    @State private var selectedEdition: DailyAudioEditionDuration = .sixtyMinutes
+    @State private var selectedEdition: DailyAudioEditionDuration
 
     private let dayCardSpacing = CGFloat(16)
     private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
+
+    init(
+        store: DailyAudioStore,
+        player: AudioPlayer,
+        capabilities: StudyCapabilities.DailyAudio = StudyCapabilities.fallback.dailyAudio
+    ) {
+        self.store = store
+        self.player = player
+        self.capabilities = capabilities
+        let target = capabilities.targetDurationMinutes.default
+        let options = DailyAudioEditionDuration.allCases.filter {
+            capabilities.targetDurationMinutes.range.contains($0.rawValue)
+        }
+        _selectedEdition = State(initialValue: options.min {
+            abs($0.rawValue - target) < abs($1.rawValue - target)
+        } ?? .thirtyMinutes)
+    }
+
+    private var availableEditions: [DailyAudioEditionDuration] {
+        let advertised = DailyAudioEditionDuration.allCases.filter {
+            capabilities.targetDurationMinutes.range.contains($0.rawValue)
+        }
+        return advertised.isEmpty ? DailyAudioEditionDuration.allCases : advertised
+    }
 
     private var selectedPractice: DailyAudioPractice? {
         guard let selectedPracticeID else { return store.practices.first }
@@ -174,7 +199,7 @@ struct DailyAudioView: View {
             Text("Generate audio drills based on words and grammar structures you are currently working on.")
                 .foregroundStyle(.secondary)
             Picker("Edition Length", selection: $selectedEdition) {
-                ForEach(DailyAudioEditionDuration.allCases) { edition in
+                ForEach(availableEditions) { edition in
                     Text(edition.label).tag(edition)
                 }
             }

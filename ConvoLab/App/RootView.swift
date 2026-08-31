@@ -144,7 +144,11 @@ private struct MainTabView: View {
                 )
             }
             Tab("Daily Audio", systemImage: "headphones", value: MainTab.dailyAudio) {
-                DailyAudioView(store: model.dailyAudio, player: model.audioPlayer)
+                DailyAudioView(
+                    store: model.dailyAudio,
+                    player: model.audioPlayer,
+                    capabilities: model.study.capabilities.dailyAudio
+                )
             }
             Tab("Time", systemImage: "clock.fill", value: MainTab.time) {
                 StudyTimeView(store: model.studyTime, studyStore: model.study)

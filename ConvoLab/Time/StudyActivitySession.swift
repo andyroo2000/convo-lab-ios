@@ -161,8 +161,9 @@ struct StudyActivitySession: nonisolated Codable, Identifiable, Equatable, Senda
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(String.self, forKey: .id)
         clientSessionId = try values.decode(String.self, forKey: .clientSessionId)
-        category = try values.decode(StudyActivityCategory.self, forKey: .category)
         activity = try values.decode(StudyActivityKind.self, forKey: .activity)
+        category = try values.decodeIfPresent(StudyActivityCategory.self, forKey: .category)
+            ?? activity.category
         source = try values.decode(StudyActivitySource.self, forKey: .source)
         // Missing/null identifies rows from before the origin contract. Provider
         // imports did not exist in that payload shape, and canonical responses
@@ -216,7 +217,38 @@ struct StudyActivityBatchRequest: Encodable {
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(sessions, forKey: .sessions)
+        try values.encode(sessions.map(WriteSession.init), forKey: .sessions)
+    }
+
+    private struct WriteSession: Encodable {
+        let session: StudyActivitySession
+
+        init(_ session: StudyActivitySession) {
+            self.session = session
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encodeIfPresent(session.id, forKey: .id)
+            try values.encode(session.clientSessionId, forKey: .clientSessionId)
+            // learning-os derives category from activity.
+            try values.encode(session.activity, forKey: .activity)
+            try values.encode(session.source, forKey: .source)
+            if session.origin == .ios || session.origin == .web {
+                try values.encode(session.origin, forKey: .origin)
+            }
+            try values.encodeIfPresent(session.name, forKey: .name)
+            try values.encode(session.startedAt, forKey: .startedAt)
+            try values.encode(session.endedAt, forKey: .endedAt)
+            try values.encode(session.durationMs, forKey: .durationMs)
+            try values.encodeIfPresent(session.audioPlaybackMs, forKey: .audioPlaybackMs)
+            try values.encodeIfPresent(session.cardsCreated, forKey: .cardsCreated)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, clientSessionId, activity, source, origin, name
+            case startedAt, endedAt, durationMs, audioPlaybackMs, cardsCreated
+        }
     }
 
     private enum CodingKeys: String, CodingKey {

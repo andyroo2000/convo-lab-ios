@@ -27,18 +27,22 @@ struct SettingsView: View {
         _newCardsPerDay = State(
             initialValue: model.study.studySettings?.newCardsPerDay
                 ?? model.study.overview?.newCardsPerDay
-                ?? 20
+                ?? model.study.capabilities.settings.newCardsPerDay.default
         )
         _lessonBatchSize = State(
             initialValue: model.study.studySettings?.lessonBatchSize
                 ?? model.study.overview?.lessonBatchSize
-                ?? 5
+                ?? model.study.capabilities.settings.lessonBatchSize.default
         )
         let initialReviewTimeBudgetMinutes = model.study.studySettings?.reviewTimeBudgetMinutes
             ?? model.study.overview?.learningReadiness?.reviewTimeBudgetMinutes
-            ?? 90
+            ?? model.study.capabilities.settings.reviewTimeBudgetMinutes.default
+        let reviewBudgetRange = model.study.capabilities.settings.reviewTimeBudgetMinutes.range
         _reviewTimeBudgetMinutes = State(
-            initialValue: min(max(initialReviewTimeBudgetMinutes, 15), 240)
+            initialValue: min(
+                max(initialReviewTimeBudgetMinutes, reviewBudgetRange.lowerBound),
+                reviewBudgetRange.upperBound
+            )
         )
         _laneWeights = State(initialValue: model.study.studySettings?.newCardLaneWeights)
         _satoriReaderSnapshot = State(
@@ -96,7 +100,7 @@ struct SettingsView: View {
                     Stepper(
                         "New cards per day: \(newCardsPerDay)",
                         value: $newCardsPerDay,
-                        in: 0...1_000
+                        in: model.study.capabilities.settings.newCardsPerDay.range
                     )
                     .onChange(of: newCardsPerDay) {
                         studySettingsSaved = false
@@ -104,7 +108,7 @@ struct SettingsView: View {
                     Stepper(
                         "Cards per lesson: \(lessonBatchSize)",
                         value: $lessonBatchSize,
-                        in: 3...10
+                        in: model.study.capabilities.settings.lessonBatchSize.range
                     )
                     .onChange(of: lessonBatchSize) {
                         studySettingsSaved = false
@@ -112,7 +116,7 @@ struct SettingsView: View {
                     Stepper(
                         "Review budget: \(reviewTimeBudgetMinutes) min",
                         value: $reviewTimeBudgetMinutes,
-                        in: 15...240,
+                        in: model.study.capabilities.settings.reviewTimeBudgetMinutes.range,
                         step: 15
                     )
                     .onChange(of: reviewTimeBudgetMinutes) {
@@ -122,17 +126,17 @@ struct SettingsView: View {
                         Stepper(
                             "Standard queue: \(laneWeights.standard) (\(laneWeights.percentage(for: laneWeights.standard))%)",
                             value: laneWeightBinding(\.standard),
-                            in: 1...20
+                            in: model.study.capabilities.settings.newCardLaneWeights.standard.range
                         )
                         Stepper(
                             "Lesson follow-up: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
                             value: laneWeightBinding(\.lessonFollowup),
-                            in: 0...20
+                            in: model.study.capabilities.settings.newCardLaneWeights.lessonFollowup.range
                         )
                         Stepper(
                             "WaniKani: \(laneWeights.wanikani) (\(laneWeights.percentage(for: laneWeights.wanikani))%)",
                             value: laneWeightBinding(\.wanikani),
-                            in: 0...20
+                            in: model.study.capabilities.settings.newCardLaneWeights.wanikani.range
                         )
                         Text(
                             "These are relative weights, not daily limits. Empty lanes automatically give their space to the others."
@@ -325,14 +329,46 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task {
+                async let capabilities: Void = model.study.refreshCapabilities()
                 async let studySettings: Void = model.study.refreshStudySettings()
                 async let calendar: Void = model.studyTime.loadGoogleCalendarConnection()
-                _ = await (studySettings, calendar)
+                _ = await (capabilities, studySettings, calendar)
                 if let settings = model.study.studySettings {
-                    newCardsPerDay = settings.newCardsPerDay
-                    lessonBatchSize = settings.lessonBatchSize
-                    reviewTimeBudgetMinutes = settings.reviewTimeBudgetMinutes
-                    laneWeights = settings.newCardLaneWeights
+                    let limits = model.study.capabilities.settings
+                    newCardsPerDay = min(
+                        max(settings.newCardsPerDay, limits.newCardsPerDay.min),
+                        limits.newCardsPerDay.max
+                    )
+                    lessonBatchSize = min(
+                        max(settings.lessonBatchSize, limits.lessonBatchSize.min),
+                        limits.lessonBatchSize.max
+                    )
+                    reviewTimeBudgetMinutes = min(
+                        max(
+                            settings.reviewTimeBudgetMinutes,
+                            limits.reviewTimeBudgetMinutes.min
+                        ),
+                        limits.reviewTimeBudgetMinutes.max
+                    )
+                    laneWeights = settings.newCardLaneWeights.map { weights in
+                        StudyNewCardLaneWeights(
+                            standard: min(
+                                max(weights.standard, limits.newCardLaneWeights.standard.min),
+                                limits.newCardLaneWeights.standard.max
+                            ),
+                            lessonFollowup: min(
+                                max(
+                                    weights.lessonFollowup,
+                                    limits.newCardLaneWeights.lessonFollowup.min
+                                ),
+                                limits.newCardLaneWeights.lessonFollowup.max
+                            ),
+                            wanikani: min(
+                                max(weights.wanikani, limits.newCardLaneWeights.wanikani.min),
+                                limits.newCardLaneWeights.wanikani.max
+                            )
+                        )
+                    }
                 }
             }
             .confirmationDialog(

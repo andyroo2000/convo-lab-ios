@@ -396,6 +396,7 @@ final class AppModel {
         }
         activateLocalData(for: user)
         await importPendingSatoriReaderSessions()
+        async let studyCapabilities: Void = study.refreshCapabilities()
         async let studySync: Void = study.synchronize()
         async let draftCreateRetry: Void = retryPendingDraftCreates()
         async let audioRefresh: Bool = dailyAudio.refresh()
@@ -404,6 +405,7 @@ final class AppModel {
         async let achievementRefresh: Void = achievements.refresh()
         _ = await (
             studySync,
+            studyCapabilities,
             draftCreateRetry,
             audioRefresh,
             timeSync,

@@ -191,6 +191,7 @@ final class StudyStore {
     var isRefreshingOverview = false
     var overviewRefreshErrorMessage: String?
     var studySettings: StudySettings?
+    var capabilities: StudyCapabilities = .fallback
     var isUpdatingStudySettings = false
     var studySettingsErrorMessage: String?
     var knownKanji: Set<Character> { knownKanjiService.knownKanji }
@@ -1539,11 +1540,12 @@ final class StudyStore {
         // Validate before the preflight flush so bad editor input cannot send an
         // unrelated queued card mutation. The service repeats this for direct callers.
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maximumPromptCharacters = capabilities.cardAuthoring.limits.imagePromptCharacters
         guard
             !imagePrompt.isEmpty,
-            imagePrompt.count <= 1_000
+            imagePrompt.count <= maximumPromptCharacters
         else {
-            throw InvalidCardImagePromptError()
+            throw InvalidCardImagePromptError(maximumCharacters: maximumPromptCharacters)
         }
         guard placement != .none else {
             throw InvalidCardImagePlacementError()
@@ -1553,6 +1555,7 @@ final class StudyStore {
             currentCard: currentCard,
             prompt: imagePrompt,
             placement: placement,
+            maximumPromptCharacters: maximumPromptCharacters,
             latestCard: { [weak self] in
                 guard let self else { throw CancellationError() }
                 return try self.currentLocalCard(for: currentCard)
@@ -1578,15 +1581,20 @@ final class StudyStore {
         placement: StudyCardDraft.ImagePlacement
     ) async throws -> ImageRegenerationResult {
         try requirePersistentWrites()
+        let maximumBytes = capabilities.cardAuthoring.limits.imageUploadBytes
         // As above, reject invalid editor state before the outbox preflight.
         guard placement != .none else {
             throw InvalidCardImagePlacementError()
+        }
+        guard jpegData.count <= maximumBytes else {
+            throw OversizedCardImageUploadError(maximumBytes: maximumBytes)
         }
         let currentCard = try await prepareCardMediaMutation(for: card, medium: "image")
         return try await cardMediaService.uploadImage(
             currentCard: currentCard,
             jpegData: jpegData,
             placement: placement,
+            maximumBytes: maximumBytes,
             latestCard: { [weak self] in
                 guard let self else { throw CancellationError() }
                 return try self.currentLocalCard(for: currentCard)

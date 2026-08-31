@@ -57,7 +57,8 @@ extension StudyStore {
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
-            existingLaneWeights: studySettings?.newCardLaneWeights
+            existingLaneWeights: studySettings?.newCardLaneWeights,
+            capabilities: capabilities
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,
@@ -109,8 +110,8 @@ extension StudyStore {
         let userID = load.userID
         let session = load.response.session
         // Both ordinary and introduction-cohort lesson endpoints are bounded by
-        // the API's lesson_batch_size setting (currently 3...10).
-        guard session.cards.count <= StudySettingsPolicy.lessonBatchSizeRange.upperBound else {
+        // the API's advertised lesson_batch_size setting.
+        guard session.cards.count <= capabilities.settings.lessonBatchSize.max else {
             throw OversizedLessonSessionError()
         }
         let pendingReviewState = try reviewOutbox.pendingState()
@@ -121,7 +122,8 @@ extension StudyStore {
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
-            existingLaneWeights: studySettings?.newCardLaneWeights
+            existingLaneWeights: studySettings?.newCardLaneWeights,
+            capabilities: capabilities
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,
@@ -419,8 +421,7 @@ extension StudyStore {
             method: "POST",
             body: UndoStudyReviewRequest(
                 reviewLogId: eventID.lowercased(),
-                timeZone: TimeZone.current.identifier,
-                currentOverview: overview
+                timeZone: TimeZone.current.identifier
             )
         )
         guard isCurrentActivation(userID, generation: activationGeneration) else {
@@ -448,7 +449,8 @@ extension StudyStore {
         StudySettingsPolicy.resolvedReviewTimeBudget(
             responseOverview: responseOverview,
             settings: studySettings,
-            currentOverview: overview
+            currentOverview: overview,
+            capabilities: capabilities
         )
     }
 

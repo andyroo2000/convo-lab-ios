@@ -313,6 +313,20 @@ final class CardMediaMutationServiceTests: XCTestCase {
         do {
             _ = try await service.regenerateImage(
                 currentCard: card,
+                prompt: "four",
+                placement: .prompt,
+                maximumPromptCharacters: 3,
+                latestCard: { card },
+                hasPendingWrite: { _ in false },
+                onReconciled: { _, _, _ in }
+            )
+            XCTFail("Expected advertised prompt limit to be enforced")
+        } catch let error as InvalidCardImagePromptError {
+            XCTAssertEqual(error.maximumCharacters, 3)
+        }
+        do {
+            _ = try await service.regenerateImage(
+                currentCard: card,
                 prompt: "valid",
                 placement: .none,
                 latestCard: { card },
@@ -321,6 +335,20 @@ final class CardMediaMutationServiceTests: XCTestCase {
             )
             XCTFail("Expected invalid placement")
         } catch is InvalidCardImagePlacementError {}
+        do {
+            _ = try await service.uploadImage(
+                currentCard: card,
+                jpegData: Data(repeating: 0, count: 4),
+                placement: .answer,
+                maximumBytes: 3,
+                latestCard: { card },
+                hasPendingWrite: { _ in false },
+                onReconciled: { _, _, _ in }
+            )
+            XCTFail("Expected advertised upload limit to be enforced")
+        } catch let error as OversizedCardImageUploadError {
+            XCTAssertEqual(error.maximumBytes, 3)
+        }
         XCTAssertEqual(requests.current, 0)
         XCTAssertTrue(diagnosticsSink.events.isEmpty)
     }

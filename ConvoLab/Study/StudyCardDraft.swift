@@ -80,7 +80,10 @@ struct StudyCardDraft: Equatable, Sendable {
     private var originalPromptImage: JSONValue?
     private var originalAnswerImage: JSONValue?
 
-    init(cardType: CardType = .recognition) {
+    init(
+        cardType: CardType = .recognition,
+        defaultAnswerAudioVoiceID: String = StudyAnswerVoice.defaultVoice.id
+    ) {
         self.cardType = cardType
         cueText = ""
         cueReading = ""
@@ -90,7 +93,7 @@ struct StudyCardDraft: Equatable, Sendable {
         answerMeaning = ""
         sentenceJapanese = ""
         sentenceEnglish = ""
-        answerAudioVoiceId = StudyAnswerVoice.defaultVoice.id
+        answerAudioVoiceId = defaultAnswerAudioVoiceID
         answerAudioTextOverride = ""
         preservesIndependentFaceImages = false
         originalPromptImage = nil
@@ -104,7 +107,10 @@ struct StudyCardDraft: Equatable, Sendable {
         originalClozeHint = nil
     }
 
-    init(card: StudyCard) {
+    init(
+        card: StudyCard,
+        defaultAnswerAudioVoiceID: String = StudyAnswerVoice.defaultVoice.id
+    ) {
         cardType = CardType(rawValue: card.cardType) ?? .recognition
         isMediaLedPrompt = cardType != .cloze
             && card.prompt.firstNonEmptyString(for: ["cueText"]) == nil
@@ -138,7 +144,7 @@ struct StudyCardDraft: Equatable, Sendable {
         }
         answerAudioVoiceId = card.answer.firstNonEmptyString(
             for: ["answerAudioVoiceId"]
-        ) ?? StudyAnswerVoice.defaultVoice.id
+        ) ?? defaultAnswerAudioVoiceID
         answerAudioTextOverride = card.answer.firstNonEmptyString(
             for: ["answerAudioTextOverride"]
         ) ?? ""
@@ -176,7 +182,10 @@ struct StudyCardDraft: Equatable, Sendable {
         notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
     }
 
-    init(manualDraft: StudyManualCardDraft) {
+    init(
+        manualDraft: StudyManualCardDraft,
+        defaultAnswerAudioVoiceID: String = StudyAnswerVoice.defaultVoice.id
+    ) {
         var prompt = manualDraft.prompt
         var answer = manualDraft.answer
         if let previewAudio = manualDraft.previewAudio {
@@ -213,7 +222,8 @@ struct StudyCardDraft: Equatable, Sendable {
                 answerAudioSource: manualDraft.previewAudio == nil ? "missing" : "generated",
                 createdAt: manualDraft.createdAt,
                 updatedAt: manualDraft.updatedAt
-            )
+            ),
+            defaultAnswerAudioVoiceID: defaultAnswerAudioVoiceID
         )
         imagePrompt = manualDraft.imagePrompt ?? ""
         imagePlacement = manualDraft.imagePlacement

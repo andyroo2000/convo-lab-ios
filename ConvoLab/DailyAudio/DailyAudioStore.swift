@@ -262,7 +262,7 @@ final class DailyAudioStore {
     }
 
     func create(
-        edition: DailyAudioEditionDuration = .sixtyMinutes
+        edition: DailyAudioEditionDuration = .thirtyMinutes
     ) async {
         guard
             let userID = activeUserID,

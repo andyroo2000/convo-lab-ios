@@ -498,6 +498,99 @@ struct StudySettings: nonisolated Codable, Equatable, Sendable {
     }
 }
 
+struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
+    struct IntegerSetting: nonisolated Codable, Equatable, Sendable {
+        let `default`: Int
+        let min: Int
+        let max: Int
+
+        var range: ClosedRange<Int> { min...max }
+    }
+
+    struct Settings: nonisolated Codable, Equatable, Sendable {
+        struct NewCardLaneWeights: nonisolated Codable, Equatable, Sendable {
+            let standard: IntegerSetting
+            let lessonFollowup: IntegerSetting
+            let wanikani: IntegerSetting
+        }
+
+        let newCardsPerDay: IntegerSetting
+        let lessonBatchSize: IntegerSetting
+        let reviewTimeBudgetMinutes: IntegerSetting
+        let newCardLaneWeights: NewCardLaneWeights
+    }
+
+    struct CardAuthoring: nonisolated Codable, Equatable, Sendable {
+        struct Limits: nonisolated Codable, Equatable, Sendable {
+            let combinedPayloadBytes: Int
+            let payloadDepth: Int
+            let imagePromptCharacters: Int
+            let imageUploadBytes: Int
+        }
+
+        // Keep server-advertised identifiers as strings so a newly introduced
+        // capability does not make the entire contract undecodable on an older app.
+        let creationKinds: [String]
+        let imagePlacements: [String]
+        let previewAudioRoles: [String]
+        let defaultAnswerAudioVoiceId: String
+        let defaultFemaleAnswerAudioVoiceId: String
+        let limits: Limits
+    }
+
+    struct DailyAudio: nonisolated Codable, Equatable, Sendable {
+        let targetDurationMinutes: IntegerSetting
+    }
+
+    struct OfflineReserve: nonisolated Codable, Equatable, Sendable {
+        let days: Int
+        let maxScheduledCards: Int
+    }
+
+    struct Imports: nonisolated Codable, Equatable, Sendable {
+        let maxArchiveBytes: Int
+    }
+
+    let version: Int
+    let settings: Settings
+    let cardAuthoring: CardAuthoring
+    let dailyAudio: DailyAudio
+    let offlineReserve: OfflineReserve
+    let imports: Imports
+
+    static let fallback = Self(
+        version: 1,
+        settings: Settings(
+            newCardsPerDay: IntegerSetting(default: 20, min: 0, max: 1_000),
+            lessonBatchSize: IntegerSetting(default: 5, min: 3, max: 10),
+            reviewTimeBudgetMinutes: IntegerSetting(default: 90, min: 15, max: 240),
+            newCardLaneWeights: Settings.NewCardLaneWeights(
+                standard: IntegerSetting(default: 3, min: 1, max: 20),
+                lessonFollowup: IntegerSetting(default: 1, min: 0, max: 20),
+                wanikani: IntegerSetting(default: 1, min: 0, max: 20)
+            )
+        ),
+        cardAuthoring: CardAuthoring(
+            creationKinds: StudyCardCreationKind.allCases.map(\.rawValue),
+            imagePlacements: StudyCardDraft.ImagePlacement.allCases.map(\.rawValue),
+            previewAudioRoles: ["prompt", "answer"],
+            defaultAnswerAudioVoiceId: StudyAnswerVoice.defaultVoice.id,
+            defaultFemaleAnswerAudioVoiceId: "fishaudio:9639f090aa6346329d7d3aca7e6b7226",
+            limits: CardAuthoring.Limits(
+                combinedPayloadBytes: 24_576,
+                payloadDepth: 8,
+                imagePromptCharacters: 1_000,
+                imageUploadBytes: 10_485_760
+            )
+        ),
+        dailyAudio: DailyAudio(
+            targetDurationMinutes: IntegerSetting(default: 30, min: 5, max: 60)
+        ),
+        offlineReserve: OfflineReserve(days: 5, maxScheduledCards: 1_000),
+        imports: Imports(maxArchiveBytes: 2_147_483_648)
+    )
+}
+
 struct StudyNewCardLaneWeights: nonisolated Codable, Equatable, Sendable {
     var standard: Int
     var lessonFollowup: Int
@@ -1312,7 +1405,6 @@ struct StudyMediaBatchResponse: nonisolated Decodable, Sendable {
 struct UndoStudyReviewRequest: Encodable {
     let reviewLogId: String
     let timeZone: String
-    let currentOverview: StudyOverview?
 }
 
 struct UndoStudyReviewResponse: nonisolated Decodable, Sendable {

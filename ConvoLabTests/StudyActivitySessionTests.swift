@@ -841,7 +841,7 @@ final class StudyActivitySessionTests: XCTestCase {
             "018f22d2-6d38-7000-8000-000000000001"
         )
         XCTAssertEqual(encoded["id"] as? String, "server-session-1")
-        XCTAssertEqual(encoded["category"] as? String, "create")
+        XCTAssertNil(encoded["category"])
         XCTAssertEqual(encoded["activity"] as? String, "card_creation")
         XCTAssertEqual(encoded["origin"] as? String, "ios")
         XCTAssertEqual(encoded["cardsCreated"] as? Int, 12)

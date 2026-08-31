@@ -64,17 +64,38 @@ struct CardEditorView: View {
         self.serverDraft = serverDraft
         self.timeStore = timeStore
         var resolvedInitialDraft = if let card {
-            StudyCardDraft(card: card)
+            StudyCardDraft(
+                card: card,
+                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
+                    .defaultAnswerAudioVoiceId
+            )
         } else if let serverDraft {
-            StudyCardDraft(manualDraft: serverDraft)
+            StudyCardDraft(
+                manualDraft: serverDraft,
+                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
+                    .defaultAnswerAudioVoiceId
+            )
         } else if let initialDraft {
             initialDraft
         } else {
-            StudyCardDraft()
+            StudyCardDraft(
+                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
+                    .defaultAnswerAudioVoiceId
+            )
         }
-        let resolvedCreationKind = serverDraft?.creationKind
+        let advertisedCreationKinds = store.capabilities.cardAuthoring.creationKinds.compactMap(
+            StudyCardCreationKind.init(rawValue:)
+        )
+        let requestedCreationKind = serverDraft?.creationKind
             ?? initialCreationKind
             ?? .textRecognition
+        let preservesExistingKind = serverDraft != nil || initialDraft != nil
+        let canUseRequestedKind = preservesExistingKind
+            || advertisedCreationKinds.isEmpty
+            || advertisedCreationKinds.contains(requestedCreationKind)
+        let resolvedCreationKind = canUseRequestedKind
+            ? requestedCreationKind
+            : advertisedCreationKinds[0]
         if card == nil, serverDraft == nil {
             resolvedInitialDraft.cardType = resolvedCreationKind.cardType
             resolvedInitialDraft.isAudioLedPrompt = resolvedCreationKind == .audioRecognition
@@ -105,7 +126,7 @@ struct CardEditorView: View {
                     if card == nil {
                         Section("Card type") {
                             Picker("Card type", selection: $creationKind) {
-                                ForEach(StudyCardCreationKind.allCases) { kind in
+                                ForEach(availableCreationKinds) { kind in
                                     Text(kind.title).tag(kind)
                                 }
                             }
@@ -149,6 +170,9 @@ struct CardEditorView: View {
                         showsMissingCurrentImage: card != nil,
                         supportsUserPhoto: supportsUserPhoto,
                         creationKind: creationKind,
+                        maximumPromptCharacters: store.capabilities.cardAuthoring.limits
+                            .imagePromptCharacters,
+                        availablePlacements: availableImagePlacements,
                         isRegeneratingImage: isRegeneratingImage,
                         isBusy: isBusy,
                         onStagePhoto: stagePhoto,
@@ -324,6 +348,20 @@ struct CardEditorView: View {
                 )
             }
         }
+    }
+
+    private var availableCreationKinds: [StudyCardCreationKind] {
+        let advertised = store.capabilities.cardAuthoring.creationKinds.compactMap(
+            StudyCardCreationKind.init(rawValue:)
+        )
+        return advertised.isEmpty ? StudyCardCreationKind.allCases : advertised
+    }
+
+    private var availableImagePlacements: [StudyCardDraft.ImagePlacement] {
+        let advertised = store.capabilities.cardAuthoring.imagePlacements.compactMap(
+            StudyCardDraft.ImagePlacement.init(rawValue:)
+        )
+        return advertised.isEmpty ? StudyCardDraft.ImagePlacement.allCases : advertised
     }
 
     private var isBusy: Bool {

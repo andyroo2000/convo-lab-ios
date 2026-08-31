@@ -29,14 +29,28 @@ struct MismatchedGeneratedCardImagesError: LocalizedError {
 }
 
 struct InvalidCardImagePromptError: LocalizedError {
+    let maximumCharacters: Int
+
     var errorDescription: String? {
-        "Enter a non-empty image prompt no longer than 1,000 characters."
+        "Enter a non-empty image prompt no longer than \(maximumCharacters.formatted()) characters."
     }
 }
 
 struct InvalidCardImagePlacementError: LocalizedError {
     var errorDescription: String? {
         "Choose Front, Back, or Front and back before regenerating an image."
+    }
+}
+
+struct OversizedCardImageUploadError: LocalizedError {
+    let maximumBytes: Int
+
+    var errorDescription: String? {
+        let limit = ByteCountFormatter.string(
+            fromByteCount: Int64(maximumBytes),
+            countStyle: .file
+        )
+        return "Choose an image smaller than \(limit)."
     }
 }
 
@@ -171,13 +185,15 @@ final class CardMediaMutationService {
         currentCard: StudyCard,
         prompt: String,
         placement: StudyCardDraft.ImagePlacement,
+        maximumPromptCharacters: Int = StudyCapabilities.fallback.cardAuthoring.limits
+            .imagePromptCharacters,
         latestCard: @escaping () throws -> StudyCard,
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
     ) async throws -> CardImageMutationResult {
         let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !imagePrompt.isEmpty, imagePrompt.count <= 1_000 else {
-            throw InvalidCardImagePromptError()
+        guard !imagePrompt.isEmpty, imagePrompt.count <= maximumPromptCharacters else {
+            throw InvalidCardImagePromptError(maximumCharacters: maximumPromptCharacters)
         }
         guard placement != .none else { throw InvalidCardImagePlacementError() }
         let diagnosticInterval = diagnostics.begin(.generation)
@@ -223,6 +239,8 @@ final class CardMediaMutationService {
         currentCard: StudyCard,
         jpegData: Data,
         placement: StudyCardDraft.ImagePlacement,
+        maximumBytes: Int = StudyCapabilities.fallback.cardAuthoring.limits
+            .imageUploadBytes,
         latestCard: @escaping () throws -> StudyCard,
         hasPendingWrite: @escaping (String) throws -> Bool,
         onReconciled: @escaping (StudyCard, Bool, Date) throws -> Void
@@ -230,6 +248,9 @@ final class CardMediaMutationService {
         // User-supplied image uploads are media mutations, not generation. Their
         // bytes, filenames, and card identifiers intentionally stay outside diagnostics.
         guard placement != .none else { throw InvalidCardImagePlacementError() }
+        guard jpegData.count <= maximumBytes else {
+            throw OversizedCardImageUploadError(maximumBytes: maximumBytes)
+        }
         let diagnosticInterval = diagnostics.begin(
             .mediaUpload,
             itemCount: 1
