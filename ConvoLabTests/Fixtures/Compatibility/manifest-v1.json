@@ -10,7 +10,7 @@
       "id": "study-card-summary.v1",
       "path": "tests/Fixtures/Compatibility/study-card-summary-v1.json",
       "checksumPath": "tests/Fixtures/Compatibility/study-card-summary-v1.sha256",
-      "sha256": "cd39937adbe982905d11313101f4dfc65f59b1e80c7337b6c6eb67794570ccb8",
+      "sha256": "4f851708014cb1fa89fe387c79b0d6b3a2387051aad440ce2176e059aa2985d9",
       "producer": "App\\Http\\Resources\\Study\\StudyCardSummaryResource"
     },
     {

@@ -683,11 +683,9 @@ extension StudyStoreTests {
             newCardsPerDay: 10,
             newCardsAvailableToday: 0
         )
-        let cardJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(serverCard),
-                encoding: .utf8
-            )
+        let cardJSON = try cardJSONWithPresentation(
+            serverCard,
+            frontHeading: "Stale projected server expression"
         )
         let overviewJSON = try XCTUnwrap(
             String(
@@ -739,8 +737,128 @@ extension StudyStoreTests {
         )
         XCTAssertEqual(restoredCard.id, canonicalID)
         XCTAssertEqual(restoredCard.promptText, "Local pending edit")
+        XCTAssertNil(restoredCard.serverPresentation)
         XCTAssertEqual(restoredCard.masteryLevel, "apprentice")
         XCTAssertEqual(restoredCard.state, serverCard.state)
         XCTAssertEqual(store.cards.first, restoredCard)
+    }
+
+    @MainActor
+    func testUndoReviewKeepsServerPresentationWhenDirtyLocalPayloadIsCorrupt() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let cardID = "01J0000000000000000000001X"
+        let serverCard = makeCard(
+            id: cardID,
+            expression: "Server raw expression",
+            queueState: "review"
+        )
+        let record = LocalCardRecord(
+            card: serverCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: Data("corrupt-local-card".utf8)
+        )
+        record.locallyUpdatedAt = Date(timeIntervalSince1970: 1_000)
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        let projectedCardJSON = try cardJSONWithPresentation(
+            serverCard,
+            frontHeading: "Projected front"
+        )
+        let overviewJSON = try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(StudyOverview(
+                    dueCount: 1,
+                    newCount: 0,
+                    reviewCount: 1,
+                    newCardsPerDay: 10,
+                    newCardsAvailableToday: 0
+                )),
+                encoding: .utf8
+            )
+        )
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "reviewLogId": "review-event-id",
+                      "card": \(projectedCardJSON),
+                      "overview": \(overviewJSON)
+                    }
+                    """.utf8
+                )
+            )
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
+        )
+
+        try await store.undoReview(eventID: "review-event-id", cardBefore: serverCard)
+
+        let restoredRecord = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).first
+        )
+        let restoredCard = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: restoredRecord.payload
+        )
+        XCTAssertEqual(restoredCard.serverPresentation?.version, 1)
+        XCTAssertEqual(restoredCard.presentation.front.heading, "Projected front")
+        XCTAssertEqual(store.cards.first?.serverPresentation, restoredCard.serverPresentation)
+    }
+
+    @MainActor
+    private func cardJSONWithPresentation(
+        _ card: StudyCard,
+        frontHeading: String
+    ) throws -> String {
+        var cardObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: StorageCodec.encoder.encode(card)
+            ) as? [String: Any]
+        )
+        cardObject["presentation"] = [
+            "version": 1,
+            "front": [
+                "mode": "text",
+                "text": frontHeading,
+                "ruby": NSNull(),
+                "hint": NSNull(),
+                "media": ["audio": NSNull(), "image": NSNull()],
+                "autoplayAudio": false,
+            ],
+            "answer": [
+                "heading": "Projected answer",
+                "ruby": NSNull(),
+                "restored": NSNull(),
+                "meaning": NSNull(),
+                "sentences": [
+                    "japanese": ["text": NSNull(), "ruby": NSNull()],
+                    "english": ["text": NSNull(), "ruby": NSNull()],
+                ],
+                "notes": [],
+                "media": ["image": NSNull()],
+                "audio": NSNull(),
+                "pitchAccent": NSNull(),
+            ],
+        ]
+        return try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: cardObject),
+                encoding: .utf8
+            )
+        )
     }
 }

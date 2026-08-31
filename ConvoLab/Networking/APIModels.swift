@@ -806,7 +806,148 @@ struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
     }
 }
 
+struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
+    struct MediaReference: nonisolated Codable, Hashable, Sendable {
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case filename
+            case url
+            case mediaKind
+            case source
+        }
+
+        let id: String?
+        let filename: String?
+        let url: String?
+        let mediaKind: String?
+        let source: String?
+
+        nonisolated init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(String.self, forKey: .id)
+            filename = try container.decodeIfPresent(String.self, forKey: .filename)
+            url = try container.decodeIfPresent(String.self, forKey: .url)
+            mediaKind = try container.decodeIfPresent(String.self, forKey: .mediaKind)
+            source = try container.decodeIfPresent(String.self, forKey: .source)
+        }
+    }
+
+    struct PitchAccent: nonisolated Codable, Hashable, Sendable {
+        private enum CodingKeys: String, CodingKey {
+            case status
+            case expression
+            case reading
+            case pitchNum
+            case morae
+            case pattern
+            case patternName
+            case source
+            case resolvedBy
+        }
+
+        // A v1 pitch payload is present only after server resolution; other statuses
+        // are contract drift and intentionally fail the known-version decode.
+        private enum Status: String, nonisolated Codable {
+            case resolved
+        }
+
+        private let status: Status
+        let expression: String
+        let reading: String
+        let pitchNum: Int?
+        let morae: [String]
+        let pattern: [Int]
+        let patternName: String
+        let source: String?
+        let resolvedBy: String?
+
+        nonisolated init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            status = try container.decode(Status.self, forKey: .status)
+            expression = try container.decode(String.self, forKey: .expression)
+            reading = try container.decode(String.self, forKey: .reading)
+            pitchNum = try container.decodeIfPresent(Int.self, forKey: .pitchNum)
+            morae = try container.decode([String].self, forKey: .morae)
+            pattern = try container.decode([Int].self, forKey: .pattern)
+            patternName = try container.decode(String.self, forKey: .patternName)
+            source = try container.decodeIfPresent(String.self, forKey: .source)
+            resolvedBy = try container.decodeIfPresent(String.self, forKey: .resolvedBy)
+
+            guard
+                !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !reading.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !patternName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !morae.isEmpty,
+                morae.count == pattern.count,
+                morae.allSatisfy({
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }),
+                pattern.allSatisfy({ $0 == 0 || $0 == 1 })
+            else {
+                throw DecodingError.dataCorrupted(.init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Resolved pitch accent was malformed."
+                ))
+            }
+        }
+    }
+
+    struct Front: nonisolated Codable, Hashable, Sendable {
+        enum Mode: String, nonisolated Codable, Hashable, Sendable {
+            case text
+            case media
+            case cloze
+        }
+
+        struct Media: nonisolated Codable, Hashable, Sendable {
+            let audio: MediaReference?
+            let image: MediaReference?
+        }
+
+        let mode: Mode
+        let text: String?
+        let ruby: String?
+        let hint: String?
+        let media: Media
+        let autoplayAudio: Bool
+    }
+
+    struct Answer: nonisolated Codable, Hashable, Sendable {
+        struct Text: nonisolated Codable, Hashable, Sendable {
+            let text: String?
+            let ruby: String?
+        }
+
+        struct Sentences: nonisolated Codable, Hashable, Sendable {
+            let japanese: Text
+            let english: Text
+        }
+
+        struct Media: nonisolated Codable, Hashable, Sendable {
+            let image: MediaReference?
+        }
+
+        let heading: String?
+        let ruby: String?
+        let restored: String?
+        let meaning: String?
+        let sentences: Sentences
+        let notes: [String]
+        let media: Media
+        let audio: MediaReference?
+        let pitchAccent: PitchAccent?
+    }
+
+    let version: Int
+    let front: Front
+    let answer: Answer
+}
+
 struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
+    private struct PresentationVersion: nonisolated Decodable {
+        let version: Int
+    }
+
     struct State: nonisolated Codable, Hashable, Sendable {
         let dueAt: Date?
         let introducedAt: Date?
@@ -835,6 +976,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         case cardType
         case prompt
         case answer
+        case presentation
         case state
         case answerAudioSource
         case masteryLevel
@@ -856,6 +998,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let cardType: String
     let prompt: JSONValue
     let answer: JSONValue
+    let serverPresentation: StudyCardPresentationV1?
     let state: State
     let answerAudioSource: String?
     let masteryLevel: String?
@@ -877,6 +1020,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         cardType: String,
         prompt: JSONValue,
         answer: JSONValue,
+        serverPresentation: StudyCardPresentationV1? = nil,
         state: State,
         answerAudioSource: String?,
         masteryLevel: String? = nil,
@@ -896,6 +1040,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.cardType = cardType
         self.prompt = prompt
         self.answer = answer
+        self.serverPresentation = serverPresentation
         self.state = state
         self.answerAudioSource = answerAudioSource
         self.masteryLevel = masteryLevel
@@ -922,6 +1067,19 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         cardType = try container.decode(String.self, forKey: .cardType)
         prompt = try container.decode(JSONValue.self, forKey: .prompt)
         answer = try container.decode(JSONValue.self, forKey: .answer)
+        if let version = try container.decodeIfPresent(
+            PresentationVersion.self,
+            forKey: .presentation
+        ), version.version == 1 {
+            serverPresentation = try container.decode(
+                StudyCardPresentationV1.self,
+                forKey: .presentation
+            )
+        } else {
+            // Missing and future presentation versions intentionally use the raw
+            // prompt/answer compatibility renderer.
+            serverPresentation = nil
+        }
         state = try container.decode(State.self, forKey: .state)
         answerAudioSource = try container.decodeIfPresent(
             String.self,
@@ -957,6 +1115,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         try container.encode(cardType, forKey: .cardType)
         try container.encode(prompt, forKey: .prompt)
         try container.encode(answer, forKey: .answer)
+        try container.encodeIfPresent(serverPresentation, forKey: .presentation)
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(answerAudioSource, forKey: .answerAudioSource)
         try container.encodeIfPresent(masteryLevel, forKey: .masteryLevel)
@@ -997,6 +1156,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1020,6 +1180,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1043,6 +1204,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1073,6 +1235,13 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var answerText: String {
+        if serverPresentation != nil, cardType != "cloze" {
+            return presentation.back.textBlocks.first { $0.role == .meaning }?.text
+                ?? presentation.back.heading.map {
+                    StudyRubyDocument.parse($0, knownKanji: []).plainText
+                }
+                ?? "No answer text"
+        }
         if cardType == "cloze" {
             return presentation.back.heading.map {
                 StudyRubyDocument.parse($0, knownKanji: []).plainText
@@ -1088,11 +1257,28 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
 
     var answerDetailText: String? {
         guard cardType == "cloze" else { return nil }
+        if serverPresentation != nil {
+            let detail = presentation.back.textBlocks.first { $0.role == .meaning }?.text
+            return detail == answerText ? nil : detail
+        }
         let detail = answer.firstNonEmptyString(for: ["meaning", "translation"])
         return detail == answerText ? nil : detail
     }
 
-    var mediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
+    var mediaURLs: [URL] {
+        guard serverPresentation != nil else {
+            return rawMediaURLs
+        }
+        let projected = presentation
+        return [
+            projected.front.audioURL,
+            projected.front.imageURL,
+            projected.back.audioURL,
+            projected.back.imageURL,
+        ].compactMap(\.self)
+    }
+
+    var rawMediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
 
     func reviewSchedule(
         _ rating: ReviewRating,
@@ -1116,6 +1302,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: .init(
                 dueAt: schedule.dueAt,
                 introducedAt: state.introducedAt

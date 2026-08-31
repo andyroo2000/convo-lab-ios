@@ -69,6 +69,9 @@ enum StudyCardEditorProjection {
                 cardType: card.cardType,
                 prompt: prompt,
                 answer: answer,
+                serverPresentation: prompt == card.prompt && answer == card.answer
+                    ? card.serverPresentation
+                    : nil,
                 state: card.state,
                 answerAudioSource: card.answerAudioSource,
                 masteryLevel: card.masteryLevel,
@@ -108,6 +111,9 @@ enum StudyCardEditorProjection {
             cardType: latest.cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: prompt == serverCard.prompt && answer == serverCard.answer
+                ? serverCard.serverPresentation
+                : nil,
             state: latest.state,
             answerAudioSource: answerAudioSource,
             masteryLevel: latest.masteryLevel,

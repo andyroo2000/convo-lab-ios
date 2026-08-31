@@ -17,6 +17,31 @@
         "cardType": "recognition",
         "prompt": {"type": "text", "text": "聞く"},
         "answer": {"type": "text", "text": "to listen"},
+        "presentation": {
+          "version": 1,
+          "front": {
+            "mode": "text",
+            "text": "聞く",
+            "ruby": null,
+            "hint": null,
+            "media": {"audio": null, "image": null},
+            "autoplayAudio": false
+          },
+          "answer": {
+            "heading": "to listen",
+            "ruby": null,
+            "restored": null,
+            "meaning": null,
+            "sentences": {
+              "japanese": {"text": null, "ruby": null},
+              "english": {"text": null, "ruby": null}
+            },
+            "notes": [],
+            "media": {"image": null},
+            "audio": null,
+            "pitchAccent": null
+          }
+        },
         "state": {
           "dueAt": null,
           "introducedAt": null,
@@ -74,6 +99,31 @@
         "cardType": "production",
         "prompt": {"type": "text", "text": "company"},
         "answer": {"type": "text", "text": "会社", "answerAudio": {"url": "/media/company.mp3", "source": "imported"}},
+        "presentation": {
+          "version": 1,
+          "front": {
+            "mode": "text",
+            "text": "company",
+            "ruby": null,
+            "hint": null,
+            "media": {"audio": null, "image": null},
+            "autoplayAudio": false
+          },
+          "answer": {
+            "heading": "会社",
+            "ruby": null,
+            "restored": null,
+            "meaning": null,
+            "sentences": {
+              "japanese": {"text": null, "ruby": null},
+              "english": {"text": null, "ruby": null}
+            },
+            "notes": [],
+            "media": {"image": null},
+            "audio": {"url": "/media/company.mp3", "source": "imported"},
+            "pitchAccent": null
+          }
+        },
         "state": {
           "dueAt": "2026-09-01T12:00:00.000Z",
           "introducedAt": "2026-07-01T08:30:00.000Z",

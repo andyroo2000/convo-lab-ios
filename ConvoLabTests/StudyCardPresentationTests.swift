@@ -1,8 +1,298 @@
 import XCTest
+import SwiftData
 @testable import ConvoLab
 
 @MainActor
 final class StudyCardPresentationTests: XCTestCase {
+    func testServerPresentationV1OverridesDivergentRawReviewFieldsAndPersists() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":"会社[かいしゃ]",
+            "hint":"SERVER HINT",
+            "media":{
+              "audio":{"url":"/media/server-front.mp3"},
+              "image":{"url":"/media/server-front.png"}
+            },
+            "autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER HEADING","ruby":"答[こた]え",
+            "restored":"SERVER RESTORED","meaning":"SERVER MEANING",
+            "sentences":{
+              "japanese":{"text":"日本語の文","ruby":"日本語[にほんご]の文[ぶん]"},
+              "english":{"text":"Server sentence","ruby":null}
+            },
+            "notes":["Server note"],
+            "media":{"image":{"url":"/media/server-answer.png"}},
+            "audio":{"url":"/media/server-answer.mp3"},
+            "pitchAccent":{
+              "status":"resolved","expression":"答え","reading":"こたえ",
+              "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
+            }
+          }
+        }
+        """#)
+
+        XCTAssertEqual(card.serverPresentation?.version, 1)
+        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]")
+        XCTAssertEqual(card.presentation.front.supportingText, "SERVER HINT")
+        XCTAssertEqual(
+            card.presentation.front.audioURL,
+            URL(string: "/media/server-front.mp3")
+        )
+        XCTAssertEqual(
+            card.presentation.front.imageURL,
+            URL(string: "/media/server-front.png")
+        )
+        XCTAssertFalse(card.shouldAutoplayPromptAudio)
+        XCTAssertEqual(card.presentation.back.heading, "答[こた]え")
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.role),
+            [.restoredText, .meaning, .sentenceJapanese, .sentenceEnglish, .note]
+        )
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.text),
+            [
+                "SERVER RESTORED",
+                "SERVER MEANING",
+                "日本語[にほんご]の文[ぶん]",
+                "Server sentence",
+                "Server note",
+            ]
+        )
+        XCTAssertEqual(
+            card.presentation.back.audioURL,
+            URL(string: "/media/server-answer.mp3")
+        )
+        XCTAssertEqual(
+            card.mediaURLs,
+            [
+                URL(string: "/media/server-front.mp3")!,
+                URL(string: "/media/server-front.png")!,
+                URL(string: "/media/server-answer.mp3")!,
+                URL(string: "/media/server-answer.png")!,
+            ]
+        )
+        XCTAssertFalse(card.mediaURLs.contains(URL(string: "/media/raw-prompt.mp3")!))
+        XCTAssertEqual(card.audioURL, URL(string: "/media/server-front.mp3"))
+        XCTAssertEqual(card.promptImageURL, URL(string: "/media/server-front.png"))
+        XCTAssertEqual(card.answerImageURL, URL(string: "/media/server-answer.png"))
+        XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
+        XCTAssertEqual(card.rawPromptImageURL, URL(string: "/media/raw-prompt.png"))
+        XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
+        XCTAssertEqual(card.promptText, "会社")
+        XCTAssertEqual(card.answerText, "SERVER MEANING")
+        XCTAssertEqual(card.presentation.back.pitchAccent?.reading, "こたえ")
+
+        let persisted = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: StorageCodec.encoder.encode(card)
+        )
+        XCTAssertEqual(persisted.serverPresentation, card.serverPresentation)
+        XCTAssertEqual(persisted.presentation, card.presentation)
+    }
+
+    func testPresentationOnlyMediaControlsOfflinePreparedStateAndSuppressesStaleRawMedia() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":null,"hint":null,
+            "media":{"audio":null,"image":{"url":"/media/projected-front.png"}},
+            "autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER ANSWER","ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},
+            "audio":{"url":"/media/projected-answer.mp3"},"pitchAccent":null
+          }
+        }
+        """#)
+        XCTAssertEqual(card.audioURL, URL(string: "/media/projected-answer.mp3"))
+        XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
+        XCTAssertEqual(card.promptImageURL, URL(string: "/media/projected-front.png"))
+        XCTAssertNil(card.answerImageURL)
+        XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
+        XCTAssertEqual(
+            card.mediaURLs,
+            [
+                URL(string: "/media/projected-front.png")!,
+                URL(string: "/media/projected-answer.mp3")!,
+            ]
+        )
+
+        let container = try Persistence.makeContainer(inMemory: true)
+        let record = LocalCardRecord(
+            card: card,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(card)
+        )
+        record.mediaPreparedAt = .now
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+        let repository = StudyCardLocalRepository(context: container.mainContext)
+        let staleRawKeys = Set((card.prompt.mediaURLs + card.answer.mediaURLs).map {
+            MediaCache.stableCacheKey(for: $0)
+        })
+
+        try repository.updateMediaPreparedState(
+            for: [card],
+            userID: 1,
+            cachedKeys: staleRawKeys
+        )
+        XCTAssertNil(record.mediaPreparedAt)
+
+        try repository.updateMediaPreparedState(
+            for: [card],
+            userID: 1,
+            cachedKeys: Set(card.mediaURLs.map { MediaCache.stableCacheKey(for: $0) })
+        )
+        XCTAssertNotNil(record.mediaPreparedAt)
+    }
+
+    func testEditorRawMediaAccessorsDoNotSubstitutePresentationMedia() throws {
+        let card = try decodedCard(presentation: minimalPresentation(
+            frontAudio: #"{"url":"/media/projected-front.mp3"}"#,
+            pitchAccent: "null"
+        ))
+
+        XCTAssertEqual(card.audioURL, URL(string: "/media/projected-front.mp3"))
+        XCTAssertNil(card.promptImageURL)
+        XCTAssertNil(card.answerImageURL)
+        XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
+        XCTAssertEqual(card.rawPromptImageURL, URL(string: "/media/raw-prompt.png"))
+        XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
+        XCTAssertFalse(card.rawMediaURLs.isEmpty)
+
+        let noProjectedMedia = try decodedCard(presentation: minimalPresentation(
+            frontAudio: "null",
+            pitchAccent: "null"
+        ))
+        XCTAssertTrue(noProjectedMedia.mediaURLs.isEmpty)
+        XCTAssertFalse(noProjectedMedia.rawMediaURLs.isEmpty)
+    }
+
+    func testMissingAndFuturePresentationVersionsUseRawCompatibilityProjection() throws {
+        let missing = try decodedCard(presentation: nil)
+        let future = try decodedCard(presentation: #"{"version":2,"futureShape":true}"#)
+
+        for card in [missing, future] {
+            XCTAssertNil(card.serverPresentation)
+            XCTAssertEqual(card.presentation.front.heading, "RAW FRONT")
+            XCTAssertEqual(card.presentation.back.textBlocks.map(\.text), ["RAW MEANING"])
+            XCTAssertEqual(
+                card.presentation.back.audioURL,
+                URL(string: "/media/raw-prompt.mp3")
+            )
+        }
+    }
+
+    func testKnownPresentationV1RejectsMalformedTypedMediaAndPitchAccent() {
+        let unresolvedPitch = #"""
+        {
+          "status":"unresolved","expression":"答え","reading":"こたえ",
+          "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
+        }
+        """#
+        let mismatchedPitch = #"""
+        {
+          "status":"resolved","expression":"答え","reading":"こたえ",
+          "morae":["こ","た","え"],"pattern":[0,1],"patternName":"平板"
+        }
+        """#
+        let malformedPresentations = [
+            minimalPresentation(frontAudio: #""not-an-object""#, pitchAccent: "null"),
+            minimalPresentation(frontAudio: #"{"id":42}"#, pitchAccent: "null"),
+            minimalPresentation(frontAudio: "null", pitchAccent: unresolvedPitch),
+            minimalPresentation(frontAudio: "null", pitchAccent: mismatchedPitch),
+        ]
+
+        for presentation in malformedPresentations {
+            XCTAssertThrowsError(try decodedCard(presentation: presentation))
+        }
+
+        XCTAssertNoThrow(try decodedCard(presentation: minimalPresentation(
+            frontAudio: #"{"id":null,"filename":null,"url":null,"mediaKind":null,"source":null}"#,
+            pitchAccent: "null"
+        )))
+    }
+
+    func testServerPresentationSuppressesDuplicateClozeAnswerDetail() throws {
+        let card = try decodedCard(
+            presentation: #"""
+            {
+              "version":1,
+              "front":{
+                "mode":"text","text":"RAW FRONT","ruby":null,"hint":null,
+                "media":{"audio":null,"image":null},"autoplayAudio":false
+              },
+              "answer":{
+                "heading":null,"ruby":null,"restored":null,"meaning":"RAW MEANING",
+                "sentences":{
+                  "japanese":{"text":null,"ruby":null},
+                  "english":{"text":null,"ruby":null}
+                },
+                "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+              }
+            }
+            """#,
+            cardType: "cloze",
+            rawExpression: "RAW MEANING"
+        )
+
+        XCTAssertEqual(card.answerText, "RAW MEANING")
+        XCTAssertNil(card.answerDetailText)
+    }
+
+    func testOptimisticSchedulingPreservesProjectionWhileContentEditsInvalidateIt() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":null,"hint":null,
+            "media":{"audio":null,"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER ANSWER","ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+          }
+        }
+        """#)
+        let scheduled = try StudyCardActionProjection.prepare(
+            action: .suspend,
+            card: card,
+            mode: nil,
+            dueAt: nil,
+            timeZone: try XCTUnwrap(TimeZone(secondsFromGMT: 0)),
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        ).card
+
+        XCTAssertEqual(scheduled.serverPresentation, card.serverPresentation)
+        XCTAssertEqual(scheduled.presentation.front.heading, "SERVER FRONT")
+
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = "LOCAL EDIT"
+        let edited = StudyCardEditorProjection.updating(
+            card,
+            with: draft,
+            at: Date(timeIntervalSince1970: 1_800_000_100)
+        ).card
+
+        XCTAssertNil(edited.serverPresentation)
+        XCTAssertEqual(edited.presentation.front.heading, "LOCAL EDIT")
+    }
+
     func testPromptAutoplayMatchesDesktopAudioRecognitionRules() {
         let audio = media(url: "https://example.com/prompt.mp3", kind: "audio")
         let audioRecognition = makeCard(
@@ -521,6 +811,62 @@ final class StudyCardPresentationTests: XCTestCase {
             createdAt: .now,
             updatedAt: .now
         )
+    }
+
+    private func decodedCard(
+        presentation: String?,
+        cardType: String = "recognition",
+        rawExpression: String = "RAW ANSWER"
+    ) throws -> StudyCard {
+        let presentationField = presentation.map { ",\"presentation\":\($0)" } ?? ""
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: Data(#"""
+            {
+              "id":"01J60000000000000000000001","syncId":null,"noteId":null,
+              "revision":3,"cardType":"\#(cardType)",
+              "prompt":{
+                "cueText":"RAW FRONT","cueMeaning":"RAW HINT",
+                "cueAudio":{"url":"/media/raw-prompt.mp3"},
+                "cueImage":{"url":"/media/raw-prompt.png"}
+              },
+              "answer":{
+                "expression":"\#(rawExpression)","meaning":"RAW MEANING",
+                "answerAudio":{"url":"/media/raw-answer.mp3"},
+                "answerImage":{"url":"/media/raw-answer.png"}
+              }
+              \#(presentationField),
+              "state":{
+                "dueAt":null,"introducedAt":null,"failedAt":null,
+                "queueState":"review","scheduler":null,"source":{}
+              },
+              "answerAudioSource":"imported",
+              "createdAt":"2026-08-20T10:11:12.000Z",
+              "updatedAt":"2026-08-20T10:11:13.000Z"
+            }
+            """#.utf8)
+        )
+    }
+
+    private func minimalPresentation(frontAudio: String, pitchAccent: String) -> String {
+        #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"front","ruby":null,"hint":null,
+            "media":{"audio":\#(frontAudio),"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":"answer","ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,
+            "pitchAccent":\#(pitchAccent)
+          }
+        }
+        """#
     }
 
     private func media(url: String, kind: String) -> JSONValue {

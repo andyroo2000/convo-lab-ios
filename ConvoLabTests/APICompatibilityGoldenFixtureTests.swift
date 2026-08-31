@@ -5,13 +5,13 @@ import XCTest
 
 @MainActor
 final class APICompatibilityGoldenFixtureTests: XCTestCase {
-    private static let providerCommit = "6f557e9ff7819bfee6c12d6e845ac28056475bdb"
-    private static let manifestSHA256 = "fd156e09c95b0c731be8a5599af4fbd4d619174667de448dc1c42d6ffa2f0c1c"
+    private static let providerCommit = "b90e7ce2b3fc976de30eb00bbe3a69e86c5dd98b"
+    private static let manifestSHA256 = "aa895232d4f813f8b3934e433d6f9090dcb7f50696dd6448fd7edfea332cd1e7"
 
     private static let expectedFixtures: [String: ExpectedFixture] = [
         "study-card-summary.v1": .init(
             file: "study-card-summary-v1",
-            sha256: "cd39937adbe982905d11313101f4dfc65f59b1e80c7337b6c6eb67794570ccb8",
+            sha256: "4f851708014cb1fa89fe387c79b0d6b3a2387051aad440ce2176e059aa2985d9",
             producer: "App\\Http\\Resources\\Study\\StudyCardSummaryResource"
         ),
         "google-calendar-connection.v1": .init(
@@ -109,6 +109,9 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertEqual(native.state.queueState, "new")
         XCTAssertNil(native.state.scheduler)
         XCTAssertEqual(native.masteryLevel, "apprentice")
+        XCTAssertEqual(native.serverPresentation?.version, 1)
+        XCTAssertEqual(native.presentation.front.heading, "聞く")
+        XCTAssertEqual(native.presentation.back.heading, "to listen")
 
         let imported: StudyCard = try await decode(
             fixture: "study-card-summary-v1",
@@ -119,6 +122,10 @@ final class APICompatibilityGoldenFixtureTests: XCTestCase {
         XCTAssertEqual(imported.state.queueState, "review")
         XCTAssertEqual(imported.state.scheduler?["reps"], .number(12))
         XCTAssertEqual(imported.answerAudioSource, "imported")
+        XCTAssertEqual(
+            imported.presentation.back.audioURL,
+            URL(string: "/media/company.mp3")
+        )
     }
 
     func testGoogleCalendarConnectionCasesDecodeThroughAPIClient() async throws {

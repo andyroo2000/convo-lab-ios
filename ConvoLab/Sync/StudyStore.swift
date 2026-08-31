@@ -2039,6 +2039,7 @@ final class StudyStore {
                     cardType: acknowledgedCard.cardType,
                     prompt: acknowledgedCard.prompt,
                     answer: acknowledgedCard.answer,
+                    serverPresentation: acknowledgedCard.serverPresentation,
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledgedCard.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
@@ -2080,6 +2081,7 @@ final class StudyStore {
                 cardType: authoritativeContent.cardType,
                 prompt: authoritativeContent.prompt,
                 answer: authoritativeContent.answer,
+                serverPresentation: authoritativeContent.serverPresentation,
                 state: latestLocalCard.state,
                 answerAudioSource: authoritativeContent.answerAudioSource,
                 masteryLevel: latestLocalCard.masteryLevel,
@@ -2125,6 +2127,7 @@ final class StudyStore {
                     cardType: acknowledged.cardType,
                     prompt: acknowledged.prompt,
                     answer: acknowledged.answer,
+                    serverPresentation: acknowledged.serverPresentation,
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledged.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
@@ -2363,6 +2366,12 @@ final class StudyStore {
         guard record.id != card.id || preserveLocalPresentation else {
             return card
         }
+        let restoredServerPresentation: StudyCardPresentationV1?
+        if preserveLocalPresentation, let localCard {
+            restoredServerPresentation = localCard.serverPresentation
+        } else {
+            restoredServerPresentation = card.serverPresentation
+        }
 
         return StudyCard(
             id: record.id,
@@ -2380,6 +2389,7 @@ final class StudyStore {
             answer: preserveLocalPresentation
                 ? localCard?.answer ?? card.answer
                 : card.answer,
+            serverPresentation: restoredServerPresentation,
             state: card.state,
             answerAudioSource: preserveLocalPresentation
                 ? localCard?.answerAudioSource ?? card.answerAudioSource
@@ -2478,6 +2488,9 @@ final class StudyStore {
             cardType: serverCard.cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: prompt == serverCard.prompt && answer == serverCard.answer
+                ? serverCard.serverPresentation
+                : nil,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale
                 ? localCard.answerAudioSource

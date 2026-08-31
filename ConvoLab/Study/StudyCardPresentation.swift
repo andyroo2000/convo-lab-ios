@@ -4,23 +4,39 @@ extension StudyCard {
     /// The card has one logical audio asset. The side-specific JSON keys are retained
     /// only for compatibility with older API and offline-sync payloads.
     var audioURL: URL? {
-        prompt.mediaURL(for: "cueAudio") ?? answer.mediaURL(for: "answerAudio")
+        guard serverPresentation != nil else { return rawAudioURL }
+        return presentation.front.audioURL ?? presentation.back.audioURL
     }
 
     var promptImageURL: URL? {
-        prompt.mediaURL(for: "cueImage")
+        guard serverPresentation != nil else { return rawPromptImageURL }
+        return presentation.front.imageURL
     }
 
     var answerImageURL: URL? {
+        guard serverPresentation != nil else { return rawAnswerImageURL }
+        return presentation.back.imageURL
+    }
+
+    var rawAudioURL: URL? {
+        prompt.mediaURL(for: "cueAudio") ?? answer.mediaURL(for: "answerAudio")
+    }
+
+    var rawPromptImageURL: URL? {
+        prompt.mediaURL(for: "cueImage")
+    }
+
+    var rawAnswerImageURL: URL? {
         answer.mediaURL(for: "answerImage")
     }
 
     var shouldAutoplayPromptAudio: Bool {
-        cardType == "recognition"
+        serverPresentation?.front.autoplayAudio
+            ?? (cardType == "recognition"
             && prompt.mediaURL(for: "cueAudio") != nil
             && prompt.firstNonEmptyString(
                 for: ["cueText", "cueMeaning", "clozeText"]
-            ) == nil
+            ) == nil)
     }
 }
 
@@ -63,9 +79,13 @@ struct StudyCardPresentation: Equatable, Sendable {
 
 extension StudyCard {
     var presentation: StudyCardPresentation {
+        serverPresentation?.reviewPresentation ?? rawPresentation
+    }
+
+    private var rawPresentation: StudyCardPresentation {
         let promptAudioURL = prompt.mediaURL(for: "cueAudio")
         let promptImageURL = prompt.mediaURL(for: "cueImage")
-        let cardAudioURL = audioURL
+        let cardAudioURL = rawAudioURL
         let answerImageURL = answer.mediaURL(for: "answerImage") ?? promptImageURL
 
         if cardType == "cloze" {
@@ -188,6 +208,77 @@ extension StudyCard {
                 pitchAccent: answer.studyPitchAccent
             )
         )
+    }
+}
+
+private extension StudyCardPresentationV1 {
+    var reviewPresentation: StudyCardPresentation {
+        var details: [StudyCardPresentation.TextBlock] = []
+        if front.mode != .cloze, let restored = answer.restored {
+            details.append(.init(id: "restoredText", role: .restoredText, text: restored))
+        }
+        if let meaning = answer.meaning {
+            details.append(.init(id: "meaning", role: .meaning, text: meaning))
+        }
+        if let japanese = answer.sentences.japanese.ruby
+            ?? answer.sentences.japanese.text {
+            details.append(.init(
+                id: "sentenceJapanese",
+                role: .sentenceJapanese,
+                text: japanese
+            ))
+        }
+        if let english = answer.sentences.english.ruby
+            ?? answer.sentences.english.text {
+            details.append(.init(
+                id: "sentenceEnglish",
+                role: .sentenceEnglish,
+                text: english
+            ))
+        }
+        details.append(contentsOf: answer.notes.enumerated().map { offset, note in
+            .init(id: "note-\(offset)", role: .note, text: note)
+        })
+
+        return StudyCardPresentation(
+            front: .init(
+                heading: front.ruby ?? front.text,
+                supportingText: front.hint,
+                textBlocks: [],
+                audioURL: front.media.audio?.studyMediaURL,
+                imageURL: front.media.image?.studyMediaURL,
+                isMediaLed: front.mode == .media,
+                pitchAccent: nil
+            ),
+            back: .init(
+                heading: answer.ruby ?? answer.heading,
+                supportingText: nil,
+                textBlocks: details,
+                audioURL: answer.audio?.studyMediaURL,
+                imageURL: answer.media.image?.studyMediaURL,
+                isMediaLed: false,
+                pitchAccent: answer.pitchAccent.map {
+                    .init(
+                        expression: $0.expression,
+                        reading: $0.reading,
+                        morae: $0.morae,
+                        pattern: $0.pattern,
+                        patternName: $0.patternName
+                    )
+                }
+            )
+        )
+    }
+}
+
+private extension StudyCardPresentationV1.MediaReference {
+    var studyMediaURL: URL? {
+        guard let rawURL = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawURL.isEmpty
+        else {
+            return nil
+        }
+        return URL(string: rawURL)
     }
 }
 
@@ -328,6 +419,17 @@ private func slicedRubyText(_ value: String, start: Int, end: Int) -> String {
 }
 
 private extension JSONValue {
+    var studyMediaURL: URL? {
+        guard
+            let rawURL = self["url"]?.stringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawURL.isEmpty
+        else {
+            return nil
+        }
+        return URL(string: rawURL)
+    }
+
     var studyPitchAccent: StudyCardPresentation.PitchAccent? {
         guard
             let value = self["pitchAccent"],
@@ -367,14 +469,7 @@ private extension JSONValue {
     }
 
     func mediaURL(for key: String) -> URL? {
-        guard
-            let media = self[key],
-            let rawURL = media["url"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !rawURL.isEmpty
-        else {
-            return nil
-        }
-        return URL(string: rawURL)
+        self[key]?.studyMediaURL
     }
 
     var studyNotes: [(offset: Int, element: String)] {
