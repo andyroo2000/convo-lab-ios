@@ -538,7 +538,7 @@ struct CardEditorView: View {
     }
 
     private func loadCurrentAnswerAudio() async {
-        let remoteURL = card?.audioURL ?? previewAudio?.mediaURLs.first
+        let remoteURL = card?.rawAudioURL ?? previewAudio?.mediaURLs.first
         guard let remoteURL else {
             answerAudioLocalURL = nil
             return
@@ -549,9 +549,9 @@ struct CardEditorView: View {
     private func loadCurrentMedia() async {
         await loadCurrentAnswerAudio()
         let draftImageURL = previewImage?.mediaURLs.first
-        let promptURL = card?.promptImageURL
+        let promptURL = card?.rawPromptImageURL
             ?? (draft.imagePlacement.includesPrompt ? draftImageURL : nil)
-        let answerURL = card?.answerImageURL
+        let answerURL = card?.rawAnswerImageURL
             ?? (draft.imagePlacement.includesAnswer ? draftImageURL : nil)
         if let promptURL {
             promptImageLocalURL = await store.playableMediaURL(for: promptURL)
@@ -710,7 +710,7 @@ struct CardEditorView: View {
             try Task.checkCancellation()
             let requestedPlacement = draft.imagePlacement
             let nextPromptImageLocalURL: URL?
-            if let promptURL = result.card.promptImageURL {
+            if let promptURL = result.card.rawPromptImageURL {
                 nextPromptImageLocalURL = requestedPlacement.includesPrompt
                     ? result.localURL
                     : await store.playableMediaURL(for: promptURL)
@@ -718,7 +718,7 @@ struct CardEditorView: View {
                 nextPromptImageLocalURL = nil
             }
             let nextAnswerImageLocalURL: URL?
-            if let answerURL = result.card.answerImageURL {
+            if let answerURL = result.card.rawAnswerImageURL {
                 nextAnswerImageLocalURL = requestedPlacement.includesAnswer
                     ? result.localURL
                     : await store.playableMediaURL(for: answerURL)

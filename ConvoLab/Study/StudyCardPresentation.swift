@@ -4,14 +4,29 @@ extension StudyCard {
     /// The card has one logical audio asset. The side-specific JSON keys are retained
     /// only for compatibility with older API and offline-sync payloads.
     var audioURL: URL? {
-        prompt.mediaURL(for: "cueAudio") ?? answer.mediaURL(for: "answerAudio")
+        guard serverPresentation != nil else { return rawAudioURL }
+        return presentation.front.audioURL ?? presentation.back.audioURL
     }
 
     var promptImageURL: URL? {
-        prompt.mediaURL(for: "cueImage")
+        guard serverPresentation != nil else { return rawPromptImageURL }
+        return presentation.front.imageURL
     }
 
     var answerImageURL: URL? {
+        guard serverPresentation != nil else { return rawAnswerImageURL }
+        return presentation.back.imageURL
+    }
+
+    var rawAudioURL: URL? {
+        prompt.mediaURL(for: "cueAudio") ?? answer.mediaURL(for: "answerAudio")
+    }
+
+    var rawPromptImageURL: URL? {
+        prompt.mediaURL(for: "cueImage")
+    }
+
+    var rawAnswerImageURL: URL? {
         answer.mediaURL(for: "answerImage")
     }
 
@@ -70,7 +85,7 @@ extension StudyCard {
     private var rawPresentation: StudyCardPresentation {
         let promptAudioURL = prompt.mediaURL(for: "cueAudio")
         let promptImageURL = prompt.mediaURL(for: "cueImage")
-        let cardAudioURL = audioURL
+        let cardAudioURL = rawAudioURL
         let answerImageURL = answer.mediaURL(for: "answerImage") ?? promptImageURL
 
         if cardType == "cloze" {

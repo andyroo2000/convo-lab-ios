@@ -1270,7 +1270,18 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         return detail == answerText ? nil : detail
     }
 
-    var mediaURLs: [URL] { prompt.mediaURLs + answer.mediaURLs }
+    var mediaURLs: [URL] {
+        guard serverPresentation != nil else {
+            return prompt.mediaURLs + answer.mediaURLs
+        }
+        let projected = presentation
+        return [
+            projected.front.audioURL,
+            projected.front.imageURL,
+            projected.back.audioURL,
+            projected.back.imageURL,
+        ].compactMap(\.self)
+    }
 
     func reviewSchedule(
         _ rating: ReviewRating,
