@@ -16,11 +16,12 @@ extension StudyCard {
     }
 
     var shouldAutoplayPromptAudio: Bool {
-        cardType == "recognition"
+        serverPresentation?.front.autoplayAudio
+            ?? (cardType == "recognition"
             && prompt.mediaURL(for: "cueAudio") != nil
             && prompt.firstNonEmptyString(
                 for: ["cueText", "cueMeaning", "clozeText"]
-            ) == nil
+            ) == nil)
     }
 }
 
@@ -63,6 +64,10 @@ struct StudyCardPresentation: Equatable, Sendable {
 
 extension StudyCard {
     var presentation: StudyCardPresentation {
+        serverPresentation?.reviewPresentation ?? rawPresentation
+    }
+
+    private var rawPresentation: StudyCardPresentation {
         let promptAudioURL = prompt.mediaURL(for: "cueAudio")
         let promptImageURL = prompt.mediaURL(for: "cueImage")
         let cardAudioURL = audioURL
@@ -186,6 +191,60 @@ extension StudyCard {
                 imageURL: answerImageURL,
                 isMediaLed: false,
                 pitchAccent: answer.studyPitchAccent
+            )
+        )
+    }
+}
+
+private extension StudyCardPresentationV1 {
+    var reviewPresentation: StudyCardPresentation {
+        var details: [StudyCardPresentation.TextBlock] = []
+        if front.mode != .cloze, let restored = answer.restored {
+            details.append(.init(id: "restoredText", role: .restoredText, text: restored))
+        }
+        if let meaning = answer.meaning {
+            details.append(.init(id: "meaning", role: .meaning, text: meaning))
+        }
+        if let japanese = answer.sentences.japanese.ruby
+            ?? answer.sentences.japanese.text {
+            details.append(.init(
+                id: "sentenceJapanese",
+                role: .sentenceJapanese,
+                text: japanese
+            ))
+        }
+        if let english = answer.sentences.english.ruby
+            ?? answer.sentences.english.text {
+            details.append(.init(
+                id: "sentenceEnglish",
+                role: .sentenceEnglish,
+                text: english
+            ))
+        }
+        details.append(contentsOf: answer.notes.enumerated().map { offset, note in
+            .init(id: "note-\(offset)", role: .note, text: note)
+        })
+
+        return StudyCardPresentation(
+            front: .init(
+                heading: front.ruby ?? front.text,
+                supportingText: front.hint,
+                textBlocks: [],
+                audioURL: front.media.audio?.studyMediaURL,
+                imageURL: front.media.image?.studyMediaURL,
+                isMediaLed: front.mode == .media,
+                pitchAccent: nil
+            ),
+            back: .init(
+                heading: answer.ruby ?? answer.heading,
+                supportingText: nil,
+                textBlocks: details,
+                audioURL: answer.audio?.studyMediaURL,
+                imageURL: answer.media.image?.studyMediaURL,
+                isMediaLed: false,
+                pitchAccent: answer.pitchAccent.map {
+                    JSONValue.object(["pitchAccent": $0]).studyPitchAccent
+                } ?? nil
             )
         )
     }
@@ -328,6 +387,17 @@ private func slicedRubyText(_ value: String, start: Int, end: Int) -> String {
 }
 
 private extension JSONValue {
+    var studyMediaURL: URL? {
+        guard
+            let rawURL = self["url"]?.stringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawURL.isEmpty
+        else {
+            return nil
+        }
+        return URL(string: rawURL)
+    }
+
     var studyPitchAccent: StudyCardPresentation.PitchAccent? {
         guard
             let value = self["pitchAccent"],
@@ -367,14 +437,7 @@ private extension JSONValue {
     }
 
     func mediaURL(for key: String) -> URL? {
-        guard
-            let media = self[key],
-            let rawURL = media["url"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !rawURL.isEmpty
-        else {
-            return nil
-        }
-        return URL(string: rawURL)
+        self[key]?.studyMediaURL
     }
 
     var studyNotes: [(offset: Int, element: String)] {

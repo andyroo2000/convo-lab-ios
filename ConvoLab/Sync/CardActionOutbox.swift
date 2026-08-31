@@ -365,6 +365,7 @@ enum StudyCardActionProjection {
                 cardType: card.cardType,
                 prompt: card.prompt,
                 answer: card.answer,
+                serverPresentation: card.serverPresentation,
                 state: projectedState,
                 answerAudioSource: card.answerAudioSource,
                 masteryLevel: card.masteryLevel,

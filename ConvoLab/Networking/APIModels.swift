@@ -806,7 +806,63 @@ struct StudyLearningReadiness: nonisolated Codable, Equatable, Sendable {
     }
 }
 
+struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
+    struct Front: nonisolated Codable, Hashable, Sendable {
+        enum Mode: String, nonisolated Codable, Hashable, Sendable {
+            case text
+            case media
+            case cloze
+        }
+
+        struct Media: nonisolated Codable, Hashable, Sendable {
+            let audio: JSONValue?
+            let image: JSONValue?
+        }
+
+        let mode: Mode
+        let text: String?
+        let ruby: String?
+        let hint: String?
+        let media: Media
+        let autoplayAudio: Bool
+    }
+
+    struct Answer: nonisolated Codable, Hashable, Sendable {
+        struct Text: nonisolated Codable, Hashable, Sendable {
+            let text: String?
+            let ruby: String?
+        }
+
+        struct Sentences: nonisolated Codable, Hashable, Sendable {
+            let japanese: Text
+            let english: Text
+        }
+
+        struct Media: nonisolated Codable, Hashable, Sendable {
+            let image: JSONValue?
+        }
+
+        let heading: String?
+        let ruby: String?
+        let restored: String?
+        let meaning: String?
+        let sentences: Sentences
+        let notes: [String]
+        let media: Media
+        let audio: JSONValue?
+        let pitchAccent: JSONValue?
+    }
+
+    let version: Int
+    let front: Front
+    let answer: Answer
+}
+
 struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
+    private struct PresentationVersion: nonisolated Decodable {
+        let version: Int
+    }
+
     struct State: nonisolated Codable, Hashable, Sendable {
         let dueAt: Date?
         let introducedAt: Date?
@@ -835,6 +891,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         case cardType
         case prompt
         case answer
+        case presentation
         case state
         case answerAudioSource
         case masteryLevel
@@ -856,6 +913,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let cardType: String
     let prompt: JSONValue
     let answer: JSONValue
+    let serverPresentation: StudyCardPresentationV1?
     let state: State
     let answerAudioSource: String?
     let masteryLevel: String?
@@ -877,6 +935,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         cardType: String,
         prompt: JSONValue,
         answer: JSONValue,
+        serverPresentation: StudyCardPresentationV1? = nil,
         state: State,
         answerAudioSource: String?,
         masteryLevel: String? = nil,
@@ -896,6 +955,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         self.cardType = cardType
         self.prompt = prompt
         self.answer = answer
+        self.serverPresentation = serverPresentation
         self.state = state
         self.answerAudioSource = answerAudioSource
         self.masteryLevel = masteryLevel
@@ -922,6 +982,19 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         cardType = try container.decode(String.self, forKey: .cardType)
         prompt = try container.decode(JSONValue.self, forKey: .prompt)
         answer = try container.decode(JSONValue.self, forKey: .answer)
+        if let version = try container.decodeIfPresent(
+            PresentationVersion.self,
+            forKey: .presentation
+        ), version.version == 1 {
+            serverPresentation = try container.decode(
+                StudyCardPresentationV1.self,
+                forKey: .presentation
+            )
+        } else {
+            // Missing and future presentation versions intentionally use the raw
+            // prompt/answer compatibility renderer.
+            serverPresentation = nil
+        }
         state = try container.decode(State.self, forKey: .state)
         answerAudioSource = try container.decodeIfPresent(
             String.self,
@@ -957,6 +1030,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         try container.encode(cardType, forKey: .cardType)
         try container.encode(prompt, forKey: .prompt)
         try container.encode(answer, forKey: .answer)
+        try container.encodeIfPresent(serverPresentation, forKey: .presentation)
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(answerAudioSource, forKey: .answerAudioSource)
         try container.encodeIfPresent(masteryLevel, forKey: .masteryLevel)
@@ -997,6 +1071,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1020,6 +1095,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1043,6 +1119,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: state,
             answerAudioSource: answerAudioSource,
             masteryLevel: masteryLevel,
@@ -1073,6 +1150,13 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     }
 
     var answerText: String {
+        if serverPresentation != nil, cardType != "cloze" {
+            return presentation.back.textBlocks.first { $0.role == .meaning }?.text
+                ?? presentation.back.heading.map {
+                    StudyRubyDocument.parse($0, knownKanji: []).plainText
+                }
+                ?? "No answer text"
+        }
         if cardType == "cloze" {
             return presentation.back.heading.map {
                 StudyRubyDocument.parse($0, knownKanji: []).plainText
@@ -1088,6 +1172,9 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
 
     var answerDetailText: String? {
         guard cardType == "cloze" else { return nil }
+        if serverPresentation != nil {
+            return presentation.back.textBlocks.first { $0.role == .meaning }?.text
+        }
         let detail = answer.firstNonEmptyString(for: ["meaning", "translation"])
         return detail == answerText ? nil : detail
     }
@@ -1116,6 +1203,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
             cardType: cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: serverPresentation,
             state: .init(
                 dueAt: schedule.dueAt,
                 introducedAt: state.introducedAt

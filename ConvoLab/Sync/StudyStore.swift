@@ -2039,6 +2039,7 @@ final class StudyStore {
                     cardType: acknowledgedCard.cardType,
                     prompt: acknowledgedCard.prompt,
                     answer: acknowledgedCard.answer,
+                    serverPresentation: acknowledgedCard.serverPresentation,
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledgedCard.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
@@ -2080,6 +2081,7 @@ final class StudyStore {
                 cardType: authoritativeContent.cardType,
                 prompt: authoritativeContent.prompt,
                 answer: authoritativeContent.answer,
+                serverPresentation: authoritativeContent.serverPresentation,
                 state: latestLocalCard.state,
                 answerAudioSource: authoritativeContent.answerAudioSource,
                 masteryLevel: latestLocalCard.masteryLevel,
@@ -2125,6 +2127,7 @@ final class StudyStore {
                     cardType: acknowledged.cardType,
                     prompt: acknowledged.prompt,
                     answer: acknowledged.answer,
+                    serverPresentation: acknowledged.serverPresentation,
                     state: latestLocalCard.state,
                     answerAudioSource: acknowledged.answerAudioSource,
                     masteryLevel: latestLocalCard.masteryLevel,
@@ -2380,6 +2383,9 @@ final class StudyStore {
             answer: preserveLocalPresentation
                 ? localCard?.answer ?? card.answer
                 : card.answer,
+            serverPresentation: preserveLocalPresentation
+                ? localCard?.serverPresentation
+                : card.serverPresentation,
             state: card.state,
             answerAudioSource: preserveLocalPresentation
                 ? localCard?.answerAudioSource ?? card.answerAudioSource
@@ -2478,6 +2484,9 @@ final class StudyStore {
             cardType: serverCard.cardType,
             prompt: prompt,
             answer: answer,
+            serverPresentation: prompt == serverCard.prompt && answer == serverCard.answer
+                ? serverCard.serverPresentation
+                : nil,
             state: preservingPendingReview ? localCard.state : serverCard.state,
             answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale
                 ? localCard.answerAudioSource

@@ -3,6 +3,128 @@ import XCTest
 
 @MainActor
 final class StudyCardPresentationTests: XCTestCase {
+    func testServerPresentationV1OverridesDivergentRawReviewFieldsAndPersists() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":"会社[かいしゃ]",
+            "hint":"SERVER HINT",
+            "media":{"audio":null,"image":{"url":"/media/server-front.png"}},
+            "autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER HEADING","ruby":"答[こた]え",
+            "restored":"SERVER RESTORED","meaning":"SERVER MEANING",
+            "sentences":{
+              "japanese":{"text":"日本語の文","ruby":"日本語[にほんご]の文[ぶん]"},
+              "english":{"text":"Server sentence","ruby":null}
+            },
+            "notes":["Server note"],
+            "media":{"image":{"url":"/media/server-answer.png"}},
+            "audio":null,
+            "pitchAccent":{
+              "status":"resolved","expression":"答え","reading":"こたえ",
+              "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
+            }
+          }
+        }
+        """#)
+
+        XCTAssertEqual(card.serverPresentation?.version, 1)
+        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]")
+        XCTAssertEqual(card.presentation.front.supportingText, "SERVER HINT")
+        XCTAssertNil(card.presentation.front.audioURL)
+        XCTAssertEqual(
+            card.presentation.front.imageURL,
+            URL(string: "/media/server-front.png")
+        )
+        XCTAssertFalse(card.shouldAutoplayPromptAudio)
+        XCTAssertEqual(card.presentation.back.heading, "答[こた]え")
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.role),
+            [.restoredText, .meaning, .sentenceJapanese, .sentenceEnglish, .note]
+        )
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.text),
+            [
+                "SERVER RESTORED",
+                "SERVER MEANING",
+                "日本語[にほんご]の文[ぶん]",
+                "Server sentence",
+                "Server note",
+            ]
+        )
+        XCTAssertNil(card.presentation.back.audioURL)
+        XCTAssertEqual(card.promptText, "会社")
+        XCTAssertEqual(card.answerText, "SERVER MEANING")
+        XCTAssertEqual(card.presentation.back.pitchAccent?.reading, "こたえ")
+
+        let persisted = try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: StorageCodec.encoder.encode(card)
+        )
+        XCTAssertEqual(persisted.serverPresentation, card.serverPresentation)
+        XCTAssertEqual(persisted.presentation, card.presentation)
+    }
+
+    func testMissingAndFuturePresentationVersionsUseRawCompatibilityProjection() throws {
+        let missing = try decodedCard(presentation: nil)
+        let future = try decodedCard(presentation: #"{"version":2,"futureShape":true}"#)
+
+        for card in [missing, future] {
+            XCTAssertNil(card.serverPresentation)
+            XCTAssertEqual(card.presentation.front.heading, "RAW FRONT")
+            XCTAssertEqual(card.presentation.back.textBlocks.map(\.text), ["RAW MEANING"])
+            XCTAssertEqual(
+                card.presentation.back.audioURL,
+                URL(string: "/media/raw-prompt.mp3")
+            )
+        }
+    }
+
+    func testOptimisticSchedulingPreservesProjectionWhileContentEditsInvalidateIt() throws {
+        let card = try decodedCard(presentation: #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":null,"hint":null,
+            "media":{"audio":null,"image":null},"autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER ANSWER","ruby":null,"restored":null,"meaning":null,
+            "sentences":{
+              "japanese":{"text":null,"ruby":null},
+              "english":{"text":null,"ruby":null}
+            },
+            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+          }
+        }
+        """#)
+        let scheduled = try StudyCardActionProjection.prepare(
+            action: .suspend,
+            card: card,
+            mode: nil,
+            dueAt: nil,
+            timeZone: try XCTUnwrap(TimeZone(secondsFromGMT: 0)),
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        ).card
+
+        XCTAssertEqual(scheduled.serverPresentation, card.serverPresentation)
+        XCTAssertEqual(scheduled.presentation.front.heading, "SERVER FRONT")
+
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = "LOCAL EDIT"
+        let edited = StudyCardEditorProjection.updating(
+            card,
+            with: draft,
+            at: Date(timeIntervalSince1970: 1_800_000_100)
+        ).card
+
+        XCTAssertNil(edited.serverPresentation)
+        XCTAssertEqual(edited.presentation.front.heading, "LOCAL EDIT")
+    }
+
     func testPromptAutoplayMatchesDesktopAudioRecognitionRules() {
         let audio = media(url: "https://example.com/prompt.mp3", kind: "audio")
         let audioRecognition = makeCard(
@@ -520,6 +642,35 @@ final class StudyCardPresentationTests: XCTestCase {
             answerAudioSource: nil,
             createdAt: .now,
             updatedAt: .now
+        )
+    }
+
+    private func decodedCard(presentation: String?) throws -> StudyCard {
+        let presentationField = presentation.map { ",\"presentation\":\($0)" } ?? ""
+        return try StorageCodec.decoder.decode(
+            StudyCard.self,
+            from: Data(#"""
+            {
+              "id":"01J60000000000000000000001","syncId":null,"noteId":null,
+              "revision":3,"cardType":"recognition",
+              "prompt":{
+                "cueText":"RAW FRONT","cueMeaning":"RAW HINT",
+                "cueAudio":{"url":"/media/raw-prompt.mp3"}
+              },
+              "answer":{
+                "expression":"RAW ANSWER","meaning":"RAW MEANING",
+                "answerAudio":{"url":"/media/raw-answer.mp3"}
+              }
+              \#(presentationField),
+              "state":{
+                "dueAt":null,"introducedAt":null,"failedAt":null,
+                "queueState":"review","scheduler":null,"source":{}
+              },
+              "answerAudioSource":"imported",
+              "createdAt":"2026-08-20T10:11:12.000Z",
+              "updatedAt":"2026-08-20T10:11:13.000Z"
+            }
+            """#.utf8)
         )
     }
 

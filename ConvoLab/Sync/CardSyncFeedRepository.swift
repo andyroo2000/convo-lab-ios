@@ -762,6 +762,9 @@ final class CardSyncFeedRepository {
             cardType: serverCard.cardType,
             prompt: preservingLocalContent ? localCard.prompt : serverCard.prompt,
             answer: preservingLocalContent ? localCard.answer : serverCard.answer,
+            serverPresentation: preservingLocalContent
+                ? localCard.serverPresentation
+                : serverCard.serverPresentation,
             state: preservingPendingReview
                 ? (pendingReviewCard ?? localCard).state
                 : serverCard.state,
