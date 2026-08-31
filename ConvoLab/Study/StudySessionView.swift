@@ -33,6 +33,7 @@ struct StudySessionView: View {
     @State private var lessonPreview = true
     @State private var lessonPreviewIndex = 0
     @State private var loadingLessons = false
+    @State private var lessonLoadErrorMessage: String?
     @State private var submittingCardActionIDs: Set<String> = []
     @State private var cardPendingForget: StudyCard?
     @State private var cardPendingSetDue: StudyCard?
@@ -492,6 +493,18 @@ struct StudySessionView: View {
         if loadingLessons {
             ProgressView("Loading lesson…")
                 .frame(maxHeight: .infinity)
+        } else if let lessonLoadErrorMessage {
+            ContentUnavailableView {
+                Label("Lesson unavailable", systemImage: "exclamationmark.triangle.fill")
+            } description: {
+                Text(lessonLoadErrorMessage)
+            } actions: {
+                Button("Try Again") {
+                    Task { await loadLessonBatch() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
         } else if store.cards.isEmpty {
             ContentUnavailableView(
                 "No cards waiting",
@@ -571,12 +584,13 @@ struct StudySessionView: View {
         loadingLessons = true
         lessonPreview = true
         lessonPreviewIndex = 0
+        lessonLoadErrorMessage = nil
         store.beginSessionFailureTracking()
         defer { loadingLessons = false }
         do {
             try await store.refreshLessons()
         } catch {
-            // StudyStore's normal sync surfaces connectivity errors on the home screen.
+            lessonLoadErrorMessage = error.localizedDescription
         }
     }
 

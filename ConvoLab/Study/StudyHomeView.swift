@@ -352,20 +352,28 @@ struct StudyHomeView: View {
                 Label("Offline readiness", systemImage: "arrow.down.circle.fill")
                     .font(.headline)
                 Spacer()
-                Text("5 days")
+                Text(offlineReserveLabel)
                     .font(.caption.bold())
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
                     .background(ConvoLabTheme.cyan.opacity(0.18), in: .capsule)
             }
 
-            let target = store.offlineReadinessTarget
-            ProgressView(value: Double(min(store.preparedCardCount, target)), total: Double(max(target, 1)))
-                .tint(ConvoLabTheme.cyan)
-                .accessibilityLabel("Offline readiness")
-                .accessibilityValue(
-                    "\(min(store.preparedCardCount, target)) of \(target) cards ready"
-                )
+            if store.offlineReserveIsCurrent {
+                let target = store.offlineReadinessTarget
+                let prepared = min(store.preparedCardCount, target)
+                ProgressView(value: Double(prepared), total: Double(max(target, 1)))
+                    .tint(ConvoLabTheme.cyan)
+                    .accessibilityLabel("Offline readiness")
+                    .accessibilityValue(
+                        "\(prepared) of \(target) cards ready"
+                    )
+            } else {
+                Text("Sync to refresh offline coverage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Offline readiness unavailable")
+            }
 
             syncStatus
 
@@ -385,6 +393,12 @@ struct StudyHomeView: View {
         }
         .padding()
         .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
+    }
+
+    private var offlineReserveLabel: String {
+        guard let days = store.offlineReserveDays else { return "Not synced" }
+        guard store.offlineReserveIsCurrent else { return "Expired" }
+        return "\(days) \(days == 1 ? "day" : "days")"
     }
 
     @ViewBuilder

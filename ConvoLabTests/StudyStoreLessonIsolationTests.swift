@@ -516,9 +516,9 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testLessonRefreshCapsOversizedServerResponseToConfiguredBatch() async throws {
+    func testLessonRefreshTrustsServerCardCount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let lessonCards = (0..<50).map { index in
+        let lessonCards = (0..<8).map { index in
             makeCard(
                 id: String(format: "01J%023d", index),
                 expression: "Lesson card \(index)",
@@ -528,10 +528,10 @@ extension StudyStoreTests {
         let session = StudySession(
             overview: StudyOverview(
                 dueCount: 0,
-                newCount: 50,
+                newCount: 8,
                 reviewCount: 0,
-                newCardsPerDay: 50,
-                newCardsAvailableToday: 50,
+                newCardsPerDay: 8,
+                newCardsAvailableToday: 8,
                 lessonBatchSize: 5
             ),
             cards: lessonCards
@@ -565,9 +565,91 @@ extension StudyStoreTests {
 
         try await store.refreshLessons()
 
-        XCTAssertEqual(store.cards.map(\.id), lessonCards.prefix(5).map(\.id))
-        XCTAssertEqual(store.sessionInitialCardCount, 5)
+        XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
+        XCTAssertEqual(store.sessionInitialCardCount, lessonCards.count)
         XCTAssertEqual(store.overview?.lessonBatchSize, 5)
+    }
+
+    @MainActor
+    func testLessonRefreshRejectsResponseAboveContractMaximum() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = (0..<11).map { index in
+            makeCard(
+                id: String(format: "01J%023d", index),
+                expression: "Oversized lesson card \(index)",
+                queueState: "new"
+            )
+        }
+        let data = try sessionResponseData(cards: lessonCards, lessonBatchSize: 10)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/lessons/start")
+            return Self.response(data: data)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        do {
+            try await store.refreshLessons()
+            XCTFail("Expected an oversized lesson response to be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The lesson response contained more cards than the client contract allows."
+            )
+        }
+        XCTAssertTrue(store.cards.isEmpty)
+    }
+
+    @MainActor
+    func testIntroductionCohortLessonRefreshUsesSameContractMaximum() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let lessonCards = (0..<11).map { index in
+            makeCard(
+                id: String(format: "01K%023d", index),
+                expression: "Oversized cohort lesson card \(index)",
+                queueState: "new"
+            )
+        }
+        let data = try sessionResponseData(cards: lessonCards, lessonBatchSize: 10)
+        let client = makeClient { request in
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/study/introduction-cohorts/01K00000000000000000000000/lessons/start"
+            )
+            return Self.response(data: data)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+        XCTAssertTrue(store.beginLessonSessionPresentation(
+            cohortID: "01K00000000000000000000000"
+        ))
+
+        do {
+            try await store.refreshLessons()
+            XCTFail("Expected an oversized cohort lesson response to be rejected")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The lesson response contained more cards than the client contract allows."
+            )
+        }
+        XCTAssertTrue(store.cards.isEmpty)
     }
 
     @MainActor

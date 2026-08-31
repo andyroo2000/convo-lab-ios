@@ -1,6 +1,12 @@
 import Foundation
 
 extension StudyStore {
+    private struct OversizedLessonSessionError: LocalizedError {
+        var errorDescription: String? {
+            "The lesson response contained more cards than the client contract allows."
+        }
+    }
+
     func loadNextReviewBatch() async {
         guard let userID = activeUserID, sessionKind == "reviews", cards.isEmpty else {
             return
@@ -44,11 +50,9 @@ extension StudyStore {
         let userID = load.userID
         let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
-        let activeCards = StudySessionPolicy.orderedCards(
-            try eligibleSessionCards(
-                from: session.cards,
-                pendingReviewState: pendingReviewState
-            )
+        let activeCards = try eligibleSessionCards(
+            from: session.cards,
+            pendingReviewState: pendingReviewState
         )
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
@@ -104,13 +108,16 @@ extension StudyStore {
         guard let load = try await sessionLoadingService.load(loadKind) else { return false }
         let userID = load.userID
         let session = load.response.session
+        // Both ordinary and introduction-cohort lesson endpoints are bounded by
+        // the API's lesson_batch_size setting (currently 3...10).
+        guard session.cards.count <= StudySettingsPolicy.lessonBatchSizeRange.upperBound else {
+            throw OversizedLessonSessionError()
+        }
         let pendingReviewState = try reviewOutbox.pendingState()
-        let eligibleLessonCards = try eligibleSessionCards(
+        let lessonCards = try eligibleSessionCards(
             from: session.cards,
             pendingReviewState: pendingReviewState
         )
-        let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
-        let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget(),

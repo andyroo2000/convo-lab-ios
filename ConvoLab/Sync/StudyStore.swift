@@ -187,6 +187,7 @@ final class StudyStore {
         return manualDraftOutbox.pendingCreateRequests()
     }
     var overview: StudyOverview?
+    var offlineReserveMetadata: StudyOfflineReserveMetadata?
     var isRefreshingOverview = false
     var overviewRefreshErrorMessage: String?
     var studySettings: StudySettings?
@@ -407,6 +408,9 @@ final class StudyStore {
         reloadFailedStudyChanges()
         knownKanjiService.activate(userID: userID)
         restoreCardCatalogSnapshot(userID: userID)
+        offlineReserveMetadata = cardCatalogSnapshotCache?.loadOfflineReserveMetadata(
+            userID: userID
+        )
         activateOfflineDueCards(preservingCurrentOrder: false)
     }
 
@@ -466,6 +470,7 @@ final class StudyStore {
         cardCatalogSnapshot = nil
         manualDraftsRefreshedAt = nil
         overview = nil
+        offlineReserveMetadata = nil
         isRefreshingOverview = false
         overviewRefreshErrorMessage = nil
         studySettings = nil
@@ -624,14 +629,23 @@ final class StudyStore {
         return Date.now.timeIntervalSince(refreshedAt) < max(0, maxAge)
     }
 
-    var fiveDayNewCardTarget: Int {
-        (overview?.newCardsPerDay ?? 0) * 5
+    var offlineReserveDays: Int? {
+        offlineReserveMetadata?.reserveDays
+    }
+
+    var offlineReserveIsCurrent: Bool {
+        offlineReserveMetadata.map { $0.horizonEndsAt > .now } ?? false
+    }
+
+    var reserveNewCardTarget: Int {
+        guard offlineReserveIsCurrent else { return 0 }
+        return (overview?.newCardsPerDay ?? 0) * max(0, offlineReserveMetadata?.reserveDays ?? 0)
     }
 
     var offlineReadinessTarget: Int {
         sessionCounts.offlineReadinessTarget(
             loadedCardCount: cards.count,
-            fiveDayNewCardTarget: fiveDayNewCardTarget
+            reserveNewCardTarget: reserveNewCardTarget
         )
     }
 
@@ -936,6 +950,8 @@ final class StudyStore {
             userID: userID,
             preservingActiveSessionOrder: preservingActiveReviewQueue
         )
+        offlineReserveMetadata = reserve.metadata
+        cardCatalogSnapshotCache?.saveOfflineReserveMetadata(reserve.metadata, userID: userID)
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
         await mediaCache.prepare(
@@ -1001,10 +1017,10 @@ final class StudyStore {
         }
 
         if changed {
-            let orderedNewCards = StudySessionPolicy.orderedCards(newlyDueCards)
+            let orderedNewCards = StudySessionPolicy.offlineOrderedCards(newlyDueCards)
             cards = preservingCurrentOrder
                 ? cards + orderedNewCards
-                : StudySessionPolicy.orderedCards(cards + orderedNewCards)
+                : StudySessionPolicy.offlineOrderedCards(cards + orderedNewCards)
             do {
                 try context.save()
             } catch {
@@ -2566,7 +2582,7 @@ final class StudyStore {
         if !lessonSessionIsPresented {
             cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
             cards.append(card)
-            cards = StudySessionPolicy.orderedCards(cards)
+            cards = StudySessionPolicy.offlineOrderedCards(cards)
         }
         libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
         libraryCards.append(card)
@@ -2585,7 +2601,7 @@ final class StudyStore {
     private func loadLocalCards(userID: Int) {
         studySurfaceRevision += 1
         cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
-        cards = StudySessionPolicy.orderedCards(cards)
+        cards = StudySessionPolicy.offlineOrderedCards(cards)
     }
 
     private func loadLocalCards(
@@ -2599,7 +2615,7 @@ final class StudyStore {
             uniquingKeysWith: { first, _ in first }
         )
         let preserved = order.compactMap { persistedByNormalizedID.removeValue(forKey: $0) }
-        cards = preserved + StudySessionPolicy.orderedCards(
+        cards = preserved + StudySessionPolicy.offlineOrderedCards(
             Array(persistedByNormalizedID.values)
         )
     }

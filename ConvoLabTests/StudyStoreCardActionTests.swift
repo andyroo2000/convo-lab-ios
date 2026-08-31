@@ -93,6 +93,84 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOfflineForgetProjectionUsesServerFreshSchedulerDefaults() throws {
+        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-03-08T04:00:00.000Z"))
+        let card = makeCard(
+            id: "01J00000000000000000OF01",
+            expression: "Forget offline",
+            queueState: "review",
+            dueAt: now,
+            scheduler: .object([
+                "state": .number(2),
+                "stability": .number(30),
+                "difficulty": .number(7),
+            ])
+        )
+
+        let projection = try StudyCardActionProjection.prepare(
+            action: .forget,
+            card: card,
+            mode: nil,
+            dueAt: nil,
+            timeZone: .gmt,
+            now: now
+        )
+
+        XCTAssertEqual(projection.card.state.scheduler?["stability"], .number(0.1))
+        XCTAssertEqual(projection.card.state.scheduler?["difficulty"], .number(5))
+    }
+
+    @MainActor
+    func testOfflineSetDueUsesElapsedTimeAcrossSpringDSTBoundary() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        // 11 PM EST to 9 AM EDT crosses a local date boundary but is only nine hours.
+        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-03-08T04:00:00.000Z"))
+        let dueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-03-08T13:00:00.000Z"))
+        let card = makeCard(
+            id: "01J00000000000000000SD01",
+            expression: "Spring forward",
+            queueState: "review",
+            dueAt: now
+        )
+
+        let projection = try StudyCardActionProjection.prepare(
+            action: .setDue,
+            card: card,
+            mode: .customDate,
+            dueAt: dueAt,
+            timeZone: newYork,
+            now: now
+        )
+
+        XCTAssertEqual(projection.card.state.scheduler?["scheduled_days"], .number(0))
+    }
+
+    @MainActor
+    func testOfflineSetDueUsesElapsedTimeAcrossFallDSTBoundary() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        // 11 PM EDT to 9 AM EST crosses a local date boundary but is only eleven hours.
+        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-11-01T03:00:00.000Z"))
+        let dueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-11-01T14:00:00.000Z"))
+        let card = makeCard(
+            id: "01J00000000000000000FD01",
+            expression: "Fall back",
+            queueState: "review",
+            dueAt: now
+        )
+
+        let projection = try StudyCardActionProjection.prepare(
+            action: .setDue,
+            card: card,
+            mode: .customDate,
+            dueAt: dueAt,
+            timeZone: newYork,
+            now: now
+        )
+
+        XCTAssertEqual(projection.card.state.scheduler?["scheduled_days"], .number(0))
+    }
+
+    @MainActor
     func testSetDueSendsTomorrowTimezoneAndCustomDatePayloads() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
