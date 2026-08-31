@@ -872,6 +872,46 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testReviewSessionPreservesServerOrder() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let serverCards = [
+            makeCard(id: "server-new-first", expression: "New", queueState: "new"),
+            makeCard(
+                id: "server-review-later",
+                expression: "Later",
+                queueState: "review",
+                dueAt: now.addingTimeInterval(60)
+            ),
+            makeCard(
+                id: "server-review-earlier",
+                expression: "Earlier",
+                queueState: "review",
+                dueAt: now
+            ),
+        ]
+        let data = try sessionResponseData(cards: serverCards)
+        let client = makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/study/session/start")
+            return Self.response(data: data)
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+
+        try await store.refreshSession()
+
+        XCTAssertEqual(store.cards.map(\.id), serverCards.map(\.id))
+    }
+
+    @MainActor
     func testReviewResponseStartedBeforeLessonCannotReplacePresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let reviewCard = makeCard(id: "stale-review-card", expression: "古い復習")

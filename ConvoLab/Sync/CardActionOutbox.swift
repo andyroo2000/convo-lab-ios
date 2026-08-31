@@ -443,8 +443,8 @@ enum StudyCardActionProjection {
     private static func freshNewScheduler(at now: Date) -> JSONValue {
         .object([
             "due": .string(ISO8601Milliseconds.string(from: now)),
-            "stability": .number(0),
-            "difficulty": .number(0),
+            "stability": .number(0.1),
+            "difficulty": .number(5),
             "elapsed_days": .number(0),
             "scheduled_days": .number(0),
             "learning_steps": .number(0),
@@ -461,11 +461,10 @@ enum StudyCardActionProjection {
         queueState: String,
         now: Date
     ) -> JSONValue {
-        let scheduledDays = max(0, Calendar(identifier: .gregorian).dateComponents(
-            [.day],
-            from: Calendar(identifier: .gregorian).startOfDay(for: now),
-            to: Calendar(identifier: .gregorian).startOfDay(for: dueAt)
-        ).day ?? 0)
+        let scheduledDays = max(
+            0,
+            Int((dueAt.timeIntervalSince(now) / 86_400).rounded())
+        )
         let state: Double = switch queueState {
         case "learning": 1
         case "relearning": 3

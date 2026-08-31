@@ -352,7 +352,7 @@ struct StudyHomeView: View {
                 Label("Offline readiness", systemImage: "arrow.down.circle.fill")
                     .font(.headline)
                 Spacer()
-                Text("5 days")
+                Text(offlineReserveLabel)
                     .font(.caption.bold())
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
@@ -385,6 +385,12 @@ struct StudyHomeView: View {
         }
         .padding()
         .background(.white.opacity(0.72), in: .rect(cornerRadius: 18))
+    }
+
+    private var offlineReserveLabel: String {
+        guard let days = store.offlineReserveDays else { return "Not synced" }
+        guard store.offlineReserveIsCurrent else { return "Expired" }
+        return "\(days) \(days == 1 ? "day" : "days")"
     }
 
     @ViewBuilder

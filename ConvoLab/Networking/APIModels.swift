@@ -242,6 +242,20 @@ struct StudyOfflineReserve: nonisolated Decodable, Sendable {
         case generatedAt = "generatedAt"
         case horizonEndsAt = "horizonEndsAt"
     }
+
+    var metadata: StudyOfflineReserveMetadata {
+        StudyOfflineReserveMetadata(
+            reserveDays: reserveDays,
+            generatedAt: generatedAt,
+            horizonEndsAt: horizonEndsAt
+        )
+    }
+}
+
+struct StudyOfflineReserveMetadata: nonisolated Codable, Equatable, Sendable {
+    let reserveDays: Int
+    let generatedAt: Date
+    let horizonEndsAt: Date
 }
 
 struct SyncFeedPage: nonisolated Decodable, Sendable {

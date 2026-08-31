@@ -63,7 +63,7 @@ struct SettingsView: View {
                             countStyle: .file
                         )
                     )
-                    LabeledContent("Study window", value: "5 days")
+                    LabeledContent("Study window", value: offlineStudyWindow)
                     Button("Remove Downloaded Media", role: .destructive) {
                         confirmingClearDownloads = true
                     }
@@ -363,6 +363,12 @@ struct SettingsView: View {
         .sheet(isPresented: $showingFailedStudyChanges) {
             FailedStudyChangesView(store: model.study)
         }
+    }
+
+    private var offlineStudyWindow: String {
+        guard let days = model.study.offlineReserveDays else { return "Not synced" }
+        guard model.study.offlineReserveIsCurrent else { return "Expired" }
+        return "\(days) \(days == 1 ? "day" : "days")"
     }
 
     private func laneWeightBinding(

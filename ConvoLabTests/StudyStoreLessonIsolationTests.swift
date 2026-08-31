@@ -516,7 +516,7 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testLessonRefreshCapsOversizedServerResponseToConfiguredBatch() async throws {
+    func testLessonRefreshTrustsServerCardCount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let lessonCards = (0..<50).map { index in
             makeCard(
@@ -565,8 +565,8 @@ extension StudyStoreTests {
 
         try await store.refreshLessons()
 
-        XCTAssertEqual(store.cards.map(\.id), lessonCards.prefix(5).map(\.id))
-        XCTAssertEqual(store.sessionInitialCardCount, 5)
+        XCTAssertEqual(store.cards.map(\.id), lessonCards.map(\.id))
+        XCTAssertEqual(store.sessionInitialCardCount, lessonCards.count)
         XCTAssertEqual(store.overview?.lessonBatchSize, 5)
     }
 

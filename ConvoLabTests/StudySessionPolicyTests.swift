@@ -43,7 +43,7 @@ final class StudySessionPolicyTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            StudySessionPolicy.orderedCards(cards).map(\.id),
+            StudySessionPolicy.offlineOrderedCards(cards).map(\.id),
             ["review-first", "review-a", "review-b", "new-b", "new-a"]
         )
     }

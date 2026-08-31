@@ -41,7 +41,7 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(
             counts.offlineReadinessTarget(
                 loadedCardCount: 300,
-                fiveDayNewCardTarget: 100
+                reserveNewCardTarget: 100
             ),
             388
         )

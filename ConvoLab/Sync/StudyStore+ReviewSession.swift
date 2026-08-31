@@ -44,11 +44,9 @@ extension StudyStore {
         let userID = load.userID
         let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
-        let activeCards = StudySessionPolicy.orderedCards(
-            try eligibleSessionCards(
-                from: session.cards,
-                pendingReviewState: pendingReviewState
-            )
+        let activeCards = try eligibleSessionCards(
+            from: session.cards,
+            pendingReviewState: pendingReviewState
         )
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
@@ -105,12 +103,10 @@ extension StudyStore {
         let userID = load.userID
         let session = load.response.session
         let pendingReviewState = try reviewOutbox.pendingState()
-        let eligibleLessonCards = try eligibleSessionCards(
+        let lessonCards = try eligibleSessionCards(
             from: session.cards,
             pendingReviewState: pendingReviewState
         )
-        let lessonBatchSize = min(max(session.overview.lessonBatchSize, 3), 10)
-        let lessonCards = Array(eligibleLessonCards.prefix(lessonBatchSize))
         let resolvedSettings = StudySettingsPolicy.settings(
             from: session.overview,
             fallbackReviewTimeBudget: resolvedReviewTimeBudget(),

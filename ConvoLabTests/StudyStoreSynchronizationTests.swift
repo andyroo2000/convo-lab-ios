@@ -6,6 +6,99 @@ import XCTest
 
 extension StudyStoreTests {
     @MainActor
+    func testOfflineReserveMetadataControlsReadinessAndSurvivesRelaunch() async throws {
+        let suiteName = "StudyStoreSynchronizationTests.reserve-metadata.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        let container = try Persistence.makeContainer(inMemory: true)
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 4,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let horizonEndsAt = "2099-08-08T12:00:00.000Z"
+        let client = makeClient { request in
+            switch request.url?.path {
+            case "/api/sync/feed":
+                return Self.response(data: Data(
+                    #"{"data":[],"meta":{"next_checkpoint":0,"has_more":false}}"#.utf8
+                ))
+            case "/api/study/known-kanji":
+                return Self.response(data: Data(
+                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+                ))
+            case "/api/study/session/start":
+                return Self.response(data: sessionData)
+            case "/api/study/offline-reserve":
+                return Self.response(data: Data(
+                    """
+                    {"cards":[],"reserveDays":7,"generatedAt":"2099-08-01T12:00:00.000Z","horizonEndsAt":"\(horizonEndsAt)"}
+                    """.utf8
+                ))
+            default:
+                throw URLError(.badURL)
+            }
+        }
+        let store = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+
+        await store.synchronize()
+
+        XCTAssertEqual(store.offlineReserveDays, 7)
+        XCTAssertTrue(store.offlineReserveIsCurrent)
+        XCTAssertEqual(store.offlineReadinessTarget, 28)
+        XCTAssertEqual(
+            store.offlineReserveMetadata?.horizonEndsAt,
+            ISO8601Milliseconds.date(from: horizonEndsAt)
+        )
+        store.deactivate()
+
+        let relaunched = StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            cardCatalogSnapshotCache: cache
+        )
+        defer { relaunched.deactivate() }
+
+        XCTAssertEqual(relaunched.offlineReserveDays, 7)
+        XCTAssertTrue(relaunched.offlineReserveIsCurrent)
+        XCTAssertEqual(relaunched.offlineReadinessTarget, 28)
+
+        relaunched.offlineReserveMetadata = StudyOfflineReserveMetadata(
+            reserveDays: 30,
+            generatedAt: .distantPast,
+            horizonEndsAt: .distantPast
+        )
+        XCTAssertFalse(relaunched.offlineReserveIsCurrent)
+        XCTAssertEqual(relaunched.offlineReadinessTarget, 0)
+    }
+
+    @MainActor
     func testRejectedReviewDoesNotBlockNewerReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let rejectedCard = makeCard(id: "01J00000000000000000000001", expression: "犬")

@@ -19,7 +19,9 @@ enum StudySessionPolicy {
         }
     }
 
-    static func orderedCards(_ cards: [StudyCard]) -> [StudyCard] {
+    /// Produces a deterministic queue for cards restored from local storage.
+    /// Online sessions already arrive in the API's authoritative order.
+    static func offlineOrderedCards(_ cards: [StudyCard]) -> [StudyCard] {
         cards.enumerated().sorted { leftEntry, rightEntry in
             let left = leftEntry.element
             let right = rightEntry.element
@@ -82,12 +84,12 @@ struct StudySessionCounts: Equatable {
 
     func offlineReadinessTarget(
         loadedCardCount: Int,
-        fiveDayNewCardTarget: Int
+        reserveNewCardTarget: Int
     ) -> Int {
         max(
             loadedCardCount,
             failedDue + reviewRemaining,
-            fiveDayNewCardTarget
+            reserveNewCardTarget
         )
     }
 
