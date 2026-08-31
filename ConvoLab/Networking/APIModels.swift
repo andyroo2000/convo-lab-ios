@@ -1274,7 +1274,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     var answerDetailText: String? {
         if let serverPresentation {
             guard serverPresentation.front.mode == .cloze else { return nil }
-            let detail = presentation.back.textBlocks.first { $0.role == .meaning }?.text
+            let detail = auxiliaryDisplayText(serverPresentation.answer.meaning)
             return detail == answerText ? nil : detail
         }
         guard cardType == "cloze" else { return nil }

@@ -201,6 +201,10 @@ final class StudyCardPresentationTests: XCTestCase {
             presentation: nullPresentation(mode: "cloze"),
             cardType: "cloze"
         )
+        let blankMeaningClozeCard = try decodedCard(
+            presentation: nullPresentation(mode: "cloze", meaning: #""   ""#),
+            cardType: "cloze"
+        )
 
         XCTAssertEqual(textCard.promptText, "Study card")
         XCTAssertEqual(mediaCard.promptText, "Media prompt")
@@ -211,6 +215,8 @@ final class StudyCardPresentationTests: XCTestCase {
             XCTAssertFalse(card.answerText.contains("RAW"))
         }
         XCTAssertNil(clozeCard.answerDetailText)
+        XCTAssertEqual(blankMeaningClozeCard.answerText, "No answer text")
+        XCTAssertNil(blankMeaningClozeCard.answerDetailText)
 
         XCTAssertTrue(
             StudyCardCatalogRepository.cards([textCard], matching: "RAW FRONT").isEmpty
@@ -940,7 +946,7 @@ final class StudyCardPresentationTests: XCTestCase {
         """#
     }
 
-    private func nullPresentation(mode: String) -> String {
+    private func nullPresentation(mode: String, meaning: String = "null") -> String {
         #"""
         {
           "version":1,
@@ -949,7 +955,7 @@ final class StudyCardPresentationTests: XCTestCase {
             "media":{"audio":null,"image":null},"autoplayAudio":false
           },
           "answer":{
-            "heading":null,"ruby":null,"restored":null,"meaning":null,
+            "heading":null,"ruby":null,"restored":null,"meaning":\#(meaning),
             "sentences":{
               "japanese":{"text":null,"ruby":null},
               "english":{"text":null,"ruby":null}
