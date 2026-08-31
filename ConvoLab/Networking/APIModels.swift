@@ -717,7 +717,8 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let id: String
     let syncId: String?
     let noteId: String?
-    let revision: Int
+    // Nil only for payloads cached before the revision contract shipped.
+    let revision: Int?
     let cardType: String
     let prompt: JSONValue
     let answer: JSONValue
@@ -738,7 +739,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         id: String,
         syncId: String? = nil,
         noteId: String?,
-        revision: Int = 0,
+        revision: Int? = nil,
         cardType: String,
         prompt: JSONValue,
         answer: JSONValue,
@@ -783,7 +784,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         syncId = try container.decodeIfPresent(String.self, forKey: .syncId)
         noteId = try container.decodeIfPresent(String.self, forKey: .noteId)
-        revision = try container.decodeIfPresent(Int.self, forKey: .revision) ?? 0
+        revision = try container.decodeIfPresent(Int.self, forKey: .revision)
         cardType = try container.decode(String.self, forKey: .cardType)
         prompt = try container.decode(JSONValue.self, forKey: .prompt)
         answer = try container.decode(JSONValue.self, forKey: .answer)
@@ -818,7 +819,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(syncId, forKey: .syncId)
         try container.encodeIfPresent(noteId, forKey: .noteId)
-        try container.encode(revision, forKey: .revision)
+        try container.encodeIfPresent(revision, forKey: .revision)
         try container.encode(cardType, forKey: .cardType)
         try container.encode(prompt, forKey: .prompt)
         try container.encode(answer, forKey: .answer)
@@ -1509,7 +1510,9 @@ struct CreateStudyCardRequest: Codable {
 struct UpdateStudyCardRequest: Codable {
     let prompt: JSONValue
     let answer: JSONValue
-    let expectedRevision: Int
+    // Nil preserves legacy queued edits as unconditional writes; newly projected
+    // edits from authoritative cards always carry the server revision.
+    let expectedRevision: Int?
 
     private enum CodingKeys: String, CodingKey {
         case prompt
@@ -1520,7 +1523,7 @@ struct UpdateStudyCardRequest: Codable {
     init(
         prompt: JSONValue,
         answer: JSONValue,
-        expectedRevision: Int = 0
+        expectedRevision: Int? = nil
     ) {
         self.prompt = prompt
         self.answer = answer
@@ -1532,10 +1535,9 @@ struct UpdateStudyCardRequest: Codable {
         prompt = try container.decode(JSONValue.self, forKey: .prompt)
         answer = try container.decode(JSONValue.self, forKey: .answer)
         // Outbox rows written by earlier app versions predate optimistic revisions.
-        expectedRevision = try container.decodeIfPresent(
-            Int.self,
-            forKey: .expectedRevision
-        ) ?? 0
+        // Preserve that as unknown so the backend can accept the legacy edit
+        // without mistaking a migration artifact for a concurrent write.
+        expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
     }
 }
 

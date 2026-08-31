@@ -23,6 +23,7 @@ enum StudyCardEditorProjection {
                 id: id,
                 syncId: id,
                 noteId: nil,
+                revision: 0,
                 cardType: draft.cardType.rawValue,
                 prompt: prompt,
                 answer: answer,
@@ -57,7 +58,7 @@ enum StudyCardEditorProjection {
         let projectedRevision = if prompt == card.prompt && answer == card.answer {
             card.revision
         } else {
-            card.revision == Int.max ? Int.max : card.revision + 1
+            card.revision.map { $0 == Int.max ? Int.max : $0 + 1 }
         }
         return Update(
             card: StudyCard(

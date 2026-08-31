@@ -211,14 +211,9 @@ final class CardMutationOutbox {
 
     func pendingWriteIdentifiers() throws -> Set<String> {
         guard let userID = activeUserID else { return [] }
-        return Set(try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID
-                        && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                }
-            )
-        ).map { $0.resourceID.lowercased() })
+        return Set(try pendingCardWrites(userID: userID).map {
+            $0.resourceID.lowercased()
+        })
     }
 
     func hasPendingDelete(for card: StudyCard) throws -> Bool {
@@ -241,15 +236,28 @@ final class CardMutationOutbox {
 
     func hasPendingCardWrite(for cardID: String) throws -> Bool {
         guard let userID = activeUserID else { return false }
-        var descriptor = FetchDescriptor<PendingMutation>(
+        let normalizedCardID = cardID.lowercased()
+        return try pendingCardWrites(userID: userID).contains {
+            $0.resourceID.lowercased() == normalizedCardID
+        }
+    }
+
+    private func pendingCardWrites(userID: Int) throws -> [PendingMutation] {
+        let creates = try context.fetch(FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.userID == userID
-                    && ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                    && $0.resourceID == cardID
+                    && $0.kind == "cardCreate"
+                    && $0.lastError == nil
             }
-        )
-        descriptor.fetchLimit = 1
-        return try !context.fetch(descriptor).isEmpty
+        ))
+        let updates = try context.fetch(FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && $0.kind == "cardUpdate"
+                    && $0.lastError == nil
+            }
+        ))
+        return creates + updates
     }
 
     func hasPendingMutation(for cardID: String, userID: Int) throws -> Bool {

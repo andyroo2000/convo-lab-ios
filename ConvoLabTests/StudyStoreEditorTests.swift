@@ -806,7 +806,7 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testImageRegenerationValidatesInputAndBlocksPendingCardWrite() async throws {
+    func testImageRegenerationValidatesInputAndIgnoresQuarantinedWrite() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000000IV",
@@ -874,14 +874,11 @@ extension StudyStoreTests {
                 prompt: "A company office.",
                 placement: .answer
             )
-            XCTFail("Expected an unresolved card edit to block regeneration")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Sync this card’s pending changes before regenerating its image."
-            )
+            XCTFail("Expected the attempted network request to fail")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .badServerResponse)
         }
-        XCTAssertEqual(requestCounter.current, 0)
+        XCTAssertEqual(requestCounter.current, 1)
     }
 
     @MainActor
@@ -908,7 +905,6 @@ extension StudyStoreTests {
                 UpdateStudyCardRequest(prompt: predecessor.prompt, answer: predecessor.answer)
             )
         )
-        pendingUpdate.lastError = "HTTP 422: Rejected"
         container.mainContext.insert(pendingUpdate)
         try container.mainContext.save()
         let requestCounter = LockedCounter()
@@ -963,7 +959,6 @@ extension StudyStoreTests {
                 UpdateStudyCardRequest(prompt: successor.prompt, answer: successor.answer)
             )
         )
-        pendingUpdate.lastError = "HTTP 422: Rejected"
         container.mainContext.insert(pendingUpdate)
         try container.mainContext.save()
         let requestCounter = LockedCounter()
@@ -1265,7 +1260,7 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testRegenerateAnswerAudioDoesNotOverwriteQuarantinedLocalEdit() async throws {
+    func testRegenerateAnswerAudioDoesNotTreatQuarantinedEditAsPending() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let card = makeCard(
             id: "01J0000000000000000000000AB",
@@ -1307,15 +1302,12 @@ extension StudyStoreTests {
                 voiceID: StudyAnswerVoice.defaultVoice.id,
                 textOverride: ""
             )
-            XCTFail("Expected unresolved local edit to block regeneration")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Sync this card’s pending changes before regenerating its audio."
-            )
+            XCTFail("Expected the attempted network request to fail")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .badServerResponse)
         }
 
-        XCTAssertEqual(requestCounter.current, 0)
+        XCTAssertEqual(requestCounter.current, 1)
         let stored = try XCTUnwrap(store.libraryCards.first)
         XCTAssertEqual(stored.id, card.id)
         XCTAssertEqual(stored.prompt, card.prompt)

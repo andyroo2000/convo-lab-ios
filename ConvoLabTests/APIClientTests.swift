@@ -284,7 +284,7 @@ final class APIClientTests: XCTestCase {
         )
         XCTAssertNil(legacyCard.syncId)
         XCTAssertEqual(legacyCard.reviewCardID, legacyCard.id)
-        XCTAssertEqual(legacyCard.revision, 0)
+        XCTAssertNil(legacyCard.revision)
     }
 
     @MainActor
@@ -296,7 +296,12 @@ final class APIClientTests: XCTestCase {
             from: payload
         )
 
-        XCTAssertEqual(request.expectedRevision, 0)
+        XCTAssertNil(request.expectedRevision)
+        let encoded = try StorageCodec.encoder.encode(request)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        XCTAssertNil(object["expectedRevision"])
     }
 
     @MainActor

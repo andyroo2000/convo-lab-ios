@@ -19,6 +19,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
 
         XCTAssertEqual(projection.card.id, "draft-id")
         XCTAssertEqual(projection.card.syncId, "draft-id")
+        XCTAssertEqual(projection.card.revision, 0)
         XCTAssertEqual(projection.card.state.queueState, "new")
         XCTAssertEqual(projection.card.createdAt, date)
         XCTAssertEqual(projection.request.id, projection.card.id)
@@ -126,6 +127,22 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     }
 
     @MainActor
+    func testLegacyCachedCardUpdateOmitsUnknownRevision() {
+        let card = makeCard(revision: nil, masteryLevel: nil)
+        var draft = StudyCardDraft(card: card)
+        draft.cueText = "updated"
+
+        let projection = StudyCardEditorProjection.updating(
+            card,
+            with: draft,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        XCTAssertNil(projection.request.expectedRevision)
+        XCTAssertNil(projection.card.revision)
+    }
+
+    @MainActor
     private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
         let encoded = try StorageCodec.encoder.encode(card)
         var object = try XCTUnwrap(
@@ -143,7 +160,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
     private func makeCard(
         id: String = "local-id",
         syncId: String? = "local-sync-id",
-        revision: Int = 0,
+        revision: Int? = 0,
         masteryLevel: String?,
         variantGroupID: String? = nil,
         variantStatus: String? = nil,

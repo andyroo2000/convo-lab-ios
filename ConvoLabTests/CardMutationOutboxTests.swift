@@ -463,6 +463,27 @@ final class CardMutationOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testQuarantinedWriteDoesNotCountAsPendingCardWork() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let outbox = makeOutbox(container: container)
+        outbox.activate(userID: 7)
+        let mutation = PendingMutation(
+            kind: "cardUpdate",
+            userID: 7,
+            resourceID: "card-1",
+            payload: Data()
+        )
+        mutation.lastError = "HTTP 409 [card_revision_conflict]: stale edit"
+        container.mainContext.insert(mutation)
+        try container.mainContext.save()
+
+        let hasPendingWrite = try outbox.hasPendingCardWrite(for: "card-1")
+        let pendingIdentifiers = try outbox.pendingWriteIdentifiers()
+        XCTAssertFalse(hasPendingWrite)
+        XCTAssertTrue(pendingIdentifiers.isEmpty)
+    }
+
+    @MainActor
     func testAccountSwitchKeepsNewUsersFlushIndependentAndOldMutationUntouched() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let (oldStarted, oldStartedContinuation) = AsyncStream<Void>.makeStream()
