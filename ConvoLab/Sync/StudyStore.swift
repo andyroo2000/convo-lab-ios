@@ -159,7 +159,7 @@ final class StudyStore {
     @ObservationIgnored var lastSessionRefreshAt: Date?
     @ObservationIgnored private var outboxRetryRevision = 0
     @ObservationIgnored private var consumedOutboxRetryRevision = 0
-    @ObservationIgnored private var failedStudyChangeOperationIDs: Set<String> = []
+    @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored private var cardActionCardIDs: Set<String> = []
 
     var cards: [StudyCard] = []
@@ -180,7 +180,7 @@ final class StudyStore {
     var isRefreshingNewCardQueue = false
     var isLoadingMoreNewCardQueue = false
     var storageWriteErrorMessage: String?
-    private(set) var failedStudyChanges: [FailedStudyChange] = []
+    var failedStudyChanges: [FailedStudyChange] = []
     var overview: StudyOverview?
     var offlineReserveMetadata: StudyOfflineReserveMetadata?
     var isRefreshingOverview = false
@@ -1414,139 +1414,6 @@ final class StudyStore {
         return (try? context.fetchCount(descriptor)) ?? 0
     }
 
-    func reloadFailedStudyChanges() {
-        guard let userID = activeUserID else {
-            failedStudyChanges = []
-            return
-        }
-        let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate { $0.userID == userID && $0.lastError != nil },
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-        failedStudyChanges = ((try? context.fetch(descriptor)) ?? [])
-            .compactMap { $0.failedStudyChange() }
-    }
-
-    func retryFailedStudyChange(id: String) async throws {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        guard failedStudyChangeOperationIDs.insert(id).inserted else { return }
-        defer {
-            failedStudyChangeOperationIDs.remove(id)
-        }
-        let activationGeneration = accountActivationGeneration
-        guard let mutation = try failedMutation(id: id, userID: userID),
-              let kind = mutation.studyMutationKind
-        else { return }
-        guard mutation.failedStudyChange()?.isRetryable != false else { return }
-
-        mutation.lastError = nil
-        try context.save()
-        reloadFailedStudyChanges()
-
-        do {
-            switch kind {
-            case .cardCreate, .cardUpdate, .cardDelete:
-                try await flushCardOutbox()
-            case .cardAction, .review:
-                try await flushSchedulingOutboxes()
-                restorePendingReviewState()
-            }
-        } catch {
-            if kind == .review {
-                restorePendingReviewState()
-            }
-            markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-            reloadFailedStudyChanges()
-            throw error
-        }
-        reloadFailedStudyChanges()
-    }
-
-    func discardFailedStudyChange(id: String) async throws {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        guard failedStudyChangeOperationIDs.insert(id).inserted else { return }
-        defer { failedStudyChangeOperationIDs.remove(id) }
-        guard let mutation = try failedMutation(id: id, userID: userID),
-              let kind = mutation.studyMutationKind
-        else { return }
-
-        let resourceID = mutation.resourceID.lowercased()
-        let canonicalLookupID: String? = if kind == .review {
-            try canonicalReviewCardID(for: mutation, userID: userID)
-        } else {
-            mutation.resourceID
-        }
-        let canonicalCard: StudyCard? = if kind == .cardDelete
-            || kind == .cardUpdate
-            || kind == .cardAction
-            || kind == .review
-        {
-            if let canonicalLookupID {
-                try await fetchCanonicalCard(id: canonicalLookupID)
-            } else {
-                nil
-            }
-        } else {
-            nil
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else {
-            throw CancellationError()
-        }
-        guard let currentMutation = try failedMutation(id: id, userID: userID),
-              currentMutation.studyMutationKind == kind
-        else { return }
-        if kind == .cardCreate
-            || ((kind == .cardUpdate || kind == .cardAction || kind == .review)
-                && canonicalCard == nil)
-        {
-            // A review/update against a card the server rejected cannot succeed on
-            // its own. The same is true when an edited server card no longer exists.
-            try discardLocalCardActivity(userID: userID, resourceID: resourceID)
-        } else {
-            context.delete(currentMutation)
-            let remaining = try context.fetch(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.userID == userID }
-                )
-            ).contains {
-                $0.id != id
-                    && $0.resourceID.lowercased() == resourceID
-                    && $0.studyMutationKind != nil
-            }
-            if (kind == .cardUpdate || kind == .cardAction) && !remaining {
-                try localRecords(userID: userID, matching: resourceID).forEach {
-                    $0.locallyUpdatedAt = nil
-                }
-            }
-            // Any remaining card write or review owns the optimistic replica.
-            // Restoring a server snapshot here would clobber that newer local work.
-            if !remaining, let canonicalCard {
-                try upsertLocalCard(
-                    canonicalCard,
-                    markedDirty: false,
-                    serverUpdatedAt: canonicalCard.updatedAt
-                )
-            }
-        }
-        try context.save()
-        restorePendingReviewState()
-        loadLocalCards(userID: userID)
-        loadLibraryCards(userID: userID)
-        reloadFailedStudyChanges()
-
-        // Discarding removes the row that intentionally blocked inbound data.
-        // Reconcile immediately when online; ordinary sync will retry later if not.
-        await synchronize()
-    }
-
     func fetchCanonicalCard(id: String) async throws -> StudyCard? {
         do {
             let response: StudyCardBatchResponse = try await api.request(
@@ -1558,38 +1425,6 @@ final class StudyStore {
         } catch APIClientError.rejected(status: 404, message: _) {
             return nil
         }
-    }
-
-    private func canonicalReviewCardID(
-        for mutation: PendingMutation,
-        userID: Int
-    ) throws -> String? {
-        let directCandidates = [
-            reviewOutbox.cardID(for: mutation),
-            mutation.resourceID,
-        ]
-        if let identifier = directCandidates.compactMap({ $0 }).first(where: {
-            ClientIdentifier.isULID($0)
-        }) {
-            return identifier.lowercased()
-        }
-
-        let resourceID = mutation.resourceID.lowercased()
-        for record in try localRecords(userID: userID, matching: resourceID) {
-            let candidates = [
-                record.syncID,
-                (try? StorageCodec.decoder.decode(
-                    StudyCard.self,
-                    from: record.payload
-                ))?.reviewCardID,
-            ]
-            if let identifier = candidates.compactMap({ $0 }).first(where: {
-                ClientIdentifier.isULID($0)
-            }) {
-                return identifier.lowercased()
-            }
-        }
-        return nil
     }
 
     func recoverCorruptedSchedulerState(
@@ -1656,50 +1491,6 @@ final class StudyStore {
         let identifiers = StudyCardIdentity.identifiers(for: card)
         cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
         try context.save()
-    }
-
-    private func failedMutation(id: String, userID: Int) throws -> PendingMutation? {
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID && $0.id == id && $0.lastError != nil
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
-    }
-
-    private func discardLocalCardActivity(userID: Int, resourceID: String) throws {
-        let related = try context.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        ).filter { $0.resourceID.lowercased() == resourceID }
-        related.forEach(context.delete)
-        for record in try localRecords(userID: userID, matching: resourceID) {
-            context.delete(record)
-        }
-    }
-
-    private func localRecords(
-        userID: Int,
-        matching normalizedResourceID: String
-    ) throws -> [LocalCardRecord] {
-        try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate { $0.userID == userID }
-            )
-        ).filter { record in
-            if record.id.lowercased() == normalizedResourceID
-                || record.syncID.lowercased() == normalizedResourceID
-            {
-                return true
-            }
-            guard let card = try? StorageCodec.decoder.decode(
-                StudyCard.self,
-                from: record.payload
-            ) else { return false }
-            return StudyCardIdentity.matches(card, any: [normalizedResourceID])
-        }
     }
 
     func consumeOverviewCount(for card: StudyCard) {
@@ -2006,7 +1797,7 @@ final class StudyStore {
                 && cardActionOutbox.hasPendingAction(for: card.reviewCardID))
     }
 
-    private func restorePendingReviewState() {
+    func restorePendingReviewState() {
         guard let state = try? reviewOutbox.pendingState() else { return }
         apply(state)
     }
@@ -2333,7 +2124,7 @@ final class StudyStore {
         record.locallyUpdatedAt = markedDirty ? .now : nil
     }
 
-    private func loadLocalCards(userID: Int) {
+    func loadLocalCards(userID: Int) {
         studySurfaceRevision += 1
         cards = (try? localCardRepository.activeCards(userID: userID)) ?? []
         cards = StudySessionPolicy.offlineOrderedCards(cards)
