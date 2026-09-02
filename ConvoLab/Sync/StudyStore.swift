@@ -121,14 +121,14 @@ final class StudyStore {
     let localCardRepository: StudyCardLocalRepository
     let cardCatalogRepository: StudyCardCatalogRepository
     let learningPathRepository: StudyLearningPathRepository
-    private let dueActivationScheduler: any StudyDueActivationScheduling
+    let dueActivationScheduler: any StudyDueActivationScheduling
 #if DEBUG
     private var reviewEventOutboxFlushOverride: (() async throws -> Void)?
 #endif
     let diagnostics: NativeDiagnostics
     let deviceID: String
     let storageMode: StorageMode
-    @ObservationIgnored private let cardCatalogSnapshotCache: StudyCardCatalogSnapshotCache?
+    @ObservationIgnored let cardCatalogSnapshotCache: StudyCardCatalogSnapshotCache?
     @ObservationIgnored var cardCatalogSnapshot: StudyCardCatalogSnapshot?
     @ObservationIgnored var newCardQueueRefreshedAt: Date?
     @ObservationIgnored var learningItemsRefreshedAt: Date?
@@ -654,13 +654,6 @@ final class StudyStore {
         )
     }
 
-    private var nextOfflineDueAt: Date? {
-        StudySessionPolicy.nextOfflineDueAt(
-            activeCards: cards,
-            libraryCards: libraryCards
-        )
-    }
-
     func localMediaURL(for remoteURL: URL) -> URL? {
         mediaCache.localURL(for: remoteURL)
     }
@@ -867,103 +860,8 @@ final class StudyStore {
         await synchronize()
     }
 
-    private func refreshOfflineReserve(
-        userID: Int,
-        activationGeneration: Int,
-        clearingOtherRecords: Bool
-    ) async throws {
-        let reserve: StudyOfflineReserve = try await api.request(
-            "/api/study/offline-reserve",
-            method: "POST"
-        )
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        let preservingActiveReviewQueue = lessonSessionIsPresented
-        let persistedActiveCards = preservingActiveReviewQueue
-            ? try localCardRepository.activeCards(userID: userID)
-            : []
-        try localCardRepository.mergeOfflineReserve(
-            reserve.cards,
-            userID: userID,
-            preservingActiveSessionOrder: preservingActiveReviewQueue
-        )
-        offlineReserveMetadata = reserve.metadata
-        cardCatalogSnapshotCache?.saveOfflineReserveMetadata(reserve.metadata, userID: userID)
-        loadLibraryCards(userID: userID)
-        scheduleNextOfflineActivation()
-        await mediaCache.prepare(
-            urls: reserve.cards.flatMap(\.mediaURLs),
-            category: "offline-study"
-        )
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        markPrepared(
-            cards: cards + reserve.cards + persistedActiveCards,
-            clearingOtherRecords: clearingOtherRecords
-        )
-    }
-
     func refreshKnownKanji() async throws {
         try await knownKanjiService.refresh()
-    }
-
-    func activateOfflineDueCards(
-        at date: Date? = nil,
-        preservingCurrentOrder: Bool = true
-    ) {
-        guard let userID = activeUserID, !lessonSessionIsPresented else { return }
-        let activationDate = date ?? dueActivationScheduler.now
-        let records = (try? context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate {
-                    $0.userID == userID && !$0.isInActiveSession
-                },
-                sortBy: [SortDescriptor(\.normalizedID), SortDescriptor(\.id)]
-            )
-        )) ?? []
-        let pendingDeleteIDs = (try? cardOutbox.pendingDeleteIdentifiers()) ?? []
-        var inactiveRecordsByIdentifier: [String: LocalCardRecord] = [:]
-        for record in records {
-            for identifier in [record.normalizedID, record.syncID]
-            where !identifier.isEmpty && inactiveRecordsByIdentifier[identifier] == nil {
-                inactiveRecordsByIdentifier[identifier] = record
-            }
-        }
-        var activeCardIdentifiers = cards.reduce(into: Set<String>()) {
-            $0.formUnion(StudyCardIdentity.identifiers(for: $1))
-        }
-        var newlyDueCards: [StudyCard] = []
-        var changed = false
-
-        for card in libraryCards {
-            guard
-                !StudyCardIdentity.matches(card, any: pendingDeleteIDs),
-                card.isEligibleForOfflineStudy(at: activationDate)
-            else {
-                continue
-            }
-            let identifiers = StudyCardIdentity.identifiers(for: card)
-            if activeCardIdentifiers.isDisjoint(with: identifiers) {
-                guard let record = identifiers.lazy.compactMap({
-                    inactiveRecordsByIdentifier[$0]
-                }).first else { continue }
-                activeCardIdentifiers.formUnion(identifiers)
-                newlyDueCards.append(card)
-                changed = true
-                record.isInActiveSession = true
-            }
-        }
-
-        if changed {
-            let orderedNewCards = StudySessionPolicy.offlineOrderedCards(newlyDueCards)
-            cards = preservingCurrentOrder
-                ? cards + orderedNewCards
-                : StudySessionPolicy.offlineOrderedCards(cards + orderedNewCards)
-            do {
-                try context.save()
-            } catch {
-                handleSyncError(error)
-            }
-        }
-        scheduleNextOfflineActivation()
     }
 
     func connectWaniKani(apiToken: String) async {
@@ -2090,17 +1988,7 @@ final class StudyStore {
         libraryCards = (try? localCardRepository.libraryCards(userID: userID)) ?? []
     }
 
-    func scheduleNextOfflineActivation() {
-        dueActivationScheduler.cancel()
-        guard !lessonSessionIsPresented, let dueAt = nextOfflineDueAt else {
-            return
-        }
-        dueActivationScheduler.schedule(at: dueAt) { [weak self, dueActivationScheduler] in
-            self?.activateOfflineDueCards(at: dueActivationScheduler.now)
-        }
-    }
-
-    private func handleSyncError(_ error: any Error) {
+    func handleSyncError(_ error: any Error) {
         let classifiedError = Self.underlyingReviewFlushError(error)
         if let urlError = classifiedError as? URLError, [
             .notConnectedToInternet,
