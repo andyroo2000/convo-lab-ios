@@ -115,7 +115,7 @@ final class StudyStore {
     let cardActionOutbox: CardActionOutbox
     let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
-    private let pitchAccentService: PitchAccentResolutionService
+    let pitchAccentService: PitchAccentResolutionService
     let sessionLoadingService: StudySessionLoadingService
     private let syncCoordinator: StudySyncCoordinator
     let localCardRepository: StudyCardLocalRepository
@@ -139,7 +139,7 @@ final class StudyStore {
     @ObservationIgnored var learningItemsRefreshRevision = 0
     @ObservationIgnored var newCardQueueRefreshRevision = 0
     @ObservationIgnored var newCardQueueReorderToken: UUID?
-    @ObservationIgnored private var pitchAccentResolutionTokens: [String: UUID] = [:]
+    @ObservationIgnored var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored var activeUserID: Int?
     @ObservationIgnored var accountActivationGeneration = 0
     @ObservationIgnored var studySettingsMutationRevision = 0
@@ -215,7 +215,7 @@ final class StudyStore {
     }
     var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
-    private(set) var resolvingPitchAccentCardIDs: Set<String> = []
+    var resolvingPitchAccentCardIDs: Set<String> = []
     private(set) var syncStatus: SyncStatus = .idle
     var lastSyncAt: Date?
     var sessionInitialCardCount = 0
@@ -670,66 +670,6 @@ final class StudyStore {
             return localURL
         }
         return try? await mediaCache.download(remoteURL, category: "active-study")
-    }
-
-    func resolvePitchAccent(for card: StudyCard) async {
-        guard let userID = activeUserID else { return }
-        let resolutionToken = UUID()
-        guard
-            card.answer["pitchAccent"]?["status"]?.stringValue == nil,
-            pitchAccentResolutionTokens[card.id] == nil
-        else {
-            return
-        }
-        pitchAccentResolutionTokens[card.id] = resolutionToken
-        resolvingPitchAccentCardIDs.insert(card.id)
-        defer {
-            let trackedIDs = pitchAccentResolutionTokens.compactMap { id, token in
-                token == resolutionToken ? id : nil
-            }
-            for id in trackedIDs {
-                pitchAccentResolutionTokens.removeValue(forKey: id)
-                resolvingPitchAccentCardIDs.remove(id)
-            }
-        }
-
-        do {
-            guard let updatedCard = try await pitchAccentService.resolve(
-                card,
-                prepare: { [weak self] in
-                    guard let self else { throw CancellationError() }
-                    try await self.flushCardOutbox()
-                },
-                onCardPrepared: { [weak self] preparedCard in
-                    guard let self, self.activeUserID == userID else { return false }
-                    if let existingToken = self.pitchAccentResolutionTokens[preparedCard.id] {
-                        return existingToken == resolutionToken
-                    }
-                    self.pitchAccentResolutionTokens[preparedCard.id] = resolutionToken
-                    self.resolvingPitchAccentCardIDs.insert(preparedCard.id)
-                    return true
-                },
-                hasPendingDelete: { [weak self] resolvedCard in
-                    guard let self else { throw CancellationError() }
-                    return try self.cardOutbox.hasPendingDelete(for: resolvedCard)
-                }
-            ), activeUserID == userID else { return }
-            let identifiers = StudyCardIdentity.identifiers(for: card).union(
-                StudyCardIdentity.identifiers(for: updatedCard)
-            )
-            cards = cards.map {
-                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
-            }
-            libraryCards = libraryCards.map {
-                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
-            }
-            allCards = allCards.map {
-                StudyCardIdentity.matches($0, any: identifiers) ? updatedCard : $0
-            }
-        } catch {
-            // Pitch accent is optional enrichment. Offline and unresolved cards
-            // remain fully studyable and can retry on a later reveal.
-        }
     }
 
     var preparedCardCount: Int {
