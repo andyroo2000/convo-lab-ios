@@ -113,7 +113,7 @@ final class StudyStore {
     let reviewRecordingService: StudyReviewRecordingService
     let cardOutbox: CardMutationOutbox
     let cardActionOutbox: CardActionOutbox
-    private let manualDraftOutbox: ManualDraftOutbox
+    let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
     private let pitchAccentService: PitchAccentResolutionService
     let sessionLoadingService: StudySessionLoadingService
@@ -125,7 +125,7 @@ final class StudyStore {
 #if DEBUG
     private var reviewEventOutboxFlushOverride: (() async throws -> Void)?
 #endif
-    private let diagnostics: NativeDiagnostics
+    let diagnostics: NativeDiagnostics
     let deviceID: String
     let storageMode: StorageMode
     @ObservationIgnored private let cardCatalogSnapshotCache: StudyCardCatalogSnapshotCache?
@@ -134,7 +134,7 @@ final class StudyStore {
     @ObservationIgnored var learningItemsRefreshedAt: Date?
     @ObservationIgnored var learningItemsLocalFallbackOffset: Int?
     @ObservationIgnored var learningItemsLocalFallbackIdentifiers: [[String]]?
-    @ObservationIgnored private var manualDraftsRefreshedAt: Date?
+    @ObservationIgnored var manualDraftsRefreshedAt: Date?
     @ObservationIgnored var allCardsRefreshRevision = 0
     @ObservationIgnored var learningItemsRefreshRevision = 0
     @ObservationIgnored var newCardQueueRefreshRevision = 0
@@ -181,11 +181,6 @@ final class StudyStore {
     var isLoadingMoreNewCardQueue = false
     var storageWriteErrorMessage: String?
     private(set) var failedStudyChanges: [FailedStudyChange] = []
-    var manualDrafts: [StudyManualCardDraft] { manualDraftOutbox.drafts }
-    var pendingManualDraftCreates: [CreateStudyManualCardDraftRequest] {
-        _ = manualDraftOutboxRevision
-        return manualDraftOutbox.pendingCreateRequests()
-    }
     var overview: StudyOverview?
     var offlineReserveMetadata: StudyOfflineReserveMetadata?
     var isRefreshingOverview = false
@@ -228,7 +223,7 @@ final class StudyStore {
     var sessionFailedCardIDs: Set<String> = []
     var sessionKind = "reviews"
     var reviewOutboxRevision = 0
-    private var manualDraftOutboxRevision = 0
+    var manualDraftOutboxRevision = 0
     var pendingOfflineReviewCount: Int {
         _ = reviewOutboxRevision
         guard activeUserID != nil else { return 0 }
@@ -1060,260 +1055,6 @@ final class StudyStore {
         draft.answerExpression = expression
         draft.answerMeaning = meaning
         try await createCard(draft)
-    }
-
-    func refreshManualDrafts() async throws {
-        try await manualDraftOutbox.refresh()
-        manualDraftsRefreshedAt = .now
-        persistManualDraftSnapshot()
-    }
-
-    func refreshManualDraftsIfNeeded(maxAge: TimeInterval = 60) async throws {
-        guard !isFresh(manualDraftsRefreshedAt, maxAge: maxAge) else { return }
-        try await refreshManualDrafts()
-    }
-
-    @discardableResult
-    func queueManualDraft(
-        creationKind: StudyCardCreationKind,
-        draft: StudyCardDraft,
-        id: String = ClientIdentifier.ulid()
-    ) async throws -> StudyManualCardDraft {
-        defer { manualDraftOutboxRevision &+= 1 }
-        try requirePersistentWrites()
-        guard activeUserID != nil else { throw CancellationError() }
-        let request = CreateStudyManualCardDraftRequest(
-            id: id,
-            creationKind: creationKind,
-            cardType: creationKind.cardType.rawValue,
-            prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),
-            answer: draft.answer(),
-            imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty
-        )
-        let created = try await manualDraftOutbox.queueCreate(request)
-        persistManualDraftSnapshot()
-        return created
-    }
-
-    @discardableResult
-    func updateManualDraft(
-        _ serverDraft: StudyManualCardDraft,
-        draft: StudyCardDraft,
-        previewAudio: JSONValue? = nil,
-        previewAudioRole: String? = nil,
-        previewImage: JSONValue? = nil
-    ) async throws -> StudyManualCardDraft {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        var prompt = draft.prompt(merging: serverDraft.prompt)
-        var answer = draft.answer(merging: serverDraft.answer)
-        if let previewAudio {
-            if previewAudioRole == "prompt" {
-                prompt = prompt.replacingObjectValues(["cueAudio": previewAudio])
-                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
-            } else if previewAudioRole == "answer" {
-                answer = answer.replacingObjectValues(["answerAudio": previewAudio])
-            }
-        }
-        if let previewImage {
-            if draft.imagePlacement.includesPrompt {
-                prompt = prompt.replacingObjectValues(["cueImage": previewImage])
-            }
-            if draft.imagePlacement.includesAnswer {
-                answer = answer.replacingObjectValues(["answerImage": previewImage])
-            }
-        }
-        let resolvedPreviewAudio = previewAudio ?? serverDraft.previewAudio
-        let resolvedPreviewAudioRole = previewAudio == nil
-            ? serverDraft.previewAudioRole
-            : previewAudioRole
-        let resolvedPreviewImage = previewImage ?? serverDraft.previewImage
-        let request = UpdateStudyManualCardDraftRequest(
-            prompt: prompt,
-            answer: answer,
-            imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty,
-            previewAudio: resolvedPreviewAudio ?? .null,
-            previewAudioRole: resolvedPreviewAudioRole.map(JSONValue.string) ?? .null,
-            previewImage: resolvedPreviewImage ?? .null
-        )
-        let updated: StudyManualCardDraft = try await api.request(
-            "/api/study/card-drafts/\(serverDraft.id)",
-            method: "PATCH",
-            body: request
-        )
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        manualDraftOutbox.replace(updated)
-        persistManualDraftSnapshot()
-        return updated
-    }
-
-    func generateManualDraftPreviewAudio(
-        _ serverDraft: StudyManualCardDraft,
-        draft: StudyCardDraft,
-        previewImage: JSONValue?
-    ) async throws -> DraftPreviewAudioResult {
-        let diagnosticInterval = diagnostics.begin(.generation)
-        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
-        defer {
-            diagnostics.end(
-                diagnosticInterval,
-                outcome: diagnosticOutcome
-            )
-        }
-        do {
-            guard let userID = activeUserID else { throw CancellationError() }
-            let activationGeneration = accountActivationGeneration
-            let updated = try await updateManualDraft(
-                serverDraft,
-                draft: draft,
-                previewImage: previewImage
-            )
-            let response: StudyCardDraftPreviewAudioResponse = try await api.request(
-                "/api/study/card-drafts/\(updated.id)/preview-audio",
-                method: "POST",
-                timeout: 180
-            )
-            guard
-                isCurrentActivation(
-                    userID,
-                    generation: activationGeneration
-                )
-            else { throw CancellationError() }
-            let refreshed = try await fetchManualDraft(id: updated.id)
-            let localURL: URL?
-            if let remoteURL = response.previewAudio?.mediaURLs.first {
-                localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
-            } else {
-                localURL = nil
-            }
-            guard
-                isCurrentActivation(
-                    userID,
-                    generation: activationGeneration
-                )
-            else { throw CancellationError() }
-            diagnosticOutcome = .succeeded
-            return DraftPreviewAudioResult(draft: refreshed, localURL: localURL)
-        } catch {
-            diagnosticOutcome = .classifying(error)
-            throw error
-        }
-    }
-
-    func generateManualDraftPreviewImage(
-        _ serverDraft: StudyManualCardDraft,
-        draft: StudyCardDraft,
-        previewAudio: JSONValue?,
-        previewAudioRole: String?
-    ) async throws -> DraftPreviewImageResult {
-        let diagnosticInterval = diagnostics.begin(.generation)
-        var diagnosticOutcome: NativeDiagnosticOutcome = .failed
-        defer {
-            diagnostics.end(
-                diagnosticInterval,
-                outcome: diagnosticOutcome
-            )
-        }
-        do {
-            guard let userID = activeUserID else { throw CancellationError() }
-            let activationGeneration = accountActivationGeneration
-            let updated = try await updateManualDraft(
-                serverDraft,
-                draft: draft,
-                previewAudio: previewAudio,
-                previewAudioRole: previewAudioRole
-            )
-            let response: StudyCardDraftImageResponse = try await api.request(
-                "/api/study/card-drafts/\(updated.id)/preview-image",
-                method: "POST",
-                timeout: 180
-            )
-            guard
-                isCurrentActivation(
-                    userID,
-                    generation: activationGeneration
-                )
-            else { throw CancellationError() }
-            guard let remoteURL = response.previewImage.mediaURLs.first else {
-                throw MissingGeneratedCardImageError()
-            }
-            let localURL = try await mediaCache.refresh(remoteURL, category: "active-study")
-            guard
-                isCurrentActivation(
-                    userID,
-                    generation: activationGeneration
-                )
-            else { throw CancellationError() }
-            let refreshed = try await fetchManualDraft(id: updated.id)
-            diagnosticOutcome = .succeeded
-            return DraftPreviewImageResult(draft: refreshed, localURL: localURL)
-        } catch {
-            diagnosticOutcome = .classifying(error)
-            throw error
-        }
-    }
-
-    func createCard(
-        from serverDraft: StudyManualCardDraft,
-        draft: StudyCardDraft,
-        previewAudio: JSONValue?,
-        previewAudioRole: String?,
-        previewImage: JSONValue?
-    ) async throws {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let recoveryState = manualDraftOutbox.recoveryState(for: serverDraft.id)
-        let shouldUpdateDraft = recoveryState == .none || recoveryState == .rejected
-        let updated = if shouldUpdateDraft {
-            try await updateManualDraft(
-                serverDraft,
-                draft: draft,
-                previewAudio: previewAudio,
-                previewAudioRole: previewAudioRole,
-                previewImage: previewImage
-            )
-        } else {
-            serverDraft
-        }
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        try await manualDraftOutbox.commit(draftID: updated.id) { [weak self] card in
-            guard let self, self.isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ) else {
-                throw CancellationError()
-            }
-            try await self.applyCommittedManualDraftCard(
-                card,
-                userID: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-        persistManualDraftSnapshot()
-    }
-
-    func deleteManualDraft(_ serverDraft: StudyManualCardDraft) async throws {
-        try requirePersistentWrites()
-        try await manualDraftOutbox.deleteDraft(id: serverDraft.id)
-        persistManualDraftSnapshot()
-    }
-
-    func hasPendingDraftCommit(for draftID: String) -> Bool {
-        manualDraftOutbox.hasPendingCommit(for: draftID)
-    }
-
-    func draftCommitRecoveryState(for draftID: String) -> DraftCommitRecoveryState {
-        manualDraftOutbox.recoveryState(for: draftID)
     }
 
     @discardableResult
@@ -2590,89 +2331,6 @@ final class StudyStore {
         record.replacePayload(encoded: try StorageCodec.encoder.encode(persistedCard))
         record.serverUpdatedAt = serverUpdatedAt ?? card.updatedAt
         record.locallyUpdatedAt = markedDirty ? .now : nil
-    }
-
-    private func fetchManualDraft(id: String) async throws -> StudyManualCardDraft {
-        let draft = try await manualDraftOutbox.fetch(id: id)
-        persistManualDraftSnapshot()
-        return draft
-    }
-
-    func retryPendingDraftCreates() async throws {
-        defer { manualDraftOutboxRevision &+= 1 }
-        defer { persistManualDraftSnapshot() }
-        try requirePersistentWrites()
-        try await manualDraftOutbox.retryPendingCreates()
-    }
-
-    private func retryPendingDraftMutations(
-        userID: Int,
-        activationGeneration: Int
-    ) async throws {
-        defer { manualDraftOutboxRevision &+= 1 }
-        defer { persistManualDraftSnapshot() }
-        try await manualDraftOutbox.retryPendingMutations { [weak self] card in
-            guard let self, self.isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ) else {
-                throw CancellationError()
-            }
-            try await self.applyCommittedManualDraftCard(
-                card,
-                userID: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-    }
-
-    func retryPendingDraftCommits() async throws {
-        defer { persistManualDraftSnapshot() }
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { return }
-        let activationGeneration = accountActivationGeneration
-        try await manualDraftOutbox.retryPendingCommits { [weak self] card in
-            guard let self, self.isCurrentActivation(
-                userID,
-                generation: activationGeneration
-            ) else {
-                throw CancellationError()
-            }
-            try await self.applyCommittedManualDraftCard(
-                card,
-                userID: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-    }
-
-    private func applyCommittedManualDraftCard(
-        _ card: StudyCard,
-        userID: Int,
-        activationGeneration: Int
-    ) async throws {
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { throw CancellationError() }
-        try upsertLocalCard(card, markedDirty: false)
-        if !lessonSessionIsPresented {
-            cards.removeAll { $0.id.lowercased() == card.id.lowercased() }
-            cards.append(card)
-            cards = StudySessionPolicy.offlineOrderedCards(cards)
-        }
-        libraryCards.removeAll { $0.id.lowercased() == card.id.lowercased() }
-        libraryCards.append(card)
-        upsertAllCardsPresentation(card, addToLearningItemsIfMissing: true)
-        try context.save()
-        await mediaCache.prepare(urls: card.mediaURLs, category: "active-study")
-    }
-
-    // Internal so concurrency tests can model a completed local mutation while
-    // an older list request is still in flight.
-    func replaceManualDraft(_ draft: StudyManualCardDraft) {
-        manualDraftOutbox.replace(draft)
-        persistManualDraftSnapshot()
     }
 
     private func loadLocalCards(userID: Int) {
