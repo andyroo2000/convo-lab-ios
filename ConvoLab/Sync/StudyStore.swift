@@ -117,7 +117,7 @@ final class StudyStore {
     private let cardMediaService: CardMediaMutationService
     let pitchAccentService: PitchAccentResolutionService
     let sessionLoadingService: StudySessionLoadingService
-    private let syncCoordinator: StudySyncCoordinator
+    let syncCoordinator: StudySyncCoordinator
     let localCardRepository: StudyCardLocalRepository
     let cardCatalogRepository: StudyCardCatalogRepository
     let learningPathRepository: StudyLearningPathRepository
@@ -157,8 +157,8 @@ final class StudyStore {
     // outbox receives one prompt retry before returning to that throttle; the
     // read-only refresh domains use the ordinary max-age cadence.
     @ObservationIgnored var lastSessionRefreshAt: Date?
-    @ObservationIgnored private var outboxRetryRevision = 0
-    @ObservationIgnored private var consumedOutboxRetryRevision = 0
+    @ObservationIgnored var outboxRetryRevision = 0
+    @ObservationIgnored var consumedOutboxRetryRevision = 0
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored private var cardActionCardIDs: Set<String> = []
 
@@ -216,7 +216,7 @@ final class StudyStore {
     var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
     var resolvingPitchAccentCardIDs: Set<String> = []
-    private(set) var syncStatus: SyncStatus = .idle
+    var syncStatus: SyncStatus = .idle
     var lastSyncAt: Date?
     var sessionInitialCardCount = 0
     var sessionCompletedCardIDs: Set<String> = []
@@ -673,191 +673,6 @@ final class StudyStore {
             }
         )
         return (try? context.fetchCount(descriptor)) ?? 0
-    }
-
-    func synchronize() async {
-        await performSynchronization(requestingPromptRetryOnOutboxFailure: true)
-    }
-
-    private func performSynchronization(
-        requestingPromptRetryOnOutboxFailure: Bool
-    ) async {
-        guard let userID = activeUserID, syncStatus != .syncing else { return }
-        let diagnosticInterval = diagnostics.begin(.synchronization)
-        var diagnosticOutcome: NativeDiagnosticOutcome = .cancelled
-        defer {
-            diagnostics.end(
-                diagnosticInterval,
-                outcome: diagnosticOutcome
-            )
-        }
-        defer { reloadFailedStudyChanges() }
-        let activationGeneration = accountActivationGeneration
-        syncStatus = .syncing
-        var firstError: (any Error)?
-        var retryNeeded = false
-        var refreshed = false
-        var checkpointWasReset = false
-
-        do {
-            try await flushCardOutbox()
-        } catch {
-            firstError = error
-            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
-        }
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { return }
-        do {
-            try await retryPendingDraftMutations(
-                userID: userID,
-                activationGeneration: activationGeneration
-            )
-        } catch {
-            firstError = firstError ?? error
-            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
-        }
-        guard isCurrentActivation(
-            userID,
-            generation: activationGeneration
-        ) else { return }
-        do {
-            try await flushSchedulingOutboxes()
-        } catch {
-            firstError = firstError ?? error
-            retryNeeded = retryNeeded || Self.requiresAutomaticRetry(error)
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        do {
-            let result = try await syncCoordinator.pullChanges(
-                currentPublishedCards: publishedCards,
-                publish: publish,
-                reloadAfterCheckpointReset: {
-                    if !self.lessonSessionIsPresented {
-                        self.loadLocalCards(userID: userID)
-                    }
-                    self.loadLibraryCards(userID: userID)
-                }
-            )
-            switch result {
-            case .completed:
-                break
-            case .checkpointReset:
-                checkpointWasReset = true
-            case .discardedStaleResponse:
-                diagnosticOutcome = .discarded
-                return
-            }
-        } catch {
-            firstError = firstError ?? error
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        // Fetch small, user-visible metadata before session media preparation
-        // consumes the shared production request bucket.
-        do {
-            try await refreshKnownKanji()
-        } catch {
-            firstError = firstError ?? error
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        do {
-            refreshed = try await refreshSessionPreservingActiveLessons()
-        } catch {
-            firstError = firstError ?? error
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-        do {
-            try await refreshOfflineReserve(
-                userID: userID,
-                activationGeneration: activationGeneration,
-                clearingOtherRecords: checkpointWasReset || refreshed
-            )
-        } catch {
-            firstError = firstError ?? error
-        }
-        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
-
-        let completedAt = Date.now
-        if refreshed {
-            lastSessionRefreshAt = completedAt
-        }
-        if retryNeeded, requestingPromptRetryOnOutboxFailure {
-            outboxRetryRevision += 1
-        }
-        if let firstError {
-            diagnosticOutcome = .failed
-            handleSyncError(
-                firstError,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-        } else {
-            // This timestamp represents a successful end-to-end sync, not merely
-            // a successful session refresh after another domain failed.
-            if refreshed {
-                lastSyncAt = completedAt
-            }
-            syncStatus = .idle
-            diagnosticOutcome = .succeeded
-        }
-    }
-
-    private func publishedCards() -> StudySyncCoordinator.PublishedCards {
-        StudySyncCoordinator.PublishedCards(
-            session: cards,
-            library: libraryCards,
-            catalog: allCards
-        )
-    }
-
-    private func publish(_ published: StudySyncCoordinator.PublishedCards) {
-        cards = published.session
-        libraryCards = published.library
-        allCards = published.catalog
-    }
-
-    func pullCardChangesForProgressionRevalidation(
-        userID: Int,
-        activationGeneration: Int
-    ) async throws {
-        let result = try await syncCoordinator.pullChanges(
-            currentPublishedCards: publishedCards,
-            publish: publish,
-            reloadAfterCheckpointReset: {
-                self.loadLocalCards(userID: userID)
-                self.loadLibraryCards(userID: userID)
-            }
-        )
-        guard isCurrentActivation(userID, generation: activationGeneration) else {
-            throw CancellationError()
-        }
-        if result == .discardedStaleResponse { return }
-        loadLibraryCards(userID: userID)
-    }
-
-    func synchronizeIfNeeded(maxAge: Duration) async {
-        guard syncStatus != .syncing else { return }
-        if consumedOutboxRetryRevision < outboxRetryRevision {
-            // Give a failed mutation outbox one prompt retry. If that attempt
-            // also fails, use session freshness to bound subsequent automatic
-            // attempts until the normal max-age window expires. Consume only
-            // the revision observed here so an interleaved eager failure is not
-            // lost while this sync is suspended at a network await.
-            consumedOutboxRetryRevision = outboxRetryRevision
-            await performSynchronization(requestingPromptRetryOnOutboxFailure: false)
-            return
-        }
-        let components = maxAge.components
-        let maxAgeSeconds = TimeInterval(components.seconds)
-            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-        if let lastSessionRefreshAt,
-           Date.now.timeIntervalSince(lastSessionRefreshAt) < maxAgeSeconds
-        {
-            activateOfflineDueCards()
-            return
-        }
-        await synchronize()
     }
 
     func refreshKnownKanji() async throws {
