@@ -384,10 +384,3 @@ final class CardMediaMutationService {
         latestOperationIDs[operation.key] = nil
     }
 }
-
-private extension String {
-    var nilIfTrimmedEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
