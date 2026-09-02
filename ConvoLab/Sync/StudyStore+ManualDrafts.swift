@@ -35,7 +35,7 @@ extension StudyStore {
             prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),
             answer: draft.answer(),
             imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.manualDraftNilIfTrimmedEmpty
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty
         )
         let created = try await manualDraftOutbox.queueCreate(request)
         persistManualDraftSnapshot()
@@ -69,7 +69,7 @@ extension StudyStore {
             prompt: content.prompt,
             answer: content.answer,
             imagePlacement: draft.imagePlacement,
-            imagePrompt: draft.imagePrompt.manualDraftNilIfTrimmedEmpty,
+            imagePrompt: draft.imagePrompt.nilIfTrimmedEmpty,
             previewAudio: resolvedPreviewAudio ?? .null,
             previewAudioRole: resolvedPreviewAudioRole.map(JSONValue.string) ?? .null,
             previewImage: resolvedPreviewImage ?? .null
@@ -385,12 +385,5 @@ extension StudyStore {
     func replaceManualDraft(_ draft: StudyManualCardDraft) {
         manualDraftOutbox.replace(draft)
         persistManualDraftSnapshot()
-    }
-}
-
-private extension String {
-    var manualDraftNilIfTrimmedEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
