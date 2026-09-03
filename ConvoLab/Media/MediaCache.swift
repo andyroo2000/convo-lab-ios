@@ -6,6 +6,12 @@ import SwiftData
 final class MediaCache {
     typealias AccountDeletionFileRemoval = @Sendable (URL) async -> Bool
 
+    private struct BatchPreparationResult {
+        var preparedKeys: Set<String> = []
+        var deferredKeys: Set<String> = []
+        var encounteredFailure = false
+    }
+
     private static let deferredDeletionCategory = "deferred-deletion"
     private static let processStartedAt = Date.now
     private static let batchSize = 20
@@ -238,87 +244,77 @@ final class MediaCache {
                 itemCount: uncachedURLs.count
             )
         }
-        var encounteredFailure = false
         let batchable = uncachedURLs.compactMap { url -> (url: URL, id: String)? in
             guard let id = Self.studyMediaID(for: url) else { return nil }
             return (url, id)
         }
-        var preparedBatchKeys: Set<String> = []
-        var deferredBatchKeys: Set<String> = []
-
-        for offset in stride(from: 0, to: batchable.count, by: Self.batchSize) {
-            let end = min(offset + Self.batchSize, batchable.count)
-            let chunk = Array(batchable[offset..<end])
-            do {
-                let response: StudyMediaBatchResponse = try await api.request(
-                    "/api/study/media/batch",
-                    method: "POST",
-                    body: StudyMediaBatchRequest(ids: chunk.map(\.id))
-                )
-                guard isCurrentOperation(
-                    userID: userID,
-                    generation: operationGeneration
-                ) else { return }
-                let urlsByID = Dictionary(
-                    chunk.map { ($0.id.lowercased(), $0.url) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                for item in response.items {
-                    guard
-                        let remoteURL = urlsByID[item.id.lowercased()]
-                    else {
-                        continue
-                    }
-                    let cacheKey = Self.stableCacheKey(for: remoteURL)
-                    let temporaryURL = FileManager.default.temporaryDirectory
-                        .appending(path: UUID().uuidString)
-                    do {
-                        try item.data.write(to: temporaryURL, options: .atomic)
-                        _ = try persistTemporaryFile(
-                            temporaryURL,
-                            mimeType: item.mimeType,
-                            remoteURL: remoteURL,
-                            category: category,
-                            cacheKey: cacheKey,
-                            userID: userID
-                        )
-                        preparedBatchKeys.insert(cacheKey)
-                    } catch {
-                        try? FileManager.default.removeItem(at: temporaryURL)
-                    }
-                }
-            } catch let APIClientError.rejected(status, _)
-                where [404, 405, 429].contains(status)
-            {
-                // Production may not have the batch endpoint yet, or its media
-                // bucket may already be exhausted. Do not turn that condition
-                // into a burst of individual requests that starves sync calls.
-                deferredBatchKeys.formUnion(
-                    chunk.map { Self.stableCacheKey(for: $0.url) }
-                )
-            } catch {
-                // Other transient batch failures retain the individual-download
-                // fallback so preparation remains best effort.
-                encounteredFailure = true
-            }
-            guard isCurrentOperation(
-                userID: userID,
-                generation: operationGeneration
-            ) else { return }
-        }
-
+        guard let batchResult = await prepareBatches(
+            batchable,
+            category: category,
+            userID: userID,
+            generation: operationGeneration
+        ) else { return }
         guard isCurrentOperation(
             userID: userID,
             generation: operationGeneration
         ) else { return }
-        for url in uncachedURLs where
-            !preparedBatchKeys.contains(Self.stableCacheKey(for: url))
-                && !deferredBatchKeys.contains(Self.stableCacheKey(for: url))
-        {
-            guard isCurrentOperation(
+        guard let individualDownloadFailed = await prepareIndividualDownloads(
+            uncachedURLs,
+            excluding: batchResult.preparedKeys.union(batchResult.deferredKeys),
+            category: category,
+            userID: userID,
+            generation: operationGeneration
+        ) else { return }
+        let allDeferred = Set(uncachedURLs.map(Self.stableCacheKey(for:)))
+            .isSubset(of: batchResult.deferredKeys)
+        diagnosticOutcome = if allDeferred {
+            .discarded
+        } else if batchResult.encounteredFailure || individualDownloadFailed {
+            .failed
+        } else {
+            .succeeded
+        }
+    }
+
+    private func prepareBatches(
+        _ batchable: [(url: URL, id: String)],
+        category: String,
+        userID: Int,
+        generation: Int
+    ) async -> BatchPreparationResult? {
+        var aggregate = BatchPreparationResult()
+        for offset in stride(from: 0, to: batchable.count, by: Self.batchSize) {
+            let end = min(offset + Self.batchSize, batchable.count)
+            let chunk = Array(batchable[offset..<end])
+            guard let result = await prepareBatch(
+                chunk,
+                category: category,
                 userID: userID,
-                generation: operationGeneration
-            ) else { return }
+                generation: generation
+            ) else { return nil }
+            aggregate.preparedKeys.formUnion(result.preparedKeys)
+            aggregate.deferredKeys.formUnion(result.deferredKeys)
+            aggregate.encounteredFailure = aggregate.encounteredFailure
+                || result.encounteredFailure
+            guard isCurrentOperation(userID: userID, generation: generation) else {
+                return nil
+            }
+        }
+        return aggregate
+    }
+
+    private func prepareIndividualDownloads(
+        _ urls: [URL],
+        excluding excludedKeys: Set<String>,
+        category: String,
+        userID: Int,
+        generation: Int
+    ) async -> Bool? {
+        var encounteredFailure = false
+        for url in urls where !excludedKeys.contains(Self.stableCacheKey(for: url)) {
+            guard isCurrentOperation(userID: userID, generation: generation) else {
+                return nil
+            }
             do {
                 _ = try await download(url, category: category)
             } catch {
@@ -326,14 +322,69 @@ final class MediaCache {
                 encounteredFailure = true
             }
         }
-        let allDeferred = Set(uncachedURLs.map(Self.stableCacheKey(for:)))
-            .isSubset(of: deferredBatchKeys)
-        diagnosticOutcome = if allDeferred {
-            .discarded
-        } else if encounteredFailure {
-            .failed
-        } else {
-            .succeeded
+        return encounteredFailure
+    }
+
+    private func prepareBatch(
+        _ chunk: [(url: URL, id: String)],
+        category: String,
+        userID: Int,
+        generation: Int
+    ) async -> BatchPreparationResult? {
+        do {
+            let response: StudyMediaBatchResponse = try await api.request(
+                "/api/study/media/batch",
+                method: "POST",
+                body: StudyMediaBatchRequest(ids: chunk.map(\.id))
+            )
+            guard isCurrentOperation(userID: userID, generation: generation) else {
+                return nil
+            }
+            let urlsByID = Dictionary(
+                chunk.map { ($0.id.lowercased(), $0.url) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            var result = BatchPreparationResult()
+            for item in response.items {
+                guard let remoteURL = urlsByID[item.id.lowercased()] else {
+                    continue
+                }
+                let cacheKey = Self.stableCacheKey(for: remoteURL)
+                let temporaryURL = FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString)
+                do {
+                    try item.data.write(to: temporaryURL, options: .atomic)
+                    _ = try persistTemporaryFile(
+                        temporaryURL,
+                        mimeType: item.mimeType,
+                        remoteURL: remoteURL,
+                        category: category,
+                        cacheKey: cacheKey,
+                        userID: userID
+                    )
+                    result.preparedKeys.insert(cacheKey)
+                } catch {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                }
+            }
+            return result
+        } catch let APIClientError.rejected(status, _)
+            where [404, 405, 429].contains(status)
+        {
+            // Production may not have the batch endpoint yet, or its media
+            // bucket may already be exhausted. Do not turn that condition
+            // into a burst of individual requests that starves sync calls.
+            var result = BatchPreparationResult()
+            result.deferredKeys = Set(
+                chunk.map { Self.stableCacheKey(for: $0.url) }
+            )
+            return result
+        } catch {
+            // Other transient batch failures retain the individual-download
+            // fallback so preparation remains best effort.
+            var result = BatchPreparationResult()
+            result.encounteredFailure = true
+            return result
         }
     }
 
