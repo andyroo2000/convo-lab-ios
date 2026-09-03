@@ -9,6 +9,12 @@ final class APIClientTests: XCTestCase {
         let ok: Bool
     }
 
+    private enum StudySessionFixture {
+        case currentDirect
+        case legacyWrapped
+        case productionCamelCase
+    }
+
     @MainActor
     func testSameOriginResourceURLAcceptsCanonicalRelativeAssetsOnly() throws {
         let client = makeClient { request in
@@ -376,22 +382,7 @@ final class APIClientTests: XCTestCase {
 
     @MainActor
     func testStudySessionDecodesCurrentDirectResponse() async throws {
-        let client = makeClient { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Self.studySessionData(wrapped: false)
-            )
-        }
-
-        let response: StudySessionResponse = try await client.request(
-            "/api/study/session/start",
-            method: "POST"
-        )
+        let response = try await requestStudySession(.currentDirect)
 
         XCTAssertEqual(response.session.overview.newCount, 1)
         XCTAssertEqual(response.session.cards.first?.promptText, "犬")
@@ -399,22 +390,7 @@ final class APIClientTests: XCTestCase {
 
     @MainActor
     func testStudySessionStillDecodesLegacyWrappedResponse() async throws {
-        let client = makeClient { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Self.studySessionData(wrapped: true)
-            )
-        }
-
-        let response: StudySessionResponse = try await client.request(
-            "/api/study/session/start",
-            method: "POST"
-        )
+        let response = try await requestStudySession(.legacyWrapped)
 
         XCTAssertEqual(response.session.overview.newCardsPerDay, 20)
         XCTAssertEqual(response.session.cards.first?.reviewCardID, "01J00000000000000000000000")
@@ -422,6 +398,25 @@ final class APIClientTests: XCTestCase {
 
     @MainActor
     func testStudySessionDecodesProductionCamelCaseOverview() async throws {
+        let response = try await requestStudySession(.productionCamelCase)
+
+        XCTAssertEqual(response.session.overview.newCardsPerDay, 20)
+        XCTAssertEqual(response.session.overview.newCardsAvailableToday, 1)
+        XCTAssertEqual(response.session.cards.first?.reviewCardID, "01J00000000000000000000000")
+    }
+
+    @MainActor
+    private func requestStudySession(
+        _ fixture: StudySessionFixture
+    ) async throws -> StudySessionResponse {
+        let data = switch fixture {
+        case .currentDirect:
+            Self.studySessionData(wrapped: false)
+        case .legacyWrapped:
+            Self.studySessionData(wrapped: true)
+        case .productionCamelCase:
+            Self.studySessionData(wrapped: false, camelCaseOverview: true)
+        }
         let client = makeClient { request in
             (
                 HTTPURLResponse(
@@ -430,18 +425,13 @@ final class APIClientTests: XCTestCase {
                     httpVersion: nil,
                     headerFields: ["Content-Type": "application/json"]
                 )!,
-                Self.studySessionData(wrapped: false, camelCaseOverview: true)
+                data
             )
         }
-
-        let response: StudySessionResponse = try await client.request(
+        return try await client.request(
             "/api/study/session/start",
             method: "POST"
         )
-
-        XCTAssertEqual(response.session.overview.newCardsPerDay, 20)
-        XCTAssertEqual(response.session.overview.newCardsAvailableToday, 1)
-        XCTAssertEqual(response.session.cards.first?.reviewCardID, "01J00000000000000000000000")
     }
 
     private static func studySessionData(
