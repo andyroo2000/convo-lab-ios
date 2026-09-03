@@ -340,50 +340,69 @@ private func maskedRubyText(
 }
 
 private func alignedRubyText(rubyText: String, plainText: String) -> String? {
-    let plainCharacters = Array(plainText)
-    var plainIndex = 0
-    var result = ""
+    var aligner = RubyTextAligner(plainText: plainText)
+    return aligner.align(StudyRubyDocument.parse(rubyText, knownKanji: []).segments)
+}
 
-    func appendPlainWhitespace() {
+private struct RubyTextAligner {
+    private let plainCharacters: [Character]
+    private var plainIndex = 0
+    private var result = ""
+
+    init(plainText: String) {
+        plainCharacters = Array(plainText)
+    }
+
+    mutating func align(_ segments: [StudyRubyDocument.Segment]) -> String? {
+        for segment in segments {
+            guard append(segment) else { return nil }
+        }
+        appendPlainWhitespace()
+        return plainIndex == plainCharacters.count ? result : nil
+    }
+
+    private mutating func append(_ segment: StudyRubyDocument.Segment) -> Bool {
+        switch segment {
+        case let .ruby(base, reading):
+            appendRuby(base: base, reading: reading)
+        case let .text(text):
+            appendText(text)
+        }
+    }
+
+    private mutating func appendRuby(base: String, reading: String) -> Bool {
+        appendPlainWhitespace()
+        let baseCharacters = Array(base)
+        guard plainCharacters.dropFirst(plainIndex).starts(with: baseCharacters) else {
+            return false
+        }
+        result += "\(base)[\(reading)]"
+        plainIndex += baseCharacters.count
+        return true
+    }
+
+    private mutating func appendText(_ text: String) -> Bool {
+        // The authoritative plain string supplies whitespace so cosmetic
+        // spacing differences in imported ruby markup do not block alignment.
+        for character in text where !character.isWhitespace {
+            appendPlainWhitespace()
+            guard plainIndex < plainCharacters.count,
+                  plainCharacters[plainIndex] == character
+            else {
+                return false
+            }
+            result.append(character)
+            plainIndex += 1
+        }
+        return true
+    }
+
+    private mutating func appendPlainWhitespace() {
         while plainIndex < plainCharacters.count, plainCharacters[plainIndex].isWhitespace {
             result.append(plainCharacters[plainIndex])
             plainIndex += 1
         }
     }
-
-    for segment in StudyRubyDocument.parse(rubyText, knownKanji: []).segments {
-        switch segment {
-        case let .ruby(base, reading):
-            appendPlainWhitespace()
-            let baseCharacters = Array(base)
-            guard
-                plainIndex + baseCharacters.count <= plainCharacters.count,
-                Array(plainCharacters[plainIndex..<(plainIndex + baseCharacters.count)])
-                    == baseCharacters
-            else {
-                return nil
-            }
-            result += "\(base)[\(reading)]"
-            plainIndex += baseCharacters.count
-        case let .text(text):
-            // The authoritative plain string supplies whitespace so cosmetic
-            // spacing differences in imported ruby markup do not block alignment.
-            for character in text where !character.isWhitespace {
-                appendPlainWhitespace()
-                guard
-                    plainIndex < plainCharacters.count,
-                    plainCharacters[plainIndex] == character
-                else {
-                    return nil
-                }
-                result.append(character)
-                plainIndex += 1
-            }
-        }
-    }
-
-    appendPlainWhitespace()
-    return plainIndex == plainCharacters.count ? result : nil
 }
 
 private func slicedRubyText(_ value: String, start: Int, end: Int) -> String {
