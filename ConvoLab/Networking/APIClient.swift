@@ -103,6 +103,33 @@ final class APIClient {
         authorizationToken: String? = nil,
         decodingStudyCardRevisionConflict: Bool = false
     ) async throws -> Data {
+        let request = try makeRequest(
+            path,
+            method: method,
+            query: query,
+            body: body,
+            timeout: timeout,
+            authorizationToken: authorizationToken
+        )
+        let (data, urlResponse) = try await session.data(for: request)
+        guard let httpResponse = urlResponse as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        return try Self.validatedResponseData(
+            data,
+            response: httpResponse,
+            decodingStudyCardRevisionConflict: decodingStudyCardRevisionConflict
+        )
+    }
+
+    private func makeRequest(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem],
+        body: (any Encodable)?,
+        timeout: TimeInterval,
+        authorizationToken: String?
+    ) throws -> URLRequest {
         var components = URLComponents(
             url: baseURL.appending(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
             resolvingAgainstBaseURL: false
@@ -125,14 +152,17 @@ final class APIClient {
             request.httpBody = try Self.encoder.encode(AnyEncodable(body))
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        return request
+    }
 
-        let (data, urlResponse) = try await session.data(for: request)
-        guard let httpResponse = urlResponse as? HTTPURLResponse else {
-            throw APIClientError.invalidResponse
-        }
-        guard 200..<300 ~= httpResponse.statusCode else {
+    private static func validatedResponseData(
+        _ data: Data,
+        response: HTTPURLResponse,
+        decodingStudyCardRevisionConflict: Bool
+    ) throws -> Data {
+        guard 200..<300 ~= response.statusCode else {
             if decodingStudyCardRevisionConflict,
-               httpResponse.statusCode == 409,
+               response.statusCode == 409,
                let conflict = try? Self.decoder.decode(
                    StudyCardRevisionConflictPayload.self,
                    from: data
@@ -145,25 +175,14 @@ final class APIClient {
                 )
             }
             let message = (try? Self.decoder.decode(ErrorPayload.self, from: data).message)
-                ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-            throw APIClientError.rejected(status: httpResponse.statusCode, message: message)
+                ?? HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+            throw APIClientError.rejected(status: response.statusCode, message: message)
         }
         return data
     }
 
     func download(_ rawURL: URL) async throws -> (URL, URLResponse) {
-        let url: URL
-        if rawURL.scheme == nil {
-            guard let resolved = URL(
-                string: rawURL.relativeString,
-                relativeTo: baseURL
-            )?.absoluteURL else {
-                throw APIClientError.invalidResponse
-            }
-            url = resolved
-        } else {
-            url = rawURL
-        }
+        let url = try resolvedDownloadURL(rawURL)
         var request = URLRequest(url: url)
         request.timeoutInterval = 300
         if let accessToken, isSameOrigin(url, baseURL) {
@@ -179,25 +198,45 @@ final class APIClient {
                     message: "The media server returned an invalid response."
                 )
             }
-            if httpResponse.statusCode == 429, rateLimitRetry < 3 {
+            if let delay = Self.rateLimitRetryDelayIfNeeded(
+                response: httpResponse,
+                retry: rateLimitRetry
+            ) {
                 try? FileManager.default.removeItem(at: temporaryURL)
-                let delay = Self.rateLimitRetryDelay(
-                    response: httpResponse,
-                    retry: rateLimitRetry
-                )
                 rateLimitRetry += 1
                 try await Task.sleep(for: .seconds(delay))
                 continue
             }
-            guard 200..<300 ~= httpResponse.statusCode else {
-                throw APIClientError.rejected(
-                    status: httpResponse.statusCode,
-                    message: HTTPURLResponse.localizedString(
-                        forStatusCode: httpResponse.statusCode
-                    )
-                )
-            }
+            try Self.validateDownloadResponse(httpResponse)
             return (temporaryURL, response)
+        }
+    }
+
+    private func resolvedDownloadURL(_ rawURL: URL) throws -> URL {
+        guard rawURL.scheme == nil else { return rawURL }
+        guard let resolved = URL(
+            string: rawURL.relativeString,
+            relativeTo: baseURL
+        )?.absoluteURL else {
+            throw APIClientError.invalidResponse
+        }
+        return resolved
+    }
+
+    private static func rateLimitRetryDelayIfNeeded(
+        response: HTTPURLResponse,
+        retry: Int
+    ) -> TimeInterval? {
+        guard response.statusCode == 429, retry < 3 else { return nil }
+        return rateLimitRetryDelay(response: response, retry: retry)
+    }
+
+    private static func validateDownloadResponse(_ response: HTTPURLResponse) throws {
+        guard 200..<300 ~= response.statusCode else {
+            throw APIClientError.rejected(
+                status: response.statusCode,
+                message: HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+            )
         }
     }
 
