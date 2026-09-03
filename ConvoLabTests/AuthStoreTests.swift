@@ -5,6 +5,30 @@ import XCTest
 final class AuthStoreTests: XCTestCase {
     private nonisolated(unsafe) static var retainedObservableStores: [AnyObject] = []
 
+    private enum DeferredAuthScenario {
+        case profileAfterLogout
+        case profileAfterDeletion
+        case passwordAfterLogout
+
+        var mutationPath: String {
+            switch self {
+            case .profileAfterLogout, .profileAfterDeletion:
+                "/api/me"
+            case .passwordAfterLogout:
+                "/api/me/password"
+            }
+        }
+
+        var terminationPath: String {
+            switch self {
+            case .profileAfterDeletion:
+                "/api/me"
+            case .profileAfterLogout, .passwordAfterLogout:
+                "/api/auth/tokens/current"
+            }
+        }
+    }
+
     @MainActor
     func testInitializationPublishesCachedSessionBeforeServerVerification() throws {
         let user = CurrentUser(
@@ -322,163 +346,116 @@ final class AuthStoreTests: XCTestCase {
 
     @MainActor
     func testProfileResponseCannotSignBackInAfterLogout() async throws {
-        let originalUser = CurrentUser(
-            id: 1,
-            name: "Andrew",
-            email: "andrew@example.com",
-            emailVerifiedAt: nil
-        )
-        let credentials = MemoryCredentialStore(values: [
-            "learning-os-mobile-token": "valid-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(originalUser),
-                encoding: .utf8
-            )!,
-        ])
-        let deferredProfile = LockedDeferredResponse()
-        let client = makeDeferredClient { request, completion in
-            switch (request.url?.path, request.httpMethod) {
-            case ("/api/me", "GET"):
-                completion(.success(Self.response(data: Data(
-                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
-                ))))
-            case ("/api/me", "PUT"):
-                deferredProfile.hold(completion)
-            case ("/api/auth/tokens/current", "DELETE"):
-                completion(.success(Self.response(statusCode: 204)))
-            default:
-                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
-                completion(.failure(URLError(.badURL)))
-            }
-        }
-        let store = AuthStore(api: client, keychain: credentials)
-        await store.restore()
-
-        let update = Task {
-            await store.updateProfile(name: "Updated", email: "updated@example.com")
-        }
-        await waitUntil { deferredProfile.hasPendingResponse }
-        await store.logout()
-        deferredProfile.succeed(with: Self.response(data: Data(
-            #"{"data":{"id":1,"name":"Updated","email":"updated@example.com","email_verified_at":null}}"#.utf8
-        )))
-        _ = await update.value
-
-        guard case .signedOut = store.state else {
-            return XCTFail("A stale profile response must not restore the signed-in state")
-        }
-        XCTAssertNil(client.accessToken)
-        XCTAssertNil(try credentials.read(account: "learning-os-mobile-token"))
-        XCTAssertNil(try credentials.read(account: "learning-os-current-user"))
+        try await assertProfileResponseIsIgnored(after: .profileAfterLogout)
     }
 
     @MainActor
     func testProfileResponseCannotSignBackInAfterAccountDeletion() async throws {
-        let originalUser = CurrentUser(
-            id: 1,
-            name: "Andrew",
-            email: "andrew@example.com",
-            emailVerifiedAt: nil
-        )
-        let credentials = MemoryCredentialStore(values: [
-            "learning-os-mobile-token": "valid-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(originalUser),
-                encoding: .utf8
-            )!,
-        ])
-        let deferredProfile = LockedDeferredResponse()
-        let client = makeDeferredClient { request, completion in
-            switch (request.url?.path, request.httpMethod) {
-            case ("/api/me", "GET"):
-                completion(.success(Self.response(data: Data(
-                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
-                ))))
-            case ("/api/me", "PUT"):
-                deferredProfile.hold(completion)
-            case ("/api/me", "DELETE"):
-                completion(.success(Self.response(statusCode: 204)))
-            default:
-                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
-                completion(.failure(URLError(.badURL)))
-            }
-        }
-        let store = AuthStore(api: client, keychain: credentials)
-        await store.restore()
-
-        let update = Task {
-            await store.updateProfile(name: "Updated", email: "updated@example.com")
-        }
-        await waitUntil { deferredProfile.hasPendingResponse }
-        let deleted = await store.deleteAccount(currentPassword: "password")
-        XCTAssertTrue(deleted)
-        deferredProfile.succeed(with: Self.response(data: Data(
-            #"{"data":{"id":1,"name":"Updated","email":"updated@example.com","email_verified_at":null}}"#.utf8
-        )))
-        _ = await update.value
-
-        guard case .signedOut = store.state else {
-            return XCTFail("A stale profile response must not revive a deleted account")
-        }
-        XCTAssertNil(client.accessToken)
-        XCTAssertNil(try credentials.read(account: "learning-os-mobile-token"))
-        XCTAssertNil(try credentials.read(account: "learning-os-current-user"))
+        try await assertProfileResponseIsIgnored(after: .profileAfterDeletion)
     }
 
     @MainActor
     func testPasswordErrorCannotLeakOntoLoginAfterLogout() async throws {
-        let originalUser = CurrentUser(
-            id: 1,
-            name: "Andrew",
-            email: "andrew@example.com",
-            emailVerifiedAt: nil
-        )
-        let credentials = MemoryCredentialStore(values: [
-            "learning-os-mobile-token": "valid-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(originalUser),
-                encoding: .utf8
-            )!,
-        ])
-        let deferredPassword = LockedDeferredResponse()
-        let client = makeDeferredClient { request, completion in
-            switch (request.url?.path, request.httpMethod) {
-            case ("/api/me", "GET"):
-                completion(.success(Self.response(data: Data(
-                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
-                ))))
-            case ("/api/me/password", "PUT"):
-                deferredPassword.hold(completion)
-            case ("/api/auth/tokens/current", "DELETE"):
-                completion(.success(Self.response(statusCode: 204)))
-            default:
-                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
-                completion(.failure(URLError(.badURL)))
-            }
-        }
-        let store = AuthStore(api: client, keychain: credentials)
-        await store.restore()
+        let fixture = try await makeDeferredAuthFixture(.passwordAfterLogout)
 
         let update = Task {
-            await store.updatePassword(
+            await fixture.store.updatePassword(
                 currentPassword: "old-password",
                 password: "new-password",
                 passwordConfirmation: "new-password"
             )
         }
-        await waitUntil { deferredPassword.hasPendingResponse }
-        await store.logout()
-        deferredPassword.succeed(with: Self.response(
+        await waitUntil { fixture.deferredResponse.hasPendingResponse }
+        await fixture.store.logout()
+        fixture.deferredResponse.succeed(with: Self.response(
             statusCode: 422,
             data: Data(#"{"message":"The current password is incorrect."}"#.utf8)
         ))
         _ = await update.value
 
-        guard case .signedOut = store.state else {
+        guard case .signedOut = fixture.store.state else {
             return XCTFail("Expected logout to remain authoritative")
         }
-        XCTAssertNil(store.errorMessage)
-        XCTAssertFalse(store.isWorking)
+        XCTAssertNil(fixture.store.errorMessage)
+        XCTAssertFalse(fixture.store.isWorking)
+    }
+
+    @MainActor
+    private func assertProfileResponseIsIgnored(
+        after scenario: DeferredAuthScenario
+    ) async throws {
+        let fixture = try await makeDeferredAuthFixture(scenario)
+        let update = Task {
+            await fixture.store.updateProfile(
+                name: "Updated",
+                email: "updated@example.com"
+            )
+        }
+        await waitUntil { fixture.deferredResponse.hasPendingResponse }
+        switch scenario {
+        case .profileAfterLogout:
+            await fixture.store.logout()
+        case .profileAfterDeletion:
+            let deleted = await fixture.store.deleteAccount(currentPassword: "password")
+            XCTAssertTrue(deleted)
+        case .passwordAfterLogout:
+            XCTFail("Password scenario cannot update a profile")
+        }
+        fixture.deferredResponse.succeed(with: Self.response(data: Data(
+            #"{"data":{"id":1,"name":"Updated","email":"updated@example.com","email_verified_at":null}}"#.utf8
+        )))
+        _ = await update.value
+
+        guard case .signedOut = fixture.store.state else {
+            return XCTFail("A stale profile response must not restore a signed-in state")
+        }
+        XCTAssertNil(fixture.client.accessToken)
+        XCTAssertNil(try fixture.credentials.read(account: "learning-os-mobile-token"))
+        XCTAssertNil(try fixture.credentials.read(account: "learning-os-current-user"))
+    }
+
+    @MainActor
+    private func makeDeferredAuthFixture(
+        _ scenario: DeferredAuthScenario
+    ) async throws -> DeferredAuthFixture {
+        let originalUser = CurrentUser(
+            id: 1,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        let credentials = MemoryCredentialStore(values: [
+            "learning-os-mobile-token": "valid-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(originalUser),
+                encoding: .utf8
+            )!,
+        ])
+        let deferredResponse = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            let route = (request.url?.path, request.httpMethod)
+            switch route {
+            case ("/api/me", "GET"):
+                completion(.success(Self.response(data: Data(
+                    #"{"data":{"id":1,"name":"Andrew","email":"andrew@example.com","email_verified_at":null}}"#.utf8
+                ))))
+            case (scenario.mutationPath, "PUT"):
+                deferredResponse.hold(completion)
+            case (scenario.terminationPath, "DELETE"):
+                completion(.success(Self.response(statusCode: 204)))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "") \(request.url?.path ?? "")")
+                completion(.failure(URLError(.badURL)))
+            }
+        }
+        let store = AuthStore(api: client, keychain: credentials)
+        await store.restore()
+        return DeferredAuthFixture(
+            store: store,
+            client: client,
+            credentials: credentials,
+            deferredResponse: deferredResponse
+        )
     }
 
     @MainActor
@@ -554,12 +531,7 @@ final class AuthStoreTests: XCTestCase {
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
+        return makeConfiguredClient()
     }
 
     @MainActor
@@ -568,6 +540,11 @@ final class AuthStoreTests: XCTestCase {
     ) -> APIClient {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = handler
+        return makeConfiguredClient()
+    }
+
+    @MainActor
+    private func makeConfiguredClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
@@ -598,6 +575,13 @@ final class AuthStoreTests: XCTestCase {
             )!,
             data
         )
+    }
+
+    private struct DeferredAuthFixture {
+        let store: AuthStore
+        let client: APIClient
+        let credentials: MemoryCredentialStore
+        let deferredResponse: LockedDeferredResponse
     }
 
 }
