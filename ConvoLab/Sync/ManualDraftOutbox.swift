@@ -261,7 +261,7 @@ final class ManualDraftOutbox {
     func retryPendingCreates() async throws {
         guard let userID = activeUserID else { return }
         let operationGeneration = generation
-        try await retryPendingMutations(
+        try await retryPending(
             kind: "draftCreate",
             userID: userID,
             generation: operationGeneration
@@ -275,7 +275,7 @@ final class ManualDraftOutbox {
     ) async throws {
         guard let userID = activeUserID else { return }
         let operationGeneration = generation
-        try await retryPendingMutations(
+        try await retryPending(
             kind: "draftCommit",
             userID: userID,
             generation: operationGeneration
@@ -287,7 +287,7 @@ final class ManualDraftOutbox {
         }
     }
 
-    private func retryPendingMutations(
+    private func retryPending(
         kind: String,
         userID: Int,
         generation: Int,
