@@ -262,90 +262,136 @@ final class WaniKaniBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessag
         // Once an auxiliary window exists, its redirects must stay in that same WebKit
         // context so cookies and window.opener-based completion keep working.
         if webView !== self.webView {
-            let targetIsMainFrame = navigationAction.targetFrame?.isMainFrame
-            let isUserActivated = WaniKaniURLPolicy.isUserActivated(
-                navigationAction.navigationType
+            return await decideAuxiliaryNavigationPolicy(
+                for: webView,
+                action: navigationAction
             )
-            let disposition = WaniKaniURLPolicy.auxiliaryNavigationDisposition(
-                for: navigationAction.request.url,
-                targetIsMainFrame: targetIsMainFrame,
-                isUserActivated: isUserActivated
-            )
-            let scheme = navigationAction.request.url?.scheme?.lowercased()
-            let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
-
-            // Nested frames stay within their auxiliary WebView. In particular, a
-            // Stripe iframe must not promote an otherwise silent window into a sheet.
-            if targetIsMainFrame == false {
-                if disposition == .openExternally,
-                   isInteractiveAuxiliaryWebView(webView),
-                   let url = navigationAction.request.url
-                {
-                    await UIApplication.shared.open(url)
-                }
-                return disposition == .allow ? .allow : .cancel
-            }
-
-            // A tapped target=_blank link in an interactive child never reaches
-            // createWebViewWith (which only retains script-created windows), so honor
-            // the policy here instead of letting the tap become a no-op.
-            if targetIsMainFrame == nil {
-                switch disposition {
-                case .loadInMainFrame:
-                    self.webView.load(navigationAction.request)
-                    return .cancel
-                case .openExternally:
-                    if let url = navigationAction.request.url {
-                        await UIApplication.shared.open(url)
-                    }
-                    return .cancel
-                case .cancel:
-                    return .cancel
-                case .allow, .openBackgroundWindow, .openInteractiveWindow:
-                    return .allow
-                }
-            }
-
-            if targetIsMainFrame == true,
-               disposition == .openExternally,
-               isInteractiveAuxiliaryWebView(webView),
-               let url = navigationAction.request.url
-            {
-                await UIApplication.shared.open(url)
-                return .cancel
-            }
-
-            guard isWebContent else { return .cancel }
-            if targetIsMainFrame == true,
-               interactiveWebView !== webView,
-               scheme != "about",
-               !WaniKaniURLPolicy.isSilentBackgroundPage(navigationAction.request.url)
-            {
-                interactiveWindowErrorMessage = nil
-                presentInteractiveWebView(webView)
-            }
-            return .allow
         }
 
+        return await decidePrimaryNavigationPolicy(
+            for: webView,
+            action: navigationAction
+        )
+    }
+
+    private func decidePrimaryNavigationPolicy(
+        for webView: WKWebView,
+        action: WKNavigationAction
+    ) async -> WKNavigationActionPolicy {
         let disposition = WaniKaniURLPolicy.navigationDisposition(
-            for: navigationAction.request.url,
-            targetIsMainFrame: navigationAction.targetFrame?.isMainFrame,
-            isUserActivated: WaniKaniURLPolicy.isUserActivated(navigationAction.navigationType)
+            for: action.request.url,
+            targetIsMainFrame: action.targetFrame?.isMainFrame,
+            isUserActivated: WaniKaniURLPolicy.isUserActivated(action.navigationType)
         )
         switch disposition {
         case .allow, .openBackgroundWindow, .openInteractiveWindow:
             return .allow
         case .loadInMainFrame:
-            webView.load(navigationAction.request)
+            webView.load(action.request)
             return .cancel
         case .openExternally:
-            if let url = navigationAction.request.url {
+            if let url = action.request.url {
                 await UIApplication.shared.open(url)
             }
             return .cancel
         case .cancel:
             return .cancel
         }
+    }
+
+    private func decideAuxiliaryNavigationPolicy(
+        for webView: WKWebView,
+        action: WKNavigationAction
+    ) async -> WKNavigationActionPolicy {
+        let targetIsMainFrame = action.targetFrame?.isMainFrame
+        let disposition = WaniKaniURLPolicy.auxiliaryNavigationDisposition(
+            for: action.request.url,
+            targetIsMainFrame: targetIsMainFrame,
+            isUserActivated: WaniKaniURLPolicy.isUserActivated(action.navigationType)
+        )
+        if targetIsMainFrame == false {
+            return await decideNestedFrameNavigation(
+                for: webView,
+                action: action,
+                disposition: disposition
+            )
+        }
+        if targetIsMainFrame == nil {
+            return await decideNewWindowNavigation(
+                action: action,
+                disposition: disposition
+            )
+        }
+        return await decideAuxiliaryMainFrameNavigation(
+            for: webView,
+            action: action,
+            disposition: disposition
+        )
+    }
+
+    // Nested frames stay within their auxiliary WebView. In particular, a
+    // Stripe iframe must not promote an otherwise silent window into a sheet.
+    private func decideNestedFrameNavigation(
+        for webView: WKWebView,
+        action: WKNavigationAction,
+        disposition: WaniKaniURLPolicy.NavigationDisposition
+    ) async -> WKNavigationActionPolicy {
+        if disposition == .openExternally,
+           isInteractiveAuxiliaryWebView(webView),
+           let url = action.request.url
+        {
+            await UIApplication.shared.open(url)
+        }
+        return disposition == .allow ? .allow : .cancel
+    }
+
+    // A tapped target=_blank link in an interactive child never reaches
+    // createWebViewWith (which only retains script-created windows), so honor
+    // the policy here instead of letting the tap become a no-op.
+    private func decideNewWindowNavigation(
+        action: WKNavigationAction,
+        disposition: WaniKaniURLPolicy.NavigationDisposition
+    ) async -> WKNavigationActionPolicy {
+        switch disposition {
+        case .loadInMainFrame:
+            self.webView.load(action.request)
+            return .cancel
+        case .openExternally:
+            if let url = action.request.url {
+                await UIApplication.shared.open(url)
+            }
+            return .cancel
+        case .cancel:
+            return .cancel
+        case .allow, .openBackgroundWindow, .openInteractiveWindow:
+            return .allow
+        }
+    }
+
+    private func decideAuxiliaryMainFrameNavigation(
+        for webView: WKWebView,
+        action: WKNavigationAction,
+        disposition: WaniKaniURLPolicy.NavigationDisposition
+    ) async -> WKNavigationActionPolicy {
+        if disposition == .openExternally,
+           isInteractiveAuxiliaryWebView(webView),
+           let url = action.request.url
+        {
+            await UIApplication.shared.open(url)
+            return .cancel
+        }
+
+        let scheme = action.request.url?.scheme?.lowercased()
+        let isWebContent = scheme == "http" || scheme == "https" || scheme == "about"
+        guard isWebContent else { return .cancel }
+        if interactiveWebView !== webView,
+           scheme != "about",
+           !WaniKaniURLPolicy.isSilentBackgroundPage(action.request.url)
+        {
+            interactiveWindowErrorMessage = nil
+            presentInteractiveWebView(webView)
+        }
+        return .allow
     }
 
     func webView(
