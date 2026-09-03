@@ -1,6 +1,27 @@
 import Foundation
 
 struct StudyCardDraft: Equatable, Sendable {
+    private struct ImportedTextContent {
+        let cueText: String
+        let cueReading: String
+        let cueMeaning: String
+        let answerExpression: String
+        let answerReading: String
+        let answerMeaning: String
+        let sentenceJapanese: String
+        let sentenceEnglish: String
+        let originalClozeHint: String?
+    }
+
+    private struct ImportedImageContent {
+        let promptImage: JSONValue?
+        let answerImage: JSONValue?
+        let currentImage: JSONValue?
+        let placement: ImagePlacement
+        let preservesIndependentFaces: Bool
+        let generationPrompt: String
+    }
+
     enum ImagePlacement: String, Codable, CaseIterable, Identifiable, Sendable {
         case none
         case prompt
@@ -112,74 +133,133 @@ struct StudyCardDraft: Equatable, Sendable {
         defaultAnswerAudioVoiceID: String = StudyAnswerVoice.defaultVoice.id
     ) {
         cardType = CardType(rawValue: card.cardType) ?? .recognition
-        isMediaLedPrompt = cardType != .cloze
+        isMediaLedPrompt = Self.isMediaLedPrompt(card, cardType: cardType)
+        isAudioLedPrompt = Self.isAudioLedPrompt(card, cardType: cardType)
+        let textContent = Self.importedTextContent(from: card, cardType: cardType)
+        cueText = textContent.cueText
+        cueReading = textContent.cueReading
+        cueMeaning = textContent.cueMeaning
+        answerExpression = textContent.answerExpression
+        answerReading = textContent.answerReading
+        answerMeaning = textContent.answerMeaning
+        sentenceJapanese = textContent.sentenceJapanese
+        sentenceEnglish = textContent.sentenceEnglish
+        originalClozeHint = textContent.originalClozeHint
+        answerAudioVoiceId = card.answer.editorText(
+            ["answerAudioVoiceId"],
+            fallback: defaultAnswerAudioVoiceID
+        )
+        answerAudioTextOverride = card.answer.editorText(["answerAudioTextOverride"])
+        let imageContent = Self.importedImageContent(from: card)
+        originalPromptImage = imageContent.promptImage
+        originalAnswerImage = imageContent.answerImage
+        currentImage = imageContent.currentImage
+        imagePlacement = imageContent.placement
+        preservesIndependentFaceImages = imageContent.preservesIndependentFaces
+        imagePrompt = imageContent.generationPrompt
+        notes = card.answer.editorText(["notes"])
+    }
+
+    private static func isMediaLedPrompt(
+        _ card: StudyCard,
+        cardType: CardType
+    ) -> Bool {
+        cardType != .cloze
             && card.prompt.firstNonEmptyString(for: ["cueText"]) == nil
             && !card.prompt.mediaURLs.isEmpty
-        isAudioLedPrompt = cardType == .recognition
+    }
+
+    private static func isAudioLedPrompt(
+        _ card: StudyCard,
+        cardType: CardType
+    ) -> Bool {
+        cardType == .recognition
             && card.prompt.firstNonEmptyString(for: ["cueText"]) == nil
             && card.prompt.firstNonEmptyString(for: ["cueMeaning"]) == nil
             && card.prompt["cueAudio"]?.mediaURLs.isEmpty == false
+    }
+
+    private static func importedTextContent(
+        from card: StudyCard,
+        cardType: CardType
+    ) -> ImportedTextContent {
         if cardType == .cloze {
-            cueText = card.prompt.firstNonEmptyString(for: ["clozeText"]) ?? ""
-            cueReading = ""
-            cueMeaning = card.prompt.firstNonEmptyString(
-                for: ["clozeResolvedHint", "clozeHint"]
-            ) ?? ""
-            originalClozeHint = cueMeaning
-            answerExpression = card.answer.firstNonEmptyString(for: ["restoredText"]) ?? ""
-            answerReading = card.answer.firstNonEmptyString(for: ["restoredTextReading"]) ?? ""
-            answerMeaning = card.answer.firstNonEmptyString(for: ["meaning"]) ?? ""
-            sentenceJapanese = ""
-            sentenceEnglish = ""
-        } else {
-            originalClozeHint = nil
-            cueText = card.prompt.firstNonEmptyString(for: ["cueText"]) ?? ""
-            cueReading = card.prompt.firstNonEmptyString(for: ["cueReading"]) ?? ""
-            cueMeaning = card.prompt.firstNonEmptyString(for: ["cueMeaning"]) ?? ""
-            answerExpression = card.answer.firstNonEmptyString(for: ["expression"]) ?? ""
-            answerReading = card.answer.firstNonEmptyString(for: ["expressionReading"]) ?? ""
-            answerMeaning = card.answer.firstNonEmptyString(for: ["meaning"]) ?? ""
-            sentenceJapanese = card.answer.firstNonEmptyString(for: ["sentenceJp"]) ?? ""
-            sentenceEnglish = card.answer.firstNonEmptyString(for: ["sentenceEn"]) ?? ""
+            let cueMeaning = card.prompt.editorText(
+                ["clozeResolvedHint", "clozeHint"]
+            )
+            return ImportedTextContent(
+                cueText: card.prompt.editorText(["clozeText"]),
+                cueReading: "",
+                cueMeaning: cueMeaning,
+                answerExpression: card.answer.editorText(["restoredText"]),
+                answerReading: card.answer.editorText(["restoredTextReading"]),
+                answerMeaning: card.answer.editorText(["meaning"]),
+                sentenceJapanese: "",
+                sentenceEnglish: "",
+                originalClozeHint: cueMeaning
+            )
         }
-        answerAudioVoiceId = card.answer.firstNonEmptyString(
-            for: ["answerAudioVoiceId"]
-        ) ?? defaultAnswerAudioVoiceID
-        answerAudioTextOverride = card.answer.firstNonEmptyString(
-            for: ["answerAudioTextOverride"]
-        ) ?? ""
-        preservesIndependentFaceImages = false
+        return ImportedTextContent(
+            cueText: card.prompt.editorText(["cueText"]),
+            cueReading: card.prompt.editorText(["cueReading"]),
+            cueMeaning: card.prompt.editorText(["cueMeaning"]),
+            answerExpression: card.answer.editorText(["expression"]),
+            answerReading: card.answer.editorText(["expressionReading"]),
+            answerMeaning: card.answer.editorText(["meaning"]),
+            sentenceJapanese: card.answer.editorText(["sentenceJp"]),
+            sentenceEnglish: card.answer.editorText(["sentenceEn"]),
+            originalClozeHint: nil
+        )
+    }
+
+    private static func importedImageContent(
+        from card: StudyCard
+    ) -> ImportedImageContent {
         let promptImage = card.prompt["cueImage"]
         let answerImage = card.answer["answerImage"]
-        originalPromptImage = promptImage
-        originalAnswerImage = answerImage
-        currentImage = promptImage?.mediaURLs.isEmpty == false ? promptImage : answerImage
-        imagePlacement = if
-            promptImage?.mediaURLs.isEmpty == false,
-            answerImage?.mediaURLs.isEmpty == false
-        {
-            .both
-        } else if promptImage?.mediaURLs.isEmpty == false {
-            .prompt
-        } else if answerImage?.mediaURLs.isEmpty == false {
-            .answer
-        } else {
-            // Match the desktop editor's default role for cards without an image.
-            .answer
+        let hasPromptImage = promptImage?.mediaURLs.isEmpty == false
+        let hasAnswerImage = answerImage?.mediaURLs.isEmpty == false
+        return ImportedImageContent(
+            promptImage: promptImage,
+            answerImage: answerImage,
+            currentImage: hasPromptImage ? promptImage : answerImage,
+            placement: imagePlacement(
+                hasPromptImage: hasPromptImage,
+                hasAnswerImage: hasAnswerImage
+            ),
+            preservesIndependentFaces: hasPromptImage
+                && hasAnswerImage
+                && promptImage != answerImage,
+            generationPrompt: imageGenerationPrompt(for: card)
+        )
+    }
+
+    private static func imagePlacement(
+        hasPromptImage: Bool,
+        hasAnswerImage: Bool
+    ) -> ImagePlacement {
+        if hasPromptImage, hasAnswerImage {
+            return .both
         }
-        preservesIndependentFaceImages =
-            promptImage?.mediaURLs.isEmpty == false
-            && answerImage?.mediaURLs.isEmpty == false
-            && promptImage != answerImage
-        let imageSubject = card.answer.firstNonEmptyString(
-            for: ["expression", "restoredText"]
-        ) ?? card.prompt.firstNonEmptyString(for: ["cueText"])
-            ?? card.answer.firstNonEmptyString(for: ["meaning"])
-            ?? "this study card"
+        if hasPromptImage {
+            return .prompt
+        }
+        if hasAnswerImage {
+            return .answer
+        }
+        // Match the desktop editor's default role for cards without an image.
+        return .answer
+    }
+
+    private static func imageGenerationPrompt(for card: StudyCard) -> String {
+        let imageSubject = [
+            card.answer.firstNonEmptyString(for: ["expression", "restoredText"]),
+            card.prompt.firstNonEmptyString(for: ["cueText"]),
+            card.answer.firstNonEmptyString(for: ["meaning"]),
+        ].compactMap { $0 }.first ?? "this study card"
         let imageMeaning = card.answer.firstNonEmptyString(for: ["meaning"])
             .map { " (\($0))" } ?? ""
-        imagePrompt = "A clear natural real-world image representing \(imageSubject)\(imageMeaning)."
-        notes = card.answer.firstNonEmptyString(for: ["notes"]) ?? ""
+        return "A clear natural real-world image representing \(imageSubject)\(imageMeaning)."
     }
 
     init(
@@ -408,5 +488,11 @@ private extension String {
             return existing
         }
         return .null
+    }
+}
+
+private extension JSONValue {
+    func editorText(_ keys: [String], fallback: String = "") -> String {
+        firstNonEmptyString(for: keys) ?? fallback
     }
 }
