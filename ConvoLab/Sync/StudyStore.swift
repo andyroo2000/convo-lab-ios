@@ -424,6 +424,11 @@ final class StudyStore {
         overviewSnapshotSaveTask = nil
         overviewSnapshot = nil
         activeUserID = nil
+        deactivateOwnedServices()
+        clearDeactivatedState()
+    }
+
+    private func deactivateOwnedServices() {
         mediaCache.deactivate()
         knownKanjiService.deactivate()
         cardOutbox.deactivate()
@@ -436,6 +441,9 @@ final class StudyStore {
         syncCoordinator.deactivate()
         reviewRecordingService.deactivate()
         reviewOutbox.deactivate()
+    }
+
+    private func clearDeactivatedState() {
         cards = []
         libraryCards = []
         allCards = []
@@ -1102,9 +1110,7 @@ final class StudyStore {
     ) async -> Bool {
         let identifiers = StudyCardIdentity.identifiers(for: card)
         do {
-            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
-                  try !reviewOutbox.hasPendingReview(for: card.id)
-            else {
+            guard try !hasPendingLocalMutation(for: card) else {
                 try removeFromActiveSession(card, userID: userID)
                 return false
             }
@@ -1114,9 +1120,7 @@ final class StudyStore {
             }
             // The fetch suspends this actor, so local work may have been staged
             // after the first guard. Re-check before replacing or deleting data.
-            guard try !cardOutbox.hasPendingCardWrite(for: card.id),
-                  try !reviewOutbox.hasPendingReview(for: card.id)
-            else {
+            guard try !hasPendingLocalMutation(for: card) else {
                 try removeFromActiveSession(card, userID: userID)
                 return false
             }
@@ -1150,6 +1154,11 @@ final class StudyStore {
             try? removeFromActiveSession(card, userID: userID)
             return false
         }
+    }
+
+    private func hasPendingLocalMutation(for card: StudyCard) throws -> Bool {
+        try cardOutbox.hasPendingCardWrite(for: card.id)
+            || reviewOutbox.hasPendingReview(for: card.id)
     }
 
     private func removeFromActiveSession(_ card: StudyCard, userID: Int) throws {
