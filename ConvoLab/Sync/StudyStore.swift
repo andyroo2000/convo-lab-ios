@@ -849,13 +849,32 @@ final class StudyStore {
             throw CardActionInProgressError()
         }
         defer { cardActionCardIDs.remove(actionKey) }
-        let currentCard = try currentLocalCard(for: card)
+        let projectedCard = try stageCardAction(
+            StudyCardActionExecution.Input(
+                action: action,
+                card: card,
+                mode: mode,
+                dueAt: dueAt,
+                timeZone: timeZone
+            )
+        )
+        await flushCardActionDependencies(
+            userID: userID,
+            activationGeneration: activationGeneration
+        )
+        return try currentLocalCard(for: projectedCard)
+    }
+
+    private func stageCardAction(
+        _ input: StudyCardActionExecution.Input
+    ) throws -> StudyCard {
+        let currentCard = try currentLocalCard(for: input.card)
         let prepared = try StudyCardActionProjection.prepare(
-            action: action,
+            action: input.action,
             card: currentCard,
-            mode: mode,
-            dueAt: dueAt,
-            timeZone: timeZone,
+            mode: input.mode,
+            dueAt: input.dueAt,
+            timeZone: input.timeZone,
             now: .now
         )
         try cardActionOutbox.stage(
@@ -874,7 +893,13 @@ final class StudyStore {
             preservingPendingEdit: try hasPendingCardWrite(for: currentCard),
             preservingPendingSchedule: true
         )
+        return prepared.card
+    }
 
+    private func flushCardActionDependencies(
+        userID: Int,
+        activationGeneration: Int
+    ) async {
         do {
             // Preserve the original cross-domain ordering: content writes and
             // reviews staged before this action must be accepted first.
@@ -892,7 +917,6 @@ final class StudyStore {
                 activationGeneration: activationGeneration
             )
         }
-        return try currentLocalCard(for: prepared.card)
     }
 
     func regenerateAnswerAudio(
@@ -1388,36 +1412,29 @@ final class StudyStore {
         preservingPendingSchedule: Bool
     ) throws {
         guard let userID = activeUserID else { throw CancellationError() }
-        let updatedIdentifiers = StudyCardIdentity.identifiers(for: updatedCard)
-        let staysInActiveSession = wasInActiveSession
-            && !lessonSessionIsPresented
-            && updatedCard.isEligibleForOfflineStudy(at: .now)
-
+        let actionTime = Date.now
         try updateExistingLocalCard(
             updatedCard,
             markedDirty: preservingPendingEdit || preservingPendingSchedule,
             serverUpdatedAt: serverCard?.updatedAt
         )
+        let presentation = StudyCardActionPresentation.project(
+            StudyCardActionPresentation.Input(
+                updatedCard: updatedCard,
+                sessionCards: cards,
+                libraryCards: libraryCards,
+                wasInActiveSession: wasInActiveSession,
+                lessonSessionIsPresented: lessonSessionIsPresented,
+                now: actionTime
+            )
+        )
         if let record = try localCardRepository.record(matching: updatedCard, userID: userID) {
-            record.isInActiveSession = staysInActiveSession
+            record.isInActiveSession = presentation.staysInActiveSession
         }
-
-        if staysInActiveSession {
-            cards = cards.map {
-                StudyCardIdentity.matches($0, any: updatedIdentifiers) ? updatedCard : $0
-            }
-        } else {
-            cards.removeAll { StudyCardIdentity.matches($0, any: updatedIdentifiers) }
-            if wasInActiveSession {
-                sessionCompletedCardIDs.insert(updatedCard.id)
-            }
-        }
-        if let index = libraryCards.firstIndex(where: {
-            StudyCardIdentity.matches($0, any: updatedIdentifiers)
-        }) {
-            libraryCards[index] = updatedCard
-        } else {
-            libraryCards.append(updatedCard)
+        cards = presentation.sessionCards
+        libraryCards = presentation.libraryCards
+        if let completedCardID = presentation.completedCardID {
+            sessionCompletedCardIDs.insert(completedCardID)
         }
         upsertAllCardsPresentation(updatedCard)
 
