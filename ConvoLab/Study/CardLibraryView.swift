@@ -572,41 +572,7 @@ struct CardLibraryView: View {
         using cardLookup: StudyCardLookup
     ) -> some View {
         if item.groupId == nil {
-            if let card = cardLookup.card(
-                matching: [item.representativeCard.id, item.representativeCard.syncId]
-            ),
-               StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                Button {
-                    selectedCard = card
-                } label: {
-                    learningItemSummary(item)
-                }
-                .swipeActions {
-                    Button("Delete", role: .destructive) {
-                        Task { await delete(card) }
-                    }
-                }
-            } else if StudyCardDraft.CardType(
-                rawValue: item.representativeCard.cardType
-            ) != nil {
-                Button {
-                    open(item.representativeCard)
-                } label: {
-                    learningItemSummary(item)
-                }
-                .swipeActions {
-                    Button("Delete", role: .destructive) {
-                        Task { await delete(item.representativeCard) }
-                    }
-                }
-            } else {
-                learningItemSummary(item)
-                    .swipeActions {
-                        Button("Delete", role: .destructive) {
-                            Task { await delete(item.representativeCard) }
-                        }
-                    }
-            }
+            ungroupedLearningItemRow(item, using: cardLookup)
         } else {
             DisclosureGroup(
                 isExpanded: Binding(
@@ -626,6 +592,54 @@ struct CardLibraryView: View {
             } label: {
                 learningItemSummary(item)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func ungroupedLearningItemRow(
+        _ item: StudyLearningItem,
+        using cardLookup: StudyCardLookup
+    ) -> some View {
+        if let card = cardLookup.card(
+            matching: [item.representativeCard.id, item.representativeCard.syncId]
+        ),
+           StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+            Button {
+                selectedCard = card
+            } label: {
+                learningItemSummary(item)
+            }
+            .swipeActions {
+                deleteAction(for: card)
+            }
+        } else if StudyCardDraft.CardType(
+            rawValue: item.representativeCard.cardType
+        ) != nil {
+            Button {
+                open(item.representativeCard)
+            } label: {
+                learningItemSummary(item)
+            }
+            .swipeActions {
+                deleteAction(for: item.representativeCard)
+            }
+        } else {
+            learningItemSummary(item)
+                .swipeActions {
+                    deleteAction(for: item.representativeCard)
+                }
+        }
+    }
+
+    private func deleteAction(for card: StudyCard) -> some View {
+        Button("Delete", role: .destructive) {
+            Task { await delete(card) }
+        }
+    }
+
+    private func deleteAction(for itemCard: StudyLearningItemCard) -> some View {
+        Button("Delete", role: .destructive) {
+            Task { await delete(itemCard) }
         }
     }
 
@@ -791,29 +805,23 @@ struct CardLibraryView: View {
     }
 
     private func open(_ item: StudyNewCardQueueItem) {
-        Task {
-            do {
-                guard let card = try await store.resolveCard(for: item) else {
-                    cardLoadErrorMessage = "This card is no longer available."
-                    showingCardLoadError = true
-                    return
-                }
-                selectedCard = card
-            } catch is CancellationError {
-                return
-            } catch let error as URLError where error.code == .cancelled {
-                return
-            } catch {
-                cardLoadErrorMessage = error.localizedDescription
-                showingCardLoadError = true
-            }
+        openResolvedCard {
+            try await store.resolveCard(for: item)
         }
     }
 
     private func open(_ itemCard: StudyLearningItemCard) {
+        openResolvedCard {
+            try await store.resolveCard(for: itemCard)
+        }
+    }
+
+    private func openResolvedCard(
+        _ resolve: @escaping () async throws -> StudyCard?
+    ) {
         Task {
             do {
-                guard let card = try await store.resolveCard(for: itemCard) else {
+                guard let card = try await resolve() else {
                     cardLoadErrorMessage = "This card is no longer available."
                     showingCardLoadError = true
                     return
