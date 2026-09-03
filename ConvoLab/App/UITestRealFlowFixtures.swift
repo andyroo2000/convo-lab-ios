@@ -35,23 +35,7 @@ private final class UITestRealFlowComposition: ObservableObject {
 
     init(fixture: UITestFixture) {
         do {
-            let result: Result
-            switch fixture {
-            case .loginRestoration:
-                result = try Self.loginRestoration()
-            case .offlineReview:
-                result = try Self.offlineReview()
-            case .createCardRecovery:
-                result = try Self.createCardRecovery()
-            case .dailyAudioPlayback:
-                result = try Self.dailyAudioPlayback()
-            case .calendarConnection:
-                result = try Self.calendarConnection()
-            case .studyDashboard:
-                result = try Self.studyDashboard()
-            case .loginScreen:
-                result = (AnyView(EmptyView()), [])
-            }
+            let result = try Self.makeResult(for: fixture)
             content = result.content
             constructionError = nil
             retainedObjects = result.retained
@@ -64,6 +48,36 @@ private final class UITestRealFlowComposition: ObservableObject {
 
     private typealias Result = (content: AnyView, retained: [Any])
     private static let userID = 41
+
+    private static func makeResult(for fixture: UITestFixture) throws -> Result {
+        switch fixture {
+        case .loginRestoration:
+            try loginRestoration()
+        case .offlineReview:
+            try offlineReview()
+        case .createCardRecovery:
+            try createCardRecovery()
+        case .dailyAudioPlayback:
+            try dailyAudioPlayback()
+        default:
+            try makeSecondaryResult(for: fixture)
+        }
+    }
+
+    private static func makeSecondaryResult(
+        for fixture: UITestFixture
+    ) throws -> Result {
+        switch fixture {
+        case .calendarConnection:
+            try calendarConnection()
+        case .studyDashboard:
+            try studyDashboard()
+        case .loginScreen:
+            (AnyView(EmptyView()), [])
+        case .loginRestoration, .offlineReview, .createCardRecovery, .dailyAudioPlayback:
+            preconditionFailure("Primary UI-test fixtures must be composed by makeResult")
+        }
+    }
 
     private static func loginRestoration() throws -> Result {
         let api = mockAPI()
@@ -232,40 +246,7 @@ private final class UITestRealFlowComposition: ObservableObject {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        store.setOverview(StudyOverview(
-            dueCount: 18,
-            newCount: 6,
-            reviewCount: 18,
-            totalCards: 846,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 6,
-            masterySpread: StudyMasterySpread(
-                apprentice: 183,
-                guru: 276,
-                master: 164,
-                enlightened: 118,
-                burned: 105
-            ),
-            learningReadiness: StudyLearningReadiness(
-                recommendation: "ready",
-                readinessLevel: "steady",
-                displayStatus: "Ready to learn",
-                displaySummary: "Recent recall is 93%. Target is 90%. You have 183 Apprentice cards, with 126 reviews projected over the next 7 days.",
-                sampleSize: 80,
-                sufficientData: true,
-                recentRecall: 0.93,
-                targetRecall: 0.9,
-                dueBacklog: 18,
-                apprenticeCount: 183,
-                projectedSevenDayReviews: 126,
-                timedReviewSampleSize: 80,
-                medianReviewDurationSeconds: 14,
-                projectedDailyReviewMinutes: 5,
-                reviewTimeBudgetMinutes: 90,
-                reviewTimeHeadroomMinutes: 85,
-                suggestedBatchSize: 5
-            )
-        ))
+        store.setOverview(fixtureStudyOverview)
         let achievementStore = StudyAchievementStore(api: api, mediaCache: mediaCache)
         achievementStore.activate(userID: userID)
         var calendar = Calendar(identifier: .gregorian)
@@ -312,6 +293,43 @@ private final class UITestRealFlowComposition: ObservableObject {
                 timeStore,
                 player,
             ]
+        )
+    }
+
+    private static var fixtureStudyOverview: StudyOverview {
+        StudyOverview(
+            dueCount: 18,
+            newCount: 6,
+            reviewCount: 18,
+            totalCards: 846,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 6,
+            masterySpread: StudyMasterySpread(
+                apprentice: 183,
+                guru: 276,
+                master: 164,
+                enlightened: 118,
+                burned: 105
+            ),
+            learningReadiness: StudyLearningReadiness(
+                recommendation: "ready",
+                readinessLevel: "steady",
+                displayStatus: "Ready to learn",
+                displaySummary: "Recent recall is 93%. Target is 90%. You have 183 Apprentice cards, with 126 reviews projected over the next 7 days.",
+                sampleSize: 80,
+                sufficientData: true,
+                recentRecall: 0.93,
+                targetRecall: 0.9,
+                dueBacklog: 18,
+                apprenticeCount: 183,
+                projectedSevenDayReviews: 126,
+                timedReviewSampleSize: 80,
+                medianReviewDurationSeconds: 14,
+                projectedDailyReviewMinutes: 5,
+                reviewTimeBudgetMinutes: 90,
+                reviewTimeHeadroomMinutes: 85,
+                suggestedBatchSize: 5
+            )
         )
     }
 
