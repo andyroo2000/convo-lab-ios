@@ -261,25 +261,12 @@ final class ManualDraftOutbox {
     func retryPendingCreates() async throws {
         guard let userID = activeUserID else { return }
         let operationGeneration = generation
-        let descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "draftCreate"
-                    && $0.lastError == nil
-            },
-            sortBy: [SortDescriptor(\.createdAt)]
-        )
-        var firstError: (any Error)?
-        for mutation in try context.fetch(descriptor) {
-            do {
-                try ensureActive(userID: userID, generation: operationGeneration)
-                _ = try await runCreate(mutation)
-            } catch {
-                firstError = firstError ?? error
-            }
-        }
-        if let firstError {
-            throw firstError
+        try await retryPending(
+            kind: "draftCreate",
+            userID: userID,
+            generation: operationGeneration
+        ) { mutation in
+            _ = try await self.runCreate(mutation)
         }
     }
 
@@ -288,10 +275,28 @@ final class ManualDraftOutbox {
     ) async throws {
         guard let userID = activeUserID else { return }
         let operationGeneration = generation
+        try await retryPending(
+            kind: "draftCommit",
+            userID: userID,
+            generation: operationGeneration
+        ) { mutation in
+            try await self.runCommit(
+                mutation,
+                onCommittedCard: onCommittedCard
+            )
+        }
+    }
+
+    private func retryPending(
+        kind: String,
+        userID: Int,
+        generation: Int,
+        operation: @MainActor (PendingMutation) async throws -> Void
+    ) async throws {
         let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.userID == userID
-                    && $0.kind == "draftCommit"
+                    && $0.kind == kind
                     && $0.lastError == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
@@ -299,8 +304,8 @@ final class ManualDraftOutbox {
         var firstError: (any Error)?
         for mutation in try context.fetch(descriptor) {
             do {
-                try ensureActive(userID: userID, generation: operationGeneration)
-                try await runCommit(mutation, onCommittedCard: onCommittedCard)
+                try ensureActive(userID: userID, generation: generation)
+                try await operation(mutation)
             } catch {
                 firstError = firstError ?? error
             }
@@ -498,30 +503,48 @@ final class ManualDraftOutbox {
             CreateCardFromStudyManualDraftRequest.self,
             from: mutation.payload
         )
-        let card: StudyCard
+        let card = try await createCanonicalCard(
+            from: mutation,
+            request: request,
+            userID: userID,
+            generation: generation
+        )
+
+        // Persist the confirmed canonical card before deleting its transient
+        // draft so an interrupted cleanup cannot lose the created card.
+        try await onCommittedCard(card)
+        try ensureActive(userID: userID, generation: generation)
+        try await cleanupCommittedDraft(
+            mutation,
+            userID: userID,
+            generation: generation
+        )
+    }
+
+    private func createCanonicalCard(
+        from mutation: PendingMutation,
+        request: CreateCardFromStudyManualDraftRequest,
+        userID: Int,
+        generation: Int
+    ) async throws -> StudyCard {
         do {
             // learning-os intentionally exposes the unwrapped ConvoLab
             // compatibility payload for manual draft commits.
-            card = try await api.request(
+            let card: StudyCard = try await api.request(
                 "/api/study/card-drafts/\(mutation.resourceID)/create-card",
                 method: "POST",
                 body: request
             )
             try ensureActive(userID: userID, generation: generation)
+            return card
         } catch let rejection as APIClientError {
-            let isPermanent: Bool
-            if case let .rejected(status, _) = rejection, status == 409 {
-                isPermanent = await draftHasDifferentCommittedCardID(
-                    draftID: mutation.resourceID,
-                    clientCardID: request.id,
-                    userID: userID,
-                    generation: generation
-                )
-            } else if case let .rejected(status, _) = rejection {
-                isPermanent = isPermanentCommitRejection(status: status)
-            } else {
-                isPermanent = false
-            }
+            let isPermanent = await commitRejectionIsPermanent(
+                rejection,
+                mutation: mutation,
+                clientCardID: request.id,
+                userID: userID,
+                generation: generation
+            )
             try ensureActive(userID: userID, generation: generation)
             if isPermanent {
                 // A same-client-ID idempotent retry returns 200. For a 409,
@@ -542,11 +565,32 @@ final class ManualDraftOutbox {
             try context.save()
             throw error
         }
+    }
 
-        // Persist the confirmed canonical card before deleting its transient
-        // draft so an interrupted cleanup cannot lose the created card.
-        try await onCommittedCard(card)
-        try ensureActive(userID: userID, generation: generation)
+    private func commitRejectionIsPermanent(
+        _ rejection: APIClientError,
+        mutation: PendingMutation,
+        clientCardID: String,
+        userID: Int,
+        generation: Int
+    ) async -> Bool {
+        guard case let .rejected(status, _) = rejection else { return false }
+        guard status == 409 else {
+            return isPermanentCommitRejection(status: status)
+        }
+        return await draftHasDifferentCommittedCardID(
+            draftID: mutation.resourceID,
+            clientCardID: clientCardID,
+            userID: userID,
+            generation: generation
+        )
+    }
+
+    private func cleanupCommittedDraft(
+        _ mutation: PendingMutation,
+        userID: Int,
+        generation: Int
+    ) async throws {
         do {
             try await api.request(
                 "/api/study/card-drafts/\(mutation.resourceID)",

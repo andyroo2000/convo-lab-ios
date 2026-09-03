@@ -56,7 +56,9 @@ final class ConvoLabUITests: XCTestCase {
         )
 
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 3))
+        let leftForeground = app.wait(for: .runningBackground, timeout: 3)
+            || app.state == .runningBackgroundSuspended
+        XCTAssertTrue(leftForeground)
         app.terminate()
         launchFixture("offline-review", reset: false, application: app)
         XCTAssertTrue(pendingCount.waitForExistence(timeout: 8))
