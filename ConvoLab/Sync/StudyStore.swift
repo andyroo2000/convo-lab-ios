@@ -926,31 +926,17 @@ final class StudyStore {
     ) async throws -> AnswerAudioRegenerationResult {
         try requirePersistentWrites()
         let currentCard = try await prepareCardMediaMutation(for: card, medium: "audio")
+        let callbacks = cardMediaMutationCallbacks(
+            for: currentCard,
+            trackingRegeneratedAnswerAudio: true
+        )
         return try await cardMediaService.regenerateAnswerAudio(
             currentCard: currentCard,
             voiceID: voiceID,
             textOverride: textOverride,
-            latestCard: { [weak self] in
-                guard let self else { throw CancellationError() }
-                return try self.currentLocalCard(for: currentCard)
-            },
-            hasPendingWrite: { [weak self] cardID in
-                guard let self else { throw CancellationError() }
-                return try self.cardOutbox.hasPendingCardWrite(for: cardID)
-            },
-            onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
-                guard let self else { throw CancellationError() }
-                try self.cardOutbox.trackRegeneratedAnswerAudio(
-                    cardID: card.id,
-                    prompt: card.prompt,
-                    answer: card.answer
-                )
-                try self.reconcileCardMedia(
-                    card,
-                    pendingWrite: pendingWrite,
-                    serverUpdatedAt: serverUpdatedAt
-                )
-            }
+            latestCard: callbacks.latestCard,
+            hasPendingWrite: callbacks.hasPendingWrite,
+            onReconciled: callbacks.onReconciled
         )
     }
 
@@ -962,39 +948,22 @@ final class StudyStore {
         try requirePersistentWrites()
         // Validate before the preflight flush so bad editor input cannot send an
         // unrelated queued card mutation. The service repeats this for direct callers.
-        let imagePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let maximumPromptCharacters = capabilities.cardAuthoring.limits.imagePromptCharacters
-        guard
-            !imagePrompt.isEmpty,
-            imagePrompt.count <= maximumPromptCharacters
-        else {
-            throw InvalidCardImagePromptError(maximumCharacters: maximumPromptCharacters)
-        }
-        guard placement != .none else {
-            throw InvalidCardImagePlacementError()
-        }
+        let imagePrompt = try StudyCardMediaMutationInput.validatedImagePrompt(
+            prompt,
+            placement: placement,
+            maximumCharacters: maximumPromptCharacters
+        )
         let currentCard = try await prepareCardMediaMutation(for: card, medium: "image")
+        let callbacks = cardMediaMutationCallbacks(for: currentCard)
         return try await cardMediaService.regenerateImage(
             currentCard: currentCard,
             prompt: imagePrompt,
             placement: placement,
             maximumPromptCharacters: maximumPromptCharacters,
-            latestCard: { [weak self] in
-                guard let self else { throw CancellationError() }
-                return try self.currentLocalCard(for: currentCard)
-            },
-            hasPendingWrite: { [weak self] cardID in
-                guard let self else { throw CancellationError() }
-                return try self.cardOutbox.hasPendingCardWrite(for: cardID)
-            },
-            onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
-                guard let self else { throw CancellationError() }
-                try self.reconcileCardMedia(
-                    card,
-                    pendingWrite: pendingWrite,
-                    serverUpdatedAt: serverUpdatedAt
-                )
-            }
+            latestCard: callbacks.latestCard,
+            hasPendingWrite: callbacks.hasPendingWrite,
+            onReconciled: callbacks.onReconciled
         )
     }
 
@@ -1006,18 +975,29 @@ final class StudyStore {
         try requirePersistentWrites()
         let maximumBytes = capabilities.cardAuthoring.limits.imageUploadBytes
         // As above, reject invalid editor state before the outbox preflight.
-        guard placement != .none else {
-            throw InvalidCardImagePlacementError()
-        }
-        guard jpegData.count <= maximumBytes else {
-            throw OversizedCardImageUploadError(maximumBytes: maximumBytes)
-        }
+        try StudyCardMediaMutationInput.validateImageUpload(
+            jpegData,
+            placement: placement,
+            maximumBytes: maximumBytes
+        )
         let currentCard = try await prepareCardMediaMutation(for: card, medium: "image")
+        let callbacks = cardMediaMutationCallbacks(for: currentCard)
         return try await cardMediaService.uploadImage(
             currentCard: currentCard,
             jpegData: jpegData,
             placement: placement,
             maximumBytes: maximumBytes,
+            latestCard: callbacks.latestCard,
+            hasPendingWrite: callbacks.hasPendingWrite,
+            onReconciled: callbacks.onReconciled
+        )
+    }
+
+    private func cardMediaMutationCallbacks(
+        for currentCard: StudyCard,
+        trackingRegeneratedAnswerAudio: Bool = false
+    ) -> StudyCardMediaMutationCallbacks {
+        StudyCardMediaMutationCallbacks(
             latestCard: { [weak self] in
                 guard let self else { throw CancellationError() }
                 return try self.currentLocalCard(for: currentCard)
@@ -1028,6 +1008,13 @@ final class StudyStore {
             },
             onReconciled: { [weak self] card, pendingWrite, serverUpdatedAt in
                 guard let self else { throw CancellationError() }
+                if trackingRegeneratedAnswerAudio {
+                    try self.cardOutbox.trackRegeneratedAnswerAudio(
+                        cardID: card.id,
+                        prompt: card.prompt,
+                        answer: card.answer
+                    )
+                }
                 try self.reconcileCardMedia(
                     card,
                     pendingWrite: pendingWrite,
@@ -1041,6 +1028,15 @@ final class StudyStore {
         for card: StudyCard,
         medium: String
     ) async throws -> StudyCard {
+        try await flushCardOutboxBeforeMediaMutation()
+        let currentCard = try currentLocalCard(for: card)
+        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
+            throw PendingCardChangesError(medium: medium)
+        }
+        return currentCard
+    }
+
+    private func flushCardOutboxBeforeMediaMutation() async throws {
         do {
             try await flushCardOutbox()
         } catch is QuarantinedCardMutationError {
@@ -1049,11 +1045,6 @@ final class StudyStore {
             markOutboxRetryNeeded(for: error)
             throw error
         }
-        let currentCard = try currentLocalCard(for: card)
-        guard try !cardOutbox.hasPendingCardWrite(for: currentCard.id) else {
-            throw PendingCardChangesError(medium: medium)
-        }
-        return currentCard
     }
 
     func prepareLearningPathAccess(for card: StudyCard) throws -> StudyCard {
