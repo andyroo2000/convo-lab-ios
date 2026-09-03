@@ -409,7 +409,7 @@ final class StudySessionCountsTests: XCTestCase {
         var newCardsPerDay = 20
         var newCardsAvailableToday: Int?
         var failedCount = 0
-        var failedDueCount = 0
+        var failedDueCount: Int?
     }
 
     private static let detailedOverviewJSON = #"""
