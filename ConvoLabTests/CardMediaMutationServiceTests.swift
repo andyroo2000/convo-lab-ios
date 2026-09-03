@@ -15,40 +15,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
     @MainActor
     func testAnswerAudioUsesWireShapeRefreshesCacheAndReconcilesLatestCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let oldPromptAudio: JSONValue = .object([
-            "url": .string("/api/study/media/old-prompt"),
-        ])
-        let newPromptAudio: JSONValue = .object([
-            "url": .string("/api/study/media/new-prompt"),
-        ])
-        let currentBase = makeCard(id: "card-a", expression: "old")
-        let current = replacing(
-            currentBase,
-            prompt: currentBase.prompt.replacingObjectValues([
-                "cueAudio": oldPromptAudio,
-            ])
-        )
-        let latestBase = makeCard(id: "card-a", expression: "newer")
-        let latest = replacing(
-            latestBase,
-            prompt: latestBase.prompt.replacingObjectValues([
-                "cueAudio": oldPromptAudio,
-            ])
-        )
-        let audio: JSONValue = .object(["url": .string("/api/study/media/audio-a")])
-        let server = replacing(
-            current,
-            prompt: current.prompt.replacingObjectValues([
-                "cueAudio": newPromptAudio,
-            ]),
-            answer: current.answer.replacingObjectValues([
-                "answerAudio": audio,
-                "answerAudioVoiceId": .string("voice-a"),
-                "answerAudioTextOverride": .string("override"),
-            ]),
-            answerAudioSource: "generated"
-        )
-        let serverData = try StorageCodec.encoder.encode(server)
+        let fixture = try makeAnswerAudioFixture()
         let paths = LockedRequestPaths()
         let mediaDownloads = LockedCounter()
         let client = makeClient { request in
@@ -59,7 +26,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
                 let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
                 XCTAssertEqual(payload?["answerAudioVoiceId"] as? String, "voice-a")
                 XCTAssertEqual(payload?["answerAudioTextOverride"] as? String, "override")
-                return Self.response(status: 200, data: serverData, request: request)
+                return Self.response(status: 200, data: fixture.serverData, request: request)
             }
             return Self.response(
                 status: 200,
@@ -82,10 +49,10 @@ final class CardMediaMutationServiceTests: XCTestCase {
         var reconciled: StudyCard?
 
         let result = try await service.regenerateAnswerAudio(
-            currentCard: current,
+            currentCard: fixture.current,
             voiceID: " voice-a ",
             textOverride: " override ",
-            latestCard: { latest },
+            latestCard: { fixture.latest },
             hasPendingWrite: { _ in true },
             onReconciled: { card, pending, _ in
                 XCTAssertTrue(pending)
@@ -99,8 +66,8 @@ final class CardMediaMutationServiceTests: XCTestCase {
             "/api/study/media/audio-a",
         ])
         XCTAssertEqual(result.card.promptText, "newer")
-        XCTAssertEqual(result.card.prompt["cueAudio"], newPromptAudio)
-        XCTAssertEqual(result.card.answer["answerAudio"], audio)
+        XCTAssertEqual(result.card.prompt["cueAudio"], fixture.newPromptAudio)
+        XCTAssertEqual(result.card.answer["answerAudio"], fixture.answerAudio)
         XCTAssertEqual(reconciled, result.card)
         XCTAssertEqual(try String(contentsOf: result.localURL, encoding: .utf8), "fresh-audio")
         XCTAssertEqual(diagnosticsSink.events.map(\.stage), [.began, .ended])
@@ -458,6 +425,111 @@ final class CardMediaMutationServiceTests: XCTestCase {
     @MainActor
     func testOlderAnswerAudioRegenerationCannotReplaceNewerCompletion() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        let fixture = try makeAnswerAudioRaceFixture()
+        let deferredOld = LockedDeferredResponse()
+        let regenerationRequests = LockedCounter()
+        let client = makeDeferredClient { request, completion in
+            if request.url?.path.hasSuffix("/regenerate-answer-audio") == true {
+                if regenerationRequests.next() == 1 {
+                    deferredOld.hold(completion)
+                } else {
+                    completion(.success(Self.response(
+                        status: 200,
+                        data: fixture.newData,
+                        request: request
+                    )))
+                }
+                return
+            }
+            completion(.success(Self.response(
+                status: 200,
+                data: Data("audio".utf8),
+                mimeType: "audio/mpeg",
+                request: request
+            )))
+        }
+        let (service, _) = makeService(container: container, client: client)
+        var latest = fixture.card
+        let oldRegeneration = Task {
+            try await service.regenerateAnswerAudio(
+                currentCard: fixture.card,
+                voiceID: "old-voice",
+                textOverride: "",
+                latestCard: { latest },
+                hasPendingWrite: { _ in false },
+                onReconciled: { updated, _, _ in latest = updated }
+            )
+        }
+        for _ in 0..<100 where !deferredOld.hasPendingResponse {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(deferredOld.hasPendingResponse)
+
+        _ = try await service.regenerateAnswerAudio(
+            currentCard: fixture.card,
+            voiceID: "new-voice",
+            textOverride: "",
+            latestCard: { latest },
+            hasPendingWrite: { _ in false },
+            onReconciled: { updated, _, _ in latest = updated }
+        )
+        XCTAssertEqual(latest.answer["answerAudio"], fixture.newAudio)
+        deferredOld.succeed(with: Self.response(
+            status: 200,
+            data: fixture.oldData,
+            request: URLRequest(url: URL(string: "https://learning-os.example")!)
+        ))
+        do {
+            _ = try await oldRegeneration.value
+            XCTFail("Expected the older regeneration to be superseded")
+        } catch is CancellationError {}
+
+        XCTAssertEqual(latest.answer["answerAudio"], fixture.newAudio)
+        XCTAssertEqual(latest.answer["answerAudioVoiceId"]?.stringValue, "new-voice")
+    }
+
+    @MainActor
+    private func makeAnswerAudioFixture() throws -> AnswerAudioFixture {
+        let oldPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/old-prompt"),
+        ])
+        let newPromptAudio: JSONValue = .object([
+            "url": .string("/api/study/media/new-prompt"),
+        ])
+        let currentBase = makeCard(id: "card-a", expression: "old")
+        let current = replacing(
+            currentBase,
+            prompt: currentBase.prompt.replacingObjectValues(["cueAudio": oldPromptAudio])
+        )
+        let latestBase = makeCard(id: "card-a", expression: "newer")
+        let latest = replacing(
+            latestBase,
+            prompt: latestBase.prompt.replacingObjectValues(["cueAudio": oldPromptAudio])
+        )
+        let answerAudio: JSONValue = .object([
+            "url": .string("/api/study/media/audio-a"),
+        ])
+        let server = replacing(
+            current,
+            prompt: current.prompt.replacingObjectValues(["cueAudio": newPromptAudio]),
+            answer: current.answer.replacingObjectValues([
+                "answerAudio": answerAudio,
+                "answerAudioVoiceId": .string("voice-a"),
+                "answerAudioTextOverride": .string("override"),
+            ]),
+            answerAudioSource: "generated"
+        )
+        return AnswerAudioFixture(
+            current: current,
+            latest: latest,
+            newPromptAudio: newPromptAudio,
+            answerAudio: answerAudio,
+            serverData: try StorageCodec.encoder.encode(server)
+        )
+    }
+
+    @MainActor
+    private func makeAnswerAudioRaceFixture() throws -> AnswerAudioRaceFixture {
         let card = makeCard(id: "card-audio-race", expression: "race")
         let oldAudio: JSONValue = .object([
             "url": .string("/api/study/media/old-audio"),
@@ -481,68 +553,12 @@ final class CardMediaMutationServiceTests: XCTestCase {
             ]),
             answerAudioSource: "generated"
         )
-        let oldData = try StorageCodec.encoder.encode(oldServer)
-        let newData = try StorageCodec.encoder.encode(newServer)
-        let deferredOld = LockedDeferredResponse()
-        let regenerationRequests = LockedCounter()
-        let client = makeDeferredClient { request, completion in
-            if request.url?.path.hasSuffix("/regenerate-answer-audio") == true {
-                if regenerationRequests.next() == 1 {
-                    deferredOld.hold(completion)
-                } else {
-                    completion(.success(Self.response(
-                        status: 200,
-                        data: newData,
-                        request: request
-                    )))
-                }
-                return
-            }
-            completion(.success(Self.response(
-                status: 200,
-                data: Data("audio".utf8),
-                mimeType: "audio/mpeg",
-                request: request
-            )))
-        }
-        let (service, _) = makeService(container: container, client: client)
-        var latest = card
-        let oldRegeneration = Task {
-            try await service.regenerateAnswerAudio(
-                currentCard: card,
-                voiceID: "old-voice",
-                textOverride: "",
-                latestCard: { latest },
-                hasPendingWrite: { _ in false },
-                onReconciled: { updated, _, _ in latest = updated }
-            )
-        }
-        for _ in 0..<100 where !deferredOld.hasPendingResponse {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(deferredOld.hasPendingResponse)
-
-        _ = try await service.regenerateAnswerAudio(
-            currentCard: card,
-            voiceID: "new-voice",
-            textOverride: "",
-            latestCard: { latest },
-            hasPendingWrite: { _ in false },
-            onReconciled: { updated, _, _ in latest = updated }
+        return AnswerAudioRaceFixture(
+            card: card,
+            newAudio: newAudio,
+            oldData: try StorageCodec.encoder.encode(oldServer),
+            newData: try StorageCodec.encoder.encode(newServer)
         )
-        XCTAssertEqual(latest.answer["answerAudio"], newAudio)
-        deferredOld.succeed(with: Self.response(
-            status: 200,
-            data: oldData,
-            request: URLRequest(url: URL(string: "https://learning-os.example")!)
-        ))
-        do {
-            _ = try await oldRegeneration.value
-            XCTFail("Expected the older regeneration to be superseded")
-        } catch is CancellationError {}
-
-        XCTAssertEqual(latest.answer["answerAudio"], newAudio)
-        XCTAssertEqual(latest.answer["answerAudioVoiceId"]?.stringValue, "new-voice")
     }
 
     @MainActor
@@ -570,12 +586,7 @@ final class CardMediaMutationServiceTests: XCTestCase {
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
+        return makeConfiguredClient()
     }
 
     @MainActor
@@ -584,6 +595,11 @@ final class CardMediaMutationServiceTests: XCTestCase {
     ) -> APIClient {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = handler
+        return makeConfiguredClient()
+    }
+
+    @MainActor
+    private func makeConfiguredClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
@@ -653,5 +669,20 @@ final class CardMediaMutationServiceTests: XCTestCase {
             )!,
             data
         )
+    }
+
+    private struct AnswerAudioFixture {
+        let current: StudyCard
+        let latest: StudyCard
+        let newPromptAudio: JSONValue
+        let answerAudio: JSONValue
+        let serverData: Data
+    }
+
+    private struct AnswerAudioRaceFixture {
+        let card: StudyCard
+        let newAudio: JSONValue
+        let oldData: Data
+        let newData: Data
     }
 }
