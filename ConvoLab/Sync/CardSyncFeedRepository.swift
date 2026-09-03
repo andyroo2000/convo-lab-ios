@@ -345,6 +345,31 @@ final class CardSyncFeedRepository {
         _ entries: [SyncFeedPage.Entry],
         activation: Activation
     ) async throws -> ResolvedPage {
+        let requestedCardIDs = requestedCardIDs(in: entries)
+        let serverCards = try await fetchCards(
+            with: requestedCardIDs,
+            activation: activation
+        )
+        let cardsByID = cardsByIdentifier(serverCards)
+        var resolvedEntries: [ResolvedEntry] = []
+        var usedIndividualResolution = false
+        for entry in entries {
+            let resolution = try await resolveEntry(
+                entry,
+                cardsByID: cardsByID,
+                activation: activation
+            )
+            resolvedEntries.append(resolution.entry)
+            usedIndividualResolution = usedIndividualResolution
+                || resolution.usedIndividualResolution
+        }
+        return ResolvedPage(
+            entries: resolvedEntries,
+            usedIndividualResolution: usedIndividualResolution
+        )
+    }
+
+    private func requestedCardIDs(in entries: [SyncFeedPage.Entry]) -> [String] {
         var requestedCardIDs: [String] = []
         var seenCardIDs: Set<String> = []
         for entry in entries where entry.operation != "delete" {
@@ -353,58 +378,60 @@ final class CardSyncFeedRepository {
                 requestedCardIDs.append(entry.resourceId)
             }
         }
+        return requestedCardIDs
+    }
 
-        let serverCards: [StudyCard]
+    private func fetchCards(
+        with requestedCardIDs: [String],
+        activation: Activation
+    ) async throws -> [StudyCard] {
         if requestedCardIDs.isEmpty {
-            serverCards = []
-        } else {
-            let response: StudyCardBatchResponse = try await api.request(
-                "/api/study/cards/batch",
-                method: "POST",
-                body: StudyCardBatchRequest(ids: requestedCardIDs)
-            )
-            try ensureActive(activation)
-            serverCards = response.cards
+            return []
         }
+        let response: StudyCardBatchResponse = try await api.request(
+            "/api/study/cards/batch",
+            method: "POST",
+            body: StudyCardBatchRequest(ids: requestedCardIDs)
+        )
+        try ensureActive(activation)
+        return response.cards
+    }
 
+    private func cardsByIdentifier(_ serverCards: [StudyCard]) -> [String: StudyCard] {
         var cardsByID: [String: StudyCard] = [:]
         for card in serverCards {
             for identifier in cardIdentifiers(for: card) where cardsByID[identifier] == nil {
                 cardsByID[identifier] = card
             }
         }
+        return cardsByID
+    }
 
-        var resolvedEntries: [ResolvedEntry] = []
-        var usedIndividualResolution = false
-        for entry in entries {
-            try ensureActive(activation)
-            if entry.operation == "delete" {
-                resolvedEntries.append(.delete(resourceID: entry.resourceId))
-                continue
-            }
-
-            let normalizedID = entry.resourceId.lowercased()
-            if let card = cardsByID[normalizedID] {
-                resolvedEntries.append(.upsert(card))
-                continue
-            }
-
-            usedIndividualResolution = true
-            do {
-                let card: StudyCard = try await api.request(
-                    "/api/study/cards/\(entry.resourceId)"
-                )
-                try ensureActive(activation)
-                resolvedEntries.append(.upsert(card))
-            } catch APIClientError.rejected(status: 404, message: _) {
-                try ensureActive(activation)
-                resolvedEntries.append(.delete(resourceID: entry.resourceId))
-            }
+    private func resolveEntry(
+        _ entry: SyncFeedPage.Entry,
+        cardsByID: [String: StudyCard],
+        activation: Activation
+    ) async throws -> (entry: ResolvedEntry, usedIndividualResolution: Bool) {
+        try ensureActive(activation)
+        if entry.operation == "delete" {
+            return (.delete(resourceID: entry.resourceId), false)
         }
-        return ResolvedPage(
-            entries: resolvedEntries,
-            usedIndividualResolution: usedIndividualResolution
-        )
+
+        let normalizedID = entry.resourceId.lowercased()
+        if let card = cardsByID[normalizedID] {
+            return (.upsert(card), false)
+        }
+
+        do {
+            let card: StudyCard = try await api.request(
+                "/api/study/cards/\(entry.resourceId)"
+            )
+            try ensureActive(activation)
+            return (.upsert(card), true)
+        } catch APIClientError.rejected(status: 404, message: _) {
+            try ensureActive(activation)
+            return (.delete(resourceID: entry.resourceId), true)
+        }
     }
 
     private func commit(
