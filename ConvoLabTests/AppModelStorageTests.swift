@@ -169,19 +169,7 @@ final class AppModelStorageTests: XCTestCase {
     }
 
     func testSynchronizationOverlapsIndependentRefreshesWhileCapabilitiesGateStudySync() async throws {
-        let user = CurrentUser(
-            id: 42,
-            name: "Andrew",
-            email: "andrew@example.com",
-            emailVerifiedAt: nil
-        )
-        let credentials = AppModelCachedCredentialStore(values: [
-            "learning-os-mobile-token": "cached-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(user),
-                encoding: .utf8
-            )!,
-        ])
+        let credentials = try makeCachedCredentials()
         let paths = LockedRequestPaths()
         let capabilityData = try JSONEncoder().encode(StudyCapabilities.fallback)
         let (capabilityStarted, capabilityStartedContinuation) = AsyncStream<Void>.makeStream()
@@ -201,15 +189,7 @@ final class AppModelStorageTests: XCTestCase {
                 Task {
                     var releaseIterator = releaseCapability.makeAsyncIterator()
                     _ = await releaseIterator.next()
-                    completion(.success((
-                        HTTPURLResponse(
-                            url: url,
-                            statusCode: 200,
-                            httpVersion: nil,
-                            headerFields: ["Content-Type": "application/json"]
-                        )!,
-                        capabilityData
-                    )))
+                    completion(.success(Self.response(url: url, data: capabilityData)))
                 }
             case "/api/daily-audio-practice":
                 dailyAudioStartedContinuation.yield()
@@ -218,10 +198,7 @@ final class AppModelStorageTests: XCTestCase {
                 completion(.failure(URLError(.notConnectedToInternet)))
             }
         }
-        defer {
-            MockURLProtocol.handler = nil
-            MockURLProtocol.deferredHandler = nil
-        }
+        defer { Self.resetMockURLProtocol() }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         let defaultsName = "AppModelStorageTests.capability-order.\(UUID().uuidString)"
@@ -283,6 +260,10 @@ final class AppModelStorageTests: XCTestCase {
             "Study data is using temporary storage. Card and review changes are disabled until you relaunch the app."
         )
 
+        try await assertStudyWritesAreRejected(by: model)
+    }
+
+    private func assertStudyWritesAreRejected(by model: AppModel) async throws {
         model.study.activate(userID: 42)
         do {
             try await model.study.createCard(
@@ -374,6 +355,10 @@ final class AppModelStorageTests: XCTestCase {
             "Study time is using temporary storage. Recording and editing study time are disabled until you relaunch the app."
         )
 
+        try await assertStudyTimeWritesAreRejected(by: model)
+    }
+
+    private func assertStudyTimeWritesAreRejected(by model: AppModel) async throws {
         model.studyTime.start(activity: .reading, source: .manual)
         XCTAssertNil(model.studyTime.syncErrorMessage)
 
@@ -483,6 +468,22 @@ final class AppModelStorageTests: XCTestCase {
         AppConfiguration(apiBaseURL: URL(string: "https://example.com")!)
     }
 
+    private func makeCachedCredentials() throws -> AppModelCachedCredentialStore {
+        let user = CurrentUser(
+            id: 42,
+            name: "Andrew",
+            email: "andrew@example.com",
+            emailVerifiedAt: nil
+        )
+        return AppModelCachedCredentialStore(values: [
+            "learning-os-mobile-token": "cached-token",
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
+    }
+
     private func makeOfflineClient(baseURL: URL) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
@@ -539,6 +540,26 @@ final class AppModelStorageTests: XCTestCase {
             audioPlaybackMs: nil,
             cardsCreated: nil
         )
+    }
+
+    private nonisolated static func response(
+        url: URL,
+        data: Data
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
+        )
+    }
+
+    private static func resetMockURLProtocol() {
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = nil
     }
 }
 
