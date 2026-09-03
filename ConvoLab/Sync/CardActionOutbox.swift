@@ -19,6 +19,11 @@ struct QuarantinedCardActionError: LocalizedError {
 }
 
 final class CardActionOutbox {
+    private enum DeliveryOutcome {
+        case acknowledged
+        case quarantined
+    }
+
     private let api: APIClient
     private let context: ModelContext
     private var activeUserID: Int?
@@ -159,52 +164,85 @@ final class CardActionOutbox {
                 return
             }
 
-            do {
-                let payload = try StorageCodec.decoder.decode(
-                    PendingCardActionPayload.self,
-                    from: mutation.payload
-                )
-                let response: StudyCardActionResponse = try await api.request(
-                    "/api/study/cards/\(mutation.resourceID)/actions",
-                    method: "POST",
-                    body: payload.request
-                )
-                try ensureActive(userID: userID, generation: generation)
-                let preservingNewerAction = try hasNewerAction(
-                    than: mutation,
-                    userID: userID
-                )
-                try onAcknowledged(CardActionAcknowledgement(
-                    response: response,
-                    preservingNewerAction: preservingNewerAction
-                ))
-                context.delete(mutation)
-                try context.save()
-            } catch let APIClientError.rejected(status, message)
-                where [400, 404, 409, 410, 422].contains(status)
-            {
-                try ensureActive(userID: userID, generation: generation)
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = "HTTP \(status): \(message)"
-                try context.save()
+            let outcome = try await deliver(
+                mutation,
+                userID: userID,
+                generation: generation,
+                onAcknowledged: onAcknowledged
+            )
+            if case .quarantined = outcome {
                 quarantinedCount += 1
-            } catch is DecodingError {
-                try ensureActive(userID: userID, generation: generation)
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = "Queued scheduling action data is invalid."
-                try context.save()
-                quarantinedCount += 1
-            } catch {
-                try ensureActive(userID: userID, generation: generation)
-                mutation.attemptCount += 1
-                mutation.lastAttemptAt = .now
-                mutation.lastError = nil
-                try context.save()
-                throw error
             }
         }
+    }
+
+    private func deliver(
+        _ mutation: PendingMutation,
+        userID: Int,
+        generation: Int,
+        onAcknowledged: (CardActionAcknowledgement) throws -> Void
+    ) async throws -> DeliveryOutcome {
+        do {
+            let payload = try StorageCodec.decoder.decode(
+                PendingCardActionPayload.self,
+                from: mutation.payload
+            )
+            let response: StudyCardActionResponse = try await api.request(
+                "/api/study/cards/\(mutation.resourceID)/actions",
+                method: "POST",
+                body: payload.request
+            )
+            try ensureActive(userID: userID, generation: generation)
+            let preservingNewerAction = try hasNewerAction(
+                than: mutation,
+                userID: userID
+            )
+            try onAcknowledged(CardActionAcknowledgement(
+                response: response,
+                preservingNewerAction: preservingNewerAction
+            ))
+            context.delete(mutation)
+            try context.save()
+            return .acknowledged
+        } catch let APIClientError.rejected(status, message)
+            where [400, 404, 409, 410, 422].contains(status)
+        {
+            try quarantine(
+                mutation,
+                message: "HTTP \(status): \(message)",
+                userID: userID,
+                generation: generation
+            )
+            return .quarantined
+        } catch is DecodingError {
+            try quarantine(
+                mutation,
+                message: "Queued scheduling action data is invalid.",
+                userID: userID,
+                generation: generation
+            )
+            return .quarantined
+        } catch {
+            try ensureActive(userID: userID, generation: generation)
+            mutation.attemptCount += 1
+            mutation.lastAttemptAt = .now
+            mutation.lastError = nil
+            try context.save()
+            throw error
+        }
+    }
+
+    private func quarantine(
+        _ mutation: PendingMutation,
+        message: String,
+        userID: Int,
+        generation: Int
+    ) throws {
+        try ensureActive(userID: userID, generation: generation)
+        mutation.attemptCount += 1
+        mutation.lastAttemptAt = .now
+        mutation.lastError = message
+        try context.save()
     }
 
     private func hasNewerAction(
