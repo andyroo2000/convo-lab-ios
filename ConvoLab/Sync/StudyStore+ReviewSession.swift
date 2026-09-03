@@ -253,57 +253,11 @@ extension StudyStore {
                 queueIndex: cards.count
             )
             stagedReview = staged
-            reviewOutboxRevision &+= 1
-            let currentCard = staged.cardBefore
-            let updatedCard = staged.cardAfter
-            let identifiers = StudyCardIdentity.identifiers(for: currentCard)
-                .union(StudyCardIdentity.identifiers(for: card))
-            sessionCompletedCardIDs.insert(currentCard.id)
-            // The animation retains this reviewed card as its presentation snapshot until
-            // dismissal, while the queue can optimistically advance underneath it.
-            masteryAnimation = nil
-            // Compare the same local FSRS projection on both sides. The server annotation
-            // belongs to the pre-review state and cannot describe this optimistic review.
-            let oldLevel = currentCard.fsrsMasteryLevel
-            let newLevel = updatedCard.fsrsMasteryLevel
-            masteryAnimation = (
-                id: UUID(),
-                card: currentCard,
-                label: currentCard.presentation.back.heading
-                    ?? currentCard.presentation.front.heading
-                    ?? "This item",
-                fromLevel: oldLevel.rawValue,
-                toLevel: newLevel.rawValue,
-                passed: rating != .again
-            )
-            sessionFailureWasPresentByEventID[staged.eventID] = sessionFailedCardIDs.contains(
-                currentCard.id
-            )
-            if rating == .again {
-                sessionFailedCardIDs.insert(currentCard.id)
-            } else {
-                sessionFailedCardIDs.remove(currentCard.id)
-            }
-            var pendingState = PendingReviewState(
-                newlyFailedCardIDs: newlyFailedCardIDs,
-                retainedFailedCardIDs: retainedFailedCardIDs,
-                resolvedFailedCardIDs: resolvedFailedCardIDs
-            )
-            pendingState.record(
-                card: PendingReviewCardState(card: currentCard),
+            let currentCard = applyOptimisticReview(
+                staged,
+                originalCard: card,
                 rating: rating
             )
-            apply(pendingState)
-            consumeOverviewCount(for: currentCard)
-            cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
-            if let index = libraryCards.firstIndex(where: {
-                StudyCardIdentity.matches($0, any: identifiers)
-            }) {
-                libraryCards[index] = updatedCard
-            } else {
-                libraryCards.append(updatedCard)
-            }
-            scheduleNextOfflineActivation()
             if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
@@ -358,6 +312,65 @@ extension StudyStore {
             }
             return stagedReview
         }
+    }
+
+    private func applyOptimisticReview(
+        _ staged: StagedStudyReview,
+        originalCard: StudyCard,
+        rating: ReviewRating
+    ) -> StudyCard {
+        reviewOutboxRevision &+= 1
+        let currentCard = staged.cardBefore
+        let updatedCard = staged.cardAfter
+        let identifiers = StudyCardIdentity.identifiers(for: currentCard)
+            .union(StudyCardIdentity.identifiers(for: originalCard))
+        sessionCompletedCardIDs.insert(currentCard.id)
+        // The animation retains this reviewed card as its presentation snapshot until
+        // dismissal, while the queue can optimistically advance underneath it.
+        masteryAnimation = nil
+        // Compare the same local FSRS projection on both sides. The server annotation
+        // belongs to the pre-review state and cannot describe this optimistic review.
+        let oldLevel = currentCard.fsrsMasteryLevel
+        let newLevel = updatedCard.fsrsMasteryLevel
+        masteryAnimation = (
+            id: UUID(),
+            card: currentCard,
+            label: currentCard.presentation.back.heading
+                ?? currentCard.presentation.front.heading
+                ?? "This item",
+            fromLevel: oldLevel.rawValue,
+            toLevel: newLevel.rawValue,
+            passed: rating != .again
+        )
+        sessionFailureWasPresentByEventID[staged.eventID] = sessionFailedCardIDs.contains(
+            currentCard.id
+        )
+        if rating == .again {
+            sessionFailedCardIDs.insert(currentCard.id)
+        } else {
+            sessionFailedCardIDs.remove(currentCard.id)
+        }
+        var pendingState = PendingReviewState(
+            newlyFailedCardIDs: newlyFailedCardIDs,
+            retainedFailedCardIDs: retainedFailedCardIDs,
+            resolvedFailedCardIDs: resolvedFailedCardIDs
+        )
+        pendingState.record(
+            card: PendingReviewCardState(card: currentCard),
+            rating: rating
+        )
+        apply(pendingState)
+        consumeOverviewCount(for: currentCard)
+        cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
+        if let index = libraryCards.firstIndex(where: {
+            StudyCardIdentity.matches($0, any: identifiers)
+        }) {
+            libraryCards[index] = updatedCard
+        } else {
+            libraryCards.append(updatedCard)
+        }
+        scheduleNextOfflineActivation()
+        return currentCard
     }
 
     private func scheduleProgressionRevalidation(
