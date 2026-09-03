@@ -1488,68 +1488,16 @@ final class StudyStore {
         else {
             return serverCard
         }
-        let serverCard = serverCard.resolvingProgressionMetadata(
-            fallingBackTo: localCard
-        )
-
-        // Compatibility PATCH responses can contain the pre-regeneration audio
-        // projection. Reconcile the exact audio, voice, and override values that
-        // regeneration wrote atomically and the accepted update request submitted.
-        let answerAudioResponseWasStale = submittedAnswerAudioFields.map { fields in
-            fields.contains { key, value in serverCard.answer[key] != value }
-        } ?? false
-        let answer: JSONValue
-        if preservingPendingEdit {
-            answer = localCard.answer
-        } else if let submittedAnswerAudioFields {
-            answer = serverCard.answer.replacingObjectValues(submittedAnswerAudioFields)
-        } else {
-            answer = serverCard.answer
-        }
-        let prompt: JSONValue
-        if preservingPendingEdit {
-            prompt = localCard.prompt
-        } else if let submittedPromptAudio {
-            prompt = serverCard.prompt.replacingObjectValues([
-                "cueAudio": submittedPromptAudio,
-            ])
-        } else {
-            prompt = serverCard.prompt
-        }
-        return StudyCard(
-            id: record.id,
-            // Keep the persisted local key while carrying the server-resolved identity as its alias.
-            syncId: record.id == serverCard.id
-                ? serverCard.syncId ?? localCard.syncId
-                : serverCard.reviewCardID,
-            noteId: serverCard.noteId,
-            revision: preservingPendingEdit ? localCard.revision : serverCard.revision,
-            cardType: serverCard.cardType,
-            prompt: prompt,
-            answer: answer,
-            serverPresentation: prompt == serverCard.prompt && answer == serverCard.answer
-                ? serverCard.serverPresentation
-                : nil,
-            state: preservingPendingReview ? localCard.state : serverCard.state,
-            answerAudioSource: preservingPendingEdit || answerAudioResponseWasStale
-                ? localCard.answerAudioSource
-                : serverCard.answerAudioSource,
-            // Current PATCH responses return computed, non-null mastery; legacy lean
-            // responses may omit it. Editor input cannot clear mastery. If that contract
-            // gains explicit clears, decoding must distinguish null from omission.
-            masteryLevel: preservingPendingReview
-                ? localCard.masteryLevel
-                : serverCard.masteryLevel ?? localCard.masteryLevel,
-            variantGroupId: serverCard.variantGroupId,
-            variantStatus: serverCard.variantStatus,
-            introductionCohortId: serverCard.introductionCohortId,
-            selectionPolicy: serverCard.selectionPolicy,
-            priorityUntil: serverCard.priorityUntil,
-            introductionAvailableAt: serverCard.introductionAvailableAt,
-            createdAt: serverCard.createdAt,
-            updatedAt: preservingPendingReview || preservingPendingEdit
-                ? localCard.updatedAt
-                : serverCard.updatedAt
+        return StudyCardAcknowledgement.reconcile(
+            StudyCardAcknowledgement.Input(
+                serverCard: serverCard,
+                localCard: localCard,
+                persistedID: record.id,
+                preservingPendingReview: preservingPendingReview,
+                preservingPendingEdit: preservingPendingEdit,
+                submittedPromptAudio: submittedPromptAudio,
+                submittedAnswerAudioFields: submittedAnswerAudioFields
+            )
         )
     }
 
