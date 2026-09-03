@@ -5,86 +5,10 @@ import SwiftData
 @MainActor
 final class StudyCardPresentationTests: XCTestCase {
     func testServerPresentationV1OverridesDivergentRawReviewFieldsAndPersists() throws {
-        let card = try decodedCard(presentation: #"""
-        {
-          "version":1,
-          "front":{
-            "mode":"text","text":"SERVER FRONT","ruby":"会社[かいしゃ]",
-            "hint":"SERVER HINT",
-            "media":{
-              "audio":{"url":"/media/server-front.mp3"},
-              "image":{"url":"/media/server-front.png"}
-            },
-            "autoplayAudio":false
-          },
-          "answer":{
-            "heading":"SERVER HEADING","ruby":"答[こた]え",
-            "restored":"SERVER RESTORED","meaning":"SERVER MEANING",
-            "sentences":{
-              "japanese":{"text":"日本語の文","ruby":"日本語[にほんご]の文[ぶん]"},
-              "english":{"text":"Server sentence","ruby":null}
-            },
-            "notes":["Server note"],
-            "media":{"image":{"url":"/media/server-answer.png"}},
-            "audio":{"url":"/media/server-answer.mp3"},
-            "pitchAccent":{
-              "status":"resolved","expression":"答え","reading":"こたえ",
-              "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
-            }
-          }
-        }
-        """#)
+        let card = try decodedCard(presentation: serverPresentationV1())
 
-        XCTAssertEqual(card.serverPresentation?.version, 1)
-        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]")
-        XCTAssertEqual(card.presentation.front.supportingText, "SERVER HINT")
-        XCTAssertEqual(
-            card.presentation.front.audioURL,
-            URL(string: "/media/server-front.mp3")
-        )
-        XCTAssertEqual(
-            card.presentation.front.imageURL,
-            URL(string: "/media/server-front.png")
-        )
-        XCTAssertFalse(card.shouldAutoplayPromptAudio)
-        XCTAssertEqual(card.presentation.back.heading, "答[こた]え")
-        XCTAssertEqual(
-            card.presentation.back.textBlocks.map(\.role),
-            [.restoredText, .meaning, .sentenceJapanese, .sentenceEnglish, .note]
-        )
-        XCTAssertEqual(
-            card.presentation.back.textBlocks.map(\.text),
-            [
-                "SERVER RESTORED",
-                "SERVER MEANING",
-                "日本語[にほんご]の文[ぶん]",
-                "Server sentence",
-                "Server note",
-            ]
-        )
-        XCTAssertEqual(
-            card.presentation.back.audioURL,
-            URL(string: "/media/server-answer.mp3")
-        )
-        XCTAssertEqual(
-            card.mediaURLs,
-            [
-                URL(string: "/media/server-front.mp3")!,
-                URL(string: "/media/server-front.png")!,
-                URL(string: "/media/server-answer.mp3")!,
-                URL(string: "/media/server-answer.png")!,
-            ]
-        )
-        XCTAssertFalse(card.mediaURLs.contains(URL(string: "/media/raw-prompt.mp3")!))
-        XCTAssertEqual(card.audioURL, URL(string: "/media/server-front.mp3"))
-        XCTAssertEqual(card.promptImageURL, URL(string: "/media/server-front.png"))
-        XCTAssertEqual(card.answerImageURL, URL(string: "/media/server-answer.png"))
-        XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
-        XCTAssertEqual(card.rawPromptImageURL, URL(string: "/media/raw-prompt.png"))
-        XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
-        XCTAssertEqual(card.promptText, "会社")
-        XCTAssertEqual(card.answerText, "SERVER MEANING")
-        XCTAssertEqual(card.presentation.back.pitchAccent?.reading, "こたえ")
+        assertServerPresentation(on: card)
+        assertRawPresentationRemainsAvailable(on: card)
 
         let persisted = try StorageCodec.decoder.decode(
             StudyCard.self,
@@ -195,14 +119,14 @@ final class StudyCardPresentationTests: XCTestCase {
     }
 
     func testKnownPresentationExplicitNullAuxiliaryLabelsNeverUseDivergentRawContent() throws {
-        let textCard = try decodedCard(presentation: nullPresentation(mode: "text"))
-        let mediaCard = try decodedCard(presentation: nullPresentation(mode: "media"))
+        let textCard = try decodedCard(presentation: nullPresentation(mode: .text))
+        let mediaCard = try decodedCard(presentation: nullPresentation(mode: .media))
         let clozeCard = try decodedCard(
-            presentation: nullPresentation(mode: "cloze"),
+            presentation: nullPresentation(mode: .cloze),
             cardType: "cloze"
         )
         let blankMeaningClozeCard = try decodedCard(
-            presentation: nullPresentation(mode: "cloze", meaning: #""   ""#),
+            presentation: nullPresentation(mode: .cloze, meaning: #""   ""#),
             cardType: "cloze"
         )
 
@@ -287,8 +211,8 @@ final class StudyCardPresentationTests: XCTestCase {
         let malformedPresentations = [
             minimalPresentation(frontAudio: #""not-an-object""#, pitchAccent: "null"),
             minimalPresentation(frontAudio: #"{"id":42}"#, pitchAccent: "null"),
-            minimalPresentation(frontAudio: "null", pitchAccent: unresolvedPitch),
-            minimalPresentation(frontAudio: "null", pitchAccent: mismatchedPitch),
+            minimalPresentation(frontAudio: "null", pitchAccent: JSONFragment(unresolvedPitch)),
+            minimalPresentation(frontAudio: "null", pitchAccent: JSONFragment(mismatchedPitch)),
         ]
 
         for presentation in malformedPresentations {
@@ -549,33 +473,11 @@ final class StudyCardPresentationTests: XCTestCase {
     }
 
     func testClozeFrontFallsBackWhenReadingDoesNotAlign() {
-        let card = makeCard(
-            cardType: "cloze",
-            prompt: .object([
-                "clozeText": .string("会社で{{c1::働く}}"),
-            ]),
-            answer: .object([
-                "restoredText": .string("会社で働く"),
-                "restoredTextReading": .string("学生[がくせい]"),
-            ])
-        )
-
-        XCTAssertEqual(card.presentation.front.heading, "会社で[...]")
+        assertClozeProjection(.readingDoesNotAlign)
     }
 
     func testClozeFrontFallsBackWhenPrefixAndSuffixWouldOverlap() {
-        let card = makeCard(
-            cardType: "cloze",
-            prompt: .object([
-                "clozeText": .string("AB{{c1::X}}B"),
-            ]),
-            answer: .object([
-                "restoredText": .string("AB"),
-                "restoredTextReading": .string("AB"),
-            ])
-        )
-
-        XCTAssertEqual(card.presentation.front.heading, "AB[...]B")
+        assertClozeProjection(.overlappingPrefixAndSuffix)
     }
 
     func testAnswerDetailsFollowDesktopOrderAndDecodePlainText() {
@@ -675,16 +577,7 @@ final class StudyCardPresentationTests: XCTestCase {
     }
 
     func testClozeOnlyBlanksFirstOrdinalAndRestoresAllAnswers() {
-        let card = makeCard(
-            cardType: "cloze",
-            prompt: .object([
-                "clozeText": .string("{{c1::今日}}は{{c2::雨}}です。"),
-            ]),
-            answer: .object([:])
-        )
-
-        XCTAssertEqual(card.presentation.front.heading, "[...]は雨です。")
-        XCTAssertEqual(card.presentation.back.heading, "今日は雨です。")
+        assertClozeProjection(.multipleOrdinals)
     }
 
     func testLooseDisplayOnlyClozeDoesNotExposeAnswer() {
@@ -750,16 +643,7 @@ final class StudyCardPresentationTests: XCTestCase {
     }
 
     func testResolvedLegacyClozeDoesNotExposeAnswerOnFront() {
-        let card = makeCard(
-            cardType: "cloze",
-            prompt: .object([
-                "clozeDisplayText": .string("私は学生です。"),
-            ]),
-            answer: .object([:])
-        )
-
-        XCTAssertNil(card.presentation.front.heading)
-        XCTAssertEqual(card.presentation.back.heading, "私は学生です。")
+        assertClozeProjection(.resolvedLegacy)
     }
 
     func testResolvedImageBackedClozeUsesNeutralLibraryPrompt() {
@@ -865,6 +749,173 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertNil(malformed.presentation.back.pitchAccent)
     }
 
+    private enum ClozePromptSource {
+        case canonical
+        case displayOnly
+
+        var key: String {
+            switch self {
+            case .canonical: "clozeText"
+            case .displayOnly: "clozeDisplayText"
+            }
+        }
+    }
+
+    private enum ClozeProjectionFixture {
+        case readingDoesNotAlign
+        case overlappingPrefixAndSuffix
+        case multipleOrdinals
+        case resolvedLegacy
+
+        var source: ClozePromptSource {
+            switch self {
+            case .readingDoesNotAlign, .overlappingPrefixAndSuffix, .multipleOrdinals: .canonical
+            case .resolvedLegacy: .displayOnly
+            }
+        }
+
+        var prompt: String {
+            switch self {
+            case .readingDoesNotAlign: "会社で{{c1::働く}}"
+            case .overlappingPrefixAndSuffix: "AB{{c1::X}}B"
+            case .multipleOrdinals: "{{c1::今日}}は{{c2::雨}}です。"
+            case .resolvedLegacy: "私は学生です。"
+            }
+        }
+
+        var restored: String? {
+            switch self {
+            case .readingDoesNotAlign: "会社で働く"
+            case .overlappingPrefixAndSuffix: "AB"
+            case .multipleOrdinals, .resolvedLegacy: nil
+            }
+        }
+
+        var reading: String? {
+            switch self {
+            case .readingDoesNotAlign: "学生[がくせい]"
+            case .overlappingPrefixAndSuffix: "AB"
+            case .multipleOrdinals, .resolvedLegacy: nil
+            }
+        }
+
+        var expectedFront: String? {
+            switch self {
+            case .readingDoesNotAlign: "会社で[...]"
+            case .overlappingPrefixAndSuffix: "AB[...]B"
+            case .multipleOrdinals: "[...]は雨です。"
+            case .resolvedLegacy: nil
+            }
+        }
+
+        var expectedBack: String? {
+            switch self {
+            case .multipleOrdinals: "今日は雨です。"
+            case .resolvedLegacy: "私は学生です。"
+            case .readingDoesNotAlign, .overlappingPrefixAndSuffix: nil
+            }
+        }
+    }
+
+    private func assertClozeProjection(_ fixture: ClozeProjectionFixture) {
+        var answer: [String: JSONValue] = [:]
+        if let restored = fixture.restored {
+            answer["restoredText"] = .string(restored)
+        }
+        if let reading = fixture.reading {
+            answer["restoredTextReading"] = .string(reading)
+        }
+        let card = makeCard(
+            cardType: "cloze",
+            prompt: .object([fixture.source.key: .string(fixture.prompt)]),
+            answer: .object(answer)
+        )
+
+        XCTAssertEqual(card.presentation.front.heading, fixture.expectedFront)
+        if let expectedBack = fixture.expectedBack {
+            XCTAssertEqual(card.presentation.back.heading, expectedBack)
+        }
+    }
+
+    private func serverPresentationV1() -> String {
+        #"""
+        {
+          "version":1,
+          "front":{
+            "mode":"text","text":"SERVER FRONT","ruby":"会社[かいしゃ]",
+            "hint":"SERVER HINT",
+            "media":{
+              "audio":{"url":"/media/server-front.mp3"},
+              "image":{"url":"/media/server-front.png"}
+            },
+            "autoplayAudio":false
+          },
+          "answer":{
+            "heading":"SERVER HEADING","ruby":"答[こた]え",
+            "restored":"SERVER RESTORED","meaning":"SERVER MEANING",
+            "sentences":{
+              "japanese":{"text":"日本語の文","ruby":"日本語[にほんご]の文[ぶん]"},
+              "english":{"text":"Server sentence","ruby":null}
+            },
+            "notes":["Server note"],
+            "media":{"image":{"url":"/media/server-answer.png"}},
+            "audio":{"url":"/media/server-answer.mp3"},
+            "pitchAccent":{
+              "status":"resolved","expression":"答え","reading":"こたえ",
+              "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
+            }
+          }
+        }
+        """#
+    }
+
+    private func assertServerPresentation(on card: StudyCard) {
+        XCTAssertEqual(card.serverPresentation?.version, 1)
+        XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]")
+        XCTAssertEqual(card.presentation.front.supportingText, "SERVER HINT")
+        XCTAssertEqual(card.presentation.front.audioURL, URL(string: "/media/server-front.mp3"))
+        XCTAssertEqual(card.presentation.front.imageURL, URL(string: "/media/server-front.png"))
+        XCTAssertFalse(card.shouldAutoplayPromptAudio)
+        XCTAssertEqual(card.presentation.back.heading, "答[こた]え")
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.role),
+            [.restoredText, .meaning, .sentenceJapanese, .sentenceEnglish, .note]
+        )
+        XCTAssertEqual(
+            card.presentation.back.textBlocks.map(\.text),
+            [
+                "SERVER RESTORED",
+                "SERVER MEANING",
+                "日本語[にほんご]の文[ぶん]",
+                "Server sentence",
+                "Server note",
+            ]
+        )
+        XCTAssertEqual(card.presentation.back.audioURL, URL(string: "/media/server-answer.mp3"))
+        XCTAssertEqual(
+            card.mediaURLs,
+            [
+                URL(string: "/media/server-front.mp3")!,
+                URL(string: "/media/server-front.png")!,
+                URL(string: "/media/server-answer.mp3")!,
+                URL(string: "/media/server-answer.png")!,
+            ]
+        )
+        XCTAssertFalse(card.mediaURLs.contains(URL(string: "/media/raw-prompt.mp3")!))
+        XCTAssertEqual(card.audioURL, URL(string: "/media/server-front.mp3"))
+        XCTAssertEqual(card.promptImageURL, URL(string: "/media/server-front.png"))
+        XCTAssertEqual(card.answerImageURL, URL(string: "/media/server-answer.png"))
+        XCTAssertEqual(card.promptText, "会社")
+        XCTAssertEqual(card.answerText, "SERVER MEANING")
+        XCTAssertEqual(card.presentation.back.pitchAccent?.reading, "こたえ")
+    }
+
+    private func assertRawPresentationRemainsAvailable(on card: StudyCard) {
+        XCTAssertEqual(card.rawAudioURL, URL(string: "/media/raw-prompt.mp3"))
+        XCTAssertEqual(card.rawPromptImageURL, URL(string: "/media/raw-prompt.png"))
+        XCTAssertEqual(card.rawAnswerImageURL, URL(string: "/media/raw-answer.png"))
+    }
+
     private func makeCard(
         cardType: String,
         prompt: JSONValue,
@@ -925,42 +976,75 @@ final class StudyCardPresentationTests: XCTestCase {
         )
     }
 
-    private func minimalPresentation(frontAudio: String, pitchAccent: String) -> String {
+    private func minimalPresentation(frontAudio: JSONFragment, pitchAccent: JSONFragment) -> String {
+        presentation(.init(
+            mode: .text,
+            frontText: #""front""#,
+            frontAudio: frontAudio,
+            answerHeading: #""answer""#,
+            meaning: "null",
+            pitchAccent: pitchAccent
+        ))
+    }
+
+    private func nullPresentation(
+        mode: PresentationMode,
+        meaning: JSONFragment = "null"
+    ) -> String {
+        presentation(.init(
+            mode: mode,
+            frontText: "null",
+            frontAudio: "null",
+            answerHeading: "null",
+            meaning: meaning,
+            pitchAccent: "null"
+        ))
+    }
+
+    private enum PresentationMode: String {
+        case text
+        case media
+        case cloze
+    }
+
+    private struct JSONFragment: ExpressibleByStringLiteral {
+        let rawValue: String
+
+        init(stringLiteral value: String) {
+            rawValue = value
+        }
+
+        init(_ value: String) {
+            rawValue = value
+        }
+    }
+
+    private struct PresentationFixture {
+        let mode: PresentationMode
+        let frontText: JSONFragment
+        let frontAudio: JSONFragment
+        let answerHeading: JSONFragment
+        let meaning: JSONFragment
+        let pitchAccent: JSONFragment
+    }
+
+    private func presentation(_ fixture: PresentationFixture) -> String {
         #"""
         {
           "version":1,
           "front":{
-            "mode":"text","text":"front","ruby":null,"hint":null,
-            "media":{"audio":\#(frontAudio),"image":null},"autoplayAudio":false
+            "mode":"\#(fixture.mode.rawValue)","text":\#(fixture.frontText.rawValue),"ruby":null,"hint":null,
+            "media":{"audio":\#(fixture.frontAudio.rawValue),"image":null},"autoplayAudio":false
           },
           "answer":{
-            "heading":"answer","ruby":null,"restored":null,"meaning":null,
+            "heading":\#(fixture.answerHeading.rawValue),"ruby":null,
+            "restored":null,"meaning":\#(fixture.meaning.rawValue),
             "sentences":{
               "japanese":{"text":null,"ruby":null},
               "english":{"text":null,"ruby":null}
             },
             "notes":[],"media":{"image":null},"audio":null,
-            "pitchAccent":\#(pitchAccent)
-          }
-        }
-        """#
-    }
-
-    private func nullPresentation(mode: String, meaning: String = "null") -> String {
-        #"""
-        {
-          "version":1,
-          "front":{
-            "mode":"\#(mode)","text":null,"ruby":null,"hint":null,
-            "media":{"audio":null,"image":null},"autoplayAudio":false
-          },
-          "answer":{
-            "heading":null,"ruby":null,"restored":null,"meaning":\#(meaning),
-            "sentences":{
-              "japanese":{"text":null,"ruby":null},
-              "english":{"text":null,"ruby":null}
-            },
-            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+            "pitchAccent":\#(fixture.pitchAccent.rawValue)
           }
         }
         """#
