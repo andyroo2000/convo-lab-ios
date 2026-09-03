@@ -676,91 +676,118 @@ struct CardEditorView: View {
         defer { isRegeneratingImage = false }
         do {
             if let serverDraft {
-                let result = try await store.generateManualDraftPreviewImage(
-                    serverDraft,
-                    draft: draft,
-                    previewAudio: previewAudio,
-                    previewAudioRole: previewAudioRole
-                )
-                try Task.checkCancellation()
-                previewImage = result.draft.previewImage
-                draft.imagePrompt = result.draft.imagePrompt ?? draft.imagePrompt
-                draft.reconcileImages(
-                    promptImage: result.draft.imagePlacement.includesPrompt
-                        ? result.draft.previewImage : nil,
-                    answerImage: result.draft.imagePlacement.includesAnswer
-                        ? result.draft.previewImage : nil
-                )
-                let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
-                sharedImageLocalURL = result.localURL
-                sharedImagePreview = generatedImagePreview
-                applyImagePlacementPreview(result.draft.imagePlacement)
-                originalPromptImageLocalURL = promptImageLocalURL
-                originalPromptImagePreview = promptImagePreview
-                originalAnswerImageLocalURL = answerImageLocalURL
-                originalAnswerImagePreview = answerImagePreview
-                return
+                try await regenerateServerDraftImage(serverDraft)
+            } else if let card {
+                try await regenerateCardImage(card)
             }
-            guard let card else { return }
-            let result = try await store.regenerateImage(
-                for: card,
-                prompt: draft.imagePrompt,
-                placement: draft.imagePlacement
-            )
-            try Task.checkCancellation()
-            let requestedPlacement = draft.imagePlacement
-            let nextPromptImageLocalURL: URL?
-            if let promptURL = result.card.rawPromptImageURL {
-                nextPromptImageLocalURL = requestedPlacement.includesPrompt
-                    ? result.localURL
-                    : await store.playableMediaURL(for: promptURL)
-            } else {
-                nextPromptImageLocalURL = nil
-            }
-            let nextAnswerImageLocalURL: URL?
-            if let answerURL = result.card.rawAnswerImageURL {
-                nextAnswerImageLocalURL = requestedPlacement.includesAnswer
-                    ? result.localURL
-                    : await store.playableMediaURL(for: answerURL)
-            } else {
-                nextAnswerImageLocalURL = nil
-            }
-            try Task.checkCancellation()
-            let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
-            let nextPromptImagePreview = if nextPromptImageLocalURL == result.localURL {
-                generatedImagePreview
-            } else {
-                nextPromptImageLocalURL.flatMap {
-                    UIImage(contentsOfFile: $0.path)
-                }
-            }
-            let nextAnswerImagePreview = if nextAnswerImageLocalURL == result.localURL {
-                generatedImagePreview
-            } else if nextAnswerImageLocalURL == nextPromptImageLocalURL {
-                nextPromptImagePreview
-            } else {
-                nextAnswerImageLocalURL.flatMap {
-                    UIImage(contentsOfFile: $0.path)
-                }
-            }
-            draft.reconcileImages(
-                promptImage: result.card.prompt["cueImage"],
-                answerImage: result.card.answer["answerImage"]
-            )
-            sharedImageLocalURL = result.localURL
-            sharedImagePreview = generatedImagePreview
-            promptImageLocalURL = nextPromptImageLocalURL
-            promptImagePreview = nextPromptImagePreview
-            answerImageLocalURL = nextAnswerImageLocalURL
-            answerImagePreview = nextAnswerImagePreview
-            originalPromptImageLocalURL = promptImageLocalURL
-            originalPromptImagePreview = promptImagePreview
-            originalAnswerImageLocalURL = answerImageLocalURL
-            originalAnswerImagePreview = answerImagePreview
         } catch is CancellationError {
             // Completed server/cache work is reconciled by StudyStore.
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func regenerateServerDraftImage(
+        _ serverDraft: StudyManualCardDraft
+    ) async throws {
+        let result = try await store.generateManualDraftPreviewImage(
+            serverDraft,
+            draft: draft,
+            previewAudio: previewAudio,
+            previewAudioRole: previewAudioRole
+        )
+        try Task.checkCancellation()
+        previewImage = result.draft.previewImage
+        draft.imagePrompt = result.draft.imagePrompt ?? draft.imagePrompt
+        draft.reconcileImages(
+            promptImage: result.draft.imagePlacement.includesPrompt
+                ? result.draft.previewImage : nil,
+            answerImage: result.draft.imagePlacement.includesAnswer
+                ? result.draft.previewImage : nil
+        )
+        let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
+        sharedImageLocalURL = result.localURL
+        sharedImagePreview = generatedImagePreview
+        applyImagePlacementPreview(result.draft.imagePlacement)
+        originalPromptImageLocalURL = promptImageLocalURL
+        originalPromptImagePreview = promptImagePreview
+        originalAnswerImageLocalURL = answerImageLocalURL
+        originalAnswerImagePreview = answerImagePreview
+    }
+
+    private func regenerateCardImage(_ card: StudyCard) async throws {
+        let result = try await store.regenerateImage(
+            for: card,
+            prompt: draft.imagePrompt,
+            placement: draft.imagePlacement
+        )
+        try Task.checkCancellation()
+        let requestedPlacement = draft.imagePlacement
+        let nextPromptImageLocalURL = await regeneratedImageLocalURL(
+            for: result.card.rawPromptImageURL,
+            usesGeneratedImage: requestedPlacement.includesPrompt,
+            generatedURL: result.localURL
+        )
+        let nextAnswerImageLocalURL = await regeneratedImageLocalURL(
+            for: result.card.rawAnswerImageURL,
+            usesGeneratedImage: requestedPlacement.includesAnswer,
+            generatedURL: result.localURL
+        )
+        try Task.checkCancellation()
+        let generatedImagePreview = UIImage(contentsOfFile: result.localURL.path)
+        let nextPromptImagePreview = regeneratedImagePreview(
+            at: nextPromptImageLocalURL,
+            generatedURL: result.localURL,
+            generatedPreview: generatedImagePreview
+        )
+        let nextAnswerImagePreview = regeneratedImagePreview(
+            at: nextAnswerImageLocalURL,
+            generatedURL: result.localURL,
+            generatedPreview: generatedImagePreview,
+            reusableURL: nextPromptImageLocalURL,
+            reusablePreview: nextPromptImagePreview
+        )
+        draft.reconcileImages(
+            promptImage: result.card.prompt["cueImage"],
+            answerImage: result.card.answer["answerImage"]
+        )
+        sharedImageLocalURL = result.localURL
+        sharedImagePreview = generatedImagePreview
+        promptImageLocalURL = nextPromptImageLocalURL
+        promptImagePreview = nextPromptImagePreview
+        answerImageLocalURL = nextAnswerImageLocalURL
+        answerImagePreview = nextAnswerImagePreview
+        originalPromptImageLocalURL = promptImageLocalURL
+        originalPromptImagePreview = promptImagePreview
+        originalAnswerImageLocalURL = answerImageLocalURL
+        originalAnswerImagePreview = answerImagePreview
+    }
+
+    private func regeneratedImageLocalURL(
+        for remoteURL: URL?,
+        usesGeneratedImage: Bool,
+        generatedURL: URL
+    ) async -> URL? {
+        guard let remoteURL else { return nil }
+        guard !usesGeneratedImage else { return generatedURL }
+        return await store.playableMediaURL(for: remoteURL)
+    }
+
+    private func regeneratedImagePreview(
+        at localURL: URL?,
+        generatedURL: URL,
+        generatedPreview: UIImage?,
+        reusableURL: URL? = nil,
+        reusablePreview: UIImage? = nil
+    ) -> UIImage? {
+        if localURL == generatedURL {
+            return generatedPreview
+        }
+        if localURL == reusableURL {
+            return reusablePreview
+        }
+        return localURL.flatMap {
+            UIImage(contentsOfFile: $0.path)
         }
     }
 }
