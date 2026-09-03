@@ -152,37 +152,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
 
     func testConfirmedAccountDeletionSchedulesEveryCleanupBeforeFailedAttempts() async throws {
         let defaults = try makeDefaults()
-        let user = CurrentUser(
-            id: 42,
-            name: "Deleted User",
-            email: "deleted@example.com",
-            emailVerifiedAt: nil
-        )
-        let cardCatalogCache = StudyCardCatalogSnapshotCache(defaults: defaults)
-        cardCatalogCache.save(
-            StudyCardCatalogSnapshot(
-                savedAt: .now,
-                newCardQueue: [],
-                newCardQueueTotal: 0,
-                newCardQueueNextCursor: nil,
-                newCardQueueRefreshedAt: .now,
-                learningItems: [],
-                learningItemsNextCursor: nil,
-                learningItemsRefreshedAt: .now
-            ),
-            userID: user.id
-        )
-        cardCatalogCache.saveManualDrafts(
-            StudyManualDraftSnapshot(savedAt: .now, drafts: [], refreshedAt: .now),
-            userID: user.id
-        )
-        let credentials = CleanupCredentialStore(values: [
-            "learning-os-mobile-token": "valid-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(user),
-                encoding: .utf8
-            )!,
-        ])
+        let fixture = try makeConfirmedDeletionFixture(defaults: defaults)
         let authClient = makeClient { request in
             switch (request.url?.path, request.httpMethod) {
             case ("/api/me", "GET"):
@@ -204,7 +174,7 @@ final class AccountDeletionCleanupTests: XCTestCase {
             },
             makeStudyTimeContainer: fallbackOnly(StudyTimePersistence.makeContainer),
             makeAuthStore: { _ in
-                AuthStore(api: authClient, keychain: credentials)
+                AuthStore(api: authClient, keychain: fixture.credentials)
             },
             accountDeletionCleanupDefaults: defaults
         )
@@ -223,11 +193,11 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertTrue(model.storageStatus.isDegraded)
-        XCTAssertNil(cardCatalogCache.load(userID: user.id))
-        XCTAssertNil(cardCatalogCache.loadManualDrafts(userID: user.id))
+        XCTAssertNil(fixture.cardCatalogCache.load(userID: fixture.user.id))
+        XCTAssertNil(fixture.cardCatalogCache.loadManualDrafts(userID: fixture.user.id))
         XCTAssertFalse(model.shouldShowAccountDeletionCleanupWarning)
         XCTAssertTrue(expectedPendingDomains.allSatisfy { domain in
-            pending.contains { $0.userID == user.id && $0.domain == domain }
+            pending.contains { $0.userID == fixture.user.id && $0.domain == domain }
         })
         XCTAssertFalse(pending.contains { $0.domain == .milestones })
         await model.retryAccountDeletionCleanup()
@@ -306,19 +276,103 @@ final class AccountDeletionCleanupTests: XCTestCase {
             MockURLProtocol.deferredHandler = nil
         }
         let defaults = try makeDefaults()
+        let fixture = try makeStaleDeletionFixture()
+        let model = AppModel(
+            configuration: AppConfiguration(
+                apiBaseURL: URL(string: "https://example.test")!
+            ),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAPIClient: { _ in fixture.client },
+            makeAuthStore: { _ in
+                AuthStore(api: fixture.client, keychain: fixture.credentials)
+            },
+            accountDeletionCleanupDefaults: defaults
+        )
+        await model.auth.restore()
+        model.studyTime.activate(userID: fixture.originalUser.id)
+        model.studyTime.start(
+            activity: .reading,
+            source: .manual,
+            name: "Deleted user's reading"
+        )
+
+        let deletion = Task {
+            await model.deleteAccount(currentPassword: "password")
+        }
+        await fixture.deferredDeletion.waitUntilPending()
+        await model.auth.logout()
+        await model.auth.register(
+            name: "New User",
+            email: "new@example.com",
+            password: "password123",
+            inviteCode: "INVITE1"
+        )
+        model.studyTime.activate(userID: 84)
+        model.studyTime.start(
+            activity: .podcast,
+            source: .manual,
+            name: "New user's listening"
+        )
+        fixture.deferredDeletion.succeed(with: Self.response(statusCode: 204))
+
+        let deleted = await deletion.value
+        XCTAssertFalse(deleted)
+        guard case let .signedIn(currentUser) = model.auth.state else {
+            return XCTFail("New user must remain signed in")
+        }
+        XCTAssertEqual(currentUser.id, 84)
+        XCTAssertEqual(model.studyTime.active?.name, "New user's listening")
+        XCTAssertTrue(
+            AccountDeletionCleanupLedger(defaults: defaults).pendingItems.isEmpty
+        )
+    }
+
+    private func makeConfirmedDeletionFixture(
+        defaults: UserDefaults
+    ) throws -> ConfirmedDeletionFixture {
+        let user = CurrentUser(
+            id: 42,
+            name: "Deleted User",
+            email: "deleted@example.com",
+            emailVerifiedAt: nil
+        )
+        let cardCatalogCache = StudyCardCatalogSnapshotCache(defaults: defaults)
+        cardCatalogCache.save(
+            StudyCardCatalogSnapshot(
+                savedAt: .now,
+                newCardQueue: [],
+                newCardQueueTotal: 0,
+                newCardQueueNextCursor: nil,
+                newCardQueueRefreshedAt: .now,
+                learningItems: [],
+                learningItemsNextCursor: nil,
+                learningItemsRefreshedAt: .now
+            ),
+            userID: user.id
+        )
+        cardCatalogCache.saveManualDrafts(
+            StudyManualDraftSnapshot(savedAt: .now, drafts: [], refreshedAt: .now),
+            userID: user.id
+        )
+        let credentials = try makeCredentials(user: user, token: "valid-token")
+        return ConfirmedDeletionFixture(
+            user: user,
+            cardCatalogCache: cardCatalogCache,
+            credentials: credentials
+        )
+    }
+
+    private func makeStaleDeletionFixture() throws -> StaleDeletionFixture {
         let originalUser = CurrentUser(
             id: 42,
             name: "Deleted User",
             email: "deleted@example.com",
             emailVerifiedAt: nil
         )
-        let credentials = CleanupCredentialStore(values: [
-            "learning-os-mobile-token": "old-token",
-            "learning-os-current-user": String(
-                data: try JSONEncoder().encode(originalUser),
-                encoding: .utf8
-            )!,
-        ])
+        let credentials = try makeCredentials(user: originalUser, token: "old-token")
         let deferredDeletion = LockedDeferredResponse()
         let client = makeDeferredClient { request, completion in
             switch (request.url?.path, request.httpMethod) {
@@ -341,57 +395,25 @@ final class AccountDeletionCleanupTests: XCTestCase {
                 completion(.failure(URLError(.badURL)))
             }
         }
-        let model = AppModel(
-            configuration: AppConfiguration(
-                apiBaseURL: URL(string: "https://example.test")!
-            ),
-            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
-            makeStudyTimeContainer: { _ in
-                try StudyTimePersistence.makeContainer(inMemory: true)
-            },
-            makeAPIClient: { _ in client },
-            makeAuthStore: { _ in
-                AuthStore(api: client, keychain: credentials)
-            },
-            accountDeletionCleanupDefaults: defaults
+        return StaleDeletionFixture(
+            originalUser: originalUser,
+            credentials: credentials,
+            deferredDeletion: deferredDeletion,
+            client: client
         )
-        await model.auth.restore()
-        model.studyTime.activate(userID: originalUser.id)
-        model.studyTime.start(
-            activity: .reading,
-            source: .manual,
-            name: "Deleted user's reading"
-        )
+    }
 
-        let deletion = Task {
-            await model.deleteAccount(currentPassword: "password")
-        }
-        await deferredDeletion.waitUntilPending()
-        await model.auth.logout()
-        await model.auth.register(
-            name: "New User",
-            email: "new@example.com",
-            password: "password123",
-            inviteCode: "INVITE1"
-        )
-        model.studyTime.activate(userID: 84)
-        model.studyTime.start(
-            activity: .podcast,
-            source: .manual,
-            name: "New user's listening"
-        )
-        deferredDeletion.succeed(with: Self.response(statusCode: 204))
-
-        let deleted = await deletion.value
-        XCTAssertFalse(deleted)
-        guard case let .signedIn(currentUser) = model.auth.state else {
-            return XCTFail("New user must remain signed in")
-        }
-        XCTAssertEqual(currentUser.id, 84)
-        XCTAssertEqual(model.studyTime.active?.name, "New user's listening")
-        XCTAssertTrue(
-            AccountDeletionCleanupLedger(defaults: defaults).pendingItems.isEmpty
-        )
+    private func makeCredentials(
+        user: CurrentUser,
+        token: String
+    ) throws -> CleanupCredentialStore {
+        CleanupCredentialStore(values: [
+            "learning-os-mobile-token": token,
+            "learning-os-current-user": String(
+                data: try JSONEncoder().encode(user),
+                encoding: .utf8
+            )!,
+        ])
     }
 
     private func makeDefaults() throws -> UserDefaults {
@@ -502,6 +524,19 @@ final class AccountDeletionCleanupTests: XCTestCase {
             audioPlaybackMs: nil,
             cardsCreated: nil
         )
+    }
+
+    private struct ConfirmedDeletionFixture {
+        let user: CurrentUser
+        let cardCatalogCache: StudyCardCatalogSnapshotCache
+        let credentials: CleanupCredentialStore
+    }
+
+    private struct StaleDeletionFixture {
+        let originalUser: CurrentUser
+        let credentials: CleanupCredentialStore
+        let deferredDeletion: LockedDeferredResponse
+        let client: APIClient
     }
 }
 
