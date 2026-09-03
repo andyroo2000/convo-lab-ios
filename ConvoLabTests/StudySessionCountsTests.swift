@@ -75,63 +75,23 @@ final class StudySessionCountsTests: XCTestCase {
     func testOverviewDecodesLearningReadinessAndMasterySpread() throws {
         let overview = try StorageCodec.decoder.decode(
             StudyOverview.self,
-            from: Data(
-                #"""
-                {
-                  "dueCount": 8,
-                  "failedCount": 2,
-                  "newCount": 4,
-                  "reviewCount": 6,
-                  "totalCards": 42,
-                  "newCardsPerDay": 20,
-                  "newCardsAvailableToday": 4,
-                  "lessonBatchSize": 8,
-                  "reviewTimeBudgetMinutes": 90,
-                  "masterySpread": {
-                    "apprentice": 4,
-                    "guru": 3,
-                    "master": 2,
-                    "enlightened": 1,
-                    "burned": 5
-                  },
-                  "jlptMastery": {
-                    "N5": {
-                      "vocabulary": {"masteryPercent": 34, "known": 250, "knownFromCards": 233, "knownFromWaniKani": 40, "knownFromBoth": 23, "matched": 280, "covered": 280, "total": 684},
-                      "grammar": {"masteryPercent": 21, "known": 16, "knownFromCards": 16, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 29, "covered": 29, "total": 77}
-                    },
-                    "N4": {
-                      "vocabulary": {"masteryPercent": 18, "known": 115, "knownFromCards": 90, "knownFromWaniKani": 40, "knownFromBoth": 15, "matched": 130, "covered": 130, "total": 640},
-                      "grammar": {"masteryPercent": 9, "known": 8, "knownFromCards": 8, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 12, "covered": 12, "total": 89}
-                    }
-                  },
-                  "learningReadiness": {
-                    "recommendation": "caution",
-                    "readinessLevel": "ease_up",
-                    "displayStatus": "Add carefully",
-                    "displaySummary": "Recent recall is 84%. Target is 90%.",
-                    "sampleSize": 50,
-                    "sufficientData": true,
-                    "recentRecall": 0.84,
-                    "targetRecall": 0.9,
-                    "dueBacklog": 10,
-                    "apprenticeCount": 4,
-                    "projectedSevenDayReviews": 22,
-                    "timedReviewSampleSize": 40,
-                    "medianReviewDurationSeconds": 18.5,
-                    "projectedDailyReviewMinutes": 58,
-                    "reviewTimeBudgetMinutes": 90,
-                    "reviewTimeHeadroomMinutes": 32,
-                    "suggestedBatchSize": 4
-                  }
-                }
-                """#.utf8
-            )
+            from: Data(Self.detailedOverviewJSON.utf8)
         )
 
+        assertOverviewBasics(overview)
+        assertMastery(overview)
+        try assertReadiness(overview)
+        assertBudgetUpdate(overview)
+    }
+
+    private func assertOverviewBasics(_ overview: StudyOverview) {
         XCTAssertEqual(overview.lessonBatchSize, 8)
         XCTAssertEqual(overview.totalCards, 42)
         XCTAssertEqual(overview.reviewTimeBudgetMinutes, 90)
         XCTAssertEqual(overview.masterySpread?.burned, 5)
+    }
+
+    private func assertMastery(_ overview: StudyOverview) {
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.masteryPercent, 34)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.known, 250)
         XCTAssertEqual(overview.jlptMastery?.n5.vocabulary.knownFromCards, 233)
@@ -151,6 +111,9 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(overview.jlptMastery?.n4?.vocabulary.total, 640)
         XCTAssertEqual(overview.jlptMastery?.n4?.grammar.masteryPercent, 9)
         XCTAssertEqual(overview.jlptMastery?.n4?.grammar.total, 89)
+    }
+
+    private func assertReadiness(_ overview: StudyOverview) throws {
         XCTAssertEqual(overview.learningReadiness?.recommendation, "caution")
         XCTAssertEqual(overview.learningReadiness?.readinessLevel, "ease_up")
         XCTAssertEqual(overview.learningReadiness?.displayStatus, "Add carefully")
@@ -168,7 +131,9 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(updatedReadiness.reviewTimeBudgetMinutes, 45)
         XCTAssertEqual(updatedReadiness.projectedDailyReviewMinutes, 58)
         XCTAssertEqual(updatedReadiness.reviewTimeHeadroomMinutes, -13)
+    }
 
+    private func assertBudgetUpdate(_ overview: StudyOverview) {
         let narrowOverview = StudyOverview(
             dueCount: 8,
             newCount: 4,
@@ -226,13 +191,13 @@ final class StudySessionCountsTests: XCTestCase {
     }
 
     func testLessonAvailabilityIsNotLimitedToReviewSessionCards() {
-        let overview = StudyOverview(
-            dueCount: 5,
-            newCount: 12,
-            reviewCount: 5,
-            newCardsPerDay: 20,
-            newCardsAvailableToday: 6,
-            failedCount: 0
+        let overview = makeOverview(
+            .init(
+                dueCount: 5,
+                newCount: 12,
+                reviewCount: 5,
+                newCardsAvailableToday: 6
+            )
         )
 
         let counts = StudySessionCounts.calculate(
@@ -247,13 +212,12 @@ final class StudySessionCountsTests: XCTestCase {
         let cards = (0..<300).map {
             makeCard(id: "review-\($0)", queueState: "review")
         }
-        let overview = StudyOverview(
-            dueCount: 618,
-            newCount: 0,
-            reviewCount: 618,
-            newCardsPerDay: 20,
-            newCardsAvailableToday: 0,
-            failedCount: 0
+        let overview = makeOverview(
+            .init(
+                dueCount: 618,
+                reviewCount: 618,
+                newCardsAvailableToday: 0
+            )
         )
 
         let counts = StudySessionCounts.calculate(cards: cards, overview: overview)
@@ -262,12 +226,12 @@ final class StudySessionCountsTests: XCTestCase {
     }
 
     func testCardsThatBecomeDueOfflineOverrideAStaleCachedOverview() {
-        let overview = StudyOverview(
-            dueCount: 0,
-            newCount: 0,
-            reviewCount: 12,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 0
+        let overview = makeOverview(
+            .init(
+                reviewCount: 12,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            )
         )
         let cards = [
             makeCard(id: "became-due-1", queueState: "review"),
@@ -311,14 +275,13 @@ final class StudySessionCountsTests: XCTestCase {
     }
 
     func testReviewedFailureOptimisticallyDecrementsAuthoritativeCount() {
-        let overview = StudyOverview(
-            dueCount: 2,
-            newCount: 0,
-            reviewCount: 0,
-            newCardsPerDay: 20,
-            newCardsAvailableToday: 0,
-            failedCount: 2,
-            failedDueCount: 2
+        let overview = makeOverview(
+            .init(
+                dueCount: 2,
+                newCardsAvailableToday: 0,
+                failedCount: 2,
+                failedDueCount: 2
+            )
         )
 
         let counts = StudySessionCounts.calculate(
@@ -331,14 +294,12 @@ final class StudySessionCountsTests: XCTestCase {
     }
 
     func testFutureRelearningFailureDoesNotClaimAReviewIsReady() {
-        let overview = StudyOverview(
-            dueCount: 0,
-            newCount: 0,
-            reviewCount: 0,
-            newCardsPerDay: 20,
-            newCardsAvailableToday: 0,
-            failedCount: 1,
-            failedDueCount: 0
+        let overview = makeOverview(
+            .init(
+                newCardsAvailableToday: 0,
+                failedCount: 1,
+                failedDueCount: 0
+            )
         )
 
         let counts = StudySessionCounts.calculate(cards: [], overview: overview)
@@ -347,13 +308,12 @@ final class StudySessionCountsTests: XCTestCase {
     }
 
     func testFirstTimeAgainDoesNotClaimAReviewIsReadyBeforeItsDueTime() {
-        let overview = StudyOverview(
-            dueCount: 4,
-            newCount: 0,
-            reviewCount: 4,
-            newCardsPerDay: 20,
-            newCardsAvailableToday: 0,
-            failedCount: 0
+        let overview = makeOverview(
+            .init(
+                dueCount: 4,
+                reviewCount: 4,
+                newCardsAvailableToday: 0
+            )
         )
 
         let counts = StudySessionCounts.calculate(
@@ -429,4 +389,76 @@ final class StudySessionCountsTests: XCTestCase {
             updatedAt: .now
         )
     }
+
+    private func makeOverview(_ fixture: OverviewFixture) -> StudyOverview {
+        StudyOverview(
+            dueCount: fixture.dueCount,
+            newCount: fixture.newCount,
+            reviewCount: fixture.reviewCount,
+            newCardsPerDay: fixture.newCardsPerDay,
+            newCardsAvailableToday: fixture.newCardsAvailableToday,
+            failedCount: fixture.failedCount,
+            failedDueCount: fixture.failedDueCount
+        )
+    }
+
+    private struct OverviewFixture {
+        var dueCount = 0
+        var newCount = 0
+        var reviewCount = 0
+        var newCardsPerDay = 20
+        var newCardsAvailableToday: Int?
+        var failedCount = 0
+        var failedDueCount: Int?
+    }
+
+    private static let detailedOverviewJSON = #"""
+        {
+          "dueCount": 8,
+          "failedCount": 2,
+          "newCount": 4,
+          "reviewCount": 6,
+          "totalCards": 42,
+          "newCardsPerDay": 20,
+          "newCardsAvailableToday": 4,
+          "lessonBatchSize": 8,
+          "reviewTimeBudgetMinutes": 90,
+          "masterySpread": {
+            "apprentice": 4,
+            "guru": 3,
+            "master": 2,
+            "enlightened": 1,
+            "burned": 5
+          },
+          "jlptMastery": {
+            "N5": {
+              "vocabulary": {"masteryPercent": 34, "known": 250, "knownFromCards": 233, "knownFromWaniKani": 40, "knownFromBoth": 23, "matched": 280, "covered": 280, "total": 684},
+              "grammar": {"masteryPercent": 21, "known": 16, "knownFromCards": 16, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 29, "covered": 29, "total": 77}
+            },
+            "N4": {
+              "vocabulary": {"masteryPercent": 18, "known": 115, "knownFromCards": 90, "knownFromWaniKani": 40, "knownFromBoth": 15, "matched": 130, "covered": 130, "total": 640},
+              "grammar": {"masteryPercent": 9, "known": 8, "knownFromCards": 8, "knownFromWaniKani": 0, "knownFromBoth": 0, "matched": 12, "covered": 12, "total": 89}
+            }
+          },
+          "learningReadiness": {
+            "recommendation": "caution",
+            "readinessLevel": "ease_up",
+            "displayStatus": "Add carefully",
+            "displaySummary": "Recent recall is 84%. Target is 90%.",
+            "sampleSize": 50,
+            "sufficientData": true,
+            "recentRecall": 0.84,
+            "targetRecall": 0.9,
+            "dueBacklog": 10,
+            "apprenticeCount": 4,
+            "projectedSevenDayReviews": 22,
+            "timedReviewSampleSize": 40,
+            "medianReviewDurationSeconds": 18.5,
+            "projectedDailyReviewMinutes": 58,
+            "reviewTimeBudgetMinutes": 90,
+            "reviewTimeHeadroomMinutes": 32,
+            "suggestedBatchSize": 4
+          }
+        }
+        """#
 }
