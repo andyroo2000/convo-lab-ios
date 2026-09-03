@@ -20,6 +20,13 @@ private struct PendingAnswerAudioReconciliation: Codable {
     let promptAudio: JSONValue?
 }
 
+private struct SubmittedCardMutation {
+    let clientResourceID: String
+    let serverCard: StudyCard?
+    let submittedPromptAudio: JSONValue?
+    let submittedAnswerAudioFields: [String: JSONValue]?
+}
+
 struct QuarantinedCardMutationError: LocalizedError {
     let count: Int
 
@@ -303,18 +310,7 @@ final class CardMutationOutbox {
         var quarantinedCount = 0
         while true {
             try ensureActive(userID: userID, generation: generation)
-            var descriptor = FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID
-                        && ($0.kind == "cardCreate"
-                            || $0.kind == "cardUpdate"
-                            || $0.kind == "cardDelete")
-                        && $0.lastError == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt)]
-            )
-            descriptor.fetchLimit = 1
-            guard let mutation = try context.fetch(descriptor).first else {
+            guard let mutation = try nextPendingMutation(userID: userID) else {
                 if quarantinedCount > 0 {
                     throw QuarantinedCardMutationError(count: quarantinedCount)
                 }
@@ -322,90 +318,17 @@ final class CardMutationOutbox {
             }
 
             do {
-                let clientResourceID = mutation.resourceID
-                let serverCard: StudyCard?
-                var submittedPromptAudio: JSONValue?
-                var submittedAnswerAudioFields: [String: JSONValue]?
-                switch mutation.kind {
-                case "cardCreate":
-                    let request = try StorageCodec.decoder.decode(
-                        CreateStudyCardRequest.self,
-                        from: mutation.payload
-                    )
-                    serverCard = try await api.request(
-                        "/api/study/cards",
-                        method: "POST",
-                        body: request
-                    )
-                case "cardUpdate":
-                    let request: UpdateStudyCardRequest
-                    if let wrapped = try? StorageCodec.decoder.decode(
-                        CardUpdatePreservingAnswerAudio.self,
-                        from: mutation.payload
-                    ) {
-                        request = wrapped.request
-                        submittedPromptAudio = wrapped.submittedPromptAudio
-                        submittedAnswerAudioFields = wrapped.submittedAnswerAudioFields
-                    } else {
-                        request = try StorageCodec.decoder.decode(
-                            UpdateStudyCardRequest.self,
-                            from: mutation.payload
-                        )
-                    }
-                    serverCard = try await api.request(
-                        "/api/study/cards/\(mutation.resourceID)",
-                        method: "PATCH",
-                        body: request,
-                        decodingStudyCardRevisionConflict: true
-                    )
-                case "cardDelete":
-                    try await api.request(
-                        "/api/study/cards/\(mutation.resourceID)",
-                        method: "DELETE"
-                    )
-                    serverCard = nil
-                default:
-                    return
-                }
+                guard let submission = try await submit(mutation) else { return }
 
                 // If the account switches after server acceptance, retain the
                 // stable request for an idempotent retry under its original user.
                 try ensureActive(userID: userID, generation: generation)
-                if mutation.kind == "cardCreate", let serverCard {
-                    try reconcileCreatedCardID(
-                        from: clientResourceID,
-                        to: serverCard.id,
-                        userID: userID
-                    )
-                }
-                if let serverCard, try !hasPendingDelete(for: serverCard) {
-                    let preservingPendingEdit = try hasPendingUpdate(
-                        for: serverCard.id,
-                        excluding: mutation.id,
-                        userID: userID
-                    )
-                    try onAcknowledgedCard(CardMutationAcknowledgement(
-                        card: serverCard,
-                        preservingPendingReview: reviewOutbox.hasPendingReview(
-                            for: serverCard.id
-                        ),
-                        preservingPendingEdit: preservingPendingEdit,
-                        submittedPromptAudio: submittedPromptAudio,
-                        submittedAnswerAudioFields: submittedAnswerAudioFields
-                    ))
-                    if let submittedAnswerAudioFields,
-                       submittedAnswerAudioFields.allSatisfy({ key, value in
-                           serverCard.answer[key] == value
-                       }),
-                       submittedPromptAudio == nil
-                           || serverCard.prompt["cueAudio"] == submittedPromptAudio
-                    {
-                        try clearAnswerAudioReconciliationMarker(
-                            for: clientResourceID,
-                            userID: userID
-                        )
-                    }
-                }
+                try acknowledge(
+                    submission,
+                    for: mutation,
+                    userID: userID,
+                    onAcknowledgedCard: onAcknowledgedCard
+                )
                 context.delete(mutation)
                 try context.save()
             } catch let APIClientError.rejected(status, _)
@@ -441,6 +364,148 @@ final class CardMutationOutbox {
                 throw error
             }
         }
+    }
+
+    private func nextPendingMutation(userID: Int) throws -> PendingMutation? {
+        var descriptor = FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID
+                    && ($0.kind == "cardCreate"
+                        || $0.kind == "cardUpdate"
+                        || $0.kind == "cardDelete")
+                    && $0.lastError == nil
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    private func submit(_ mutation: PendingMutation) async throws -> SubmittedCardMutation? {
+        let clientResourceID = mutation.resourceID
+        switch mutation.kind {
+        case "cardCreate":
+            let request = try StorageCodec.decoder.decode(
+                CreateStudyCardRequest.self,
+                from: mutation.payload
+            )
+            let serverCard: StudyCard = try await api.request(
+                "/api/study/cards",
+                method: "POST",
+                body: request
+            )
+            return SubmittedCardMutation(
+                clientResourceID: clientResourceID,
+                serverCard: serverCard,
+                submittedPromptAudio: nil,
+                submittedAnswerAudioFields: nil
+            )
+        case "cardUpdate":
+            return try await submitUpdate(mutation, clientResourceID: clientResourceID)
+        case "cardDelete":
+            try await api.request(
+                "/api/study/cards/\(clientResourceID)",
+                method: "DELETE"
+            )
+            return SubmittedCardMutation(
+                clientResourceID: clientResourceID,
+                serverCard: nil,
+                submittedPromptAudio: nil,
+                submittedAnswerAudioFields: nil
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func submitUpdate(
+        _ mutation: PendingMutation,
+        clientResourceID: String
+    ) async throws -> SubmittedCardMutation {
+        let request: UpdateStudyCardRequest
+        let submittedPromptAudio: JSONValue?
+        let submittedAnswerAudioFields: [String: JSONValue]?
+        if let wrapped = try? StorageCodec.decoder.decode(
+            CardUpdatePreservingAnswerAudio.self,
+            from: mutation.payload
+        ) {
+            request = wrapped.request
+            submittedPromptAudio = wrapped.submittedPromptAudio
+            submittedAnswerAudioFields = wrapped.submittedAnswerAudioFields
+        } else {
+            request = try StorageCodec.decoder.decode(
+                UpdateStudyCardRequest.self,
+                from: mutation.payload
+            )
+            submittedPromptAudio = nil
+            submittedAnswerAudioFields = nil
+        }
+        let serverCard: StudyCard = try await api.request(
+            "/api/study/cards/\(clientResourceID)",
+            method: "PATCH",
+            body: request,
+            decodingStudyCardRevisionConflict: true
+        )
+        return SubmittedCardMutation(
+            clientResourceID: clientResourceID,
+            serverCard: serverCard,
+            submittedPromptAudio: submittedPromptAudio,
+            submittedAnswerAudioFields: submittedAnswerAudioFields
+        )
+    }
+
+    private func acknowledge(
+        _ submission: SubmittedCardMutation,
+        for mutation: PendingMutation,
+        userID: Int,
+        onAcknowledgedCard: (CardMutationAcknowledgement) throws -> Void
+    ) throws {
+        if mutation.kind == "cardCreate", let serverCard = submission.serverCard {
+            try reconcileCreatedCardID(
+                from: submission.clientResourceID,
+                to: serverCard.id,
+                userID: userID
+            )
+        }
+        guard let serverCard = submission.serverCard,
+              try !hasPendingDelete(for: serverCard)
+        else { return }
+
+        let preservingPendingEdit = try hasPendingUpdate(
+            for: serverCard.id,
+            excluding: mutation.id,
+            userID: userID
+        )
+        try onAcknowledgedCard(CardMutationAcknowledgement(
+            card: serverCard,
+            preservingPendingReview: reviewOutbox.hasPendingReview(for: serverCard.id),
+            preservingPendingEdit: preservingPendingEdit,
+            submittedPromptAudio: submission.submittedPromptAudio,
+            submittedAnswerAudioFields: submission.submittedAnswerAudioFields
+        ))
+        try clearAnswerAudioReconciliationMarkerIfAcknowledged(
+            submission,
+            by: serverCard,
+            userID: userID
+        )
+    }
+
+    private func clearAnswerAudioReconciliationMarkerIfAcknowledged(
+        _ submission: SubmittedCardMutation,
+        by serverCard: StudyCard,
+        userID: Int
+    ) throws {
+        guard let submittedAnswerAudioFields = submission.submittedAnswerAudioFields,
+              submittedAnswerAudioFields.allSatisfy({ key, value in
+                  serverCard.answer[key] == value
+              }),
+              submission.submittedPromptAudio == nil
+                  || serverCard.prompt["cueAudio"] == submission.submittedPromptAudio
+        else { return }
+        try clearAnswerAudioReconciliationMarker(
+            for: submission.clientResourceID,
+            userID: userID
+        )
     }
 
     private static func answerAudioFields(in answer: JSONValue) -> [String: JSONValue] {
