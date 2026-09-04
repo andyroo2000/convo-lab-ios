@@ -80,24 +80,7 @@ extension StudyStoreTests {
     @MainActor
     func testInvalidPersistedSchedulerTimestampRefetchesCanonicalCard() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let corrupted = makeCard(
-            id: "corrupted-scheduler-card",
-            expression: "修復",
-            scheduler: .object([
-                "due": .string("2027-01-15T08:00:00+14:01"),
-                "last_review": .string("2027-01-14T08:00:00.000Z"),
-                "state": .number(2),
-            ])
-        )
-        let canonical = makeCard(
-            id: corrupted.id,
-            expression: "修復",
-            scheduler: .object([
-                "due": .string("2027-01-15T08:00:00.000Z"),
-                "last_review": .string("2027-01-14T08:00:00.000Z"),
-                "state": .number(2),
-            ])
-        )
+        let (corrupted, canonical) = makeSchedulerRecoveryCards()
         container.mainContext.insert(
             LocalCardRecord(
                 card: corrupted,
@@ -107,12 +90,7 @@ extension StudyStoreTests {
             )
         )
         try container.mainContext.save()
-        let canonicalObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(canonical)
-        )
-        let responseData = try JSONSerialization.data(
-            withJSONObject: ["cards": [canonicalObject]]
-        )
+        let responseData = try cardBatchResponseData(canonical)
         let requests = LockedCounter()
         let client = makeClient { request in
             XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
@@ -231,12 +209,7 @@ extension StudyStoreTests {
         )
         container.mainContext.insert(record)
         try container.mainContext.save()
-        let canonicalObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(canonical)
-        )
-        let responseData = try JSONSerialization.data(
-            withJSONObject: ["cards": [canonicalObject]]
-        )
+        let responseData = try cardBatchResponseData(canonical)
         let deferredRefetch = LockedDeferredResponse()
         let client = makeDeferredClient { request, completion in
             XCTAssertEqual(request.url?.path, "/api/study/cards/batch")
@@ -393,41 +366,7 @@ extension StudyStoreTests {
     @MainActor
     func testReviewingFailedCardOptimisticallyUpdatesSessionCounts() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let failedCard = StudyCard(
-            id: "98f42a62-8303-410e-ad4d-5a69c55911bb",
-            syncId: "01J00000000000000000000010",
-            noteId: nil,
-            cardType: "recognition",
-            prompt: .object(["cueText": .string("失敗")]),
-            answer: .object(["meaning": .string("failure")]),
-            state: .init(
-                dueAt: .now,
-                introducedAt: .now,
-                failedAt: .now,
-                queueState: "relearning",
-                scheduler: nil,
-                source: .object([:])
-            ),
-            answerAudioSource: "missing",
-            createdAt: .now,
-            updatedAt: .now
-        )
-        let session = StudySession(
-            overview: StudyOverview(
-                dueCount: 0,
-                newCount: 0,
-                reviewCount: 0,
-                newCardsPerDay: 20,
-                newCardsAvailableToday: 0,
-                failedCount: 3,
-                failedDueCount: 3
-            ),
-            cards: [failedCard]
-        )
-        let sessionObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(session)
-        )
-        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let (failedCard, sessionData) = try makeFailedReviewFixture()
         let expectedSyncID = failedCard.syncId
         let client = makeClient { request in
             if request.url?.path == "/api/study/session/start" {
@@ -476,5 +415,75 @@ extension StudyStoreTests {
         XCTAssertTrue(
             try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty
         )
+    }
+
+    @MainActor
+    private func makeSchedulerRecoveryCards() -> (corrupted: StudyCard, canonical: StudyCard) {
+        let corrupted = makeCard(
+            id: "corrupted-scheduler-card",
+            expression: "修復",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00+14:01"),
+                "last_review": .string("2027-01-14T08:00:00.000Z"),
+                "state": .number(2),
+            ])
+        )
+        let canonical = makeCard(
+            id: corrupted.id,
+            expression: "修復",
+            scheduler: .object([
+                "due": .string("2027-01-15T08:00:00.000Z"),
+                "last_review": .string("2027-01-14T08:00:00.000Z"),
+                "state": .number(2),
+            ])
+        )
+        return (corrupted, canonical)
+    }
+
+    @MainActor
+    private func cardBatchResponseData(_ card: StudyCard) throws -> Data {
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(card)
+        )
+        return try JSONSerialization.data(withJSONObject: ["cards": [object]])
+    }
+
+    @MainActor
+    private func makeFailedReviewFixture() throws -> (card: StudyCard, responseData: Data) {
+        let card = StudyCard(
+            id: "98f42a62-8303-410e-ad4d-5a69c55911bb",
+            syncId: "01J00000000000000000000010",
+            noteId: nil,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("失敗")]),
+            answer: .object(["meaning": .string("failure")]),
+            state: .init(
+                dueAt: .now,
+                introducedAt: .now,
+                failedAt: .now,
+                queueState: "relearning",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                failedCount: 3,
+                failedDueCount: 3
+            ),
+            cards: [card]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        return (card, try JSONSerialization.data(withJSONObject: ["data": object]))
     }
 }
