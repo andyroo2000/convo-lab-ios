@@ -97,6 +97,13 @@ struct GoogleCalendarPreviewMatch: nonisolated Decodable, Equatable, Sendable {
 }
 
 struct GoogleCalendarSettingsDraft: Equatable {
+    private struct CanonicalizationRule {
+        let allowedCount: ClosedRange<Int>
+        let countError: GoogleCalendarSettingsValidationError
+        let validate: (String) throws -> Void
+        let comparisonKey: (String) -> String
+    }
+
     var calendarIds: [String]
     var titleMatchTerms: [String]
     var syncEnabled: Bool
@@ -112,31 +119,41 @@ struct GoogleCalendarSettingsDraft: Equatable {
     }
 
     static func canonicalizedCalendarIDs(_ values: [String]) throws -> [String] {
-        guard 1...25 ~= values.count else {
-            throw GoogleCalendarSettingsValidationError.calendarCount
-        }
-        var seen = Set<String>()
-        return try values.compactMap { value in
-            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { throw GoogleCalendarSettingsValidationError.emptyCalendarID }
-            guard value.count <= 1_024 else { throw GoogleCalendarSettingsValidationError.calendarIDTooLong }
-            return seen.insert(value).inserted ? value : nil
-        }
+        try canonicalizedValues(values, using: CanonicalizationRule(
+            allowedCount: 1...25,
+            countError: .calendarCount,
+            validate: { value in
+                guard !value.isEmpty else { throw GoogleCalendarSettingsValidationError.emptyCalendarID }
+                guard value.count <= 1_024 else { throw GoogleCalendarSettingsValidationError.calendarIDTooLong }
+            },
+            comparisonKey: { $0 }
+        ))
     }
 
     static func canonicalizedTerms(_ values: [String]) throws -> [String] {
-        guard 1...50 ~= values.count else {
-            throw GoogleCalendarSettingsValidationError.termCount
-        }
+        try canonicalizedValues(values, using: CanonicalizationRule(
+            allowedCount: 1...50,
+            countError: .termCount,
+            validate: { value in
+                guard !value.isEmpty else { throw GoogleCalendarSettingsValidationError.emptyTerm }
+                guard value.unicodeScalars.count <= 100 else {
+                    throw GoogleCalendarSettingsValidationError.termTooLong
+                }
+            },
+            comparisonKey: termComparisonKey
+        ))
+    }
+
+    private static func canonicalizedValues(
+        _ values: [String],
+        using rule: CanonicalizationRule
+    ) throws -> [String] {
+        guard rule.allowedCount.contains(values.count) else { throw rule.countError }
         var seen = Set<String>()
-        return try values.compactMap { value in
-            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { throw GoogleCalendarSettingsValidationError.emptyTerm }
-            guard value.unicodeScalars.count <= 100 else {
-                throw GoogleCalendarSettingsValidationError.termTooLong
-            }
-            let key = termComparisonKey(value)
-            return seen.insert(key).inserted ? value : nil
+        return try values.compactMap { rawValue in
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            try rule.validate(value)
+            return seen.insert(rule.comparisonKey(value)).inserted ? value : nil
         }
     }
 
