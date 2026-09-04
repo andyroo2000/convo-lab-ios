@@ -5,6 +5,14 @@ import XCTest
 @testable import ConvoLab
 
 extension StudyStoreTests {
+    private struct OfflineProjectionRequest {
+        let action: StudyCardActionName
+        let mode: StudyCardSetDueMode?
+        let dueAt: Date?
+        let timeZone: TimeZone
+        let now: Date
+    }
+
     @MainActor
     func testSuspendCardPostsActionAndRemovesItFromTheActiveSession() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
@@ -107,13 +115,15 @@ extension StudyStoreTests {
             ])
         )
 
-        let projection = try StudyCardActionProjection.prepare(
-            action: .forget,
-            card: card,
-            mode: nil,
-            dueAt: nil,
-            timeZone: .gmt,
-            now: now
+        let projection = try prepareOfflineProjection(
+            for: card,
+            request: OfflineProjectionRequest(
+                action: .forget,
+                mode: nil,
+                dueAt: nil,
+                timeZone: .gmt,
+                now: now
+            )
         )
 
         XCTAssertEqual(projection.card.state.scheduler?["stability"], .number(0.1))
@@ -122,52 +132,24 @@ extension StudyStoreTests {
 
     @MainActor
     func testOfflineSetDueUsesElapsedTimeAcrossSpringDSTBoundary() throws {
-        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         // 11 PM EST to 9 AM EDT crosses a local date boundary but is only nine hours.
-        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-03-08T04:00:00.000Z"))
-        let dueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-03-08T13:00:00.000Z"))
-        let card = makeCard(
+        try assertOfflineSetDueAcrossDSTBoundary(
+            now: "2026-03-08T04:00:00.000Z",
+            dueAt: "2026-03-08T13:00:00.000Z",
             id: "01J00000000000000000SD01",
-            expression: "Spring forward",
-            queueState: "review",
-            dueAt: now
+            expression: "Spring forward"
         )
-
-        let projection = try StudyCardActionProjection.prepare(
-            action: .setDue,
-            card: card,
-            mode: .customDate,
-            dueAt: dueAt,
-            timeZone: newYork,
-            now: now
-        )
-
-        XCTAssertEqual(projection.card.state.scheduler?["scheduled_days"], .number(0))
     }
 
     @MainActor
     func testOfflineSetDueUsesElapsedTimeAcrossFallDSTBoundary() throws {
-        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         // 11 PM EDT to 9 AM EST crosses a local date boundary but is only eleven hours.
-        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-11-01T03:00:00.000Z"))
-        let dueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: "2026-11-01T14:00:00.000Z"))
-        let card = makeCard(
+        try assertOfflineSetDueAcrossDSTBoundary(
+            now: "2026-11-01T03:00:00.000Z",
+            dueAt: "2026-11-01T14:00:00.000Z",
             id: "01J00000000000000000FD01",
-            expression: "Fall back",
-            queueState: "review",
-            dueAt: now
+            expression: "Fall back"
         )
-
-        let projection = try StudyCardActionProjection.prepare(
-            action: .setDue,
-            card: card,
-            mode: .customDate,
-            dueAt: dueAt,
-            timeZone: newYork,
-            now: now
-        )
-
-        XCTAssertEqual(projection.card.state.scheduler?["scheduled_days"], .number(0))
     }
 
     @MainActor
@@ -595,15 +577,7 @@ extension StudyStoreTests {
 
         XCTAssertNotNil(eventID)
         XCTAssertTrue(store.cards.isEmpty)
-        let queuedKinds = try container.mainContext.fetch(
-            FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.kind == "cardAction" || $0.kind == "review"
-                },
-                sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
-            )
-        ).map(\.kind)
-        XCTAssertEqual(queuedKinds, ["cardAction", "review"])
+        try assertQueuedCardActionThenReview(in: container)
 
         _ = online.next()
         await store.synchronize()
@@ -715,17 +689,13 @@ extension StudyStoreTests {
             queueState: "review",
             dueAt: futureDueAt
         )
-        let suspendedResponseData = try StorageCodec.encoder.encode(
-            StudyCardActionResponse(
-                card: suspended,
-                overview: actionOverview(dueCount: 0, reviewCount: 0)
-            )
+        let suspendedResponseData = try actionResponseData(
+            card: suspended,
+            overview: actionOverview(dueCount: 0, reviewCount: 0)
         )
-        let rescheduledResponseData = try StorageCodec.encoder.encode(
-            StudyCardActionResponse(
-                card: rescheduled,
-                overview: actionOverview(dueCount: 0, reviewCount: 1)
-            )
+        let rescheduledResponseData = try actionResponseData(
+            card: rescheduled,
+            overview: actionOverview(dueCount: 0, reviewCount: 1)
         )
         let online = LockedCounter()
         let deliveredBodies = LockedRequestBodies()
@@ -753,45 +723,23 @@ extension StudyStoreTests {
             mode: .customDate,
             dueAt: futureDueAt
         )
-        XCTAssertEqual(firstProjection.introductionCohortId, "cohort-1")
-        XCTAssertEqual(firstProjection.selectionPolicy, "priority")
-        XCTAssertEqual(firstProjection.priorityUntil, Date(timeIntervalSince1970: 600))
-        XCTAssertEqual(
-            firstProjection.introductionAvailableAt,
-            Date(timeIntervalSince1970: 700)
-        )
+        assertCohortMetadata(on: firstProjection)
         XCTAssertEqual(latestProjection.state.queueState, "review")
         XCTAssertEqual(latestProjection.state.dueAt, futureDueAt)
         _ = online.next()
 
         await store.synchronize()
 
-        let deliveredActions = try deliveredBodies.values.map {
-            try StorageCodec.decoder.decode(StudyCardActionRequest.self, from: $0).action
-        }
-        XCTAssertEqual(deliveredActions, [.suspend, .setDue])
+        try assertDeliveredActions(in: deliveredBodies)
         let persisted = try persistedCard(in: container)
         XCTAssertEqual(persisted.state.dueAt, futureDueAt)
-        XCTAssertEqual(persisted.introductionCohortId, "cohort-1")
-        XCTAssertEqual(persisted.selectionPolicy, "priority")
-        XCTAssertEqual(persisted.priorityUntil, Date(timeIntervalSince1970: 600))
-        XCTAssertEqual(
-            persisted.introductionAvailableAt,
-            Date(timeIntervalSince1970: 700)
-        )
-        XCTAssertEqual(
-            try container.mainContext.fetchCount(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.kind == "cardAction" }
-                )
-            ),
-            0
-        )
+        assertCohortMetadata(on: persisted)
+        try assertNoPendingCardActions(in: container)
     }
 
     @MainActor
     func testSetDueCustomDateUsesNineAMInTheSelectedCalendar() throws {
-        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let newYork = try newYorkTimeZone()
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = newYork
         let selected = try XCTUnwrap(calendar.date(
@@ -821,6 +769,106 @@ extension StudyStoreTests {
             payload: try StorageCodec.encoder.encode(card)
         ))
         try container.mainContext.save()
+    }
+
+    @MainActor
+    private func assertOfflineSetDueAcrossDSTBoundary(
+        now nowString: String,
+        dueAt dueAtString: String,
+        id: String,
+        expression: String
+    ) throws {
+        let newYork = try newYorkTimeZone()
+        let now = try XCTUnwrap(ISO8601Milliseconds.date(from: nowString))
+        let dueAt = try XCTUnwrap(ISO8601Milliseconds.date(from: dueAtString))
+        let card = makeCard(
+            id: id,
+            expression: expression,
+            queueState: "review",
+            dueAt: now
+        )
+        let projection = try prepareOfflineProjection(
+            for: card,
+            request: OfflineProjectionRequest(
+                action: .setDue,
+                mode: .customDate,
+                dueAt: dueAt,
+                timeZone: newYork,
+                now: now
+            )
+        )
+        XCTAssertEqual(projection.card.state.scheduler?["scheduled_days"], .number(0))
+    }
+
+    @MainActor
+    private func assertQueuedCardActionThenReview(in container: ModelContainer) throws {
+        let queuedKinds = try container.mainContext.fetch(
+            FetchDescriptor<PendingMutation>(
+                predicate: #Predicate {
+                    $0.kind == "cardAction" || $0.kind == "review"
+                },
+                sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
+            )
+        ).map(\.kind)
+        XCTAssertEqual(queuedKinds, ["cardAction", "review"])
+    }
+
+    @MainActor
+    private func assertCohortMetadata(on card: StudyCard) {
+        XCTAssertEqual(card.introductionCohortId, "cohort-1")
+        XCTAssertEqual(card.selectionPolicy, "priority")
+        XCTAssertEqual(card.priorityUntil, Date(timeIntervalSince1970: 600))
+        XCTAssertEqual(card.introductionAvailableAt, Date(timeIntervalSince1970: 700))
+    }
+
+    private func newYorkTimeZone() throws -> TimeZone {
+        try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+    }
+
+    @MainActor
+    private func assertDeliveredActions(in bodies: LockedRequestBodies) throws {
+        let actions = try bodies.values.map {
+            try StorageCodec.decoder.decode(StudyCardActionRequest.self, from: $0).action
+        }
+        XCTAssertEqual(actions, [.suspend, .setDue])
+    }
+
+    @MainActor
+    private func prepareOfflineProjection(
+        for card: StudyCard,
+        request: OfflineProjectionRequest
+    ) throws -> (request: StudyCardActionRequest, card: StudyCard) {
+        try StudyCardActionProjection.prepare(
+            action: request.action,
+            card: card,
+            mode: request.mode,
+            dueAt: request.dueAt,
+            timeZone: request.timeZone,
+            now: request.now
+        )
+    }
+
+    @MainActor
+    private func actionResponseData(
+        card: StudyCard,
+        overview: StudyOverview
+    ) throws -> Data {
+        try StorageCodec.encoder.encode(StudyCardActionResponse(
+            card: card,
+            overview: overview
+        ))
+    }
+
+    @MainActor
+    private func assertNoPendingCardActions(in container: ModelContainer) throws {
+        XCTAssertEqual(
+            try container.mainContext.fetchCount(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "cardAction" }
+                )
+            ),
+            0
+        )
     }
 
     @MainActor
