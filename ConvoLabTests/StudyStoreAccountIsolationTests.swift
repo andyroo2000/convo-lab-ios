@@ -5,6 +5,11 @@ import XCTest
 @testable import ConvoLab
 
 extension StudyStoreTests {
+    private struct AccountCardSpec {
+        let id: String
+        let expression: String
+    }
+
     @MainActor
     func testStaleStudySettingsResponseCannotPopulateReactivatedAccount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
@@ -158,27 +163,17 @@ extension StudyStoreTests {
     @MainActor
     func testStaleCheckpointResponseCannotReplaceNewAccountsCards() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let userOneCard = makeCard(
-            id: "01J00000000000000000000A1",
-            expression: "前の利用者"
+        let (_, userTwoCard) = try persistAccountCards(
+            in: container,
+            userOne: AccountCardSpec(
+                id: "01J00000000000000000000A1",
+                expression: "前の利用者"
+            ),
+            userTwo: AccountCardSpec(
+                id: "01J00000000000000000000A2",
+                expression: "現在の利用者"
+            )
         )
-        let userTwoCard = makeCard(
-            id: "01J00000000000000000000A2",
-            expression: "現在の利用者"
-        )
-        container.mainContext.insert(LocalCardRecord(
-            card: userOneCard,
-            userID: 1,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userOneCard)
-        ))
-        container.mainContext.insert(LocalCardRecord(
-            card: userTwoCard,
-            userID: 2,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userTwoCard)
-        ))
-        try container.mainContext.save()
         let gate = LockedRequestGate()
         let client = makeClient { request in
             guard request.url?.path == "/api/sync/feed" else {
@@ -214,35 +209,24 @@ extension StudyStoreTests {
         gate.release()
         await synchronization.value
 
-        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
-        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        assertActiveCards(in: store, equal: userTwoCard)
         XCTAssertEqual(store.syncStatus, .idle)
     }
 
     @MainActor
     func testStaleCardMutationDrainCannotReloadPreviousAccountsCards() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let userOneCard = makeCard(
-            id: "01J00000000000000000000B1",
-            expression: "前の利用者"
+        let (userOneCard, userTwoCard) = try persistAccountCards(
+            in: container,
+            userOne: AccountCardSpec(
+                id: "01J00000000000000000000B1",
+                expression: "前の利用者"
+            ),
+            userTwo: AccountCardSpec(
+                id: "01J00000000000000000000B2",
+                expression: "現在の利用者"
+            )
         )
-        let userTwoCard = makeCard(
-            id: "01J00000000000000000000B2",
-            expression: "現在の利用者"
-        )
-        container.mainContext.insert(LocalCardRecord(
-            card: userOneCard,
-            userID: 1,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userOneCard)
-        ))
-        container.mainContext.insert(LocalCardRecord(
-            card: userTwoCard,
-            userID: 2,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userTwoCard)
-        ))
-        try container.mainContext.save()
 
         let gate = LockedRequestGate()
         let userOneCardID = userOneCard.id
@@ -285,40 +269,28 @@ extension StudyStoreTests {
         XCTAssertTrue(gate.hasStarted)
 
         store.activate(userID: 2)
-        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
-        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        assertActiveCards(in: store, equal: userTwoCard)
         gate.release()
         try await update.value
 
-        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
-        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        assertActiveCards(in: store, equal: userTwoCard)
         XCTAssertEqual(store.syncStatus, .idle)
     }
 
     @MainActor
     func testCancelledReviewFromPreviousAccountCannotFailCurrentAccount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let userOneCard = makeCard(
-            id: "01J00000000000000000000B3",
-            expression: "前の利用者の復習"
+        let (userOneCard, userTwoCard) = try persistAccountCards(
+            in: container,
+            userOne: AccountCardSpec(
+                id: "01J00000000000000000000B3",
+                expression: "前の利用者の復習"
+            ),
+            userTwo: AccountCardSpec(
+                id: "01J00000000000000000000B4",
+                expression: "現在の利用者の復習"
+            )
         )
-        let userTwoCard = makeCard(
-            id: "01J00000000000000000000B4",
-            expression: "現在の利用者の復習"
-        )
-        container.mainContext.insert(LocalCardRecord(
-            card: userOneCard,
-            userID: 1,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userOneCard)
-        ))
-        container.mainContext.insert(LocalCardRecord(
-            card: userTwoCard,
-            userID: 2,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(userTwoCard)
-        ))
-        try container.mainContext.save()
 
         let gate = LockedRequestGate()
         let client = makeClient { request in
@@ -350,8 +322,7 @@ extension StudyStoreTests {
         gate.release()
         _ = await review.value
 
-        XCTAssertEqual(store.cards.map(\.id), [userTwoCard.id])
-        XCTAssertEqual(store.libraryCards.map(\.id), [userTwoCard.id])
+        assertActiveCards(in: store, equal: userTwoCard)
         XCTAssertEqual(store.syncStatus, .idle)
     }
 
@@ -485,32 +456,16 @@ extension StudyStoreTests {
             let path = request.url?.path ?? ""
             switch path {
             case "/api/sync/feed":
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data(
-                        """
-                        {"data":[{"checkpoint":9,"resource_id":"\(serverCardID)","operation":"update"}],
-                        "meta":{"next_checkpoint":9,"has_more":false}}
-                        """.utf8
-                    )
-                )
+                return Self.response(data: Data(
+                    """
+                    {"data":[{"checkpoint":9,"resource_id":"\(serverCardID)","operation":"update"}],
+                    "meta":{"next_checkpoint":9,"has_more":false}}
+                    """.utf8
+                ))
             case "/api/study/cards/batch":
                 gate.markStarted()
                 gate.waitForRelease()
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    serverCardBatchData
-                )
+                return Self.response(data: serverCardBatchData)
             default:
                 throw URLError(.badServerResponse)
             }
@@ -539,5 +494,35 @@ extension StudyStoreTests {
             FetchDescriptor<LocalCardRecord>()
         ).contains(where: { $0.userID == 1 && $0.id == serverCardID }))
         XCTAssertEqual(store.syncStatus, .idle)
+    }
+
+    @MainActor
+    private func persistAccountCards(
+        in container: ModelContainer,
+        userOne: AccountCardSpec,
+        userTwo: AccountCardSpec
+    ) throws -> (userOne: StudyCard, userTwo: StudyCard) {
+        let userOneCard = makeCard(id: userOne.id, expression: userOne.expression)
+        let userTwoCard = makeCard(id: userTwo.id, expression: userTwo.expression)
+        container.mainContext.insert(LocalCardRecord(
+            card: userOneCard,
+            userID: 1,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userOneCard)
+        ))
+        container.mainContext.insert(LocalCardRecord(
+            card: userTwoCard,
+            userID: 2,
+            queueIndex: 0,
+            payload: try StorageCodec.encoder.encode(userTwoCard)
+        ))
+        try container.mainContext.save()
+        return (userOneCard, userTwoCard)
+    }
+
+    @MainActor
+    private func assertActiveCards(in store: StudyStore, equal card: StudyCard) {
+        XCTAssertEqual(store.cards.map(\.id), [card.id])
+        XCTAssertEqual(store.libraryCards.map(\.id), [card.id])
     }
 }
