@@ -4,32 +4,32 @@ import SwiftData
 import XCTest
 @testable import ConvoLab
 
+private struct ManualDraftFixtureSpec {
+    let id: String
+    var status = "ready"
+    let content: ManualDraftFixtureContent
+}
+
+private enum ManualDraftFixtureContent {
+    case textRecognition(expression: String)
+    case audioRecognition(expression: String)
+    case productionImage(expression: String, meaning: String, prompt: String)
+}
+
 extension StudyStoreTests {
     @MainActor
     func testManualDraftRefreshConsumesEveryCursorPage() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let now = Date.now
-        func makeDraft(_ id: String) -> StudyManualCardDraft {
-            StudyManualCardDraft(
-                id: id,
-                status: "ready",
-                committedCardId: nil,
-                creationKind: .audioRecognition,
-                cardType: "recognition",
-                prompt: .object([:]),
-                answer: .object(["expression": .string(id)]),
-                imagePlacement: .none,
-                imagePrompt: nil,
-                previewAudio: nil,
-                previewAudioRole: nil,
-                previewImage: nil,
-                errorMessage: nil,
-                createdAt: now,
-                updatedAt: now
-            )
-        }
-        let firstDraft = makeDraft("01J0000000000000000000000P1")
-        let secondDraft = makeDraft("01J0000000000000000000000P2")
+        let firstID = "01J0000000000000000000000P1"
+        let secondID = "01J0000000000000000000000P2"
+        let firstDraft = makeOutboxDraft(.init(
+            id: firstID,
+            content: .audioRecognition(expression: firstID)
+        ))
+        let secondDraft = makeOutboxDraft(.init(
+            id: secondID,
+            content: .audioRecognition(expression: secondID)
+        ))
         let firstPage = try StorageCodec.encoder.encode(
             StudyManualCardDraftListResponse(
                 drafts: [firstDraft],
@@ -60,11 +60,7 @@ extension StudyStoreTests {
                     ? secondPage : firstPage
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
 
         try await store.refreshManualDrafts()
 
@@ -77,27 +73,15 @@ extension StudyStoreTests {
     @MainActor
     func testImageProductionDraftQueuesAndPlainDraftDeleteRemovesIt() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let now = Date.now
-        let serverDraft = StudyManualCardDraft(
+        let serverDraft = makeOutboxDraft(.init(
             id: "01J0000000000000000000000Q1",
             status: "generating",
-            committedCardId: nil,
-            creationKind: .productionImage,
-            cardType: "production",
-            prompt: .object([:]),
-            answer: .object([
-                "expression": .string("会社"),
-                "meaning": .string("company"),
-            ]),
-            imagePlacement: .prompt,
-            imagePrompt: "A Japanese company office",
-            previewAudio: nil,
-            previewAudioRole: nil,
-            previewImage: nil,
-            errorMessage: nil,
-            createdAt: now,
-            updatedAt: now
-        )
+            content: .productionImage(
+                expression: "会社",
+                meaning: "company",
+                prompt: "A Japanese company office"
+            )
+        ))
         let responseData = try StorageCodec.encoder.encode(serverDraft)
         let paths = LockedRequestPaths()
         let client = makeClient { request in
@@ -134,11 +118,7 @@ extension StudyStoreTests {
                 Data()
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .production)
         draft.answerExpression = "会社"
         draft.answerMeaning = "company"
@@ -168,71 +148,15 @@ extension StudyStoreTests {
     func testManualDraftCreateRetainsItsClientIDAcrossALostResponseAndRelaunch() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientDraftID = ClientIdentifier.ulid()
-        let now = Date.now
-        let serverDraft = StudyManualCardDraft(
+        let serverDraft = makeOutboxDraft(.init(
             id: clientDraftID.lowercased(),
             status: "generating",
-            committedCardId: nil,
-            creationKind: .audioRecognition,
-            cardType: "recognition",
-            prompt: .object([:]),
-            answer: .object(["expression": .string("犬")]),
-            imagePlacement: .none,
-            imagePrompt: nil,
-            previewAudio: nil,
-            previewAudioRole: nil,
-            previewImage: nil,
-            errorMessage: nil,
-            createdAt: now,
-            updatedAt: now
-        )
+            content: .audioRecognition(expression: "犬")
+        ))
         let responseData = try StorageCodec.encoder.encode(serverDraft)
-        let attempts = LockedCounter()
-        let requestIDs = LockedRequestPaths()
-        let draftRequestPaths = LockedRequestPaths()
-        let client = makeClient { request in
-            guard request.url?.path == "/api/study/card-drafts",
-                  request.httpMethod == "POST"
-            else {
-                if request.url?.path.hasPrefix("/api/study/card-drafts") == true {
-                    draftRequestPaths.append(
-                        "\(request.httpMethod ?? "") \(request.url?.path ?? "")"
-                    )
-                }
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 503,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data(#"{"message":"offline"}"#.utf8)
-                )
-            }
-            draftRequestPaths.append("POST /api/study/card-drafts")
-            let payload = try XCTUnwrap(
-                JSONSerialization.jsonObject(with: try requestBody(request))
-                    as? [String: Any]
-            )
-            requestIDs.append(try XCTUnwrap(payload["id"] as? String))
-            let status = attempts.next() == 1 ? 500 : 200
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                status == 200
-                    ? responseData
-                    : Data(#"{"message":"response lost"}"#.utf8)
-            )
-        }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let server = LostDraftCreateServer(successData: responseData)
+        let client = makeClient { try server.response(for: $0) }
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
         draft.isMediaLedPrompt = true
@@ -261,11 +185,7 @@ extension StudyStoreTests {
             [clientDraftID]
         )
 
-        let relaunchedStore = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let relaunchedStore = makeManualDraftStore(container: container, client: client)
         let pendingChanged = expectation(
             description: "Synchronization publishes pending create removal"
         )
@@ -282,9 +202,9 @@ extension StudyStoreTests {
         async let secondDuplicateRetry: Void = relaunchedStore.retryPendingDraftCreates()
         _ = try await (firstDuplicateRetry, secondDuplicateRetry)
 
-        XCTAssertEqual(requestIDs.values, [clientDraftID, clientDraftID])
+        XCTAssertEqual(server.requestIDs, [clientDraftID, clientDraftID])
         XCTAssertEqual(
-            draftRequestPaths.values,
+            server.draftRequestPaths,
             ["POST /api/study/card-drafts", "POST /api/study/card-drafts"]
         )
         XCTAssertTrue(
@@ -318,11 +238,7 @@ extension StudyStoreTests {
                 Data(#"{"message":"The image prompt is too long."}"#.utf8)
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .production)
         draft.answerExpression = "会社"
         draft.answerMeaning = "company"
@@ -359,24 +275,11 @@ extension StudyStoreTests {
     func testManualDraftCreateRetryUsesLatestEditedPayload() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let clientDraftID = ClientIdentifier.ulid()
-        let now = Date.now
-        let serverDraft = StudyManualCardDraft(
+        let serverDraft = makeOutboxDraft(.init(
             id: clientDraftID.lowercased(),
             status: "generating",
-            committedCardId: nil,
-            creationKind: .audioRecognition,
-            cardType: "recognition",
-            prompt: .object([:]),
-            answer: .object(["expression": .string("猫")]),
-            imagePlacement: .none,
-            imagePrompt: nil,
-            previewAudio: nil,
-            previewAudioRole: nil,
-            previewImage: nil,
-            errorMessage: nil,
-            createdAt: now,
-            updatedAt: now
-        )
+            content: .audioRecognition(expression: "猫")
+        ))
         let responseData = try StorageCodec.encoder.encode(serverDraft)
         let attempts = LockedCounter()
         let submittedExpressions = LockedRequestPaths()
@@ -400,11 +303,7 @@ extension StudyStoreTests {
                     : Data(#"{"message":"try again"}"#.utf8)
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
         draft.isMediaLedPrompt = true
@@ -485,11 +384,7 @@ extension StudyStoreTests {
                 responseData
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
         draft.isMediaLedPrompt = true
@@ -501,10 +396,10 @@ extension StudyStoreTests {
     @MainActor
     func testStudyStorePublishesManualDraftOutboxRefresh() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let serverDraft = makeManualDraft(
+        let serverDraft = makeOutboxDraft(.init(
             id: "01J00000000000000000000O1",
-            expression: "観察"
-        )
+            content: .textRecognition(expression: "観察")
+        ))
         let responseData = try StorageCodec.encoder.encode(
             StudyManualCardDraftListResponse(
                 drafts: [serverDraft],
@@ -525,16 +420,7 @@ extension StudyStoreTests {
                 responseData
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         let changed = expectation(description: "Manual drafts observation changed")
         withObservationTracking {
             _ = store.manualDrafts
@@ -551,14 +437,14 @@ extension StudyStoreTests {
     @MainActor
     func testStaleManualDraftPatchCannotPopulateReactivatedAccount() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let oldDraft = makeManualDraft(
+        let oldDraft = makeOutboxDraft(.init(
             id: "01J00000000000000000000O2",
-            expression: "前の利用者"
-        )
-        let newDraft = makeManualDraft(
+            content: .textRecognition(expression: "前の利用者")
+        ))
+        let newDraft = makeOutboxDraft(.init(
             id: "01J00000000000000000000O3",
-            expression: "現在の利用者"
-        )
+            content: .textRecognition(expression: "現在の利用者")
+        ))
         let oldDraftID = oldDraft.id
         let responseData = try StorageCodec.encoder.encode(oldDraft)
         let gate = LockedRequestGate()
@@ -577,16 +463,7 @@ extension StudyStoreTests {
                 responseData
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var edited = StudyCardDraft(cardType: .recognition)
         edited.cueText = "更新中"
         edited.answerMeaning = "updating"
@@ -620,16 +497,11 @@ extension StudyStoreTests {
             expression: "前の利用者"
         )
         let responseData = try StorageCodec.encoder.encode(committedCard)
-        let mutation = PendingMutation(
-            kind: "draftCommit",
-            userID: 1,
-            resourceID: draftID,
-            payload: try StorageCodec.encoder.encode(
-                CreateCardFromStudyManualDraftRequest(id: clientCardID)
-            )
+        try insertDraftCommit(
+            draftID: draftID,
+            cardID: clientCardID,
+            into: container
         )
-        container.mainContext.insert(mutation)
-        try container.mainContext.save()
         let gate = LockedRequestGate()
         let client = makeClient { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -649,16 +521,7 @@ extension StudyStoreTests {
                 responseData
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeManualDraftStore(container: container, client: client)
 
         let retry = Task {
             try await store.retryPendingDraftCommits()
@@ -728,11 +591,7 @@ extension StudyStoreTests {
                 emptyPage
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
 
         let firstRefresh = Task { try await store.refreshManualDrafts() }
         await waitUntil { listGate.hasStarted }
@@ -751,39 +610,21 @@ extension StudyStoreTests {
         let container = try Persistence.makeContainer(inMemory: true)
         let draftID = "01J0000000000000000000000S1"
         let clientCardID = "01J0000000000000000000000S2"
-        let now = Date.now
-        let serverDraft = StudyManualCardDraft(
+        let serverDraft = makeOutboxDraft(.init(
             id: draftID,
             status: "ready",
-            committedCardId: nil,
-            creationKind: .audioRecognition,
-            cardType: "recognition",
-            prompt: .object([:]),
-            answer: .object(["expression": .string("一回")]),
-            imagePlacement: .none,
-            imagePrompt: nil,
-            previewAudio: nil,
-            previewAudioRole: nil,
-            previewImage: nil,
-            errorMessage: nil,
-            createdAt: now,
-            updatedAt: now
-        )
+            content: .audioRecognition(expression: "一回")
+        ))
         let committedCard = makeCard(
             id: clientCardID.lowercased(),
             expression: "一回"
         )
         let committedData = try StorageCodec.encoder.encode(committedCard)
-        let mutation = PendingMutation(
-            kind: "draftCommit",
-            userID: 1,
-            resourceID: draftID,
-            payload: try StorageCodec.encoder.encode(
-                CreateCardFromStudyManualDraftRequest(id: clientCardID)
-            )
+        try insertDraftCommit(
+            draftID: draftID,
+            cardID: clientCardID,
+            into: container
         )
-        container.mainContext.insert(mutation)
-        try container.mainContext.save()
         let createAttempts = LockedCounter()
         let client = makeClient { request in
             if request.url?.path.hasSuffix("/create-card") == true {
@@ -809,11 +650,7 @@ extension StudyStoreTests {
                 Data()
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeManualDraftStore(container: container, client: client)
         var draft = StudyCardDraft(cardType: .recognition)
         draft.isAudioLedPrompt = true
         draft.isMediaLedPrompt = true
@@ -835,26 +672,154 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    private func makeManualDraft(
-        id: String,
-        expression: String
-    ) -> StudyManualCardDraft {
-        StudyManualCardDraft(
-            id: id,
-            status: "ready",
+    private func makeManualDraftStore(
+        container: ModelContainer,
+        client: APIClient
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+    }
+
+    @MainActor
+    private func makeOutboxDraft(_ spec: ManualDraftFixtureSpec) -> StudyManualCardDraft {
+        let fields: (
+            kind: StudyCardCreationKind,
+            cardType: String,
+            prompt: JSONValue,
+            answer: JSONValue,
+            imagePlacement: StudyCardDraft.ImagePlacement,
+            imagePrompt: String?
+        )
+        switch spec.content {
+        case let .textRecognition(expression):
+            fields = (
+                .textRecognition,
+                "recognition",
+                .object(["cueText": .string(expression)]),
+                .object(["meaning": .string("meaning")]),
+                .none,
+                nil
+            )
+        case let .audioRecognition(expression):
+            fields = (
+                .audioRecognition,
+                "recognition",
+                .object([:]),
+                .object(["expression": .string(expression)]),
+                .none,
+                nil
+            )
+        case let .productionImage(expression, meaning, prompt):
+            fields = (
+                .productionImage,
+                "production",
+                .object([:]),
+                .object([
+                    "expression": .string(expression),
+                    "meaning": .string(meaning),
+                ]),
+                .prompt,
+                prompt
+            )
+        }
+        return StudyManualCardDraft(
+            id: spec.id,
+            status: spec.status,
             committedCardId: nil,
-            creationKind: .textRecognition,
-            cardType: "recognition",
-            prompt: .object(["cueText": .string(expression)]),
-            answer: .object(["meaning": .string("meaning")]),
-            imagePlacement: .none,
-            imagePrompt: nil,
+            creationKind: fields.kind,
+            cardType: fields.cardType,
+            prompt: fields.prompt,
+            answer: fields.answer,
+            imagePlacement: fields.imagePlacement,
+            imagePrompt: fields.imagePrompt,
             previewAudio: nil,
             previewAudioRole: nil,
             previewImage: nil,
             errorMessage: nil,
             createdAt: .now,
             updatedAt: .now
+        )
+    }
+
+    @MainActor
+    private func insertDraftCommit(
+        draftID: String,
+        cardID: String,
+        into container: ModelContainer
+    ) throws {
+        container.mainContext.insert(PendingMutation(
+            kind: "draftCommit",
+            userID: 1,
+            resourceID: draftID,
+            payload: try StorageCodec.encoder.encode(
+                CreateCardFromStudyManualDraftRequest(id: cardID)
+            )
+        ))
+        try container.mainContext.save()
+    }
+}
+
+private final class LostDraftCreateServer: @unchecked Sendable {
+    private let attempts = LockedCounter()
+    private let requestIDValues = LockedRequestPaths()
+    private let draftPathValues = LockedRequestPaths()
+    private let successData: Data
+
+    init(successData: Data) {
+        self.successData = successData
+    }
+
+    var requestIDs: [String] { requestIDValues.values }
+    var draftRequestPaths: [String] { draftPathValues.values }
+
+    func response(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        let path = request.url?.path ?? ""
+        guard path == "/api/study/card-drafts", request.httpMethod == "POST" else {
+            if path.hasPrefix("/api/study/card-drafts") {
+                draftPathValues.append("\(request.httpMethod ?? "") \(path)")
+            }
+            return Self.response(
+                request: request,
+                statusCode: 503,
+                data: Data(#"{"message":"offline"}"#.utf8)
+            )
+        }
+        draftPathValues.append("POST /api/study/card-drafts")
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try requestBody(request)) as? [String: Any]
+        )
+        requestIDValues.append(try XCTUnwrap(payload["id"] as? String))
+        if attempts.next() == 1 {
+            return Self.response(
+                request: request,
+                statusCode: 500,
+                data: Data(#"{"message":"response lost"}"#.utf8)
+            )
+        }
+        return Self.response(request: request, statusCode: 200, data: successData)
+    }
+
+    private static func response(
+        request: URLRequest,
+        statusCode: Int,
+        data: Data
+    ) -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
         )
     }
 }
