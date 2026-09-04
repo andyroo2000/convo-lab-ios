@@ -48,22 +48,10 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             at: Date(timeIntervalSince1970: 200)
         )
 
-        XCTAssertEqual(update.card.masteryLevel, "guru")
         XCTAssertEqual(update.request.expectedRevision, 7)
-        XCTAssertEqual(update.card.revision, 8)
-        XCTAssertEqual(update.card.variantGroupId, "family-1")
-        XCTAssertEqual(update.card.variantStatus, "locked")
-        XCTAssertEqual(update.card.introductionCohortId, "cohort-1")
-        XCTAssertEqual(update.card.selectionPolicy, "priority")
-        XCTAssertEqual(update.card.priorityUntil, Date(timeIntervalSince1970: 600))
-        XCTAssertEqual(
-            update.card.introductionAvailableAt,
-            Date(timeIntervalSince1970: 700)
-        )
-        XCTAssertEqual(update.card.state, card.state)
-        XCTAssertEqual(update.card.createdAt, card.createdAt)
         XCTAssertEqual(update.request.prompt, update.card.prompt)
         XCTAssertEqual(update.request.answer, update.card.answer)
+        assertUpdatedCard(update.card, preservesMetadataFrom: card)
 
         let serverCard = makeCard(
             id: "server-id",
@@ -79,21 +67,12 @@ final class StudyCardEditorProjectionTests: XCTestCase {
             answerAudioSource: "generated",
             updatedAt: Date(timeIntervalSince1970: 300)
         )
-        XCTAssertEqual(reconciled.id, update.card.id)
         XCTAssertEqual(reconciled.syncId, "canonical-sync-id")
         XCTAssertEqual(reconciled.revision, 12)
         XCTAssertEqual(reconciled.masteryLevel, "guru")
         XCTAssertNil(reconciled.variantGroupId)
         XCTAssertNil(reconciled.variantStatus)
-        XCTAssertEqual(reconciled.introductionCohortId, "cohort-1")
-        XCTAssertEqual(reconciled.selectionPolicy, "priority")
-        XCTAssertEqual(reconciled.priorityUntil, Date(timeIntervalSince1970: 600))
-        XCTAssertEqual(
-            reconciled.introductionAvailableAt,
-            Date(timeIntervalSince1970: 700)
-        )
-        XCTAssertEqual(reconciled.state, update.card.state)
-        XCTAssertEqual(reconciled.createdAt, update.card.createdAt)
+        assertReconciledCard(reconciled, preservesMetadataFrom: update.card)
 
         let leanServerCard = try omittingProgressionFields(from: serverCard)
         let leanReconciled = StudyCardEditorProjection.reconcilingMedia(
@@ -165,16 +144,10 @@ final class StudyCardEditorProjectionTests: XCTestCase {
 
     @MainActor
     private func omittingProgressionFields(from card: StudyCard) throws -> StudyCard {
-        let encoded = try StorageCodec.encoder.encode(card)
-        var object = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
-        )
-        object.removeValue(forKey: "variantGroupId")
-        object.removeValue(forKey: "variantStatus")
-        return try StorageCodec.decoder.decode(
-            StudyCard.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
+        try modifyingEncodedCard(card) { object in
+            object.removeValue(forKey: "variantGroupId")
+            object.removeValue(forKey: "variantStatus")
+        }
     }
 
     @MainActor
@@ -182,16 +155,57 @@ final class StudyCardEditorProjectionTests: XCTestCase {
         _ card: StudyCard,
         cardType: String? = nil
     ) throws -> StudyCard {
+        try modifyingEncodedCard(card) { object in
+            object["cardType"] = cardType ?? card.cardType
+            object["presentation"] = Self.presentationFixture
+        }
+    }
+
+    @MainActor
+    private func modifyingEncodedCard(
+        _ card: StudyCard,
+        modification: (inout [String: Any]) -> Void
+    ) throws -> StudyCard {
         let encoded = try StorageCodec.encoder.encode(card)
         var object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        object["cardType"] = cardType ?? card.cardType
-        object["presentation"] = Self.presentationFixture
+        modification(&object)
         return try StorageCodec.decoder.decode(
             StudyCard.self,
             from: JSONSerialization.data(withJSONObject: object)
         )
+    }
+
+    @MainActor
+    private func assertUpdatedCard(
+        _ card: StudyCard,
+        preservesMetadataFrom original: StudyCard
+    ) {
+        XCTAssertEqual(card.masteryLevel, original.masteryLevel)
+        XCTAssertEqual(card.revision, 8)
+        XCTAssertEqual(card.variantGroupId, original.variantGroupId)
+        XCTAssertEqual(card.variantStatus, original.variantStatus)
+        XCTAssertEqual(card.introductionCohortId, original.introductionCohortId)
+        XCTAssertEqual(card.selectionPolicy, original.selectionPolicy)
+        XCTAssertEqual(card.priorityUntil, original.priorityUntil)
+        XCTAssertEqual(card.introductionAvailableAt, original.introductionAvailableAt)
+        XCTAssertEqual(card.state, original.state)
+        XCTAssertEqual(card.createdAt, original.createdAt)
+    }
+
+    @MainActor
+    private func assertReconciledCard(
+        _ card: StudyCard,
+        preservesMetadataFrom latest: StudyCard
+    ) {
+        XCTAssertEqual(card.id, latest.id)
+        XCTAssertEqual(card.introductionCohortId, latest.introductionCohortId)
+        XCTAssertEqual(card.selectionPolicy, latest.selectionPolicy)
+        XCTAssertEqual(card.priorityUntil, latest.priorityUntil)
+        XCTAssertEqual(card.introductionAvailableAt, latest.introductionAvailableAt)
+        XCTAssertEqual(card.state, latest.state)
+        XCTAssertEqual(card.createdAt, latest.createdAt)
     }
 
     @MainActor private static let presentationFixture: [String: Any] = [
