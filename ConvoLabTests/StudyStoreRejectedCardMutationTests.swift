@@ -9,29 +9,12 @@ extension StudyStoreTests {
     func testRejectedCardCreateSurfacesItsDependentReview() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let offlineClient = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(initialUserID: 1,
-            api: offlineClient,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: offlineClient, context: container.mainContext)
-        )
+        let store = makeRejectedCardStore(in: container, client: offlineClient)
 
         try await store.createCard(expression: "拒否", reading: "きょひ", meaning: "reject")
         let card = try XCTUnwrap(store.cards.first)
         await store.recordReview(card: card, rating: .good, duration: nil)
-        let session = StudySession(
-            overview: StudyOverview(
-                dueCount: 0,
-                newCount: 0,
-                reviewCount: 0,
-                newCardsPerDay: 10,
-                newCardsAvailableToday: 0
-            ),
-            cards: []
-        )
-        let sessionObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(session)
-        )
-        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let sessionData = try emptySessionResponseData()
         MockURLProtocol.handler = { request in
             let path = request.url?.path
             let status: Int
@@ -110,16 +93,7 @@ extension StudyStoreTests {
                 throw URLError(.notConnectedToInternet)
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         XCTAssertEqual(store.failedStudyChanges.map(\.kind), [.cardDelete])
         XCTAssertTrue(store.libraryCards.isEmpty)
@@ -188,16 +162,7 @@ extension StudyStoreTests {
                 throw URLError(.notConnectedToInternet)
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         XCTAssertEqual(store.libraryCards.first?.promptText, "破棄する編集")
 
@@ -256,16 +221,7 @@ extension StudyStoreTests {
                 conflictData
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         try await store.updateCard(
             loadedCard,
@@ -343,16 +299,7 @@ extension StudyStoreTests {
             }
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         try await store.discardFailedStudyChange(id: rejectedUpdate.id)
 
@@ -409,16 +356,7 @@ extension StudyStoreTests {
             }
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         try await store.discardFailedStudyChange(id: update.id)
 
@@ -436,16 +374,7 @@ extension StudyStoreTests {
     func testDiscardingRejectedCardCreateRemovesLocalCardAndDependentChanges() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
         try await store.createCard(expression: "仮", reading: "かり", meaning: "temporary")
         let card = try XCTUnwrap(store.libraryCards.first)
         let create = try XCTUnwrap(
@@ -513,16 +442,7 @@ extension StudyStoreTests {
             XCTAssertEqual(request.httpMethod, "PATCH")
             return Self.response(data: serverCardData)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
 
         try await store.retryFailedStudyChange(id: mutation.id)
 
@@ -539,11 +459,7 @@ extension StudyStoreTests {
         let client = makeClient { _ in
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeRejectedCardStore(in: container, client: client)
         try await store.createCard(expression: "犬", reading: "いぬ", meaning: "dog")
         try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
         let offlinePending = try container.mainContext.fetch(
@@ -552,20 +468,7 @@ extension StudyStoreTests {
         let rejectedAttemptsBeforeSync = try XCTUnwrap(offlinePending.first).attemptCount
         let acceptedCard = try XCTUnwrap(store.cards.last)
         let acceptedCardData = try StorageCodec.encoder.encode(acceptedCard)
-        let session = StudySession(
-            overview: StudyOverview(
-                dueCount: 0,
-                newCount: 0,
-                reviewCount: 0,
-                newCardsPerDay: 10,
-                newCardsAvailableToday: 0
-            ),
-            cards: []
-        )
-        let sessionObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(session)
-        )
-        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
+        let sessionData = try emptySessionResponseData()
         let cardRequestCounter = LockedCounter()
         MockURLProtocol.handler = { request in
             if request.url?.path == "/api/study/session/start" {
@@ -600,5 +503,40 @@ extension StudyStoreTests {
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending.first?.attemptCount, rejectedAttemptsBeforeSync + 1)
         XCTAssertNotNil(pending.first?.lastError)
+    }
+
+    @MainActor
+    private func makeRejectedCardStore(
+        in container: ModelContainer,
+        client: APIClient
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+    }
+
+    @MainActor
+    private func emptySessionResponseData() throws -> Data {
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 10,
+                newCardsAvailableToday: 0
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        return try JSONSerialization.data(withJSONObject: ["data": sessionObject])
     }
 }
