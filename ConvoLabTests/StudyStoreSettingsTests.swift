@@ -41,16 +41,7 @@ extension StudyStoreTests {
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardLaneWeights, expected)
@@ -99,16 +90,7 @@ extension StudyStoreTests {
                 Data(#"{"newCardsPerDay":12}"#.utf8)
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
         await store.refreshStudySettings()
         XCTAssertEqual(store.studySettings?.newCardsPerDay, 12)
         XCTAssertEqual(store.studySettings?.lessonBatchSize, 5)
@@ -138,16 +120,7 @@ extension StudyStoreTests {
                 Data(#"{"newCardsPerDay":24,"lessonBatchSize":7}"#.utf8)
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
         let fallback = StudyCapabilities.fallback
         store.capabilities = StudyCapabilities(
             version: fallback.version,
@@ -183,16 +156,7 @@ extension StudyStoreTests {
                 deferredRefresh.hold(completion)
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         let refresh = Task { await store.refreshStudySettings() }
         await waitUntil { deferredRefresh.hasPendingResponse }
@@ -228,16 +192,7 @@ extension StudyStoreTests {
                 ))))
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         let update = Task {
             await store.updateStudySettings(
@@ -287,16 +242,7 @@ extension StudyStoreTests {
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         await store.refreshOverview(timeZone: expectedTimeZone)
 
@@ -320,16 +266,7 @@ extension StudyStoreTests {
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         await store.refreshOverview()
 
@@ -387,16 +324,7 @@ extension StudyStoreTests {
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         await store.refreshOverview()
 
@@ -426,16 +354,7 @@ extension StudyStoreTests {
                 completion(.failure(URLError(.unsupportedURL)))
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
         await store.refreshStudySettings()
 
         let refresh = Task { await store.refreshOverview() }
@@ -489,37 +408,10 @@ extension StudyStoreTests {
             ))
         ))
         try container.mainContext.save()
-        let session = StudySession(
-            overview: StudyOverview(
-                dueCount: 0,
-                newCount: 0,
-                reviewCount: 0,
-                newCardsPerDay: 20,
-                newCardsAvailableToday: 0,
-                learningReadiness: StudyLearningReadiness(
-                    recommendation: "ready",
-                    readinessLevel: "ready",
-                    sampleSize: 40,
-                    sufficientData: true,
-                    recentRecall: 0.95,
-                    targetRecall: 0.9,
-                    dueBacklog: 0,
-                    apprenticeCount: 0,
-                    projectedSevenDayReviews: 28,
-                    timedReviewSampleSize: 40,
-                    medianReviewDurationSeconds: 900,
-                    projectedDailyReviewMinutes: 60,
-                    reviewTimeBudgetMinutes: nil,
-                    reviewTimeHeadroomMinutes: nil,
-                    suggestedBatchSize: 5
-                )
-            ),
-            cards: []
+        let sessionData = try readinessSessionResponseData(
+            reviewTimeBudgetMinutes: nil,
+            reviewTimeHeadroomMinutes: nil
         )
-        let sessionObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(session)
-        )
-        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
         let client = makeClient { request in
             switch request.url?.path {
             case "/api/study/settings":
@@ -548,16 +440,7 @@ extension StudyStoreTests {
                 throw URLError(.unsupportedURL)
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         await store.refreshStudySettings()
         try await store.refreshSession()
@@ -573,37 +456,10 @@ extension StudyStoreTests {
     @MainActor
     func testSettingsRefreshUpdatesOverviewReadinessBudget() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
-        let session = StudySession(
-            overview: StudyOverview(
-                dueCount: 0,
-                newCount: 0,
-                reviewCount: 0,
-                newCardsPerDay: 20,
-                newCardsAvailableToday: 0,
-                learningReadiness: StudyLearningReadiness(
-                    recommendation: "ready",
-                    readinessLevel: "ready",
-                    sampleSize: 40,
-                    sufficientData: true,
-                    recentRecall: 0.95,
-                    targetRecall: 0.9,
-                    dueBacklog: 0,
-                    apprenticeCount: 0,
-                    projectedSevenDayReviews: 28,
-                    timedReviewSampleSize: 40,
-                    medianReviewDurationSeconds: 900,
-                    projectedDailyReviewMinutes: 60,
-                    reviewTimeBudgetMinutes: 90,
-                    reviewTimeHeadroomMinutes: 30,
-                    suggestedBatchSize: 5
-                )
-            ),
-            cards: []
+        let sessionData = try readinessSessionResponseData(
+            reviewTimeBudgetMinutes: 90,
+            reviewTimeHeadroomMinutes: 30
         )
-        let sessionObject = try JSONSerialization.jsonObject(
-            with: StorageCodec.encoder.encode(session)
-        )
-        let sessionData = try JSONSerialization.data(withJSONObject: ["data": sessionObject])
         let client = makeClient { request in
             switch request.url?.path {
             case "/api/study/session/start":
@@ -632,16 +488,7 @@ extension StudyStoreTests {
                 throw URLError(.unsupportedURL)
             }
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         try await store.refreshSession()
         await store.refreshStudySettings()
@@ -681,16 +528,7 @@ extension StudyStoreTests {
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         let saved = await store.updateStudySettings(
             newCardsPerDay: 20,
@@ -718,16 +556,7 @@ extension StudyStoreTests {
                 Data(#"{"newCardsPerDay":20,"lessonBatchSize":5}"#.utf8)
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSettingsStore(in: container, client: client)
 
         let saved = await store.updateStudySettings(
             newCardsPerDay: 20,
@@ -737,5 +566,60 @@ extension StudyStoreTests {
 
         XCTAssertTrue(saved)
         XCTAssertEqual(store.studySettings?.reviewTimeBudgetMinutes, 150)
+    }
+
+    @MainActor
+    private func makeSettingsStore(
+        in container: ModelContainer,
+        client: APIClient
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+    }
+
+    @MainActor
+    private func readinessSessionResponseData(
+        reviewTimeBudgetMinutes: Int?,
+        reviewTimeHeadroomMinutes: Int?
+    ) throws -> Data {
+        let session = StudySession(
+            overview: StudyOverview(
+                dueCount: 0,
+                newCount: 0,
+                reviewCount: 0,
+                newCardsPerDay: 20,
+                newCardsAvailableToday: 0,
+                learningReadiness: StudyLearningReadiness(
+                    recommendation: "ready",
+                    readinessLevel: "ready",
+                    sampleSize: 40,
+                    sufficientData: true,
+                    recentRecall: 0.95,
+                    targetRecall: 0.9,
+                    dueBacklog: 0,
+                    apprenticeCount: 0,
+                    projectedSevenDayReviews: 28,
+                    timedReviewSampleSize: 40,
+                    medianReviewDurationSeconds: 900,
+                    projectedDailyReviewMinutes: 60,
+                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
+                    reviewTimeHeadroomMinutes: reviewTimeHeadroomMinutes,
+                    suggestedBatchSize: 5
+                )
+            ),
+            cards: []
+        )
+        let sessionObject = try JSONSerialization.jsonObject(
+            with: StorageCodec.encoder.encode(session)
+        )
+        return try JSONSerialization.data(withJSONObject: ["data": sessionObject])
     }
 }
