@@ -64,9 +64,9 @@ extension StudyStoreTests {
         let reorderPage = try page(items: [second, first])
 
         for reorderStatus in [200, 500] {
-            OverlappingQueueReorderURLProtocol.configure(
+            OverlappingQueueReorderURLProtocol.configure(.init(
                 initialPage: initialPage, refreshedPage: refreshedPage, reorderPage: reorderPage,
-                reorderStatus: reorderStatus)
+                reorderStatus: reorderStatus))
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [OverlappingQueueReorderURLProtocol.self]
             let client = APIClient(
@@ -104,9 +104,9 @@ extension StudyStoreTests {
         let first = item(id: "first", position: 1)
         let second = item(id: "second", position: 2)
         let refreshed = item(id: "refreshed", position: 1)
-        OverlappingQueueReorderURLProtocol.configure(
+        OverlappingQueueReorderURLProtocol.configure(.init(
             initialPage: try page(items: [first, second]), refreshedPage: try page(items: [refreshed]),
-            reorderPage: try page(items: [second, first]), reorderStatus: 200, holdSecondRefresh: true)
+            reorderPage: try page(items: [second, first]), reorderStatus: 200, holdSecondRefresh: true))
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OverlappingQueueReorderURLProtocol.self]
         let client = APIClient(
