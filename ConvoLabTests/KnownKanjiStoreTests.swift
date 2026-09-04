@@ -128,49 +128,11 @@ final class KnownKanjiStoreTests: XCTestCase {
             """#.utf8
         )
         let client = makeClient { request in
-            switch requestCounter.next() {
-            case 1:
-                XCTAssertEqual(request.httpMethod, "PUT")
-                XCTAssertEqual(request.url?.path, "/api/study/wanikani")
-                let body = try requestBody(request)
-                let object = try XCTUnwrap(
-                    JSONSerialization.jsonObject(with: body) as? [String: String]
-                )
-                XCTAssertEqual(object["apiToken"], "secret-wanikani-token")
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    connectedSnapshot
-                )
-            case 2:
-                XCTAssertEqual(request.httpMethod, "POST")
-                XCTAssertEqual(request.url?.path, "/api/study/wanikani/sync")
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data(#"{"added":1,"effectiveTotal":1,"version":2}"#.utf8)
-                )
-            default:
-                XCTAssertEqual(request.httpMethod, "GET")
-                XCTAssertEqual(request.url?.path, "/api/study/known-kanji")
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    connectedSnapshot
-                )
-            }
+            try Self.connectResponse(
+                for: request,
+                number: requestCounter.next(),
+                connectedSnapshot: connectedSnapshot
+            )
         }
         let store = StudyStore(initialUserID: 1,
             api: client,
@@ -359,12 +321,7 @@ final class KnownKanjiStoreTests: XCTestCase {
     private func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
+        return makeConfiguredClient()
     }
 
     @MainActor
@@ -373,11 +330,51 @@ final class KnownKanjiStoreTests: XCTestCase {
     ) -> APIClient {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = handler
+        return makeConfiguredClient()
+    }
+
+    @MainActor
+    private func makeConfiguredClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return APIClient(
             baseURL: URL(string: "https://learning-os.example")!,
             session: URLSession(configuration: configuration)
         )
+    }
+
+    nonisolated private static func connectResponse(
+        for request: URLRequest,
+        number: Int,
+        connectedSnapshot: Data
+    ) throws -> (HTTPURLResponse, Data) {
+        let response = HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        switch number {
+        case 1:
+            XCTAssertEqual(request.httpMethod, "PUT")
+            XCTAssertEqual(request.url?.path, "/api/study/wanikani")
+            let body = try requestBody(request)
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: String]
+            )
+            XCTAssertEqual(object["apiToken"], "secret-wanikani-token")
+            return (response, connectedSnapshot)
+        case 2:
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/study/wanikani/sync")
+            return (
+                response,
+                Data(#"{"added":1,"effectiveTotal":1,"version":2}"#.utf8)
+            )
+        default:
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/api/study/known-kanji")
+            return (response, connectedSnapshot)
+        }
     }
 }
