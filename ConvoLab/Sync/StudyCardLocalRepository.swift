@@ -3,6 +3,47 @@ import SwiftData
 
 @MainActor
 struct StudyCardLocalRepository {
+    private enum MergeMode {
+        case activeSession
+        case offlineReserve(preservingActiveSessionOrder: Bool)
+
+        func prepare(_ records: [LocalCardRecord]) {
+            guard case .activeSession = self else { return }
+            records.forEach { $0.isInActiveSession = false }
+        }
+
+        func applyQueueMetadata(to record: LocalCardRecord, index: Int) {
+            switch self {
+            case .activeSession:
+                record.isInActiveSession = true
+                record.queueIndex = index
+            case let .offlineReserve(preservingActiveSessionOrder):
+                if !preservingActiveSessionOrder || !record.isInActiveSession {
+                    record.queueIndex = index
+                }
+            }
+        }
+
+        var newRecordIsActive: Bool {
+            if case .activeSession = self { return true }
+            return false
+        }
+    }
+
+    private struct MatchIdentity {
+        let id: String
+        let syncID: String
+        let normalizedID: String
+        let normalizedSyncID: String
+
+        init(card: StudyCard) {
+            id = card.id
+            syncID = card.reviewCardID
+            normalizedID = card.id.lowercased()
+            normalizedSyncID = card.reviewCardID.lowercased()
+        }
+    }
+
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -10,44 +51,7 @@ struct StudyCardLocalRepository {
     }
 
     func replaceActiveSession(with cards: [StudyCard], userID: Int) throws {
-        let existing = try records(userID: userID)
-        existing.forEach { $0.isInActiveSession = false }
-        var byIdentifier = recordsByIdentifier(existing)
-
-        for (index, card) in cards.enumerated() {
-            let identifiers = StudyCardIdentity.identifiers(for: card)
-            if let record = identifiers.lazy.compactMap({ byIdentifier[$0] }).first {
-                record.isInActiveSession = true
-                // Queue membership and position are server/session metadata, so
-                // keep them current even while local card content remains dirty.
-                record.queueIndex = index
-                guard record.locallyUpdatedAt == nil else { continue }
-                let resolvedCard = resolvedProgressionMetadata(
-                    for: card,
-                    storedIn: record
-                )
-                let rebasedCard = record.id == resolvedCard.id
-                    ? resolvedCard
-                    : resolvedCard.replacingIdentity(
-                        id: record.id,
-                        syncId: resolvedCard.reviewCardID
-                    )
-                record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
-                record.serverUpdatedAt = card.updatedAt
-            } else {
-                let record = LocalCardRecord(
-                    card: card,
-                    userID: userID,
-                    queueIndex: index,
-                    payload: try StorageCodec.encoder.encode(card)
-                )
-                context.insert(record)
-                for identifier in identifiers {
-                    byIdentifier[identifier] = record
-                }
-            }
-        }
-        try context.save()
+        try merge(cards, userID: userID, mode: .activeSession)
     }
 
     func mergeOfflineReserve(
@@ -55,28 +59,26 @@ struct StudyCardLocalRepository {
         userID: Int,
         preservingActiveSessionOrder: Bool = false
     ) throws {
+        try merge(
+            cards,
+            userID: userID,
+            mode: .offlineReserve(preservingActiveSessionOrder: preservingActiveSessionOrder)
+        )
+    }
+
+    private func merge(
+        _ cards: [StudyCard],
+        userID: Int,
+        mode: MergeMode
+    ) throws {
         let existing = try records(userID: userID)
+        mode.prepare(existing)
         var byIdentifier = recordsByIdentifier(existing)
 
         for (index, card) in cards.enumerated() {
             let identifiers = StudyCardIdentity.identifiers(for: card)
             if let record = identifiers.lazy.compactMap({ byIdentifier[$0] }).first {
-                if !preservingActiveSessionOrder || !record.isInActiveSession {
-                    record.queueIndex = index
-                }
-                guard record.locallyUpdatedAt == nil else { continue }
-                let resolvedCard = resolvedProgressionMetadata(
-                    for: card,
-                    storedIn: record
-                )
-                let rebasedCard = record.id == resolvedCard.id
-                    ? resolvedCard
-                    : resolvedCard.replacingIdentity(
-                        id: record.id,
-                        syncId: resolvedCard.reviewCardID
-                    )
-                record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
-                record.serverUpdatedAt = card.updatedAt
+                try merge(card, into: record, at: index, mode: mode)
             } else {
                 let record = LocalCardRecord(
                     card: card,
@@ -84,14 +86,43 @@ struct StudyCardLocalRepository {
                     queueIndex: index,
                     payload: try StorageCodec.encoder.encode(card)
                 )
-                record.isInActiveSession = false
+                record.isInActiveSession = mode.newRecordIsActive
                 context.insert(record)
-                for identifier in identifiers {
-                    byIdentifier[identifier] = record
-                }
+                indexRecord(record, by: identifiers, in: &byIdentifier)
             }
         }
         try context.save()
+    }
+
+    private func merge(
+        _ card: StudyCard,
+        into record: LocalCardRecord,
+        at index: Int,
+        mode: MergeMode
+    ) throws {
+        // Queue membership and position are server/session metadata, so keep
+        // them current even while local card content remains dirty.
+        mode.applyQueueMetadata(to: record, index: index)
+        guard record.locallyUpdatedAt == nil else { return }
+        let resolvedCard = resolvedProgressionMetadata(for: card, storedIn: record)
+        let rebasedCard = record.id == resolvedCard.id
+            ? resolvedCard
+            : resolvedCard.replacingIdentity(
+                id: record.id,
+                syncId: resolvedCard.reviewCardID
+            )
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(rebasedCard))
+        record.serverUpdatedAt = card.updatedAt
+    }
+
+    private func indexRecord(
+        _ record: LocalCardRecord,
+        by identifiers: Set<String>,
+        in records: inout [String: LocalCardRecord]
+    ) {
+        for identifier in identifiers {
+            records[identifier] = record
+        }
     }
 
     func markProgressionLocked(_ card: StudyCard, userID: Int) throws {
@@ -142,6 +173,19 @@ struct StudyCardLocalRepository {
         cachedKeys: Set<String>,
         clearingOtherRecords: Bool = false
     ) throws {
+        let cardsByIdentifier = cardsByIdentifier(cards)
+        for record in try records(userID: userID) {
+            updateMediaPreparedState(
+                of: record,
+                using: cardsByIdentifier,
+                cachedKeys: cachedKeys,
+                clearingIfMissing: clearingOtherRecords
+            )
+        }
+        try context.save()
+    }
+
+    private func cardsByIdentifier(_ cards: [StudyCard]) -> [String: StudyCard] {
         var cardsByIdentifier: [String: StudyCard] = [:]
         for card in cards {
             for identifier in StudyCardIdentity.identifiers(for: card)
@@ -149,21 +193,27 @@ struct StudyCardLocalRepository {
                 cardsByIdentifier[identifier] = card
             }
         }
-        for record in try records(userID: userID) {
-            guard let card = recordIdentifiers(record).lazy.compactMap({
-                cardsByIdentifier[$0]
-            }).first else {
-                if clearingOtherRecords {
-                    record.mediaPreparedAt = nil
-                }
-                continue
+        return cardsByIdentifier
+    }
+
+    private func updateMediaPreparedState(
+        of record: LocalCardRecord,
+        using cardsByIdentifier: [String: StudyCard],
+        cachedKeys: Set<String>,
+        clearingIfMissing: Bool
+    ) {
+        guard let card = recordIdentifiers(record).lazy.compactMap({
+            cardsByIdentifier[$0]
+        }).first else {
+            if clearingIfMissing {
+                record.mediaPreparedAt = nil
             }
-            let isPrepared = card.mediaURLs.allSatisfy {
-                cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
-            }
-            record.mediaPreparedAt = isPrepared ? .now : nil
+            return
         }
-        try context.save()
+        let isPrepared = card.mediaURLs.allSatisfy {
+            cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
+        }
+        record.mediaPreparedAt = isPrepared ? .now : nil
     }
 
     func activeCards(userID: Int) throws -> [StudyCard] {
@@ -183,23 +233,15 @@ struct StudyCardLocalRepository {
     }
 
     func record(matching card: StudyCard, userID: Int) throws -> LocalCardRecord? {
-        let normalizedID = card.id.lowercased()
-        let normalizedSyncID = card.reviewCardID.lowercased()
-        var matches = try records(userID: userID, normalizedID: normalizedID)
-        matches += try records(userID: userID, syncID: normalizedID)
-        if normalizedSyncID != normalizedID {
-            matches += try records(userID: userID, normalizedID: normalizedSyncID)
-            matches += try records(userID: userID, syncID: normalizedSyncID)
+        let identity = MatchIdentity(card: card)
+        var matches = try records(userID: userID, normalizedID: identity.normalizedID)
+        matches += try records(userID: userID, syncID: identity.normalizedID)
+        if identity.normalizedSyncID != identity.normalizedID {
+            matches += try records(userID: userID, normalizedID: identity.normalizedSyncID)
+            matches += try records(userID: userID, syncID: identity.normalizedSyncID)
         }
         return matches.min { lhs, rhs in
-            isPreferredMatch(
-                lhs,
-                over: rhs,
-                id: card.id,
-                syncID: card.reviewCardID,
-                normalizedID: normalizedID,
-                normalizedSyncID: normalizedSyncID
-            )
+            isPreferredMatch(lhs, over: rhs, identity: identity)
         }
     }
 
@@ -235,42 +277,24 @@ struct StudyCardLocalRepository {
 
     private func matchPriority(
         _ record: LocalCardRecord,
-        id: String,
-        syncID: String,
-        normalizedID: String,
-        normalizedSyncID: String
+        identity: MatchIdentity
     ) -> Int {
-        if record.id == id { return 0 }
-        if record.normalizedID == normalizedID { return 1 }
-        if record.id == syncID { return 2 }
-        if record.normalizedID == normalizedSyncID { return 3 }
-        if record.syncID == normalizedID { return 4 }
-        if record.syncID == normalizedSyncID { return 5 }
+        if record.id == identity.id { return 0 }
+        if record.normalizedID == identity.normalizedID { return 1 }
+        if record.id == identity.syncID { return 2 }
+        if record.normalizedID == identity.normalizedSyncID { return 3 }
+        if record.syncID == identity.normalizedID { return 4 }
+        if record.syncID == identity.normalizedSyncID { return 5 }
         return 6
     }
 
     private func isPreferredMatch(
         _ lhs: LocalCardRecord,
         over rhs: LocalCardRecord,
-        id: String,
-        syncID: String,
-        normalizedID: String,
-        normalizedSyncID: String
+        identity: MatchIdentity
     ) -> Bool {
-        let lhsPriority = matchPriority(
-            lhs,
-            id: id,
-            syncID: syncID,
-            normalizedID: normalizedID,
-            normalizedSyncID: normalizedSyncID
-        )
-        let rhsPriority = matchPriority(
-            rhs,
-            id: id,
-            syncID: syncID,
-            normalizedID: normalizedID,
-            normalizedSyncID: normalizedSyncID
-        )
+        let lhsPriority = matchPriority(lhs, identity: identity)
+        let rhsPriority = matchPriority(rhs, identity: identity)
         if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
 
         let lhsIsDirty = lhs.locallyUpdatedAt != nil
