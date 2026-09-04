@@ -123,19 +123,28 @@ final class ManualDraftOutbox {
         let latest = drafts.first { $0.id == draft.id }
         let changedDuringFetch = draftRevisions[id, default: 0]
             != startingDraftRevision
-        if changedDuringFetch, latest == nil
-        {
+        if changedDuringFetch, latest == nil {
             throw CancellationError()
         }
-        if let latest {
-            if latest.updatedAt > draft.updatedAt
-                || (changedDuringFetch && latest.updatedAt == draft.updatedAt)
-            {
-                return latest
-            }
+        if let latest, latestDraftShouldWin(
+            latest,
+            over: draft,
+            changedDuringFetch: changedDuringFetch
+        ) {
+            return latest
         }
         replace(draft)
         return draft
+    }
+
+    private func latestDraftShouldWin(
+        _ latest: StudyManualCardDraft,
+        over fetched: StudyManualCardDraft,
+        changedDuringFetch: Bool
+    ) -> Bool {
+        if latest.updatedAt > fetched.updatedAt { return true }
+        if !changedDuringFetch { return false }
+        return latest.updatedAt == fetched.updatedAt
     }
 
     func replace(_ draft: StudyManualCardDraft) {
@@ -616,30 +625,32 @@ final class ManualDraftOutbox {
         for draftID: String,
         userID: Int
     ) throws -> PendingMutation? {
-        var descriptor = FetchDescriptor<PendingMutation>(
-            predicate: #Predicate {
-                $0.userID == userID
-                    && $0.kind == "draftCreate"
-                    && $0.resourceID == draftID
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        try pendingMutation(for: draftID, userID: userID) {
+            $0.kind == "draftCreate"
+        }
     }
 
     private func pendingCommit(
         for draftID: String,
         userID: Int
     ) throws -> PendingMutation? {
-        var descriptor = FetchDescriptor<PendingMutation>(
+        try pendingMutation(for: draftID, userID: userID) {
+            $0.kind == "draftCommit" || $0.kind == "draftCommitRejected"
+        }
+    }
+
+    private func pendingMutation(
+        for draftID: String,
+        userID: Int,
+        matching matchesKind: (PendingMutation) -> Bool
+    ) throws -> PendingMutation? {
+        let descriptor = FetchDescriptor<PendingMutation>(
             predicate: #Predicate {
                 $0.userID == userID
-                    && ($0.kind == "draftCommit" || $0.kind == "draftCommitRejected")
                     && $0.resourceID == draftID
             }
         )
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        return try context.fetch(descriptor).first(where: matchesKind)
     }
 
     private func draftHasDifferentCommittedCardID(
