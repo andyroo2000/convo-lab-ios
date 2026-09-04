@@ -43,73 +43,65 @@ private final class TestStudyDueActivationScheduler: StudyDueActivationSchedulin
 }
 
 extension StudyStoreTests {
-    @MainActor
-    func testOfflineClozeCreationQueuesTypeAwarePayload() async throws {
-        let container = try Persistence.makeContainer(inMemory: true)
-        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
-        var draft = StudyCardDraft(cardType: .cloze)
-        draft.cueText = "毎日{{c1::勉強する}}。"
-        draft.cueMeaning = "daily habit"
-        draft.answerExpression = "毎日勉強する。"
-        draft.answerReading = "毎日[まいにち]勉強[べんきょう]する。"
-        draft.answerMeaning = "I study every day."
+    private struct OfflineCardCreationCase {
+        let cardType: StudyCardDraft.CardType
+        let cueText: String
+        let cueMeaning: String
+        let answerExpression: String
+        let answerReading: String
+        let answerMeaning: String
+        let promptKey: String
+        let promptValue: String
+        let answerKey: String
+        let answerValue: String
+    }
 
-        try await store.createCard(draft)
-
-        let card = try XCTUnwrap(store.libraryCards.first)
-        XCTAssertEqual(card.cardType, "cloze")
-        XCTAssertEqual(card.prompt["clozeText"]?.stringValue, "毎日{{c1::勉強する}}。")
-        XCTAssertEqual(card.answer["restoredText"]?.stringValue, "毎日勉強する。")
-        let mutation = try XCTUnwrap(
-            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
-                .first(where: { $0.kind == "cardCreate" })
-        )
-        let request = try StorageCodec.decoder.decode(
-            CreateStudyCardRequest.self,
-            from: mutation.payload
-        )
-        XCTAssertEqual(request.cardType, "cloze")
-        XCTAssertEqual(request.prompt, card.prompt)
-        XCTAssertEqual(request.answer, card.answer)
+    private struct OverlappingSessionResponses {
+        let firstReview: Data
+        let secondReview: Data
+        let lesson: Data
+        var holdLesson = false
     }
 
     @MainActor
-    func testOfflineTextProductionCreationQueuesTypeAwarePayload() async throws {
-        let container = try Persistence.makeContainer(inMemory: true)
-        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
-        var draft = StudyCardDraft(cardType: .production)
-        draft.cueText = "to learn"
-        draft.answerExpression = "学ぶ"
-        draft.answerReading = "学[まな]ぶ"
-        draft.answerMeaning = "to learn"
+    func testOfflineCardCreationQueuesTypeAwarePayloads() async throws {
+        let cases = [
+            OfflineCardCreationCase(
+                cardType: .cloze,
+                cueText: "毎日{{c1::勉強する}}。",
+                cueMeaning: "daily habit",
+                answerExpression: "毎日勉強する。",
+                answerReading: "毎日[まいにち]勉強[べんきょう]する。",
+                answerMeaning: "I study every day.",
+                promptKey: "clozeText",
+                promptValue: "毎日{{c1::勉強する}}。",
+                answerKey: "restoredText",
+                answerValue: "毎日勉強する。"
+            ),
+            OfflineCardCreationCase(
+                cardType: .production,
+                cueText: "to learn",
+                cueMeaning: "",
+                answerExpression: "学ぶ",
+                answerReading: "学[まな]ぶ",
+                answerMeaning: "to learn",
+                promptKey: "cueText",
+                promptValue: "to learn",
+                answerKey: "expression",
+                answerValue: "学ぶ"
+            ),
+        ]
+        var thrownErrors: [String] = []
 
-        try await store.createCard(draft)
+        for testCase in cases {
+            do {
+                try await assertOfflineCardCreation(testCase)
+            } catch {
+                thrownErrors.append("\(testCase.cardType.rawValue): \(error)")
+            }
+        }
 
-        let card = try XCTUnwrap(store.libraryCards.first)
-        XCTAssertEqual(card.cardType, "production")
-        XCTAssertEqual(card.prompt["cueText"]?.stringValue, "to learn")
-        XCTAssertEqual(card.answer["expression"]?.stringValue, "学ぶ")
-        let mutation = try XCTUnwrap(
-            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
-                .first(where: { $0.kind == "cardCreate" })
-        )
-        let request = try StorageCodec.decoder.decode(
-            CreateStudyCardRequest.self,
-            from: mutation.payload
-        )
-        XCTAssertEqual(request.cardType, "production")
-        XCTAssertEqual(request.prompt, card.prompt)
-        XCTAssertEqual(request.answer, card.answer)
+        XCTAssertTrue(thrownErrors.isEmpty, thrownErrors.joined(separator: "\n"))
     }
 
     @MainActor
@@ -145,9 +137,9 @@ extension StudyStoreTests {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let store = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
 
@@ -178,16 +170,7 @@ extension StudyStoreTests {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
 
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSessionStore(in: container, client: client)
 
         XCTAssertEqual(store.overview?.dueCount, 7)
         XCTAssertEqual(store.overview?.newCount, 5)
@@ -218,16 +201,7 @@ extension StudyStoreTests {
             requestedPaths.append(request.url?.path ?? "")
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSessionStore(in: container, client: client)
         XCTAssertTrue(store.cards.isEmpty)
 
         let readyCard = makeCard(
@@ -293,26 +267,9 @@ extension StudyStoreTests {
             default:
                 throw URLError(.badURL)
             }
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                data
-            )
+            return try Self.response(for: request, data: data)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSessionStore(in: container, client: client)
 
         await store.loadNextReviewBatch()
 
@@ -368,25 +325,11 @@ extension StudyStoreTests {
             default:
                 throw URLError(.badURL)
             }
-            return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                data
-            )
+            return try Self.response(for: request, data: data)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            ),
+        let store = makeSessionStore(
+            in: container,
+            client: client,
             storageMode: .temporary
         )
 
@@ -433,9 +376,9 @@ extension StudyStoreTests {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let store = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
 
@@ -477,16 +420,7 @@ extension StudyStoreTests {
         container.mainContext.insert(aliasedRecord)
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSessionStore(in: container, client: client)
 
         store.activateOfflineDueCards(at: .now)
 
@@ -641,9 +575,9 @@ extension StudyStoreTests {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let store = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
         let firstReviewAt = Date(timeIntervalSince1970: 1_800_000_000)
@@ -688,25 +622,19 @@ extension StudyStoreTests {
             reviewedAt: secondRetryDueAt
         )
 
-        XCTAssertTrue(store.cards.isEmpty)
-        XCTAssertEqual(store.sessionCounts.failedDue, 0)
-        XCTAssertEqual(store.sessionFailureCount, 0)
+        assertClearedFailureState(in: store)
 
-        let relaunched = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let relaunched = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
-        XCTAssertTrue(relaunched.cards.isEmpty)
-        XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
-        XCTAssertEqual(relaunched.sessionFailureCount, 0)
+        assertClearedFailureState(in: relaunched)
 
         let goodDueAt = try XCTUnwrap(relaunched.libraryCards.first?.state.dueAt)
         XCTAssertEqual(goodDueAt, secondRetryDueAt.addingTimeInterval(24 * 60 * 60))
         relaunched.activateOfflineDueCards(at: goodDueAt)
-        XCTAssertEqual(relaunched.cards.map(\.id), [card.id])
-        XCTAssertEqual(relaunched.cards.first?.state.queueState, "review")
-        XCTAssertNil(relaunched.cards.first?.state.failedAt)
+        assertActiveReviewCard(in: relaunched, expectedID: card.id)
     }
 
     @MainActor
@@ -724,9 +652,9 @@ extension StudyStoreTests {
         try container.mainContext.save()
         let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
         let mediaCache = MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let store = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
 
@@ -735,9 +663,9 @@ extension StudyStoreTests {
         XCTAssertEqual(store.sessionCounts.failedDue, 0)
         XCTAssertTrue(store.cards.isEmpty)
 
-        let relaunched = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
+        let relaunched = makeSessionStore(
+            in: container,
+            client: client,
             mediaCache: mediaCache
         )
         XCTAssertEqual(relaunched.sessionCounts.failedDue, 0)
@@ -823,11 +751,7 @@ extension StudyStoreTests {
                 data
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeSessionStore(in: container, client: client)
 
         try await store.refreshSession()
 
@@ -842,20 +766,12 @@ extension StudyStoreTests {
         let newerCard = makeCard(id: "newer-session-card", expression: "新しいセッション")
         let olderData = try sessionResponseData(cards: [olderCard])
         let newerData = try sessionResponseData(cards: [newerCard])
-        OverlappingStudySessionURLProtocol.configure(
-            firstReview: olderData,
-            secondReview: newerData,
-            lesson: newerData
-        )
-        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
+        let store = makeOverlappingSessionStore(
+            in: container,
+            responses: OverlappingSessionResponses(
+                firstReview: olderData,
+                secondReview: newerData,
+                lesson: newerData
             )
         )
 
@@ -895,16 +811,7 @@ extension StudyStoreTests {
             XCTAssertEqual(request.url?.path, "/api/study/session/start")
             return Self.response(data: data)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeSessionStore(in: container, client: client)
 
         try await store.refreshSession()
 
@@ -922,20 +829,12 @@ extension StudyStoreTests {
         )
         let reviewData = try sessionResponseData(cards: [reviewCard])
         let lessonData = try sessionResponseData(cards: [lessonCard], lessonBatchSize: 3)
-        OverlappingStudySessionURLProtocol.configure(
-            firstReview: reviewData,
-            secondReview: reviewData,
-            lesson: lessonData
-        )
-        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
+        let store = makeOverlappingSessionStore(
+            in: container,
+            responses: OverlappingSessionResponses(
+                firstReview: reviewData,
+                secondReview: reviewData,
+                lesson: lessonData
             )
         )
 
@@ -973,21 +872,13 @@ extension StudyStoreTests {
             cards: [makeCard(id: "discarded-lesson", expression: "破棄するレッスン")],
             lessonBatchSize: 3
         )
-        OverlappingStudySessionURLProtocol.configure(
-            firstReview: reviewData,
-            secondReview: reviewData,
-            lesson: lessonData,
-            holdLesson: true
-        )
-        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
+        let store = makeOverlappingSessionStore(
+            in: container,
+            responses: OverlappingSessionResponses(
+                firstReview: reviewData,
+                secondReview: reviewData,
+                lesson: lessonData,
+                holdLesson: true
             )
         )
 
@@ -1010,5 +901,123 @@ extension StudyStoreTests {
         XCTAssertFalse(lessonApplied)
         XCTAssertEqual(store.cards.map(\.id), [existingCard.id])
         XCTAssertEqual(store.libraryCards.map(\.id), [existingCard.id])
+    }
+
+    @MainActor
+    private func makeSessionStore(
+        in container: ModelContainer,
+        client: APIClient,
+        storageMode: StorageMode = .persistent
+    ) -> StudyStore {
+        makeSessionStore(
+            in: container,
+            client: client,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            storageMode: storageMode
+        )
+    }
+
+    @MainActor
+    private func makeSessionStore(
+        in container: ModelContainer,
+        client: APIClient,
+        mediaCache: MediaCache,
+        storageMode: StorageMode = .persistent
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: mediaCache,
+            storageMode: storageMode
+        )
+    }
+
+    @MainActor
+    private func assertClearedFailureState(in store: StudyStore) {
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.sessionCounts.failedDue, 0)
+        XCTAssertEqual(store.sessionFailureCount, 0)
+    }
+
+    @MainActor
+    private func assertActiveReviewCard(in store: StudyStore, expectedID: String) {
+        XCTAssertEqual(store.cards.map(\.id), [expectedID])
+        XCTAssertEqual(store.cards.first?.state.queueState, "review")
+        XCTAssertNil(store.cards.first?.state.failedAt)
+    }
+
+    @MainActor
+    private func makeOverlappingSessionStore(
+        in container: ModelContainer,
+        responses: OverlappingSessionResponses
+    ) -> StudyStore {
+        OverlappingStudySessionURLProtocol.configure(
+            firstReview: responses.firstReview,
+            secondReview: responses.secondReview,
+            lesson: responses.lesson,
+            holdLesson: responses.holdLesson
+        )
+        let client = makeClient(protocolClass: OverlappingStudySessionURLProtocol.self)
+        return makeSessionStore(in: container, client: client)
+    }
+
+    @MainActor
+    private func pendingCardCreateRequest(
+        in container: ModelContainer
+    ) throws -> CreateStudyCardRequest {
+        let mutation = try XCTUnwrap(
+            container.mainContext.fetch(FetchDescriptor<PendingMutation>())
+                .first(where: { $0.kind == "cardCreate" })
+        )
+        return try StorageCodec.decoder.decode(
+            CreateStudyCardRequest.self,
+            from: mutation.payload
+        )
+    }
+
+    @MainActor
+    private func assertOfflineCardCreation(
+        _ testCase: OfflineCardCreationCase
+    ) async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.notConnectedToInternet) }
+        let store = makeSessionStore(in: container, client: client)
+        var draft = StudyCardDraft(cardType: testCase.cardType)
+        draft.cueText = testCase.cueText
+        draft.cueMeaning = testCase.cueMeaning
+        draft.answerExpression = testCase.answerExpression
+        draft.answerReading = testCase.answerReading
+        draft.answerMeaning = testCase.answerMeaning
+
+        try await store.createCard(draft)
+
+        let card = try XCTUnwrap(store.libraryCards.first)
+        XCTAssertEqual(card.cardType, testCase.cardType.rawValue)
+        XCTAssertEqual(card.prompt[testCase.promptKey]?.stringValue, testCase.promptValue)
+        XCTAssertEqual(card.answer[testCase.answerKey]?.stringValue, testCase.answerValue)
+        let request = try pendingCardCreateRequest(in: container)
+        XCTAssertEqual(request.cardType, testCase.cardType.rawValue)
+        XCTAssertEqual(request.prompt, card.prompt)
+        XCTAssertEqual(request.answer, card.answer)
+    }
+
+    private static func response(
+        for request: URLRequest,
+        data: Data
+    ) throws -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
+        )
     }
 }
