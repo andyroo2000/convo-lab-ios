@@ -2,6 +2,12 @@ import SwiftUI
 import UIKit
 
 struct MasteryReviewAnimation: View {
+    private struct PulseTiming {
+        let growResponse: Double
+        let growDamping: Double
+        let settleResponse: Double
+    }
+
     let label: String
     let fromLevel: String
     let toLevel: String
@@ -214,86 +220,125 @@ struct MasteryReviewAnimation: View {
         activeIndex = fromIndex
 
         if reduceMotion {
-            trackProgress = 1
-            activeIndex = toIndex
-            withAnimation(.easeOut(duration: 0.1)) {
-                railOpacity = 1
-            }
-            guard await pause(for: .milliseconds(Self.reducedMotionHoldMilliseconds)) else {
-                return
-            }
-            withAnimation(.easeIn(duration: 0.15)) {
-                railOpacity = 0
-            }
-            guard await pause(for: .milliseconds(155)) else { return }
-            onFinished()
+            await runReducedMotionAnimation()
             return
         }
 
+        guard await revealRail() else { return }
+        guard await animateResult() else { return }
+        await finishAnimation()
+    }
+
+    @MainActor
+    private func runReducedMotionAnimation() async {
+        trackProgress = 1
+        activeIndex = toIndex
+        withAnimation(.easeOut(duration: 0.1)) {
+            railOpacity = 1
+        }
+        guard await pause(for: .milliseconds(Self.reducedMotionHoldMilliseconds)) else {
+            return
+        }
+        withAnimation(.easeIn(duration: 0.15)) {
+            railOpacity = 0
+        }
+        guard await pause(for: .milliseconds(155)) else { return }
+        onFinished()
+    }
+
+    @MainActor
+    private func revealRail() async -> Bool {
         withAnimation(.easeOut(duration: 0.12)) {
             railOpacity = 1
         }
-        guard await pause(for: .milliseconds(220)) else { return }
+        return await pause(for: .milliseconds(220))
+    }
 
+    @MainActor
+    private func animateResult() async -> Bool {
         if fromIndex != toIndex {
-            withAnimation(.timingCurve(0.18, 0.92, 0.3, 1, duration: 0.34)) {
-                trackProgress = 1.06
-            }
-            guard await pause(for: .milliseconds(340)) else { return }
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
-                trackProgress = 1
-            }
-            guard await pause(for: .milliseconds(110)) else { return }
-            activeIndex = toIndex
-            if passed {
-                nodeScale = 0.82
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.58)) {
-                    nodeScale = 1.28
-                }
-                guard await pause(for: .milliseconds(190)) else { return }
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.76)) {
-                    nodeScale = 1
-                }
-            } else {
-                withAnimation(.easeOut(duration: 0.12)) {
-                    failureHaloOpacity = 1
-                    failureHaloScale = 1
-                }
-                guard await pause(for: .milliseconds(120)) else { return }
-                withAnimation(.easeIn(duration: 0.18)) {
-                    failureHaloScale = 1.65
-                    failureHaloOpacity = 0
-                }
-            }
-        } else if passed {
-            nodeScale = 0.82
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.56)) {
-                nodeScale = 1.28
-            }
-            guard await pause(for: .milliseconds(190)) else { return }
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.76)) {
-                nodeScale = 1
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.09)) {
-                shakeOffset = -7
-                failureHaloOpacity = 1
-                failureHaloScale = 1
-            }
-            guard await pause(for: .milliseconds(90)) else { return }
-            withAnimation(.easeInOut(duration: 0.11)) {
-                shakeOffset = 6
-                failureHaloScale = 1.35
-                failureHaloOpacity = 0.5
-            }
-            guard await pause(for: .milliseconds(110)) else { return }
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.68)) {
-                shakeOffset = 0
-                failureHaloScale = 1.65
-                failureHaloOpacity = 0
-            }
+            return await animateLevelChange()
         }
+        return passed
+            ? await animatePass(using: PulseTiming(
+                growResponse: 0.32,
+                growDamping: 0.56,
+                settleResponse: 0.26
+            ))
+            : await animateStationaryFailure()
+    }
 
+    @MainActor
+    private func animateLevelChange() async -> Bool {
+        withAnimation(.timingCurve(0.18, 0.92, 0.3, 1, duration: 0.34)) {
+            trackProgress = 1.06
+        }
+        guard await pause(for: .milliseconds(340)) else { return false }
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+            trackProgress = 1
+        }
+        guard await pause(for: .milliseconds(110)) else { return false }
+        activeIndex = toIndex
+        return passed
+            ? await animatePass(using: PulseTiming(
+                growResponse: 0.34,
+                growDamping: 0.58,
+                settleResponse: 0.28
+            ))
+            : await animateLevelFailure()
+    }
+
+    @MainActor
+    private func animatePass(using timing: PulseTiming) async -> Bool {
+        nodeScale = 0.82
+        withAnimation(.spring(response: timing.growResponse, dampingFraction: timing.growDamping)) {
+            nodeScale = 1.28
+        }
+        guard await pause(for: .milliseconds(190)) else { return false }
+        withAnimation(.spring(response: timing.settleResponse, dampingFraction: 0.76)) {
+            nodeScale = 1
+        }
+        return true
+    }
+
+    @MainActor
+    private func animateLevelFailure() async -> Bool {
+        withAnimation(.easeOut(duration: 0.12)) {
+            failureHaloOpacity = 1
+            failureHaloScale = 1
+        }
+        guard await pause(for: .milliseconds(120)) else { return false }
+        withAnimation(.easeIn(duration: 0.18)) {
+            failureHaloScale = 1.65
+            failureHaloOpacity = 0
+        }
+        return true
+    }
+
+    @MainActor
+    private func animateStationaryFailure() async -> Bool {
+        withAnimation(.easeOut(duration: 0.09)) {
+            shakeOffset = -7
+            failureHaloOpacity = 1
+            failureHaloScale = 1
+        }
+        guard await pause(for: .milliseconds(90)) else { return false }
+        withAnimation(.easeInOut(duration: 0.11)) {
+            shakeOffset = 6
+            failureHaloScale = 1.35
+            failureHaloOpacity = 0.5
+        }
+        guard await pause(for: .milliseconds(110)) else { return false }
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.68)) {
+            shakeOffset = 0
+            failureHaloScale = 1.65
+            failureHaloOpacity = 0
+        }
+        return true
+    }
+
+    @MainActor
+    private func finishAnimation() async {
         guard await pause(for: .milliseconds(Self.settledHoldMilliseconds)) else { return }
         withAnimation(.easeIn(duration: 0.18)) {
             railOpacity = 0
