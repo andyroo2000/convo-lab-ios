@@ -767,48 +767,10 @@ final class StudyAchievementStore {
 
     private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
         guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
-        if !session.isReadyForPresentation || !session.celebrationPresented || progress != nil {
-            if let progress {
-                let earnedIDs = Set(progress.awards.map(\.id))
-                let detected: [StudyAchievementAward]
-                if let baselineAwardIDs = session.baselineAwardIDs {
-                    let baseline = Set(baselineAwardIDs)
-                    detected = progress.awards.filter { !baseline.contains($0.id) }
-                } else if let firstReviewAt = session.records.map(\.reviewedAt).min() {
-                    // When the opening refresh failed, award timestamps prevent a later
-                    // successful refresh from replaying the user's entire badge history.
-                    detected = progress.awards.filter { $0.earnedAt >= firstReviewAt }
-                } else {
-                    detected = []
-                }
-                let detectedIDs = detected
-                    .sorted { $0.earnedAt < $1.earnedAt }
-                    .map(\.id)
-                let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
-                    ($0.id, $0.earnedAt)
-                })
-                let retainedIDs = session.newAwardIDs.filter { earnedIDs.contains($0) }
-                let retainedIDSet = Set(retainedIDs)
-                let appendedIDs = detectedIDs
-                    .filter { !retainedIDSet.contains($0) }
-                    .sorted {
-                        dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
-                    }
-                session.newAwardIDs = retainedIDs + appendedIDs
-                if !appendedIDs.isEmpty {
-                    // A completed optimistic carousel must reopen only for awards
-                    // discovered by the authoritative evaluation.
-                    session.celebrationPresented = false
-                }
-            } else if requireNewAward {
+        if completionNeedsPreparation(session) {
+            guard prepareSessionForCompletion(&session, requireNewAward: requireNewAward) else {
                 return nil
             }
-            guard !requireNewAward || !session.newAwardIDs.isEmpty else {
-                sessionState.activeSession = session
-                persistSessionState()
-                return nil
-            }
-            session.isReadyForPresentation = true
         }
         sessionState.activeSession = session
         persistSessionState()
@@ -818,6 +780,70 @@ final class StudyAchievementStore {
             newAwardIDs: session.newAwardIDs,
             celebrationPresented: session.celebrationPresented
         )
+    }
+
+    private func completionNeedsPreparation(_ session: ReviewSession) -> Bool {
+        if !session.isReadyForPresentation { return true }
+        if !session.celebrationPresented { return true }
+        return progress != nil
+    }
+
+    private func prepareSessionForCompletion(
+        _ session: inout ReviewSession,
+        requireNewAward: Bool
+    ) -> Bool {
+        if let progress {
+            reconcileAwards(in: &session, with: progress)
+        } else if requireNewAward {
+            return false
+        }
+        if requireNewAward, session.newAwardIDs.isEmpty {
+            sessionState.activeSession = session
+            persistSessionState()
+            return false
+        }
+        session.isReadyForPresentation = true
+        return true
+    }
+
+    private func reconcileAwards(
+        in session: inout ReviewSession,
+        with progress: StudyAchievementProgress
+    ) {
+        let earnedIDs = Set(progress.awards.map(\.id))
+        let detectedIDs = detectedAwards(for: session, in: progress)
+            .sorted { $0.earnedAt < $1.earnedAt }
+            .map(\.id)
+        let dates = Dictionary(uniqueKeysWithValues: progress.awards.map {
+            ($0.id, $0.earnedAt)
+        })
+        let retainedIDs = session.newAwardIDs.filter { earnedIDs.contains($0) }
+        let retainedIDSet = Set(retainedIDs)
+        let appendedIDs = detectedIDs
+            .filter { !retainedIDSet.contains($0) }
+            .sorted {
+                dates[$0, default: .distantPast] < dates[$1, default: .distantPast]
+            }
+        session.newAwardIDs = retainedIDs + appendedIDs
+        if !appendedIDs.isEmpty {
+            // A completed optimistic carousel must reopen only for awards
+            // discovered by the authoritative evaluation.
+            session.celebrationPresented = false
+        }
+    }
+
+    private func detectedAwards(
+        for session: ReviewSession,
+        in progress: StudyAchievementProgress
+    ) -> [StudyAchievementAward] {
+        if let baselineAwardIDs = session.baselineAwardIDs {
+            let baseline = Set(baselineAwardIDs)
+            return progress.awards.filter { !baseline.contains($0.id) }
+        }
+        guard let firstReviewAt = session.records.map(\.reviewedAt).min() else { return [] }
+        // When the opening refresh failed, award timestamps prevent a later
+        // successful refresh from replaying the user's entire badge history.
+        return progress.awards.filter { $0.earnedAt >= firstReviewAt }
     }
 
     private func loadSessionState(userID: Int) -> SessionPersistedState {
