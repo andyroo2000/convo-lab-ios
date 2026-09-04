@@ -41,12 +41,7 @@ extension StudyStoreTests {
             }
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
         try await store.refreshSession()
 
         XCTAssertEqual(store.sessionCounts.failedDue, 2)
@@ -104,11 +99,7 @@ extension StudyStoreTests {
             _ = requestCount.next()
             throw URLError(.notConnectedToInternet)
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         let recordedEventID = await store.recordReview(
             card: card,
@@ -151,15 +142,7 @@ extension StudyStoreTests {
             variantGroupID: "family-1",
             variantStatus: "locked"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
-        )
-        try container.mainContext.save()
+        try persistUndoCard(card, in: container)
         let overview = StudyOverview(
             dueCount: 1,
             newCount: 0,
@@ -193,16 +176,7 @@ extension StudyStoreTests {
                 responseData
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         try await store.undoReview(eventID: "server-event", cardBefore: card)
 
@@ -219,79 +193,25 @@ extension StudyStoreTests {
             id: "01J0000000000000000000001V",
             expression: "取り消す"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
-        )
-        try container.mainContext.save()
-        let overview = StudyOverview(
-            dueCount: 1,
-            newCount: 0,
-            reviewCount: 1,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 0,
-            learningReadiness: StudyLearningReadiness(
-                recommendation: "ready",
-                readinessLevel: "ready",
-                sampleSize: 40,
-                sufficientData: true,
-                recentRecall: 0.95,
-                targetRecall: 0.9,
-                dueBacklog: 0,
-                apprenticeCount: 0,
-                projectedSevenDayReviews: 28,
-                timedReviewSampleSize: 40,
-                medianReviewDurationSeconds: 900,
-                projectedDailyReviewMinutes: 60,
-                reviewTimeBudgetMinutes: nil,
-                reviewTimeHeadroomMinutes: nil,
-                suggestedBatchSize: 5
-            )
-        )
+        try persistUndoCard(card, in: container)
+        let overview = Self.readyUndoOverview()
         let paths = LockedRequestPaths()
         let undoEventIDs = LockedRequestPaths()
-        let cardJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(card),
-                encoding: .utf8
-            )
-        )
-        let overviewJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(overview),
-                encoding: .utf8
-            )
-        )
+        let cardJSON = try Self.encodedJSONString(card)
+        let overviewJSON = try Self.encodedJSONString(overview)
         let client = makeClient { request in
             let path = request.url?.path ?? ""
             paths.append(path)
             if path == "/api/study/settings" {
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 200,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data(
+                return try Self.httpResponse(
+                    for: request,
+                    data: Data(
                         #"{"newCardsPerDay":10,"lessonBatchSize":5,"reviewTimeBudgetMinutes":150}"#.utf8
                     )
                 )
             }
             if path == "/api/card-review-events/batch" {
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 201,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data()
-                )
+                return try Self.httpResponse(for: request, data: Data(), statusCode: 201)
             }
 
             let body = try JSONSerialization.jsonObject(
@@ -301,29 +221,16 @@ extension StudyStoreTests {
             XCTAssertNil(body?["currentOverview"])
             XCTAssertNil(body?["current_overview"])
             undoEventIDs.append(eventID)
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Data(
-                    """
-                    {
-                      "reviewLogId": "\(eventID)",
-                      "card": \(cardJSON),
-                      "overview": \(overviewJSON)
-                    }
-                    """.utf8
+            return try Self.httpResponse(
+                for: request,
+                data: Self.undoResponseData(
+                    eventID: eventID,
+                    cardJSON: cardJSON,
+                    overviewJSON: overviewJSON
                 )
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         await store.refreshStudySettings()
 
@@ -334,13 +241,7 @@ extension StudyStoreTests {
         )
         let eventID = try XCTUnwrap(recordedEventID)
         XCTAssertTrue(store.cards.isEmpty)
-        XCTAssertTrue(
-            try container.mainContext.fetch(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.kind == "review" }
-                )
-            ).isEmpty
-        )
+        try assertNoPendingReviews(in: container)
 
         try await store.undoReview(eventID: eventID, cardBefore: card)
 
@@ -367,35 +268,10 @@ extension StudyStoreTests {
             id: "01J0000000000000000000001X",
             expression: "競合を避ける"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
-        )
-        try container.mainContext.save()
+        try persistUndoCard(card, in: container)
 
-        let overview = StudyOverview(
-            dueCount: 1,
-            newCount: 0,
-            reviewCount: 1,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 0
-        )
-        let cardJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(card),
-                encoding: .utf8
-            )
-        )
-        let overviewJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(overview),
-                encoding: .utf8
-            )
-        )
+        let cardJSON = try Self.encodedJSONString(card)
+        let overviewJSON = try Self.encodedJSONString(Self.undoOverview())
         let gate = LockedRequestGate()
         let paths = LockedRequestPaths()
         let uploadedEventIDs = LockedRequestPaths()
@@ -412,15 +288,7 @@ extension StudyStoreTests {
                 uploadedEventIDs.append(eventID)
                 gate.markStarted()
                 gate.waitForRelease()
-                return (
-                    HTTPURLResponse(
-                        url: request.url!,
-                        statusCode: 201,
-                        httpVersion: nil,
-                        headerFields: ["Content-Type": "application/json"]
-                    )!,
-                    Data()
-                )
+                return try Self.httpResponse(for: request, data: Data(), statusCode: 201)
             }
 
             let body = try JSONSerialization.jsonObject(
@@ -428,29 +296,16 @@ extension StudyStoreTests {
             ) as? [String: Any]
             let eventID = try XCTUnwrap(body?["reviewLogId"] as? String)
             undoEventIDs.append(eventID)
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Data(
-                    """
-                    {
-                      "reviewLogId": "\(eventID)",
-                      "card": \(cardJSON),
-                      "overview": \(overviewJSON)
-                    }
-                    """.utf8
+            return try Self.httpResponse(
+                for: request,
+                data: Self.undoResponseData(
+                    eventID: eventID,
+                    cardJSON: cardJSON,
+                    overviewJSON: overviewJSON
                 )
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         let reviewTask = Task {
             await store.recordReview(
@@ -478,13 +333,7 @@ extension StudyStoreTests {
         )
         XCTAssertEqual(undoEventIDs.values, [eventID.lowercased()])
         XCTAssertEqual(store.cards.map(\.id), [card.id])
-        XCTAssertTrue(
-            try container.mainContext.fetch(
-                FetchDescriptor<PendingMutation>(
-                    predicate: #Predicate { $0.kind == "review" }
-                )
-            ).isEmpty
-        )
+        try assertNoPendingReviews(in: container)
     }
 
     @MainActor
@@ -494,34 +343,9 @@ extension StudyStoreTests {
             id: "01J0000000000000000000002A",
             expression: "削除競合"
         )
-        container.mainContext.insert(
-            LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: 0,
-                payload: try StorageCodec.encoder.encode(card)
-            )
-        )
-        try container.mainContext.save()
-        let responseOverview = StudyOverview(
-            dueCount: 1,
-            newCount: 0,
-            reviewCount: 1,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 0
-        )
-        let cardJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(card),
-                encoding: .utf8
-            )
-        )
-        let overviewJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(responseOverview),
-                encoding: .utf8
-            )
-        )
+        try persistUndoCard(card, in: container)
+        let cardJSON = try Self.encodedJSONString(card)
+        let overviewJSON = try Self.encodedJSONString(Self.undoOverview())
         let gate = LockedRequestGate()
         let client = makeClient { request in
             guard request.url?.path == "/api/study/reviews/undo" else {
@@ -529,29 +353,16 @@ extension StudyStoreTests {
             }
             gate.markStarted()
             gate.waitForRelease()
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Data(
-                    """
-                    {
-                      "reviewLogId": "01j0000000000000000000002b",
-                      "card": \(cardJSON),
-                      "overview": \(overviewJSON)
-                    }
-                    """.utf8
+            return try Self.httpResponse(
+                for: request,
+                data: Self.undoResponseData(
+                    eventID: "01j0000000000000000000002b",
+                    cardJSON: cardJSON,
+                    overviewJSON: overviewJSON
                 )
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         let undoTask = Task {
             try await store.undoReview(
@@ -617,11 +428,7 @@ extension StudyStoreTests {
             _ = requestCount.next()
             throw URLError(.badServerResponse)
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         do {
             try await store.undoReview(
@@ -676,48 +483,23 @@ extension StudyStoreTests {
             dueAt: Date(timeIntervalSince1970: 2_000),
             masteryLevel: "apprentice"
         )
-        let overview = StudyOverview(
-            dueCount: 1,
-            newCount: 0,
-            reviewCount: 1,
-            newCardsPerDay: 10,
-            newCardsAvailableToday: 0
-        )
         let cardJSON = try cardJSONWithPresentation(
             serverCard,
             frontHeading: "Stale projected server expression"
         )
-        let overviewJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(overview),
-                encoding: .utf8
-            )
-        )
+        let overviewJSON = try Self.encodedJSONString(Self.undoOverview())
         let client = makeClient { request in
             XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Data(
-                    """
-                    {
-                      "reviewLogId": "review-event-id",
-                      "card": \(cardJSON),
-                      "overview": \(overviewJSON)
-                    }
-                    """.utf8
+            return try Self.httpResponse(
+                for: request,
+                data: Self.undoResponseData(
+                    eventID: "review-event-id",
+                    cardJSON: cardJSON,
+                    overviewJSON: overviewJSON
                 )
             )
         }
-        let store = StudyStore(initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         try await store.undoReview(
             eventID: "review-event-id",
@@ -766,44 +548,19 @@ extension StudyStoreTests {
             serverCard,
             frontHeading: "Projected front"
         )
-        let overviewJSON = try XCTUnwrap(
-            String(
-                data: StorageCodec.encoder.encode(StudyOverview(
-                    dueCount: 1,
-                    newCount: 0,
-                    reviewCount: 1,
-                    newCardsPerDay: 10,
-                    newCardsAvailableToday: 0
-                )),
-                encoding: .utf8
-            )
-        )
+        let overviewJSON = try Self.encodedJSONString(Self.undoOverview())
         let client = makeClient { request in
             XCTAssertEqual(request.url?.path, "/api/study/reviews/undo")
-            return (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
-                )!,
-                Data(
-                    """
-                    {
-                      "reviewLogId": "review-event-id",
-                      "card": \(projectedCardJSON),
-                      "overview": \(overviewJSON)
-                    }
-                    """.utf8
+            return try Self.httpResponse(
+                for: request,
+                data: Self.undoResponseData(
+                    eventID: "review-event-id",
+                    cardJSON: projectedCardJSON,
+                    overviewJSON: overviewJSON
                 )
             )
         }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext)
-        )
+        let store = makeUndoStore(in: container, client: client)
 
         try await store.undoReview(eventID: "review-event-id", cardBefore: serverCard)
 
@@ -817,6 +574,131 @@ extension StudyStoreTests {
         XCTAssertEqual(restoredCard.serverPresentation?.version, 1)
         XCTAssertEqual(restoredCard.presentation.front.heading, "Projected front")
         XCTAssertEqual(store.cards.first?.serverPresentation, restoredCard.serverPresentation)
+    }
+
+    @MainActor
+    private func makeUndoStore(
+        in container: ModelContainer,
+        client: APIClient
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            )
+        )
+    }
+
+    @MainActor
+    private func persistUndoCard(
+        _ card: StudyCard,
+        in container: ModelContainer
+    ) throws {
+        container.mainContext.insert(
+            LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: 0,
+                payload: try StorageCodec.encoder.encode(card)
+            )
+        )
+        try container.mainContext.save()
+    }
+
+    @MainActor
+    private func assertNoPendingReviews(in container: ModelContainer) throws {
+        XCTAssertTrue(
+            try container.mainContext.fetch(
+                FetchDescriptor<PendingMutation>(
+                    predicate: #Predicate { $0.kind == "review" }
+                )
+            ).isEmpty
+        )
+    }
+
+    @MainActor
+    private static func undoOverview() -> StudyOverview {
+        StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0
+        )
+    }
+
+    @MainActor
+    private static func readyUndoOverview() -> StudyOverview {
+        StudyOverview(
+            dueCount: 1,
+            newCount: 0,
+            reviewCount: 1,
+            newCardsPerDay: 10,
+            newCardsAvailableToday: 0,
+            learningReadiness: StudyLearningReadiness(
+                recommendation: "ready",
+                readinessLevel: "ready",
+                sampleSize: 40,
+                sufficientData: true,
+                recentRecall: 0.95,
+                targetRecall: 0.9,
+                dueBacklog: 0,
+                apprenticeCount: 0,
+                projectedSevenDayReviews: 28,
+                timedReviewSampleSize: 40,
+                medianReviewDurationSeconds: 900,
+                projectedDailyReviewMinutes: 60,
+                reviewTimeBudgetMinutes: nil,
+                reviewTimeHeadroomMinutes: nil,
+                suggestedBatchSize: 5
+            )
+        )
+    }
+
+    @MainActor
+    private static func encodedJSONString<T: Encodable>(_ value: T) throws -> String {
+        try XCTUnwrap(
+            String(
+                data: StorageCodec.encoder.encode(value),
+                encoding: .utf8
+            )
+        )
+    }
+
+    private static func undoResponseData(
+        eventID: String,
+        cardJSON: String,
+        overviewJSON: String
+    ) -> Data {
+        Data(
+            """
+            {
+              "reviewLogId": "\(eventID)",
+              "card": \(cardJSON),
+              "overview": \(overviewJSON)
+            }
+            """.utf8
+        )
+    }
+
+    private static func httpResponse(
+        for request: URLRequest,
+        data: Data,
+        statusCode: Int = 200
+    ) throws -> (HTTPURLResponse, Data) {
+        (
+            HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!,
+            data
+        )
     }
 
     @MainActor
