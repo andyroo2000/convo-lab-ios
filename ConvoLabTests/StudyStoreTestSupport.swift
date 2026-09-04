@@ -24,12 +24,7 @@ extension StudyStoreTests {
     func makeClient(handler: @escaping MockURLProtocol.Handler) -> APIClient {
         MockURLProtocol.deferredHandler = nil
         MockURLProtocol.handler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
+        return makeClient(protocolClass: MockURLProtocol.self)
     }
 
     @MainActor
@@ -38,63 +33,13 @@ extension StudyStoreTests {
     ) -> APIClient {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
+        return makeClient(protocolClass: MockURLProtocol.self)
     }
 
     @MainActor
     func makeClient(protocolClass: AnyClass) -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [protocolClass]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
-    }
-
-    @MainActor
-    func makeDelayedPitchClient(
-        responseData: Data,
-        gate: LockedRequestGate
-    ) -> APIClient {
-        DelayedPitchURLProtocol.responseData = responseData
-        DelayedPitchURLProtocol.gate = gate
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DelayedPitchURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
-    }
-
-    @MainActor
-    func makeDelayedAnswerAudioClient(
-        responseData: Data,
-        gate: LockedRequestGate
-    ) -> APIClient {
-        DelayedAnswerAudioURLProtocol.responseData = responseData
-        DelayedAnswerAudioURLProtocol.gate = gate
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DelayedAnswerAudioURLProtocol.self]
-        return APIClient(
-            baseURL: URL(string: "https://learning-os.example")!,
-            session: URLSession(configuration: configuration)
-        )
-    }
-
-    @MainActor
-    func makeDelayedAnswerAudioDownloadClient(
-        responseData: Data,
-        gate: LockedRequestGate
-    ) -> APIClient {
-        DelayedAnswerAudioDownloadURLProtocol.responseData = responseData
-        DelayedAnswerAudioDownloadURLProtocol.gate = gate
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DelayedAnswerAudioDownloadURLProtocol.self]
         return APIClient(
             baseURL: URL(string: "https://learning-os.example")!,
             session: URLSession(configuration: configuration)
@@ -401,15 +346,7 @@ final class OverlappingStudySessionURLProtocol: URLProtocol, @unchecked Sendable
     override func stopLoading() {}
 
     private func respond(with data: Data) {
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        deliver(data)
     }
 }
 
@@ -456,15 +393,7 @@ final class OutOfOrderCardListURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 
     private func respond(with data: Data) {
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        deliver(data)
     }
 }
 
@@ -523,16 +452,18 @@ final class OverlappingCardListPageURLProtocol: URLProtocol, @unchecked Sendable
     override func stopLoading() {}
 
     private func respond(with data: Data) {
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        deliver(data)
     }
+}
+
+struct OverlappingQueueReorderConfiguration {
+    let initialPage: Data
+    let refreshedPage: Data
+    let reorderPage: Data
+    let reorderStatus: Int
+    var holdSecondRefresh = false
+    var nextPage = Data()
+    var nextPageStatus = 200
 }
 
 final class OverlappingQueueReorderURLProtocol: URLProtocol, @unchecked Sendable {
@@ -567,23 +498,15 @@ final class OverlappingQueueReorderURLProtocol: URLProtocol, @unchecked Sendable
         return pendingLoadMore != nil
     }
 
-    static func configure(
-        initialPage: Data,
-        refreshedPage: Data,
-        reorderPage: Data,
-        reorderStatus: Int,
-        holdSecondRefresh: Bool = false,
-        nextPage: Data = Data(),
-        nextPageStatus: Int = 200
-    ) {
+    static func configure(_ configuration: OverlappingQueueReorderConfiguration) {
         lock.lock()
-        self.initialPage = initialPage
-        self.refreshedPage = refreshedPage
-        self.reorderPage = reorderPage
-        self.reorderStatus = reorderStatus
-        self.holdSecondRefresh = holdSecondRefresh
-        self.nextPage = nextPage
-        self.nextPageStatus = nextPageStatus
+        initialPage = configuration.initialPage
+        refreshedPage = configuration.refreshedPage
+        reorderPage = configuration.reorderPage
+        reorderStatus = configuration.reorderStatus
+        holdSecondRefresh = configuration.holdSecondRefresh
+        nextPage = configuration.nextPage
+        nextPageStatus = configuration.nextPageStatus
         servedInitialPage = false
         pendingRefresh = nil
         pendingLoadMore = nil
@@ -654,15 +577,52 @@ final class OverlappingQueueReorderURLProtocol: URLProtocol, @unchecked Sendable
     override func stopLoading() {}
 
     private func respond(with data: Data, statusCode: Int) {
+        deliver(data, statusCode: statusCode)
+    }
+}
+
+extension URLProtocol {
+    func deliver(
+        _ data: Data?,
+        statusCode: Int = 200,
+        contentType: String? = "application/json"
+    ) {
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: statusCode,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: contentType.map { ["Content-Type": $0] }
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
+        if let data {
+            client?.urlProtocol(self, didLoad: data)
+        }
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    func deliverAfterRelease(
+        _ data: Data,
+        gate: LockedRequestGate?,
+        contentType: String = "application/json"
+    ) {
+        gate?.markStarted()
+        let delivery = URLProtocolDelivery(self)
+        DispatchQueue.global().async {
+            gate?.waitForRelease()
+            delivery.finish(data, contentType: contentType)
+        }
+    }
+}
+
+private final class URLProtocolDelivery: @unchecked Sendable {
+    private let urlProtocol: URLProtocol
+
+    init(_ urlProtocol: URLProtocol) {
+        self.urlProtocol = urlProtocol
+    }
+
+    func finish(_ data: Data, contentType: String) {
+        urlProtocol.deliver(data, contentType: contentType)
     }
 }
 
@@ -740,139 +700,4 @@ final class LockedDeferredResponse: @unchecked Sendable {
         lock.unlock()
         completion?(.success(response))
     }
-}
-
-final class DelayedPitchURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var responseData = Data()
-    nonisolated(unsafe) static var gate: LockedRequestGate?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard request.url?.path.hasSuffix("/pitch-accent") == true else {
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 204,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocolDidFinishLoading(self)
-            return
-        }
-        let responseData = Self.responseData
-        let gate = Self.gate
-        gate?.markStarted()
-        DispatchQueue.global().async { [self] in
-            gate?.waitForRelease()
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: responseData)
-            client?.urlProtocolDidFinishLoading(self)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-final class DelayedAnswerAudioURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var responseData = Data()
-    nonisolated(unsafe) static var gate: LockedRequestGate?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard request.url?.path.hasSuffix("/regenerate-answer-audio") == true else {
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "audio/mpeg"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("regenerated-audio".utf8))
-            client?.urlProtocolDidFinishLoading(self)
-            return
-        }
-
-        let responseData = Self.responseData
-        let gate = Self.gate
-        gate?.markStarted()
-        DispatchQueue.global().async { [self] in
-            gate?.waitForRelease()
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: responseData)
-            client?.urlProtocolDidFinishLoading(self)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-final class DelayedAnswerAudioDownloadURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var responseData = Data()
-    nonisolated(unsafe) static var gate: LockedRequestGate?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        if request.url?.path.hasSuffix("/regenerate-answer-audio") == true {
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Self.responseData)
-            client?.urlProtocolDidFinishLoading(self)
-            return
-        }
-
-        let gate = Self.gate
-        gate?.markStarted()
-        DispatchQueue.global().async { [self] in
-            gate?.waitForRelease()
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "audio/mpeg"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("regenerated-audio".utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        }
-    }
-
-    override func stopLoading() {}
 }

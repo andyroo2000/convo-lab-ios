@@ -11,10 +11,10 @@ extension StudyStoreTests {
         let third = makeQueueItem(id: "third", position: 3)
 
         for reorderStatus in [200, 500] {
-            OverlappingQueueReorderURLProtocol.configure(
+            OverlappingQueueReorderURLProtocol.configure(.init(
                 initialPage: try queuePage(items: [first, second], total: 3, nextCursor: "next"), refreshedPage: Data(),
                 reorderPage: try queuePage(items: [second, first], total: 3, nextCursor: "next"),
-                reorderStatus: reorderStatus, nextPage: try queuePage(items: [third], total: 3, nextCursor: nil))
+                reorderStatus: reorderStatus, nextPage: try queuePage(items: [third], total: 3, nextCursor: nil)))
             let store = try makeStore(protocolClass: OverlappingQueueReorderURLProtocol.self)
             try await store.refreshNewCardQueue()
 
