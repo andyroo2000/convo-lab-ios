@@ -4,6 +4,15 @@ import XCTest
 @testable import ConvoLab
 
 final class StudyStoreSyncPublicationTests: XCTestCase {
+    private struct CheckpointResetFixture {
+        let dirty: StudyCard
+        let activeReview: StudyCard
+        let presentedLesson: StudyCard
+        let cardListData: Data
+        let reserveData: Data
+        let lessonData: Data
+    }
+
     @MainActor
     func testSynchronizationPrunesTombstoneFromEveryPublishedCardCollection() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
@@ -13,61 +22,24 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             expression: "削除"
         )
         let survivor = makeCard(id: "survivor", expression: "保持")
-        for (index, card) in [deleted, survivor].enumerated() {
-            container.mainContext.insert(LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: index,
-                payload: try StorageCodec.encoder.encode(card)
-            ))
-        }
-        try container.mainContext.save()
-        let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(items: [deleted, survivor], limit: 50, nextCursor: nil)
-        )
+        try insertCards([deleted, survivor], into: container)
         let lessonData = try sessionResponseData(cards: [deleted, survivor])
         let deletedSyncID = try XCTUnwrap(deleted.syncId)
-        let paths = LockedRequestPaths()
+        let script = SyncPublicationResponseScript(responses: [
+            "/api/study/cards": [.success(data: try cardListData([deleted, survivor]))],
+            "/api/study/lessons/start": [.success(data: lessonData)],
+            "/api/sync/feed": [.success(data: Self.feedPage(
+                syncID: deletedSyncID,
+                operation: "delete",
+                checkpoint: 1,
+                hasMore: false
+            ))],
+            "/api/study/known-kanji": [.success(data: Self.knownKanjiData)],
+            "/api/study/offline-reserve": [.failure],
+        ])
         let diagnosticsSink = RecordingNativeDiagnosticsSink()
-        let client = makeClient { request in
-            let path = request.url?.path ?? ""
-            paths.append(path)
-            switch path {
-            case "/api/study/cards":
-                return Self.response(data: allCardsData)
-            case "/api/study/lessons/start":
-                return Self.response(data: lessonData)
-            case "/api/sync/feed":
-                return Self.response(data: Data(
-                    """
-                    {"data":[{"checkpoint":1,"resource_id":"\(deletedSyncID)","operation":"delete"}],
-                    "meta":{"next_checkpoint":1,"has_more":false}}
-                    """.utf8
-                ))
-            case "/api/study/known-kanji":
-                return Self.response(data: Data(
-                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
-                ))
-            case "/api/study/offline-reserve":
-                return Self.response(
-                    statusCode: 500,
-                    data: Data(#"{"message":"Unavailable"}"#.utf8)
-                )
-            default:
-                throw URLError(.badURL)
-            }
-        }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            ),
-            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
-        )
+        let client = makeClient(script: script)
+        let store = makeStore(container: container, client: client, diagnosticsSink: diagnosticsSink)
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
@@ -88,7 +60,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             ).cardCheckpoint,
             1
         )
-        XCTAssertFalse(paths.values.contains("/api/study/session/start"))
+        XCTAssertFalse(script.requestedPaths.contains("/api/study/session/start"))
         guard case .failed = store.syncStatus else {
             return XCTFail("The later reserve failure should not undo tombstone pruning.")
         }
@@ -126,63 +98,31 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             syncId: "failed-delete-sync",
             expression: "保持"
         )
-        for (index, card) in [deleted, retained].enumerated() {
-            container.mainContext.insert(LocalCardRecord(
-                card: card,
-                userID: 1,
-                queueIndex: index,
-                payload: try StorageCodec.encoder.encode(card)
-            ))
-        }
-        try container.mainContext.save()
-        let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(items: [deleted, retained], limit: 50, nextCursor: nil)
-        )
+        try insertCards([deleted, retained], into: container)
         let deletedSyncID = try XCTUnwrap(deleted.syncId)
         let retainedSyncID = try XCTUnwrap(retained.syncId)
-        let feedRequests = LockedCounter()
-        let client = makeClient { request in
-            switch request.url?.path {
-            case "/api/study/cards":
-                return Self.response(data: allCardsData)
-            case "/api/sync/feed":
-                if feedRequests.next() == 1 {
-                    return Self.response(data: Data(
-                        """
-                        {"data":[{"checkpoint":1,"resource_id":"\(deletedSyncID)","operation":"delete"}],
-                        "meta":{"next_checkpoint":1,"has_more":true}}
-                        """.utf8
-                    ))
-                }
-                return Self.response(data: Data(
-                    """
-                    {"data":[{"checkpoint":2,"resource_id":"\(retainedSyncID)","operation":"delete"}],
-                    "meta":{"next_checkpoint":1,"has_more":false}}
-                    """.utf8
-                ))
-            case "/api/study/known-kanji":
-                return Self.response(data: Data(
-                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
-                ))
-            case "/api/study/offline-reserve":
-                return Self.response(
-                    statusCode: 500,
-                    data: Data(#"{"message":"Unavailable"}"#.utf8)
-                )
-            default:
-                throw URLError(.badURL)
-            }
-        }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let script = SyncPublicationResponseScript(responses: [
+            "/api/study/cards": [.success(data: try cardListData([deleted, retained]))],
+            "/api/sync/feed": [
+                .success(data: Self.feedPage(
+                    syncID: deletedSyncID,
+                    operation: "delete",
+                    checkpoint: 1,
+                    hasMore: true
+                )),
+                .success(data: Self.feedPage(
+                    syncID: retainedSyncID,
+                    operation: "delete",
+                    checkpoint: 2,
+                    nextCheckpoint: 1,
+                    hasMore: false
+                )),
+            ],
+            "/api/study/known-kanji": [.success(data: Self.knownKanjiData)],
+            "/api/study/offline-reserve": [.failure],
+        ])
+        let client = makeClient(script: script)
+        let store = makeStore(container: container, client: client)
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
@@ -220,16 +160,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             syncId: originalCard.syncId,
             expression: "同期後"
         )
-        container.mainContext.insert(LocalCardRecord(
-            card: originalCard,
-            userID: 1,
-            queueIndex: 0,
-            payload: try StorageCodec.encoder.encode(originalCard)
-        ))
-        try container.mainContext.save()
-        let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(items: [originalCard], limit: 50, nextCursor: nil)
-        )
+        try insertCards([originalCard], into: container)
         let cardObject = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(restoredCard)
         )
@@ -237,51 +168,28 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             withJSONObject: ["cards": [cardObject]]
         )
         let syncID = try XCTUnwrap(originalCard.syncId)
-        let feedRequests = LockedCounter()
-        let client = makeClient { request in
-            switch request.url?.path {
-            case "/api/study/cards":
-                return Self.response(data: allCardsData)
-            case "/api/sync/feed":
-                if feedRequests.next() == 1 {
-                    return Self.response(data: Data(
-                        """
-                        {"data":[{"checkpoint":1,"resource_id":"\(syncID)","operation":"delete"}],
-                        "meta":{"next_checkpoint":1,"has_more":true}}
-                        """.utf8
-                    ))
-                }
-                return Self.response(data: Data(
-                    """
-                    {"data":[{"checkpoint":2,"resource_id":"\(syncID)","operation":"update"}],
-                    "meta":{"next_checkpoint":2,"has_more":false}}
-                    """.utf8
-                ))
-            case "/api/study/cards/batch":
-                return Self.response(data: batchData)
-            case "/api/study/known-kanji":
-                return Self.response(data: Data(
-                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
-                ))
-            case "/api/study/offline-reserve":
-                return Self.response(
-                    statusCode: 500,
-                    data: Data(#"{"message":"Unavailable"}"#.utf8)
-                )
-            default:
-                throw URLError(.badURL)
-            }
-        }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            )
-        )
+        let script = SyncPublicationResponseScript(responses: [
+            "/api/study/cards": [.success(data: try cardListData([originalCard]))],
+            "/api/sync/feed": [
+                .success(data: Self.feedPage(
+                    syncID: syncID,
+                    operation: "delete",
+                    checkpoint: 1,
+                    hasMore: true
+                )),
+                .success(data: Self.feedPage(
+                    syncID: syncID,
+                    operation: "update",
+                    checkpoint: 2,
+                    hasMore: false
+                )),
+            ],
+            "/api/study/cards/batch": [.success(data: batchData)],
+            "/api/study/known-kanji": [.success(data: Self.knownKanjiData)],
+            "/api/study/offline-reserve": [.failure],
+        ])
+        let client = makeClient(script: script)
+        let store = makeStore(container: container, client: client)
         try await store.refreshAllCards()
         store.beginLessonSessionPresentation()
         defer { store.endLessonSessionPresentation() }
@@ -315,6 +223,37 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
     @MainActor
     func testCheckpointResetClearsOtherPreparedMarkersDuringPresentedLesson() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
+        let fixture = try makeCheckpointResetFixture(in: container)
+        let diagnosticsSink = RecordingNativeDiagnosticsSink()
+        let script = SyncPublicationResponseScript(responses: [
+            "/api/study/cards": [.success(data: fixture.cardListData)],
+            "/api/study/lessons/start": [.success(data: fixture.lessonData)],
+            "/api/sync/feed": [.checkpointExpired],
+            "/api/study/known-kanji": [.success(data: Self.knownKanjiData)],
+            "/api/study/offline-reserve": [.success(data: fixture.reserveData)],
+        ])
+        let client = makeClient(script: script)
+        let store = makeStore(container: container, client: client, diagnosticsSink: diagnosticsSink)
+        try await store.refreshAllCards()
+        store.beginLessonSessionPresentation()
+        defer { store.endLessonSessionPresentation() }
+        try await store.refreshLessons()
+
+        await store.synchronize()
+
+        try assertCheckpointResetResult(
+            store: store,
+            container: container,
+            fixture: fixture,
+            diagnosticsSink: diagnosticsSink,
+            requestedPaths: script.requestedPaths
+        )
+    }
+
+    @MainActor
+    private func makeCheckpointResetFixture(
+        in container: ModelContainer
+    ) throws -> CheckpointResetFixture {
         let dirty = makeCard(
             id: "dirty",
             expression: "編集中",
@@ -354,13 +293,6 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         container.mainContext.insert(activeReviewRecord)
         container.mainContext.insert(LocalSyncState(userID: 1, cardCheckpoint: 99))
         try container.mainContext.save()
-        let allCardsData = try StorageCodec.encoder.encode(
-            StudyCardListResponse(
-                items: [clean, dirty, activeReview],
-                limit: 50,
-                nextCursor: nil
-            )
-        )
         let activeReviewObject = try JSONSerialization.jsonObject(
             with: StorageCodec.encoder.encode(activeReview)
         )
@@ -376,51 +308,26 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             queueState: "new"
         )
         let lessonData = try sessionResponseData(cards: [presentedLesson])
-        let paths = LockedRequestPaths()
-        let diagnosticsSink = RecordingNativeDiagnosticsSink()
-        let client = makeClient { request in
-            let path = request.url?.path ?? ""
-            paths.append(path)
-            switch path {
-            case "/api/study/cards":
-                return Self.response(data: allCardsData)
-            case "/api/study/lessons/start":
-                return Self.response(data: lessonData)
-            case "/api/sync/feed":
-                return Self.response(
-                    statusCode: 409,
-                    data: Data(#"{"message":"Checkpoint expired"}"#.utf8)
-                )
-            case "/api/study/known-kanji":
-                return Self.response(data: Data(
-                    #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
-                ))
-            case "/api/study/offline-reserve":
-                return Self.response(data: reserveData)
-            default:
-                throw URLError(.badURL)
-            }
-        }
-        let store = StudyStore(
-            initialUserID: 1,
-            api: client,
-            context: container.mainContext,
-            mediaCache: MediaCache(
-                initialUserID: 1,
-                api: client,
-                context: container.mainContext
-            ),
-            diagnostics: NativeDiagnostics(sink: diagnosticsSink)
+        return CheckpointResetFixture(
+            dirty: dirty,
+            activeReview: activeReview,
+            presentedLesson: presentedLesson,
+            cardListData: try cardListData([clean, dirty, activeReview]),
+            reserveData: reserveData,
+            lessonData: lessonData
         )
-        try await store.refreshAllCards()
-        store.beginLessonSessionPresentation()
-        defer { store.endLessonSessionPresentation() }
-        try await store.refreshLessons()
+    }
 
-        await store.synchronize()
-
+    @MainActor
+    private func assertCheckpointResetResult(
+        store: StudyStore,
+        container: ModelContainer,
+        fixture: CheckpointResetFixture,
+        diagnosticsSink: RecordingNativeDiagnosticsSink,
+        requestedPaths: [String]
+    ) throws {
         XCTAssertEqual(
-            paths.values,
+            requestedPaths,
             [
                 "/api/study/cards",
                 "/api/study/lessons/start",
@@ -436,17 +343,20 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
             0
         )
         let records = try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>())
-        let preservedDirtyRecord = try XCTUnwrap(records.first { $0.id == dirty.id })
+        let preservedDirtyRecord = try XCTUnwrap(records.first { $0.id == fixture.dirty.id })
         let preservedActiveReviewRecord = try XCTUnwrap(
-            records.first { $0.id == activeReview.id }
+            records.first { $0.id == fixture.activeReview.id }
         )
         XCTAssertNotNil(preservedDirtyRecord.locallyUpdatedAt)
         XCTAssertNil(preservedDirtyRecord.mediaPreparedAt)
         XCTAssertEqual(preservedActiveReviewRecord.queueIndex, 17)
         XCTAssertNotNil(preservedActiveReviewRecord.mediaPreparedAt)
         XCTAssertTrue(store.cards.isEmpty)
-        XCTAssertNil(records.first { $0.id == presentedLesson.id })
-        XCTAssertEqual(Set(store.allCards.map(\.id)), Set([dirty.id, activeReview.id]))
+        XCTAssertNil(records.first { $0.id == fixture.presentedLesson.id })
+        XCTAssertEqual(
+            Set(store.allCards.map(\.id)),
+            Set([fixture.dirty.id, fixture.activeReview.id])
+        )
         XCTAssertEqual(store.syncStatus, .idle)
         XCTAssertEqual(
             diagnosticsSink.events.filter { $0.operation == .synchronization }.last?.outcome,
@@ -535,6 +445,55 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
     }
 
     @MainActor
+    private func makeClient(script: SyncPublicationResponseScript) -> APIClient {
+        makeClient { request in
+            try script.response(for: request)
+        }
+    }
+
+    @MainActor
+    private func makeStore(
+        container: ModelContainer,
+        client: APIClient,
+        diagnosticsSink: RecordingNativeDiagnosticsSink? = nil
+    ) -> StudyStore {
+        StudyStore(
+            initialUserID: 1,
+            api: client,
+            context: container.mainContext,
+            mediaCache: MediaCache(
+                initialUserID: 1,
+                api: client,
+                context: container.mainContext
+            ),
+            diagnostics: diagnosticsSink.map(NativeDiagnostics.init(sink:)) ?? .init()
+        )
+    }
+
+    @MainActor
+    private func insertCards(
+        _ cards: [StudyCard],
+        into container: ModelContainer
+    ) throws {
+        for (index, card) in cards.enumerated() {
+            container.mainContext.insert(LocalCardRecord(
+                card: card,
+                userID: 1,
+                queueIndex: index,
+                payload: try StorageCodec.encoder.encode(card)
+            ))
+        }
+        try container.mainContext.save()
+    }
+
+    @MainActor
+    private func cardListData(_ cards: [StudyCard]) throws -> Data {
+        try StorageCodec.encoder.encode(
+            StudyCardListResponse(items: cards, limit: 50, nextCursor: nil)
+        )
+    }
+
+    @MainActor
     private func makeCard(
         id: String,
         syncId: String? = nil,
@@ -586,7 +545,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: ["data": object])
     }
 
-    private static func response(
+    fileprivate static func response(
         statusCode: Int = 200,
         data: Data
     ) -> (HTTPURLResponse, Data) {
@@ -598,6 +557,76 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
                 headerFields: ["Content-Type": "application/json"]
             )!,
             data
+        )
+    }
+
+    private static let knownKanjiData = Data(
+        #"{"version":0,"kanji":[],"manualKanji":[],"wanikani":{"connected":false,"lastSyncedAt":null}}"#.utf8
+    )
+
+    private static func feedPage(
+        syncID: String,
+        operation: String,
+        checkpoint: Int,
+        nextCheckpoint: Int? = nil,
+        hasMore: Bool
+    ) -> Data {
+        let nextCheckpoint = nextCheckpoint ?? checkpoint
+        return Data(
+            """
+            {"data":[{"checkpoint":\(checkpoint),"resource_id":"\(syncID)","operation":"\(operation)"}],
+            "meta":{"next_checkpoint":\(nextCheckpoint),"has_more":\(hasMore)}}
+            """.utf8
+        )
+    }
+}
+
+private struct SyncPublicationResponse: @unchecked Sendable {
+    let statusCode: Int
+    let data: Data
+
+    static func success(data: Data) -> Self {
+        .init(statusCode: 200, data: data)
+    }
+
+    static let failure = Self(
+        statusCode: 500,
+        data: Data(#"{"message":"Unavailable"}"#.utf8)
+    )
+
+    static let checkpointExpired = Self(
+        statusCode: 409,
+        data: Data(#"{"message":"Checkpoint expired"}"#.utf8)
+    )
+}
+
+private final class SyncPublicationResponseScript: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [String: [SyncPublicationResponse]]
+    private var paths: [String] = []
+
+    init(responses: [String: [SyncPublicationResponse]]) {
+        self.responses = responses
+    }
+
+    var requestedPaths: [String] {
+        lock.withLock { paths }
+    }
+
+    func response(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        let path = request.url?.path ?? ""
+        let scriptedResponse = try lock.withLock {
+            paths.append(path)
+            guard var queuedResponses = responses[path], !queuedResponses.isEmpty else {
+                throw URLError(.badURL)
+            }
+            let response = queuedResponses.removeFirst()
+            responses[path] = queuedResponses
+            return response
+        }
+        return StudyStoreSyncPublicationTests.response(
+            statusCode: scriptedResponse.statusCode,
+            data: scriptedResponse.data
         )
     }
 }
