@@ -8,6 +8,14 @@ final class StudyTimeStore {
     typealias ActiveSession = StudyTimeActiveSession
     private typealias StorageWriteOperation = StudyTimeStorageWriteOperation
 
+    private struct StartRequest {
+        let activity: StudyActivityKind
+        let source: StudyActivitySource
+        let name: String?
+        let date: Date
+        let userID: Int
+    }
+
     private let api: APIClient
     private let mutationRepository: StudyTimeSessionMutationRepository
     private let synchronizationCoordinator: StudyTimeSynchronizationCoordinator
@@ -349,28 +357,50 @@ final class StudyTimeStore {
             name: name,
             replacingSessionID: active?.clientSessionID
         )
+        guard persistentWritesAreAvailable(for: operation) else { return false }
+        let request = StartRequest(
+            activity: activity,
+            source: source,
+            name: name,
+            date: date,
+            userID: userID
+        )
+        guard !keepsCurrentSession(for: request) else { return true }
+        return performStart(request, replacing: active, operation: operation)
+    }
+
+    private func persistentWritesAreAvailable(for operation: StorageWriteOperation) -> Bool {
         do {
             try mutationRepository.requirePersistentWrites()
+            return true
         } catch {
             setStorageWriteError(error, for: operation)
             return false
         }
-        if active?.activity == activity, active?.source == source, active?.name == name {
-            return true
-        }
-        if active?.source == .manual, source == .automatic {
-            return true
-        }
-        let previousActive = active
+    }
+
+    private func keepsCurrentSession(for request: StartRequest) -> Bool {
+        let matchesCurrent = active?.activity == request.activity
+            && active?.source == request.source
+            && active?.name == request.name
+        let preservesManualSession = active?.source == .manual && request.source == .automatic
+        return matchesCurrent || preservesManualSession
+    }
+
+    private func performStart(
+        _ request: StartRequest,
+        replacing previousActive: ActiveSession?,
+        operation: StorageWriteOperation
+    ) -> Bool {
         do {
             let result = try mutationRepository.start(
                 replacing: previousActive,
-                activity: activity,
-                category: activityCategoryAuthority.category(for: activity),
-                source: source,
-                name: name,
-                at: date,
-                userID: userID
+                activity: request.activity,
+                category: activityCategoryAuthority.category(for: request.activity),
+                source: request.source,
+                name: request.name,
+                at: request.date,
+                userID: request.userID
             )
             synchronizationCoordinator.markLocalMutation()
             active = result.active
