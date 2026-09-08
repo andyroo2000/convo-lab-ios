@@ -1224,7 +1224,11 @@ struct StudySessionView: View {
                 sessionReviewRecords.removeAll { $0.id == eventID }
                 if mode == .reviews {
                     achievementStore?.undoReview(eventID: eventID)
-                    await achievementStore?.refresh()
+                    // The review is already undone at this point. Achievement
+                    // reconciliation is secondary and may involve multiple network
+                    // requests, so it must not keep the restored card's controls
+                    // disabled while it finishes.
+                    Task { await achievementStore?.refresh() }
                 }
                 showingAnswer = true
                 resetCardTimer()

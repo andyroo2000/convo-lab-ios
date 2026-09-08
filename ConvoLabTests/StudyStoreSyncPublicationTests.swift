@@ -406,6 +406,7 @@ final class StudyStoreSyncPublicationTests: XCTestCase {
         gate.release()
         await synchronization.value
 
+        XCTAssertEqual(store.syncStatus, .idle)
         XCTAssertEqual(
             diagnosticsSink.events.filter { $0.operation == .synchronization },
             [
