@@ -39,17 +39,11 @@ extension StudyStore {
         defer { reloadFailedStudyChanges() }
         let activationGeneration = accountActivationGeneration
         syncStatus = .syncing
-        var didPublishTerminalStatus = false
         defer {
-            // Stale/cancelled work normally coincides with deactivation, which
-            // resets the status itself. If the same activation is still visible,
-            // never strand the Study screen in its syncing presentation.
-            if !didPublishTerminalStatus,
-               isCurrentActivation(userID, generation: activationGeneration),
-               syncStatus == .syncing
-            {
-                syncStatus = .idle
-            }
+            clearInterruptedSynchronizationStatus(
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
         }
         var progress = SynchronizationProgress()
 
@@ -111,7 +105,18 @@ extension StudyStore {
             activationGeneration: activationGeneration,
             requestingPromptRetryOnOutboxFailure: requestingPromptRetryOnOutboxFailure
         )
-        didPublishTerminalStatus = true
+    }
+
+    private func clearInterruptedSynchronizationStatus(
+        userID: Int,
+        activationGeneration: Int
+    ) {
+        // Deactivation normally resets this itself. If stale/cancelled work exits
+        // while the same activation remains visible, do not strand the Study UI.
+        guard syncStatus == .syncing,
+              isCurrentActivation(userID, generation: activationGeneration)
+        else { return }
+        syncStatus = .idle
     }
 
     private func captureSynchronizationFailure(
