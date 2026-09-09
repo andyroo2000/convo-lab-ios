@@ -1281,7 +1281,10 @@ struct StudySessionView: View {
             guard sessionWasEnded,
                   sessionCompletion?.id == completion?.id
             else { return }
-            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion()
+            guard let completionID = completion?.id else { return }
+            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion(
+                expectedSessionID: completionID
+            )
             guard refreshedCompletion?.id == completion?.id else { return }
             applySessionCompletion(refreshedCompletion)
         }

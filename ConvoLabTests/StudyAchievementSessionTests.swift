@@ -148,4 +148,29 @@ extension StudyAchievementTests {
         store.cancelCurrentSession()
         XCTAssertNil(store.prepareInterruptedCompletion())
     }
+
+    @MainActor
+    func testStaleCompletionCannotFinalizeTheNextReviewSession() async throws {
+        let defaults = try makeDefaults()
+        let store = StudyAchievementStore(api: makeClient(), defaults: defaults)
+        store.activate(userID: 41)
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "session-a-review"))
+
+        let sessionA = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        store.consumeCompletion(sessionID: sessionA.id)
+        store.beginReviewSession()
+        store.recordReview(makeReviewRecord(id: "session-b-review-1"))
+
+        XCTAssertNil(store.prepareCurrentSessionCompletion(
+            expectedSessionID: sessionA.id
+        ))
+
+        store.recordReview(makeReviewRecord(id: "session-b-review-2"))
+        let sessionB = try XCTUnwrap(store.prepareCurrentSessionCompletion())
+        XCTAssertEqual(
+            sessionB.records.map(\.id),
+            ["session-b-review-1", "session-b-review-2"]
+        )
+    }
 }
