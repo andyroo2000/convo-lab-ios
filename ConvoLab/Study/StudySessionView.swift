@@ -44,7 +44,6 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
-    @State private var isCompletionRefreshPending = false
     @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
@@ -725,31 +724,17 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudySessionAchievements")
                 }
 
-                Button {
+                Button("Done") {
                     if let completionID = sessionCompletion?.id {
                         achievementStore?.consumeCompletion(sessionID: completionID)
                     }
                     onSessionAchievementsLanded(Set(completionAchievements.map(\.id)))
                     dismiss()
-                } label: {
-                    if isCompletionRefreshPending {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Finalizing…")
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Finalizing session")
-                    } else {
-                        Text("Done")
-                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ConvoLabTheme.navy)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .disabled(!Self.canDismissWrapUp(
-                    isCompletionRefreshPending: isCompletionRefreshPending
-                ))
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
             .frame(maxWidth: 560)
@@ -1285,10 +1270,10 @@ struct StudySessionView: View {
         sessionWasEnded = true
         let completion = achievementStore?.prepareCurrentSessionCompletion()
         applySessionCompletion(completion)
-        isCompletionRefreshPending = true
 
+        // Completion is already durable locally. Achievement evaluation may
+        // enrich the wrap-up, but it must never gate leaving the session.
         Task { @MainActor in
-            defer { isCompletionRefreshPending = false }
             await achievementStore?.refresh()
             guard sessionWasEnded,
                   sessionCompletion?.id == completion?.id
@@ -1313,12 +1298,6 @@ struct StudySessionView: View {
         }
         currentAwardIndex = presentation.currentAwardIndex
         celebrationPresented = presentation.celebrationPresented
-    }
-
-    nonisolated static func canDismissWrapUp(
-        isCompletionRefreshPending: Bool
-    ) -> Bool {
-        !isCompletionRefreshPending
     }
 
     nonisolated static func shouldResetCompletionPresentation(
