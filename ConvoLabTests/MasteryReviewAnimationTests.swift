@@ -129,14 +129,14 @@ final class MasteryReviewAnimationTests: XCTestCase {
 
     @MainActor
     func testWrapUpNeverWaitsForAchievementRefreshBeforeDismissal() {
-        XCTAssertFalse(
-            StudySessionView.shouldBlockWrapUpDismissal(
-                achievementRefreshIsPending: true
+        XCTAssertTrue(
+            StudySessionView.canDismissWrapUp(
+                isCompletionRefreshPending: true
             )
         )
-        XCTAssertFalse(
-            StudySessionView.shouldBlockWrapUpDismissal(
-                achievementRefreshIsPending: false
+        XCTAssertTrue(
+            StudySessionView.canDismissWrapUp(
+                isCompletionRefreshPending: false
             )
         )
     }

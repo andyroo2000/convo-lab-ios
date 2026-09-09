@@ -44,6 +44,7 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var currentAwardIndex = 0
     @State private var celebrationPresented = false
+    @State private var isCompletionRefreshPending = false
     @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
@@ -735,8 +736,8 @@ struct StudySessionView: View {
                 .tint(ConvoLabTheme.navy)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .disabled(Self.shouldBlockWrapUpDismissal(
-                    achievementRefreshIsPending: achievementStore?.isLoading == true
+                .disabled(!Self.canDismissWrapUp(
+                    isCompletionRefreshPending: isCompletionRefreshPending
                 ))
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
@@ -1273,10 +1274,12 @@ struct StudySessionView: View {
         sessionWasEnded = true
         let completion = achievementStore?.prepareCurrentSessionCompletion()
         applySessionCompletion(completion)
+        isCompletionRefreshPending = true
 
         // Completion is already durable locally. Achievement evaluation may
         // enrich the wrap-up, but it must never gate leaving the session.
         Task { @MainActor in
+            defer { isCompletionRefreshPending = false }
             await achievementStore?.refresh()
             guard sessionWasEnded,
                   sessionCompletion?.id == completion?.id
@@ -1306,10 +1309,10 @@ struct StudySessionView: View {
         celebrationPresented = presentation.celebrationPresented
     }
 
-    nonisolated static func shouldBlockWrapUpDismissal(
-        achievementRefreshIsPending _: Bool
+    nonisolated static func canDismissWrapUp(
+        isCompletionRefreshPending _: Bool
     ) -> Bool {
-        false
+        true
     }
 
     nonisolated static func shouldResetCompletionPresentation(
