@@ -725,23 +725,12 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudySessionAchievements")
                 }
 
-                Button {
+                Button("Done") {
                     if let completionID = sessionCompletion?.id {
                         achievementStore?.consumeCompletion(sessionID: completionID)
                     }
                     onSessionAchievementsLanded(Set(completionAchievements.map(\.id)))
                     dismiss()
-                } label: {
-                    if isCompletionRefreshPending {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Finalizing…")
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Finalizing session")
-                    } else {
-                        Text("Done")
-                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ConvoLabTheme.navy)
@@ -1287,13 +1276,18 @@ struct StudySessionView: View {
         applySessionCompletion(completion)
         isCompletionRefreshPending = true
 
+        // Completion is already durable locally. Achievement evaluation may
+        // enrich the wrap-up, but it must never gate leaving the session.
         Task { @MainActor in
             defer { isCompletionRefreshPending = false }
             await achievementStore?.refresh()
             guard sessionWasEnded,
                   sessionCompletion?.id == completion?.id
             else { return }
-            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion()
+            guard let completionID = completion?.id else { return }
+            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion(
+                expectedSessionID: completionID
+            )
             guard refreshedCompletion?.id == completion?.id else { return }
             applySessionCompletion(refreshedCompletion)
         }
@@ -1316,9 +1310,9 @@ struct StudySessionView: View {
     }
 
     nonisolated static func canDismissWrapUp(
-        isCompletionRefreshPending: Bool
+        isCompletionRefreshPending _: Bool
     ) -> Bool {
-        !isCompletionRefreshPending
+        true
     }
 
     nonisolated static func shouldResetCompletionPresentation(

@@ -742,6 +742,15 @@ final class StudyAchievementStore {
         prepareCompletion(requireNewAward: false)
     }
 
+    func prepareCurrentSessionCompletion(
+        expectedSessionID: UUID
+    ) -> StudyAchievementCompletion? {
+        prepareCompletion(
+            requireNewAward: false,
+            expectedSessionID: expectedSessionID
+        )
+    }
+
     func prepareInterruptedCompletion() -> StudyAchievementCompletion? {
         prepareCompletion(requireNewAward: true)
     }
@@ -765,8 +774,14 @@ final class StudyAchievementStore {
         persistSessionState()
     }
 
-    private func prepareCompletion(requireNewAward: Bool) -> StudyAchievementCompletion? {
-        guard var session = sessionState.activeSession, !session.records.isEmpty else { return nil }
+    private func prepareCompletion(
+        requireNewAward: Bool,
+        expectedSessionID: UUID? = nil
+    ) -> StudyAchievementCompletion? {
+        guard var session = sessionState.activeSession,
+              expectedSessionID == nil || session.id == expectedSessionID,
+              !session.records.isEmpty
+        else { return nil }
         if completionNeedsPreparation(session) {
             guard prepareSessionForCompletion(&session, requireNewAward: requireNewAward) else {
                 return nil
