@@ -128,6 +128,20 @@ final class MasteryReviewAnimationTests: XCTestCase {
     }
 
     @MainActor
+    func testWrapUpNeverWaitsForAchievementRefreshBeforeDismissal() {
+        XCTAssertFalse(
+            StudySessionView.shouldBlockWrapUpDismissal(
+                achievementRefreshIsPending: true
+            )
+        )
+        XCTAssertFalse(
+            StudySessionView.shouldBlockWrapUpDismissal(
+                achievementRefreshIsPending: false
+            )
+        )
+    }
+
+    @MainActor
     func testMatchingDeferredCompletionDoesNotRewindAwardPresentation() {
         let sessionID = UUID()
         let current = StudyAchievementCompletion(

@@ -735,6 +735,9 @@ struct StudySessionView: View {
                 .tint(ConvoLabTheme.navy)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
+                .disabled(Self.shouldBlockWrapUpDismissal(
+                    achievementRefreshIsPending: achievementStore?.isLoading == true
+                ))
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
             .frame(maxWidth: 560)
@@ -1298,6 +1301,12 @@ struct StudySessionView: View {
         }
         currentAwardIndex = presentation.currentAwardIndex
         celebrationPresented = presentation.celebrationPresented
+    }
+
+    nonisolated static func shouldBlockWrapUpDismissal(
+        achievementRefreshIsPending _: Bool
+    ) -> Bool {
+        false
     }
 
     nonisolated static func shouldResetCompletionPresentation(
