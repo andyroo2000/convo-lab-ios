@@ -221,7 +221,7 @@ struct StudyCardLocalRepository {
             predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
             sortBy: [SortDescriptor(\.queueIndex)]
         )
-        return try context.fetch(descriptor).compactMap(decodeCard)
+        return try context.fetch(descriptor).compactMap(decodeCard).filter(\.isProgressionAvailable)
     }
 
     func libraryCards(userID: Int) throws -> [StudyCard] {

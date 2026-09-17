@@ -28,6 +28,12 @@ extension StudyStore {
             userID: userID,
             preservingActiveSessionOrder: preservingActiveReviewQueue
         )
+        try await reconcileOmittedOfflineCards(
+            reserve,
+            userID: userID,
+            activationGeneration: activationGeneration
+        )
+        guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         offlineReserveMetadata = reserve.metadata
         cardCatalogSnapshotCache?.saveOfflineReserveMetadata(reserve.metadata, userID: userID)
         loadLibraryCards(userID: userID)
@@ -40,6 +46,26 @@ extension StudyStore {
         markPrepared(
             cards: cards + reserve.cards + persistedActiveCards,
             clearingOtherRecords: clearingOtherRecords
+        )
+    }
+
+    private func reconcileOmittedOfflineCards(
+        _ reserve: StudyOfflineReserve,
+        userID: Int,
+        activationGeneration: Int
+    ) async throws {
+        // The feed may already be caught up while an older cached due date or
+        // eligibility projection survives outside both server-selected queues.
+        try await StudyOfflineCardReconciler(api: api, context: context).reconcile(
+            confirmedCards: cards + reserve.cards,
+            at: reserve.generatedAt,
+            userID: userID,
+            isCurrent: { self.isCurrentActivation(userID, generation: activationGeneration) },
+            didReconcile: { change in
+                self.cards = change.applying(to: self.cards, studyDate: self.dueActivationScheduler.now)
+                self.libraryCards = change.applying(to: self.libraryCards)
+                self.allCards = change.applying(to: self.allCards)
+            }
         )
     }
 
