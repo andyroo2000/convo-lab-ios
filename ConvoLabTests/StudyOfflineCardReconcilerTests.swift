@@ -123,6 +123,22 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOfflineReconciliationUsesInjectedClockForSavedAndDisplayedQueue() async throws {
+        let fixture = try makeOfflineReconciliationFixture()
+        let dueAt = Date.now.addingTimeInterval(86_400)
+        fixture.now = dueAt.addingTimeInterval(60)
+        let serverCard = makeCard(id: fixture.card.reviewCardID, expression: "due", dueAt: dueAt)
+        let response = try StorageCodec.encoder.encode(serverCard)
+
+        try await fixture.reconcile(api: makeClient { _ in Self.response(data: response) })
+
+        let change = try XCTUnwrap(fixture.changes.first)
+        XCTAssertEqual(change.evaluatedAt, fixture.now)
+        XCTAssertTrue(fixture.record.isInActiveSession)
+        XCTAssertEqual(change.applying(to: [fixture.card], studyDate: change.evaluatedAt).count, 1)
+    }
+
+    @MainActor
     private func makeOfflineReconciliationFixture() throws -> OfflineReconciliationFixture {
         try OfflineReconciliationFixture(card: makeCard(
             id: "local-card", syncId: "server-card", expression: "cached", dueAt: .distantPast
@@ -137,6 +153,7 @@ private final class OfflineReconciliationFixture {
     let card: StudyCard
     let record: LocalCardRecord
     let originalPayload: Data
+    var now = Date.now
     var isCurrent = true
     var changes: [StudyOfflineCardReconciler.Change] = []
 
@@ -151,7 +168,7 @@ private final class OfflineReconciliationFixture {
 
     func reconcile(api: APIClient) async throws {
         try await StudyOfflineCardReconciler(api: api, context: context).reconcile(
-            confirmedCards: [], at: .now, userID: 1,
+            confirmedCards: [], at: now, userID: 1, now: { self.now },
             isCurrent: { self.isCurrent },
             didReconcile: { self.changes.append($0) }
         )

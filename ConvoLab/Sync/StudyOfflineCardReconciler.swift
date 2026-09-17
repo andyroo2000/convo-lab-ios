@@ -6,6 +6,7 @@ struct StudyOfflineCardReconciler {
     struct Change {
         let identifiers: Set<String>
         let card: StudyCard?
+        let evaluatedAt: Date
 
         func applying(to cards: [StudyCard], studyDate: Date? = nil) -> [StudyCard] {
             cards.compactMap { existing in
@@ -17,6 +18,11 @@ struct StudyOfflineCardReconciler {
         }
     }
 
+    private struct Candidate {
+        let card: StudyCard
+        let payload: Data
+    }
+
     let api: APIClient
     let context: ModelContext
 
@@ -24,6 +30,7 @@ struct StudyOfflineCardReconciler {
         confirmedCards: [StudyCard],
         at snapshotDate: Date,
         userID: Int,
+        now: () -> Date = { .now },
         isCurrent: () -> Bool,
         didReconcile: (Change) -> Void
     ) async throws {
@@ -35,19 +42,55 @@ struct StudyOfflineCardReconciler {
             $0.isEligibleForOfflineStudy(at: snapshotDate)
                 && !StudyCardIdentity.matches($0, any: confirmedIdentifiers)
         }
-        for candidate in candidates {
+        for offset in stride(from: 0, to: candidates.count, by: 50) {
             try requireCurrent(isCurrent)
-            guard let record = try unmodifiedRecord(for: candidate, userID: userID) else { continue }
-            let originalPayload = record.payload
-            let serverCard = try await fetch(candidate)
-            try requireCurrent(isCurrent)
-            // A review, edit, action, or feed update can finish during the fetch.
-            // Never overwrite newer local work, even if its outbox already drained.
-            guard let current = try unmodifiedRecord(for: candidate, userID: userID),
-                  current.payload == originalPayload
-            else { continue }
-            didReconcile(try apply(serverCard, to: current, previous: candidate))
+            let pending = try pendingIdentifiers(userID: userID)
+            let batch = try candidates.dropFirst(offset).prefix(50).compactMap { card -> Candidate? in
+                guard let record = try unmodifiedRecord(for: card, userID: userID, pending: pending)
+                else { return nil }
+                return Candidate(card: card, payload: record.payload)
+            }
+            try await reconcile(batch, userID: userID, now: now,
+                                isCurrent: isCurrent, didReconcile: didReconcile)
         }
+    }
+
+    private func reconcile(
+        _ batch: [Candidate],
+        userID: Int,
+        now: () -> Date,
+        isCurrent: () -> Bool,
+        didReconcile: (Change) -> Void
+    ) async throws {
+        let resolver = StudyOfflineCardResolver(api: api)
+        let fetched = try await resolver.fetchBatch(batch.map(\.card))
+        try requireCurrent(isCurrent)
+        var pending = try pendingIdentifiers(userID: userID)
+        for candidate in batch {
+            guard try unchangedRecord(candidate, userID: userID, pending: pending) != nil
+            else { continue }
+            var serverCard = fetched.card(matching: StudyCardIdentity.identifiers(for: candidate.card))
+            if serverCard == nil {
+                // Batch omissions are not proof of deletion. Confirm with an individual lookup.
+                serverCard = try await resolver.fetch(candidate.card)
+                try requireCurrent(isCurrent)
+                pending = try pendingIdentifiers(userID: userID)
+            }
+            // A review, edit, action, or feed update can finish during either request.
+            // Preserve newer local work even if its outbox already drained.
+            guard let record = try unchangedRecord(candidate, userID: userID, pending: pending)
+            else { continue }
+            didReconcile(try apply(serverCard, to: record, previous: candidate.card, at: now()))
+        }
+    }
+
+    private func unchangedRecord(
+        _ candidate: Candidate, userID: Int, pending: Set<String>
+    ) throws -> LocalCardRecord? {
+        guard let record = try unmodifiedRecord(for: candidate.card, userID: userID, pending: pending),
+              record.payload == candidate.payload
+        else { return nil }
+        return record
     }
 
     private func requireCurrent(_ isCurrent: () -> Bool) throws {
@@ -55,36 +98,28 @@ struct StudyOfflineCardReconciler {
         guard isCurrent() else { throw CancellationError() }
     }
 
-    private func unmodifiedRecord(for card: StudyCard, userID: Int) throws -> LocalCardRecord? {
+    private func unmodifiedRecord(
+        for card: StudyCard, userID: Int, pending: Set<String>
+    ) throws -> LocalCardRecord? {
+        guard !StudyCardIdentity.matches(card, any: pending) else { return nil }
         let repository = StudyCardLocalRepository(context: context)
         guard let record = try repository.record(matching: card, userID: userID),
               record.locallyUpdatedAt == nil
         else { return nil }
-        let pendingIdentifiers = Set(try context.fetch(
-            FetchDescriptor<PendingMutation>(predicate: #Predicate { $0.userID == userID })
-        ).map { $0.resourceID.lowercased() })
-        guard !StudyCardIdentity.matches(card, any: pendingIdentifiers) else { return nil }
         return record
     }
 
-    private func fetch(_ card: StudyCard) async throws -> StudyCard? {
-        do {
-            let serverCard: StudyCard = try await api.request(
-                "/api/study/cards/\(card.reviewCardID)"
-            )
-            guard StudyCardIdentity.matches(serverCard, card) else {
-                throw APIClientError.invalidResponse
-            }
-            return serverCard
-        } catch APIClientError.rejected(status: 404, message: _) {
-            return nil
-        }
+    private func pendingIdentifiers(userID: Int) throws -> Set<String> {
+        Set(try context.fetch(
+            FetchDescriptor<PendingMutation>(predicate: #Predicate { $0.userID == userID })
+        ).map { $0.resourceID.lowercased() })
     }
 
     private func apply(
         _ serverCard: StudyCard?,
         to record: LocalCardRecord,
-        previous: StudyCard
+        previous: StudyCard,
+        at date: Date
     ) throws -> Change {
         let resolved = serverCard?.resolvingProgressionMetadata(fallingBackTo: previous)
         let persisted = resolved.map {
@@ -94,11 +129,12 @@ struct StudyOfflineCardReconciler {
             record.replacePayload(encoded: try StorageCodec.encoder.encode(persisted))
             record.serverUpdatedAt = persisted.updatedAt
             record.isInActiveSession = record.isInActiveSession
-                && persisted.isEligibleForOfflineStudy(at: .now)
+                && persisted.isEligibleForOfflineStudy(at: date)
         } else {
             context.delete(record)
         }
         try context.save()
-        return Change(identifiers: StudyCardIdentity.identifiers(for: previous), card: persisted)
+        return Change(identifiers: StudyCardIdentity.identifiers(for: previous),
+                      card: persisted, evaluatedAt: date)
     }
 }

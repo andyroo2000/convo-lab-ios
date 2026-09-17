@@ -60,9 +60,10 @@ extension StudyStore {
             confirmedCards: cards + reserve.cards,
             at: reserve.generatedAt,
             userID: userID,
+            now: { self.dueActivationScheduler.now },
             isCurrent: { self.isCurrentActivation(userID, generation: activationGeneration) },
             didReconcile: { change in
-                self.cards = change.applying(to: self.cards, studyDate: self.dueActivationScheduler.now)
+                self.cards = change.applying(to: self.cards, studyDate: change.evaluatedAt)
                 self.libraryCards = change.applying(to: self.libraryCards)
                 self.allCards = change.applying(to: self.allCards)
             }
