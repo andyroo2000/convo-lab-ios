@@ -733,7 +733,6 @@ extension StudyStoreTests {
                 "notes": [],
                 "media": ["image": NSNull()],
                 "audio": NSNull(),
-                "pitchAccent": NSNull(),
             ],
         ]
         return try XCTUnwrap(

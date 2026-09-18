@@ -4,18 +4,23 @@ import SwiftData
 
 @MainActor
 final class StudyCardPresentationTests: XCTestCase {
-    func testServerPresentationV1OverridesDivergentRawReviewFieldsAndPersists() throws {
-        let card = try decodedCard(presentation: serverPresentationV1())
+    func testSupportedServerPresentationsOverrideRawReviewFieldsAndPersist() throws {
+        for version in [1, 2] {
+            let payload = serverPresentationV1().replacingOccurrences(
+                of: "\"version\":1",
+                with: "\"version\":\(version)"
+            )
+            let card = try decodedCard(presentation: payload)
+            assertServerPresentation(on: card, version: version)
+            assertRawPresentationRemainsAvailable(on: card)
 
-        assertServerPresentation(on: card)
-        assertRawPresentationRemainsAvailable(on: card)
-
-        let persisted = try StorageCodec.decoder.decode(
-            StudyCard.self,
-            from: StorageCodec.encoder.encode(card)
-        )
-        XCTAssertEqual(persisted.serverPresentation, card.serverPresentation)
-        XCTAssertEqual(persisted.presentation, card.presentation)
+            let persisted = try StorageCodec.decoder.decode(
+                StudyCard.self,
+                from: StorageCodec.encoder.encode(card)
+            )
+            XCTAssertEqual(persisted.serverPresentation, card.serverPresentation)
+            XCTAssertEqual(persisted.presentation, card.presentation)
+        }
     }
 
     func testPresentationOnlyMediaControlsOfflinePreparedStateAndSuppressesStaleRawMedia() throws {
@@ -34,7 +39,7 @@ final class StudyCardPresentationTests: XCTestCase {
               "english":{"text":null,"ruby":null}
             },
             "notes":[],"media":{"image":null},
-            "audio":{"url":"/media/projected-answer.mp3"},"pitchAccent":null
+            "audio":{"url":"/media/projected-answer.mp3"}
           }
         }
         """#)
@@ -83,8 +88,7 @@ final class StudyCardPresentationTests: XCTestCase {
 
     func testEditorRawMediaAccessorsDoNotSubstitutePresentationMedia() throws {
         let card = try decodedCard(presentation: minimalPresentation(
-            frontAudio: #"{"url":"/media/projected-front.mp3"}"#,
-            pitchAccent: "null"
+            frontAudio: #"{"url":"/media/projected-front.mp3"}"#
         ))
 
         XCTAssertEqual(card.audioURL, URL(string: "/media/projected-front.mp3"))
@@ -96,8 +100,7 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertFalse(card.rawMediaURLs.isEmpty)
 
         let noProjectedMedia = try decodedCard(presentation: minimalPresentation(
-            frontAudio: "null",
-            pitchAccent: "null"
+            frontAudio: "null"
         ))
         XCTAssertTrue(noProjectedMedia.mediaURLs.isEmpty)
         XCTAssertFalse(noProjectedMedia.rawMediaURLs.isEmpty)
@@ -105,7 +108,7 @@ final class StudyCardPresentationTests: XCTestCase {
 
     func testMissingAndFuturePresentationVersionsUseRawCompatibilityProjection() throws {
         let missing = try decodedCard(presentation: nil)
-        let future = try decodedCard(presentation: #"{"version":2,"futureShape":true}"#)
+        let future = try decodedCard(presentation: #"{"version":3,"futureShape":true}"#)
 
         for card in [missing, future] {
             XCTAssertNil(card.serverPresentation)
@@ -186,7 +189,7 @@ final class StudyCardPresentationTests: XCTestCase {
               "japanese":{"text":null,"ruby":null},
               "english":{"text":null,"ruby":null}
             },
-            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+            "notes":[],"media":{"image":null},"audio":null
           }
         }
         """#)
@@ -195,24 +198,10 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.answerText, "SERVER ANSWER")
     }
 
-    func testKnownPresentationV1RejectsMalformedTypedMediaAndPitchAccent() {
-        let unresolvedPitch = #"""
-        {
-          "status":"unresolved","expression":"答え","reading":"こたえ",
-          "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
-        }
-        """#
-        let mismatchedPitch = #"""
-        {
-          "status":"resolved","expression":"答え","reading":"こたえ",
-          "morae":["こ","た","え"],"pattern":[0,1],"patternName":"平板"
-        }
-        """#
+    func testKnownPresentationV1RejectsMalformedTypedMedia() {
         let malformedPresentations = [
-            minimalPresentation(frontAudio: #""not-an-object""#, pitchAccent: "null"),
-            minimalPresentation(frontAudio: #"{"id":42}"#, pitchAccent: "null"),
-            minimalPresentation(frontAudio: "null", pitchAccent: JSONFragment(unresolvedPitch)),
-            minimalPresentation(frontAudio: "null", pitchAccent: JSONFragment(mismatchedPitch)),
+            minimalPresentation(frontAudio: #""not-an-object""#),
+            minimalPresentation(frontAudio: #"{"id":42}"#),
         ]
 
         for presentation in malformedPresentations {
@@ -220,8 +209,7 @@ final class StudyCardPresentationTests: XCTestCase {
         }
 
         XCTAssertNoThrow(try decodedCard(presentation: minimalPresentation(
-            frontAudio: #"{"id":null,"filename":null,"url":null,"mediaKind":null,"source":null}"#,
-            pitchAccent: "null"
+            frontAudio: #"{"id":null,"filename":null,"url":null,"mediaKind":null,"source":null}"#
         )))
     }
 
@@ -240,7 +228,7 @@ final class StudyCardPresentationTests: XCTestCase {
                   "japanese":{"text":null,"ruby":null},
                   "english":{"text":null,"ruby":null}
                 },
-                "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+                "notes":[],"media":{"image":null},"audio":null
               }
             }
             """#,
@@ -266,7 +254,7 @@ final class StudyCardPresentationTests: XCTestCase {
               "japanese":{"text":null,"ruby":null},
               "english":{"text":null,"ruby":null}
             },
-            "notes":[],"media":{"image":null},"audio":null,"pitchAccent":null
+            "notes":[],"media":{"image":null},"audio":null
           }
         }
         """#)
@@ -686,69 +674,6 @@ final class StudyCardPresentationTests: XCTestCase {
         )
     }
 
-    func testResolvedPitchAccentAppearsOnlyOnAnswerFace() {
-        let card = makeCard(
-            cardType: "recognition",
-            prompt: .object(["cueText": .string("会社")]),
-            answer: .object([
-                "expression": .string("会社"),
-                "pitchAccent": .object([
-                    "status": .string("resolved"),
-                    "expression": .string("会社"),
-                    "reading": .string("かいしゃ"),
-                    "pitchNum": .number(0),
-                    "morae": .array([.string("か"), .string("い"), .string("しゃ")]),
-                    "pattern": .array([.number(0), .number(1), .number(1)]),
-                    "patternName": .string("平板"),
-                    "source": .string("kanjium"),
-                    "resolvedBy": .string("local-reading"),
-                ]),
-            ])
-        )
-
-        XCTAssertNil(card.presentation.front.pitchAccent)
-        XCTAssertEqual(
-            card.presentation.back.pitchAccent,
-            .init(
-                expression: "会社",
-                reading: "かいしゃ",
-                morae: ["か", "い", "しゃ"],
-                pattern: [0, 1, 1],
-                patternName: "平板"
-            )
-        )
-    }
-
-    func testMalformedAndUnresolvedPitchAccentStayHidden() {
-        let unresolved = makeCard(
-            cardType: "recognition",
-            prompt: .object(["cueText": .string("会社")]),
-            answer: .object([
-                "pitchAccent": .object([
-                    "status": .string("unresolved"),
-                    "expression": .string("会社"),
-                ]),
-            ])
-        )
-        let malformed = makeCard(
-            cardType: "recognition",
-            prompt: .object(["cueText": .string("会社")]),
-            answer: .object([
-                "pitchAccent": .object([
-                    "status": .string("resolved"),
-                    "expression": .string("会社"),
-                    "reading": .string("かいしゃ"),
-                    "morae": .array([.string("か"), .string("い")]),
-                    "pattern": .array([.number(0)]),
-                    "patternName": .string("平板"),
-                ]),
-            ])
-        )
-
-        XCTAssertNil(unresolved.presentation.back.pitchAccent)
-        XCTAssertNil(malformed.presentation.back.pitchAccent)
-    }
-
     private enum ClozePromptSource {
         case canonical
         case displayOnly
@@ -859,18 +784,14 @@ final class StudyCardPresentationTests: XCTestCase {
             },
             "notes":["Server note"],
             "media":{"image":{"url":"/media/server-answer.png"}},
-            "audio":{"url":"/media/server-answer.mp3"},
-            "pitchAccent":{
-              "status":"resolved","expression":"答え","reading":"こたえ",
-              "morae":["こ","た","え"],"pattern":[0,1,1],"patternName":"平板"
-            }
+            "audio":{"url":"/media/server-answer.mp3"}
           }
         }
         """#
     }
 
-    private func assertServerPresentation(on card: StudyCard) {
-        XCTAssertEqual(card.serverPresentation?.version, 1)
+    private func assertServerPresentation(on card: StudyCard, version: Int) {
+        XCTAssertEqual(card.serverPresentation?.version, version)
         XCTAssertEqual(card.presentation.front.heading, "会社[かいしゃ]")
         XCTAssertEqual(card.presentation.front.supportingText, "SERVER HINT")
         XCTAssertEqual(card.presentation.front.audioURL, URL(string: "/media/server-front.mp3"))
@@ -907,7 +828,6 @@ final class StudyCardPresentationTests: XCTestCase {
         XCTAssertEqual(card.answerImageURL, URL(string: "/media/server-answer.png"))
         XCTAssertEqual(card.promptText, "会社")
         XCTAssertEqual(card.answerText, "SERVER MEANING")
-        XCTAssertEqual(card.presentation.back.pitchAccent?.reading, "こたえ")
     }
 
     private func assertRawPresentationRemainsAvailable(on card: StudyCard) {
@@ -976,14 +896,13 @@ final class StudyCardPresentationTests: XCTestCase {
         )
     }
 
-    private func minimalPresentation(frontAudio: JSONFragment, pitchAccent: JSONFragment) -> String {
+    private func minimalPresentation(frontAudio: JSONFragment) -> String {
         presentation(.init(
             mode: .text,
             frontText: #""front""#,
             frontAudio: frontAudio,
             answerHeading: #""answer""#,
-            meaning: "null",
-            pitchAccent: pitchAccent
+            meaning: "null"
         ))
     }
 
@@ -996,8 +915,7 @@ final class StudyCardPresentationTests: XCTestCase {
             frontText: "null",
             frontAudio: "null",
             answerHeading: "null",
-            meaning: meaning,
-            pitchAccent: "null"
+            meaning: meaning
         ))
     }
 
@@ -1013,10 +931,6 @@ final class StudyCardPresentationTests: XCTestCase {
         init(stringLiteral value: String) {
             rawValue = value
         }
-
-        init(_ value: String) {
-            rawValue = value
-        }
     }
 
     private struct PresentationFixture {
@@ -1025,7 +939,6 @@ final class StudyCardPresentationTests: XCTestCase {
         let frontAudio: JSONFragment
         let answerHeading: JSONFragment
         let meaning: JSONFragment
-        let pitchAccent: JSONFragment
     }
 
     private func presentation(_ fixture: PresentationFixture) -> String {
@@ -1043,8 +956,7 @@ final class StudyCardPresentationTests: XCTestCase {
               "japanese":{"text":null,"ruby":null},
               "english":{"text":null,"ruby":null}
             },
-            "notes":[],"media":{"image":null},"audio":null,
-            "pitchAccent":\#(fixture.pitchAccent.rawValue)
+            "notes":[],"media":{"image":null},"audio":null
           }
         }
         """#

@@ -3,16 +3,6 @@ import Foundation
 
 extension StudyStoreTests {
     @MainActor
-    func makeDelayedPitchClient(
-        responseData: Data,
-        gate: LockedRequestGate
-    ) -> APIClient {
-        DelayedPitchURLProtocol.responseData = responseData
-        DelayedPitchURLProtocol.gate = gate
-        return makeClient(protocolClass: DelayedPitchURLProtocol.self)
-    }
-
-    @MainActor
     func makeDelayedAnswerAudioClient(
         responseData: Data,
         gate: LockedRequestGate
@@ -31,25 +21,6 @@ extension StudyStoreTests {
         DelayedAnswerAudioDownloadURLProtocol.gate = gate
         return makeClient(protocolClass: DelayedAnswerAudioDownloadURLProtocol.self)
     }
-}
-
-final class DelayedPitchURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var responseData = Data()
-    nonisolated(unsafe) static var gate: LockedRequestGate?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard request.url?.path.hasSuffix("/pitch-accent") == true else {
-            deliver(nil, statusCode: 204, contentType: nil)
-            return
-        }
-        deliverAfterRelease(Self.responseData, gate: Self.gate)
-    }
-
-    override func stopLoading() {}
 }
 
 final class DelayedAnswerAudioURLProtocol: URLProtocol, @unchecked Sendable {

@@ -120,31 +120,6 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func cardWithResolvedPitchAccent(_ card: StudyCard) -> StudyCard {
-        StudyCard(
-            id: card.id,
-            syncId: card.syncId,
-            noteId: card.noteId,
-            cardType: card.cardType,
-            prompt: card.prompt,
-            answer: card.answer.replacingObjectValues([
-                "pitchAccent": .object([
-                    "status": .string("resolved"),
-                    "expression": .string("会社"),
-                    "reading": .string("かいしゃ"),
-                    "morae": .array([.string("か"), .string("い"), .string("しゃ")]),
-                    "pattern": .array([.number(0), .number(1), .number(1)]),
-                    "patternName": .string("平板"),
-                ]),
-            ]),
-            state: card.state,
-            answerAudioSource: card.answerAudioSource,
-            createdAt: card.createdAt,
-            updatedAt: .now
-        )
-    }
-
-    @MainActor
     func persistedCard(
         in container: ModelContainer
     ) throws -> StudyCard {

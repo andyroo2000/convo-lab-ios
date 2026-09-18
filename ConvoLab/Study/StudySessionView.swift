@@ -219,9 +219,6 @@ struct StudySessionView: View {
                     }
                     showingAnswer = true
                     autoplayAnswerAudioIfReady(cardID: card.id)
-                    Task {
-                        await store.resolvePitchAccent(for: card)
-                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ConvoLabTheme.navy)
@@ -883,18 +880,6 @@ struct StudySessionView: View {
                     )
                     .accessibilityHint(answerAudioAccessibilityHint)
                     .accessibilityIdentifier("StudyAnswerAudioButton")
-                }
-
-                if let pitchAccent = face.pitchAccent {
-                    StudyPitchAccentDiagram(pitchAccent: pitchAccent)
-                        .accessibilityIdentifier("StudyPitchAccentDiagram")
-                } else if store.resolvingPitchAccentCardIDs.contains(card.id) {
-                    Text("Loading pitch accent…")
-                        .font(.caption.bold())
-                        .textCase(.uppercase)
-                        .tracking(1)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("StudyPitchAccentLoading")
                 }
 
                 Divider()

@@ -481,7 +481,6 @@ extension StudyStoreTests {
             answer: .object([
                 "expression": .string("営業の仕事は楽しいです。"),
                 "meaning": .string("Sales work is fun."),
-                "pitchAccent": .array([.number(2)]),
             ]),
             imagePlacement: .none,
             imagePrompt: nil,
@@ -556,7 +555,6 @@ extension StudyStoreTests {
             (prompt?["serverEnrichment"] as? [String: Any])?["source"] as? String,
             "learning-os"
         )
-        XCTAssertEqual(answer?["pitchAccent"] as? [Int], [2])
         XCTAssertEqual((prompt?["cueAudio"] as? [String: Any])?["id"] as? String, "audio-1")
         XCTAssertEqual((answer?["answerAudio"] as? [String: Any])?["id"] as? String, "audio-1")
     }
