@@ -18,7 +18,7 @@
         "prompt": {"type": "text", "text": "聞く"},
         "answer": {"type": "text", "text": "to listen"},
         "presentation": {
-          "version": 1,
+          "version": 2,
           "front": {
             "mode": "text",
             "text": "聞く",
@@ -38,8 +38,7 @@
             },
             "notes": [],
             "media": {"image": null},
-            "audio": null,
-            "pitchAccent": null
+            "audio": null
           }
         },
         "state": {
@@ -100,7 +99,7 @@
         "prompt": {"type": "text", "text": "company"},
         "answer": {"type": "text", "text": "会社", "answerAudio": {"url": "/media/company.mp3", "source": "imported"}},
         "presentation": {
-          "version": 1,
+          "version": 2,
           "front": {
             "mode": "text",
             "text": "company",
@@ -120,8 +119,7 @@
             },
             "notes": [],
             "media": {"image": null},
-            "audio": {"url": "/media/company.mp3", "source": "imported"},
-            "pitchAccent": null
+            "audio": {"url": "/media/company.mp3", "source": "imported"}
           }
         },
         "state": {

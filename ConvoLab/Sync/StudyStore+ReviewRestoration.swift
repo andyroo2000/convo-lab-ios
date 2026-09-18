@@ -158,7 +158,7 @@ extension StudyStore {
         guard record.id != card.id || preserveLocalPresentation else {
             return card
         }
-        let restoredServerPresentation: StudyCardPresentationV1?
+        let restoredServerPresentation: StudyCardPresentationPayload?
         if preserveLocalPresentation, let localCard {
             restoredServerPresentation = localCard.serverPresentation
         } else {

@@ -115,7 +115,6 @@ final class StudyStore {
     let cardActionOutbox: CardActionOutbox
     let manualDraftOutbox: ManualDraftOutbox
     private let cardMediaService: CardMediaMutationService
-    let pitchAccentService: PitchAccentResolutionService
     let sessionLoadingService: StudySessionLoadingService
     let syncCoordinator: StudySyncCoordinator
     let localCardRepository: StudyCardLocalRepository
@@ -139,7 +138,6 @@ final class StudyStore {
     @ObservationIgnored var learningItemsRefreshRevision = 0
     @ObservationIgnored var newCardQueueRefreshRevision = 0
     @ObservationIgnored var newCardQueueReorderToken: UUID?
-    @ObservationIgnored var pitchAccentResolutionTokens: [String: UUID] = [:]
     @ObservationIgnored var activeUserID: Int?
     @ObservationIgnored var accountActivationGeneration = 0
     @ObservationIgnored var studySettingsMutationRevision = 0
@@ -215,7 +213,6 @@ final class StudyStore {
     }
     var isWaniKaniWorking: Bool { knownKanjiService.isWorking }
     var wanikaniErrorMessage: String? { knownKanjiService.errorMessage }
-    var resolvingPitchAccentCardIDs: Set<String> = []
     var syncStatus: SyncStatus = .idle
     var lastSyncAt: Date?
     var sessionInitialCardCount = 0
@@ -337,7 +334,6 @@ final class StudyStore {
         cardActionOutbox = CardActionOutbox(api: api, context: context)
         manualDraftOutbox = ManualDraftOutbox(api: api, context: context)
         cardMediaService = CardMediaMutationService(api: api, mediaCache: mediaCache)
-        pitchAccentService = PitchAccentResolutionService(api: api, context: context)
         sessionLoadingService = StudySessionLoadingService(api: api)
         syncCoordinator = StudySyncCoordinator(
             repository: CardSyncFeedRepository(api: api, context: context)
@@ -397,7 +393,6 @@ final class StudyStore {
         manualDraftOutbox.activate(userID: userID)
         manualDraftOutboxRevision &+= 1
         cardMediaService.activate(userID: userID)
-        pitchAccentService.activate(userID: userID)
         sessionLoadingService.activate(userID: userID)
         syncCoordinator.activate(userID: userID)
         restorePendingReviewState()
@@ -436,7 +431,6 @@ final class StudyStore {
         manualDraftOutbox.deactivate()
         manualDraftOutboxRevision &+= 1
         cardMediaService.deactivate()
-        pitchAccentService.deactivate()
         sessionLoadingService.deactivate()
         syncCoordinator.deactivate()
         reviewRecordingService.deactivate()
@@ -449,8 +443,6 @@ final class StudyStore {
         allCards = []
         allCardsNextCursor = nil
         allCardsQuery = ""
-        pitchAccentResolutionTokens = [:]
-        resolvingPitchAccentCardIDs = []
         allCardsRefreshRevision += 1
         isRefreshingAllCards = false
         isLoadingMoreAllCards = false

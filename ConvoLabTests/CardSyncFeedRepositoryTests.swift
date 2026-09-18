@@ -277,7 +277,7 @@ final class CardSyncFeedRepositoryTests: XCTestCase {
             "heading": "answer", "ruby": NSNull(), "restored": NSNull(), "meaning": "meaning",
             "sentences": [
                 "japanese": ["text": NSNull(), "ruby": NSNull()], "english": ["text": NSNull(), "ruby": NSNull()],
-            ], "notes": [], "media": ["image": NSNull()], "audio": NSNull(), "pitchAccent": NSNull(),
+            ], "notes": [], "media": ["image": NSNull()], "audio": NSNull(),
         ],
     ]
 

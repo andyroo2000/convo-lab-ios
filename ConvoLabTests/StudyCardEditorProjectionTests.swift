@@ -223,7 +223,7 @@ final class StudyCardEditorProjectionTests: XCTestCase {
                 "english": ["text": NSNull(), "ruby": NSNull()],
             ],
             "notes": [], "media": ["image": NSNull()],
-            "audio": NSNull(), "pitchAccent": NSNull(),
+            "audio": NSNull(),
         ],
     ]
 

@@ -139,7 +139,6 @@ final class StudyCardDraftTests: XCTestCase {
                 "expression": .string("会社で働く。"),
                 "expressionReading": .string("会社[かいしゃ]で働[はたら]く。"),
                 "meaning": .string("Work at a company."),
-                "pitchAccent": .object(["status": .string("resolved")]),
             ])
         )
 
@@ -152,7 +151,6 @@ final class StudyCardDraftTests: XCTestCase {
         XCTAssertEqual(draft.cardType, .production)
         XCTAssertEqual(prompt["cueMeaning"], .null)
         XCTAssertEqual(prompt["cueAudio"], card.prompt["cueAudio"])
-        XCTAssertEqual(answer["pitchAccent"], card.answer["pitchAccent"])
         XCTAssertEqual(answer["sentenceJp"]?.stringValue, "会社で毎日働く。")
     }
 

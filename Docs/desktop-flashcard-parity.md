@@ -36,7 +36,7 @@ are not separate API card types.
 
 1. Heading: `expressionReading`, then the imported `cueReading` fallback, then
    plain `expression`.
-2. Answer audio and pitch accent appear below the heading.
+2. Answer audio appears below the heading.
 3. Answer image wins over the prompt image; the prompt image is reused when
    there is no answer image.
 4. Text details appear in this order: restored text, meaning, Japanese example,
@@ -45,7 +45,7 @@ are not separate API card types.
 ### Cloze backs
 
 1. Heading: `restoredTextReading`, then `restoredText`.
-2. Answer audio and pitch accent appear below the heading.
+2. Answer audio appears below the heading.
 3. Reuse the same answer-image fallback as other cards.
 4. Show meaning, then notes.
 
@@ -61,11 +61,6 @@ known-kanji set from learning-os and stores it per user for offline study. A
 reading is hidden only when every kanji in its annotated word is known; an
 iteration mark does not require its own knowledge entry. WaniKani connection
 tokens are submitted to learning-os and are never stored on the device.
-
-Resolved pitch-accent payloads render only on the answer face and are persisted
-with the local card for offline review. When a card has no resolved payload,
-revealing the answer may ask learning-os to resolve it; failure or lack of a
-network never blocks the card or grading.
 
 ## Card library and editor
 
@@ -85,7 +80,7 @@ retries, reconcile the committed card locally, and then delete the transient
 server draft.
 
 Saving an existing card merges the edited fields into its full payload so
-server-managed scheduling data, generated audio, images, and pitch accent are
+server-managed scheduling data, generated audio and images are
 preserved. A recognition card whose only prompt is audio keeps the desktop
 audio-led contract: prompt text fields stay hidden and only answer fields are
 edited. Image-led cards retain their image and expose any helper label while

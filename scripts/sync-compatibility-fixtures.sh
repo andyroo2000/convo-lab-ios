@@ -5,10 +5,10 @@ set -euo pipefail
 
 readonly project_root="${0:A:h:h}"
 readonly provider_repository="${LEARNING_OS_REPOSITORY:-${project_root:h}/learning-os}"
-readonly provider_commit="b90e7ce2b3fc976de30eb00bbe3a69e86c5dd98b"
+readonly provider_commit="59bfdbed8bfc1a4125b34cd0f0f0c36d4acfedff"
 readonly provider_root="tests/Fixtures/Compatibility"
 readonly destination_root="${project_root}/ConvoLabTests/Fixtures/Compatibility"
-readonly manifest_sha256="aa895232d4f813f8b3934e433d6f9090dcb7f50696dd6448fd7edfea332cd1e7"
+readonly manifest_sha256="996578aa5fc06adfad8d71fc3c318129d34a181f05f2df81a8e2d75332b2c182"
 readonly -a fixture_files=(
     manifest-v1.json
     manifest-v1.sha256

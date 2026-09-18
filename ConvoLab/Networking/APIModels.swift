@@ -292,7 +292,7 @@ struct StudyCardBatchResponse: nonisolated Decodable, Sendable {
     let cards: [StudyCard]
 }
 
-struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
+struct StudyCardPresentationPayload: nonisolated Codable, Hashable, Sendable {
     struct MediaReference: nonisolated Codable, Hashable, Sendable {
         private enum CodingKeys: String, CodingKey {
             case id
@@ -315,66 +315,6 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
             url = try container.decodeIfPresent(String.self, forKey: .url)
             mediaKind = try container.decodeIfPresent(String.self, forKey: .mediaKind)
             source = try container.decodeIfPresent(String.self, forKey: .source)
-        }
-    }
-
-    struct PitchAccent: nonisolated Codable, Hashable, Sendable {
-        private enum CodingKeys: String, CodingKey {
-            case status
-            case expression
-            case reading
-            case pitchNum
-            case morae
-            case pattern
-            case patternName
-            case source
-            case resolvedBy
-        }
-
-        // A v1 pitch payload is present only after server resolution; other statuses
-        // are contract drift and intentionally fail the known-version decode.
-        private enum Status: String, nonisolated Codable {
-            case resolved
-        }
-
-        private let status: Status
-        let expression: String
-        let reading: String
-        let pitchNum: Int?
-        let morae: [String]
-        let pattern: [Int]
-        let patternName: String
-        let source: String?
-        let resolvedBy: String?
-
-        nonisolated init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            status = try container.decode(Status.self, forKey: .status)
-            expression = try container.decode(String.self, forKey: .expression)
-            reading = try container.decode(String.self, forKey: .reading)
-            pitchNum = try container.decodeIfPresent(Int.self, forKey: .pitchNum)
-            morae = try container.decode([String].self, forKey: .morae)
-            pattern = try container.decode([Int].self, forKey: .pattern)
-            patternName = try container.decode(String.self, forKey: .patternName)
-            source = try container.decodeIfPresent(String.self, forKey: .source)
-            resolvedBy = try container.decodeIfPresent(String.self, forKey: .resolvedBy)
-
-            guard
-                !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                !reading.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                !patternName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                !morae.isEmpty,
-                morae.count == pattern.count,
-                morae.allSatisfy({
-                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }),
-                pattern.allSatisfy({ $0 == 0 || $0 == 1 })
-            else {
-                throw DecodingError.dataCorrupted(.init(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Resolved pitch accent was malformed."
-                ))
-            }
         }
     }
 
@@ -421,7 +361,6 @@ struct StudyCardPresentationV1: nonisolated Codable, Hashable, Sendable {
         let notes: [String]
         let media: Media
         let audio: MediaReference?
-        let pitchAccent: PitchAccent?
     }
 
     let version: Int
@@ -484,7 +423,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
     let cardType: String
     let prompt: JSONValue
     let answer: JSONValue
-    let serverPresentation: StudyCardPresentationV1?
+    let serverPresentation: StudyCardPresentationPayload?
     let state: State
     let answerAudioSource: String?
     let masteryLevel: String?
@@ -506,7 +445,7 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         cardType: String,
         prompt: JSONValue,
         answer: JSONValue,
-        serverPresentation: StudyCardPresentationV1? = nil,
+        serverPresentation: StudyCardPresentationPayload? = nil,
         state: State,
         answerAudioSource: String?,
         masteryLevel: String? = nil,
@@ -556,9 +495,9 @@ struct StudyCard: nonisolated Codable, Identifiable, Hashable, Sendable {
         if let version = try container.decodeIfPresent(
             PresentationVersion.self,
             forKey: .presentation
-        ), version.version == 1 {
+        ), (version.version == 1 || version.version == 2) {
             serverPresentation = try container.decode(
-                StudyCardPresentationV1.self,
+                StudyCardPresentationPayload.self,
                 forKey: .presentation
             )
         } else {

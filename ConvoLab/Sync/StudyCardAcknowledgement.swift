@@ -130,7 +130,7 @@ enum StudyCardAcknowledgement {
     private static func reconciledServerPresentation(
         _ content: Content,
         serverCard: StudyCard
-    ) -> StudyCardPresentationV1? {
+    ) -> StudyCardPresentationPayload? {
         guard content.prompt == serverCard.prompt, content.answer == serverCard.answer else {
             return nil
         }
