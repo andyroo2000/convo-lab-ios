@@ -62,10 +62,11 @@ extension StudyStore {
             userID: userID,
             now: { self.dueActivationScheduler.now },
             isCurrent: { self.isCurrentActivation(userID, generation: activationGeneration) },
-            didReconcile: { change in
-                self.cards = change.applying(to: self.cards, studyDate: change.evaluatedAt)
-                self.libraryCards = change.applying(to: self.libraryCards)
-                self.allCards = change.applying(to: self.allCards)
+            didReconcile: { changes in
+                let update = StudyOfflineCardChanges(changes)
+                self.cards = update.applying(to: self.cards, studying: true)
+                self.libraryCards = update.applying(to: self.libraryCards)
+                self.allCards = update.applying(to: self.allCards)
             }
         )
     }

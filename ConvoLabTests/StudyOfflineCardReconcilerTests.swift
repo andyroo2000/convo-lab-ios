@@ -170,7 +170,7 @@ private final class OfflineReconciliationFixture {
         try await StudyOfflineCardReconciler(api: api, context: context).reconcile(
             confirmedCards: [], at: now, userID: 1, now: { self.now },
             isCurrent: { self.isCurrent },
-            didReconcile: { self.changes.append($0) }
+            didReconcile: { self.changes.append(contentsOf: $0) }
         )
     }
 

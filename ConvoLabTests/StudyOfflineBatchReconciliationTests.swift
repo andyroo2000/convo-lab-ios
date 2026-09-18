@@ -31,6 +31,7 @@ extension StudyStoreTests {
 
         XCTAssertEqual(paths.values.count, 2)
         XCTAssertEqual(fixture.changes.count, 51)
+        XCTAssertEqual(fixture.publicationSizes, [50, 1])
         XCTAssertTrue(try fixture.records().allSatisfy { !$0.isInActiveSession })
         XCTAssertTrue(try fixture.records().allSatisfy { try !StorageCodec.decoder.decode(StudyCard.self, from: $0.payload).isProgressionAvailable })
     }
@@ -83,18 +84,24 @@ extension StudyStoreTests {
 }
 
 @MainActor
-private final class OfflineBatchFixture {
+final class OfflineBatchFixture {
     let container: ModelContainer
     var context: ModelContext { container.mainContext }
     let cards: [StudyCard]
     var changes: [StudyOfflineCardReconciler.Change] = []
+    var publicationSizes: [Int] = []
+    var publishedCards: [StudyCard]
+    var isCurrent = true
 
     init(cards: [StudyCard]) throws {
         self.cards = cards
+        publishedCards = cards
         container = try Persistence.makeContainer(inMemory: true)
         for (index, card) in cards.enumerated() {
-            context.insert(LocalCardRecord(card: card, userID: 1, queueIndex: index,
-                                           payload: try StorageCodec.encoder.encode(card)))
+            let record = LocalCardRecord(card: card, userID: 1, queueIndex: index,
+                                         payload: try StorageCodec.encoder.encode(card))
+            record.serverUpdatedAt = Date(timeIntervalSince1970: Double(100 - index))
+            context.insert(record)
         }
         try context.save()
     }
@@ -106,7 +113,11 @@ private final class OfflineBatchFixture {
     func reconcile(api: APIClient) async throws {
         try await StudyOfflineCardReconciler(api: api, context: context).reconcile(
             confirmedCards: [], at: .now, userID: 1,
-            isCurrent: { true }, didReconcile: { self.changes.append($0) }
+            isCurrent: { self.isCurrent }, didReconcile: { changes in
+                self.changes.append(contentsOf: changes)
+                self.publicationSizes.append(changes.count)
+                self.publishedCards = StudyOfflineCardChanges(changes).applying(to: self.publishedCards, studying: true)
+            }
         )
     }
 }
