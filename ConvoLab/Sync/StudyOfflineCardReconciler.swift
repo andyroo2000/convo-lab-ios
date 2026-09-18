@@ -32,7 +32,7 @@ struct StudyOfflineCardReconciler {
         userID: Int,
         now: () -> Date = { .now },
         isCurrent: () -> Bool,
-        didReconcile: (Change) -> Void
+        didReconcile: ([Change]) -> Void
     ) async throws {
         let repository = StudyCardLocalRepository(context: context)
         let confirmedIdentifiers = confirmedCards.reduce(into: Set<String>()) {
@@ -60,27 +60,57 @@ struct StudyOfflineCardReconciler {
         userID: Int,
         now: () -> Date,
         isCurrent: () -> Bool,
-        didReconcile: (Change) -> Void
+        didReconcile: ([Change]) -> Void
     ) async throws {
         let resolver = StudyOfflineCardResolver(api: api)
         let fetched = try await resolver.fetchBatch(batch.map(\.card))
         try requireCurrent(isCurrent)
-        var pending = try pendingIdentifiers(userID: userID)
-        for candidate in batch {
-            guard try unchangedRecord(candidate, userID: userID, pending: pending) != nil
-            else { continue }
-            var serverCard = fetched.card(matching: StudyCardIdentity.identifiers(for: candidate.card))
-            if serverCard == nil {
-                // Batch omissions are not proof of deletion. Confirm with an individual lookup.
-                serverCard = try await resolver.fetch(candidate.card)
-                try requireCurrent(isCurrent)
-                pending = try pendingIdentifiers(userID: userID)
+        let confirmed = batch.compactMap { candidate -> Resolution? in
+            guard let card = fetched.card(matching: StudyCardIdentity.identifiers(for: candidate.card))
+            else { return nil }
+            return Resolution(candidate: candidate, result: .success(card))
+        }
+        try apply(confirmed, userID: userID, now: now, didReconcile: didReconcile)
+        let missing = batch.filter {
+            fetched.card(matching: StudyCardIdentity.identifiers(for: $0.card)) == nil
+        }
+        // Missing batch entries require individual confirmation, including legacy IDs.
+        for offset in stride(from: 0, to: missing.count, by: StudyOfflineCardResolver.individualConcurrency) {
+            let pending = try pendingIdentifiers(userID: userID)
+            let requests = try missing.dropFirst(offset).prefix(StudyOfflineCardResolver.individualConcurrency).filter {
+                try unchangedRecord($0, userID: userID, pending: pending) != nil
             }
-            // A review, edit, action, or feed update can finish during either request.
-            // Preserve newer local work even if its outbox already drained.
-            guard let record = try unchangedRecord(candidate, userID: userID, pending: pending)
+            let results = await resolver.fetchIndividually(requests.map(\.card))
+            try requireCurrent(isCurrent)
+            let resolved = results.map {
+                Resolution(candidate: requests[$0.index], result: $0.result)
+            }
+            try apply(resolved, userID: userID, now: now, didReconcile: didReconcile)
+        }
+    }
+
+    private struct Resolution {
+        let candidate: Candidate
+        let result: Result<StudyCard?, Error>
+    }
+
+    private func apply(
+        _ resolved: [Resolution], userID: Int, now: () -> Date,
+        didReconcile: ([Change]) -> Void
+    ) throws {
+        let pending = try pendingIdentifiers(userID: userID)
+        var changes: [Change] = []
+        // Publish saved progress even when another request or save in this group fails.
+        defer { if !changes.isEmpty { didReconcile(changes) } }
+        for resolution in resolved {
+            guard case let .success(card) = resolution.result,
+                  let record = try unchangedRecord(resolution.candidate, userID: userID, pending: pending)
             else { continue }
-            didReconcile(try apply(serverCard, to: record, previous: candidate.card, at: now()))
+            changes.append(try apply(card, to: record, previous: resolution.candidate.card, at: now()))
+        }
+        for resolution in resolved {
+            // Propagate network failures only after publishing the successful repairs.
+            _ = try resolution.result.get()
         }
     }
 
