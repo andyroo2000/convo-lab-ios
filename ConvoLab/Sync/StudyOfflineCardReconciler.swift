@@ -98,6 +98,7 @@ struct StudyOfflineCardReconciler {
         _ resolved: [Resolution], userID: Int, now: () -> Date,
         didReconcile: ([Change]) -> Void
     ) throws {
+        guard !resolved.isEmpty else { return }
         let pending = try pendingIdentifiers(userID: userID)
         var changes: [Change] = []
         // Publish saved progress even when another request or save in this group fails.
