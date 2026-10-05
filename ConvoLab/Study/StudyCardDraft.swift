@@ -94,6 +94,18 @@ struct StudyCardDraft: Equatable, Sendable {
         }
     }
     var notes: String
+    var hasImage: Bool { currentImage?.mediaURLs.isEmpty == false }
+
+    func resolvedImagePrompt(maximumCharacters: Int) -> String {
+        if !imagePrompt.trimmed.isEmpty { return imagePrompt.trimmed }
+        let subject = [answerExpression, cueText, answerMeaning]
+            .map(\.trimmed)
+            .first { !$0.isEmpty } ?? "this study card"
+        let meaning = answerMeaning.trimmed.isEmpty ? "" : " (\(answerMeaning.trimmed))"
+        let fallback = "A clear natural real-world image representing \(subject)\(meaning)."
+        return String(fallback.prefix(maximumCharacters))
+    }
+
     var isMediaLedPrompt: Bool
     var isAudioLedPrompt: Bool
     private var originalClozeHint: String?
