@@ -13,7 +13,7 @@ final class StudyCardImageGenerationTests: XCTestCase {
             draft.imagePlacement = placement
             XCTAssertFalse(draft.hasImage)
             XCTAssertEqual(
-                draft.resolvedImagePrompt,
+                draft.resolvedImagePrompt(maximumCharacters: 1000),
                 "A clear natural real-world image representing 河童は日本の伝説に出てきます。 (Kappa appear in Japanese legends.)."
             )
         }
@@ -24,7 +24,7 @@ final class StudyCardImageGenerationTests: XCTestCase {
         var draft = StudyCardDraft()
         draft.answerExpression = "河童は日本の伝説に出てきます。"
         draft.imagePrompt = " A friendly kappa next to a Japanese river. \n"
-        XCTAssertEqual(draft.resolvedImagePrompt, "A friendly kappa next to a Japanese river.")
+        XCTAssertEqual(draft.resolvedImagePrompt(maximumCharacters: 1000), "A friendly kappa next to a Japanese river.")
     }
 
     @MainActor
@@ -40,4 +40,14 @@ final class StudyCardImageGenerationTests: XCTestCase {
         draft.currentImage = nil
         XCTAssertFalse(draft.hasImage)
     }
+
+    @MainActor
+    func testAutomaticPromptFitsTheServerLimitWithoutTruncatingCustomPrompts() {
+        var draft = StudyCardDraft()
+        draft.answerExpression = String(repeating: "河童", count: 100)
+        XCTAssertEqual(draft.resolvedImagePrompt(maximumCharacters: 80).count, 80)
+        draft.imagePrompt = String(repeating: "kappa", count: 100)
+        XCTAssertEqual(draft.resolvedImagePrompt(maximumCharacters: 80), draft.imagePrompt)
+    }
+
 }

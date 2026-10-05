@@ -110,7 +110,7 @@ struct CardEditorImageSection: View {
 
             if hasExistingMediaTarget {
                 Button {
-                    draft.imagePrompt = draft.resolvedImagePrompt
+                    draft.imagePrompt = draft.resolvedImagePrompt(maximumCharacters: maximumPromptCharacters)
                     onRegenerate()
                 } label: {
                     Label(imageActionTitle, systemImage: "photo.badge.arrow.down")
