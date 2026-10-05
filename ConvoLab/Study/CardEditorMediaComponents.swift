@@ -109,19 +109,13 @@ struct CardEditorImageSection: View {
             }
 
             if hasExistingMediaTarget {
-                Button(action: onRegenerate) {
-                    if isRegeneratingImage {
-                        Label("Regenerating image…", systemImage: "photo.badge.arrow.down")
-                    } else {
-                        Label("Regenerate Image", systemImage: "arrow.clockwise")
-                    }
+                Button {
+                    draft.imagePrompt = draft.resolvedImagePrompt
+                    onRegenerate()
+                } label: {
+                    Label(imageActionTitle, systemImage: "photo.badge.arrow.down")
                 }
-                .disabled(
-                    isBusy
-                        || draft.imagePlacement == .none
-                        || trimmedPrompt.isEmpty
-                        || trimmedPrompt.count > maximumPromptCharacters
-                )
+                .disabled(isBusy || draft.imagePlacement == .none)
             } else {
                 Text(
                     creationKind == .productionImage
@@ -136,6 +130,14 @@ struct CardEditorImageSection: View {
 
     private var trimmedPrompt: String {
         draft.imagePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var imageActionTitle: String {
+        let hasImage = hasStagedPhoto || draft.hasImage
+        if isRegeneratingImage {
+            return hasImage ? "Regenerating image…" : "Generating image…"
+        }
+        return hasImage ? "Regenerate Image" : "Generate Image"
     }
 }
 

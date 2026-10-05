@@ -698,6 +698,8 @@ extension StudyStoreTests {
 
     @MainActor
     func testMasteryAnimationRemainsVisibleAfterTheReviewedCardAdvances() async throws {
+        // Keep FSRS elapsed time stable as the calendar advances.
+        let reviewedAt = Date(timeIntervalSince1970: 1_789_646_400)
         let fixture = try makeMasteryReviewFixture()
         let sessionData = try sessionResponseData(cards: [fixture.card])
         let client = makeClient { request in
@@ -712,7 +714,8 @@ extension StudyStoreTests {
         let recordedEventID = await store.recordReview(
             card: fixture.card,
             rating: .good,
-            duration: nil
+            duration: nil,
+            reviewedAt: reviewedAt
         )
         let eventID = try XCTUnwrap(recordedEventID)
 
@@ -730,7 +733,8 @@ extension StudyStoreTests {
         let sameStageEventID = await store.recordReview(
             card: fixture.card,
             rating: .hard,
-            duration: nil
+            duration: nil,
+            reviewedAt: reviewedAt
         )
 
         assertMasteryAnimation(
@@ -747,7 +751,8 @@ extension StudyStoreTests {
         _ = await store.recordReview(
             card: fixture.card,
             rating: .again,
-            duration: nil
+            duration: nil,
+            reviewedAt: reviewedAt
         )
 
         assertMasteryAnimation(
