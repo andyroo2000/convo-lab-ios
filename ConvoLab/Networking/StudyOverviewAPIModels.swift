@@ -271,6 +271,13 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
         let imagePlacements: [String]
         let previewAudioRoles: [String]
         let defaultAnswerAudioVoiceId: String
+        var defaultAnswerAudioVoiceIds: [String]? = nil
+
+        func randomDefaultVoiceId() -> String {
+            defaultAnswerAudioVoiceIds?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .randomElement() ?? defaultAnswerAudioVoiceId
+        }
+
         let defaultFemaleAnswerAudioVoiceId: String
         let limits: Limits
     }
@@ -319,6 +326,7 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
             imagePlacements: StudyCardDraft.ImagePlacement.allCases.map(\.rawValue),
             previewAudioRoles: ["prompt", "answer"],
             defaultAnswerAudioVoiceId: StudyAnswerVoice.defaultVoice.id,
+            defaultAnswerAudioVoiceIds: StudyAnswerVoice.japanese.map(\.id),
             defaultFemaleAnswerAudioVoiceId: "fishaudio:9639f090aa6346329d7d3aca7e6b7226",
             limits: CardAuthoring.Limits(
                 combinedPayloadBytes: 24_576,
