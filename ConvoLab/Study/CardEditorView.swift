@@ -63,26 +63,12 @@ struct CardEditorView: View {
         self.card = card
         self.serverDraft = serverDraft
         self.timeStore = timeStore
-        var resolvedInitialDraft = if let card {
-            StudyCardDraft(
-                card: card,
-                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
-                    .defaultAnswerAudioVoiceId
-            )
-        } else if let serverDraft {
-            StudyCardDraft(
-                manualDraft: serverDraft,
-                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
-                    .defaultAnswerAudioVoiceId
-            )
-        } else if let initialDraft {
-            initialDraft
-        } else {
-            StudyCardDraft(
-                defaultAnswerAudioVoiceID: store.capabilities.cardAuthoring
-                    .defaultAnswerAudioVoiceId
-            )
-        }
+        var resolvedInitialDraft = Self.resolveInitialDraft(
+            card: card,
+            serverDraft: serverDraft,
+            initialDraft: initialDraft,
+            capabilities: store.capabilities.cardAuthoring
+        )
         let advertisedCreationKinds = store.capabilities.cardAuthoring.creationKinds.compactMap(
             StudyCardCreationKind.init(rawValue:)
         )
@@ -116,6 +102,29 @@ struct CardEditorView: View {
             && serverDraft == nil
             && initialDraft != nil
             && initialClientDraftID != nil
+    }
+
+    static func resolveInitialDraft(
+        card: StudyCard?,
+        serverDraft: StudyManualCardDraft?,
+        initialDraft: StudyCardDraft?,
+        capabilities: StudyCapabilities.CardAuthoring
+    ) -> StudyCardDraft {
+        if let card {
+            StudyCardDraft(
+                card: card,
+                defaultAnswerAudioVoiceID: capabilities.defaultAnswerAudioVoiceId
+            )
+        } else if let serverDraft {
+            StudyCardDraft(
+                manualDraft: serverDraft,
+                defaultAnswerAudioVoiceID: capabilities.defaultAnswerAudioVoiceId
+            )
+        } else if let initialDraft {
+            initialDraft
+        } else {
+            StudyCardDraft(defaultAnswerAudioVoiceID: capabilities.randomDefaultVoiceId())
+        }
     }
 
     static func resolveCreationKind(
@@ -441,35 +450,7 @@ struct CardEditorView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            var didCreateCard = false
-            var photoTarget = createdPhotoTarget
-            if let card {
-                try await store.updateCard(card, draft: draft)
-                photoTarget = card
-            } else if createdPhotoTarget != nil {
-                // Card creation already succeeded on an earlier save attempt.
-                // Retry only the photo upload so a transient failure cannot
-                // create a second card with a new client identifier.
-            } else if let serverDraft {
-                try await store.createCard(
-                    from: serverDraft,
-                    draft: draft,
-                    previewAudio: previewAudio,
-                    previewAudioRole: previewAudioRole,
-                    previewImage: previewImage
-                )
-                didCreateCard = true
-            } else if [.audioRecognition, .productionImage].contains(creationKind) {
-                try await store.queueManualDraft(
-                    creationKind: creationKind,
-                    draft: draft,
-                    id: clientDraftID
-                )
-            } else {
-                photoTarget = try await store.createCard(draft)
-                createdPhotoTarget = photoTarget
-                didCreateCard = true
-            }
+            let (didCreateCard, photoTarget) = try await saveCardContent()
             if let stagedPhotoData, let photoTarget {
                 _ = try await store.uploadImage(
                     for: photoTarget,
@@ -484,6 +465,39 @@ struct CardEditorView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func saveCardContent() async throws -> (Bool, StudyCard?) {
+        var didCreateCard = false
+        var photoTarget = createdPhotoTarget
+        if let card {
+            try await store.updateCard(card, draft: draft)
+            photoTarget = card
+        } else if createdPhotoTarget != nil {
+            // Card creation already succeeded on an earlier save attempt.
+            // Retry only the photo upload so a transient failure cannot
+            // create a second card with a new client identifier.
+        } else if let serverDraft {
+            try await store.createCard(
+                from: serverDraft,
+                draft: draft,
+                previewAudio: previewAudio,
+                previewAudioRole: previewAudioRole,
+                previewImage: previewImage
+            )
+            didCreateCard = true
+        } else if [.audioRecognition, .productionImage].contains(creationKind) {
+            try await store.queueManualDraft(
+                creationKind: creationKind,
+                draft: draft,
+                id: clientDraftID
+            )
+        } else {
+            photoTarget = try await store.createCard(draft)
+            createdPhotoTarget = photoTarget
+            didCreateCard = true
+        }
+        return (didCreateCard, photoTarget)
     }
 
     private var supportsUserPhoto: Bool {

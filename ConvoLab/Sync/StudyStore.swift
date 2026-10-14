@@ -1,61 +1,8 @@
 import Foundation
 import SwiftData
 
-@MainActor
-protocol StudyDueActivationScheduling: AnyObject {
-    var now: Date { get }
-
-    func schedule(
-        at deadline: Date,
-        action: @escaping @MainActor @Sendable () -> Void
-    )
-
-    func cancel()
-}
-
-@MainActor
-final class RunLoopStudyDueActivationScheduler: StudyDueActivationScheduling {
-    private var timer: Timer?
-
-    var now: Date { .now }
-
-    func schedule(
-        at deadline: Date,
-        action: @escaping @MainActor @Sendable () -> Void
-    ) {
-        cancel()
-        let timer = Timer(
-            timeInterval: max(0, deadline.timeIntervalSince(now)),
-            repeats: false
-        ) { _ in
-            Task { @MainActor in
-                action()
-            }
-        }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    func cancel() {
-        timer?.invalidate()
-        timer = nil
-    }
-}
-
 @Observable
 final class StudyStore {
-    private struct MissingLocalCardError: LocalizedError {
-        var errorDescription: String? {
-            "This card changed during sync. Close the editor and try again."
-        }
-    }
-
-    private struct MissingAcknowledgedCardError: LocalizedError {
-        var errorDescription: String? {
-            "Card sync stopped because its local record is missing. Refresh and try again."
-        }
-    }
-
     struct DeletedCardUndoError: LocalizedError {
         var errorDescription: String? {
             "This card was deleted and cannot be restored."
@@ -67,12 +14,6 @@ final class StudyStore {
 
         var errorDescription: String? {
             "Sync this card’s pending changes before regenerating its \(medium)."
-        }
-    }
-
-    private struct CardActionInProgressError: LocalizedError {
-        var errorDescription: String? {
-            "This card’s review schedule is already being updated."
         }
     }
 
@@ -158,7 +99,7 @@ final class StudyStore {
     @ObservationIgnored var outboxRetryRevision = 0
     @ObservationIgnored var consumedOutboxRetryRevision = 0
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
-    @ObservationIgnored private var cardActionCardIDs: Set<String> = []
+    @ObservationIgnored var cardActionCardIDs: Set<String> = []
 
     var cards: [StudyCard] = []
     var libraryCards: [StudyCard] = []
@@ -654,17 +595,6 @@ final class StudyStore {
         )
     }
 
-    func localMediaURL(for remoteURL: URL) -> URL? {
-        mediaCache.localURL(for: remoteURL)
-    }
-
-    func playableMediaURL(for remoteURL: URL) async -> URL? {
-        if let localURL = localMediaURL(for: remoteURL) {
-            return localURL
-        }
-        return try? await mediaCache.download(remoteURL, category: "active-study")
-    }
-
     var preparedCardCount: Int {
         guard let userID = activeUserID else { return 0 }
         let descriptor = FetchDescriptor<LocalCardRecord>(
@@ -693,230 +623,6 @@ final class StudyStore {
 
     func setWaniKaniTransferBridgeEnabled(_ enabled: Bool) async {
         await knownKanjiService.setTransferBridgeEnabled(enabled)
-    }
-
-    func createCard(
-        expression: String,
-        reading: String,
-        meaning: String
-    ) async throws {
-        var draft = StudyCardDraft(
-            defaultAnswerAudioVoiceID: capabilities.cardAuthoring.defaultAnswerAudioVoiceId
-        )
-        draft.cueText = expression
-        draft.cueReading = reading
-        draft.answerExpression = expression
-        draft.answerMeaning = meaning
-        try await createCard(draft)
-    }
-
-    @discardableResult
-    func createCard(_ draft: StudyCardDraft) async throws -> StudyCard {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let id = ClientIdentifier.ulid()
-        let now = Date.now
-        let projection = StudyCardEditorProjection.creating(draft, id: id, at: now)
-        let optimistic = projection.card
-        let cardData = try StorageCodec.encoder.encode(optimistic)
-        let record = LocalCardRecord(
-            card: optimistic,
-            userID: userID,
-            queueIndex: cards.count,
-            payload: cardData
-        )
-        record.locallyUpdatedAt = now
-        context.insert(record)
-        try cardOutbox.stageCreate(cardID: id, request: projection.request)
-        cards.append(optimistic)
-        libraryCards.append(optimistic)
-        upsertAllCardsPresentation(optimistic, addToLearningItemsIfMissing: true)
-        try context.save()
-
-        do {
-            try await flushCardOutbox()
-        } catch {
-            markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-        return optimistic
-    }
-
-    func updateCard(
-        _ card: StudyCard,
-        prompt: String,
-        reading: String,
-        answer: String
-    ) async throws {
-        var draft = StudyCardDraft(
-            card: card,
-            defaultAnswerAudioVoiceID: capabilities.cardAuthoring.defaultAnswerAudioVoiceId
-        )
-        draft.cueText = prompt
-        draft.cueReading = reading
-        draft.answerExpression = prompt
-        draft.answerMeaning = answer
-        try await updateCard(card, draft: draft)
-    }
-
-    func updateCard(_ card: StudyCard, draft: StudyCardDraft) async throws {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let currentCard = try currentLocalCard(for: card)
-        let projection = StudyCardEditorProjection.updating(
-            currentCard,
-            with: draft,
-            at: .now
-        )
-        let updated = projection.card
-        try updateExistingLocalCard(updated, markedDirty: true)
-        try cardOutbox.stageUpdate(
-            cardID: currentCard.id,
-            request: projection.request
-        )
-        cards = cards.map { $0.id == currentCard.id ? updated : $0 }
-        libraryCards = libraryCards.map { $0.id == currentCard.id ? updated : $0 }
-        allCards = allCards.map { $0.id == currentCard.id ? updated : $0 }
-        reconcileLearningItems(upserting: updated)
-        reconcileCachedDefaultLearningItems(upserting: updated)
-        reconcilePendingCardMutationsIntoNewCardQueue()
-        try context.save()
-        persistCardCatalogSnapshot()
-        do {
-            try await flushCardOutbox()
-        } catch {
-            markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-    }
-
-    func deleteCard(_ card: StudyCard) async throws {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let currentCard = try currentLocalCard(for: card)
-        try cardOutbox.stageDelete(cardID: currentCard.id)
-        let cardID = currentCard.id
-        let descriptor = FetchDescriptor<LocalCardRecord>(
-            predicate: #Predicate { $0.userID == userID && $0.id == cardID }
-        )
-        if let record = try context.fetch(descriptor).first {
-            context.delete(record)
-        }
-        cards.removeAll { $0.id == currentCard.id }
-        libraryCards.removeAll { $0.id == currentCard.id }
-        allCards.removeAll { $0.id == currentCard.id }
-        removeFromLearningItems(currentCard)
-        removeFromCachedDefaultLearningItems(currentCard)
-        reconcilePendingCardMutationsIntoNewCardQueue()
-        try context.save()
-        persistCardCatalogSnapshot()
-        do {
-            try await flushCardOutbox()
-        } catch {
-            markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-        }
-    }
-
-    @discardableResult
-    func performCardAction(
-        _ action: StudyCardActionName,
-        on card: StudyCard,
-        mode: StudyCardSetDueMode? = nil,
-        dueAt: Date? = nil,
-        timeZone: TimeZone = .autoupdatingCurrent
-    ) async throws -> StudyCard {
-        try requirePersistentWrites()
-        guard let userID = activeUserID else { throw CancellationError() }
-        let activationGeneration = accountActivationGeneration
-        let actionKey = card.id.lowercased()
-        guard cardActionCardIDs.insert(actionKey).inserted else {
-            throw CardActionInProgressError()
-        }
-        defer { cardActionCardIDs.remove(actionKey) }
-        let projectedCard = try stageCardAction(
-            StudyCardActionExecution.Input(
-                action: action,
-                card: card,
-                mode: mode,
-                dueAt: dueAt,
-                timeZone: timeZone
-            )
-        )
-        await flushCardActionDependencies(
-            userID: userID,
-            activationGeneration: activationGeneration
-        )
-        return try currentLocalCard(for: projectedCard)
-    }
-
-    private func stageCardAction(
-        _ input: StudyCardActionExecution.Input
-    ) throws -> StudyCard {
-        let currentCard = try currentLocalCard(for: input.card)
-        let prepared = try StudyCardActionProjection.prepare(
-            action: input.action,
-            card: currentCard,
-            mode: input.mode,
-            dueAt: input.dueAt,
-            timeZone: input.timeZone,
-            now: .now
-        )
-        try cardActionOutbox.stage(
-            cardID: currentCard.reviewCardID,
-            request: prepared.request
-        )
-        let currentIdentifiers = StudyCardIdentity.identifiers(for: currentCard)
-        let wasInActiveSession = cards.contains {
-            StudyCardIdentity.matches($0, any: currentIdentifiers)
-        }
-        try applyCardActionCard(
-            prepared.card,
-            serverCard: nil,
-            overview: nil,
-            wasInActiveSession: wasInActiveSession,
-            preservingPendingEdit: try hasPendingCardWrite(for: currentCard),
-            preservingPendingSchedule: true
-        )
-        return prepared.card
-    }
-
-    private func flushCardActionDependencies(
-        userID: Int,
-        activationGeneration: Int
-    ) async {
-        do {
-            // Preserve the original cross-domain ordering: content writes and
-            // reviews staged before this action must be accepted first.
-            try await flushCardOutbox()
-            try await flushSchedulingOutboxes()
-            guard isCurrentActivation(userID, generation: activationGeneration) else {
-                throw CancellationError()
-            }
-            apply(try reviewOutbox.pendingState())
-        } catch {
-            markOutboxRetryNeeded(for: error)
-            handleSyncError(
-                error,
-                for: userID,
-                activationGeneration: activationGeneration
-            )
-        }
     }
 
     func regenerateAnswerAudio(
@@ -1036,7 +742,7 @@ final class StudyStore {
         return currentCard
     }
 
-    private func flushCardOutboxBeforeMediaMutation() async throws {
+    func flushCardOutboxBeforeMediaMutation() async throws {
         do {
             try await flushCardOutbox()
         } catch is QuarantinedCardMutationError {
@@ -1358,6 +1064,16 @@ final class StudyStore {
         }
     }
 
+    private func flushPendingReviewEvents() async throws -> ReviewEventFlushResult {
+#if DEBUG
+        if let reviewEventOutboxFlushOverride {
+            try await reviewEventOutboxFlushOverride()
+            return ReviewEventFlushResult()
+        }
+#endif
+        return try await reviewOutbox.flush()
+    }
+
     @discardableResult
     func flushSchedulingOutboxes() async throws -> ReviewEventFlushResult {
         defer { reviewOutboxRevision &+= 1 }
@@ -1368,15 +1084,7 @@ final class StudyStore {
                     + cardActionOutbox.pendingDeliverableCount()
                 guard before > 0 else { return result }
 
-#if DEBUG
-                if let reviewEventOutboxFlushOverride {
-                    try await reviewEventOutboxFlushOverride()
-                } else {
-                    result.formUnion(try await reviewOutbox.flush())
-                }
-#else
-                result.formUnion(try await reviewOutbox.flush())
-#endif
+                result.formUnion(try await flushPendingReviewEvents())
                 try await flushCardActionOutbox()
 
                 let after = try reviewOutbox.pendingDeliverableCount()
@@ -1395,7 +1103,7 @@ final class StudyStore {
         }
     }
 
-    private func applyCardActionCard(
+    func applyCardActionCard(
         _ updatedCard: StudyCard,
         serverCard: StudyCard?,
         overview responseOverview: StudyOverview?,
@@ -1447,7 +1155,7 @@ final class StudyStore {
                 && reviewOutbox.hasPendingReview(for: card.reviewCardID))
     }
 
-    private func hasPendingCardWrite(for card: StudyCard) throws -> Bool {
+    func hasPendingCardWrite(for card: StudyCard) throws -> Bool {
         try cardOutbox.hasPendingCardWrite(for: card.id)
             || (card.reviewCardID != card.id
                 && cardOutbox.hasPendingCardWrite(for: card.reviewCardID))
@@ -1510,7 +1218,7 @@ final class StudyStore {
         )
     }
 
-    private func currentLocalCard(for card: StudyCard) throws -> StudyCard {
+    func currentLocalCard(for card: StudyCard) throws -> StudyCard {
         guard let currentCard = try currentLocalCardIfPresent(for: card) else {
             throw MissingLocalCardError()
         }
@@ -1527,7 +1235,7 @@ final class StudyStore {
         return try localCardRepository.record(matching: card, userID: userID)
     }
 
-    private func updateExistingLocalCard(
+    func updateExistingLocalCard(
         _ card: StudyCard,
         markedDirty: Bool,
         serverUpdatedAt: Date? = nil,

@@ -12,7 +12,7 @@ final class StudyVoiceRotationTests: XCTestCase {
                 StudyCapabilities.CardAuthoring.self,
                 from: JSONEncoder().encode(capabilities)
             )
-            let draft = StudyCardDraft(defaultAnswerAudioVoiceID: decoded.defaultAnswerAudioVoiceId)
+            let draft = StudyCardDraft(defaultAnswerAudioVoiceID: decoded.randomDefaultVoiceId())
             XCTAssertEqual(draft.answerAudioVoiceId, voice.id)
         }
     }
@@ -24,8 +24,27 @@ final class StudyVoiceRotationTests: XCTestCase {
             StudyCapabilities.CardAuthoring.self,
             from: JSONEncoder().encode(capabilities)
         )
-        XCTAssertEqual(decoded.defaultAnswerAudioVoiceId, decoded.legacyDefaultAnswerAudioVoiceId)
+        XCTAssertEqual(decoded.randomDefaultVoiceId(), decoded.defaultAnswerAudioVoiceId)
         capabilities.defaultAnswerAudioVoiceIds = ["", "  "]
-        XCTAssertEqual(capabilities.defaultAnswerAudioVoiceId, capabilities.legacyDefaultAnswerAudioVoiceId)
+        XCTAssertEqual(capabilities.randomDefaultVoiceId(), capabilities.defaultAnswerAudioVoiceId)
     }
+    func testEditorSamplesOnlyForBrandNewDrafts() {
+        var capabilities = StudyCapabilities.fallback.cardAuthoring
+        capabilities.defaultAnswerAudioVoiceIds = ["new-draft-voice"]
+        let newDraft = CardEditorView.resolveInitialDraft(
+            card: nil, serverDraft: nil, initialDraft: nil, capabilities: capabilities
+        )
+        XCTAssertEqual(newDraft.answerAudioVoiceId, "new-draft-voice")
+        var savedDraft = newDraft
+        savedDraft.answerAudioVoiceId = "chosen-voice"
+        let recovered = CardEditorView.resolveInitialDraft(
+            card: nil, serverDraft: nil, initialDraft: savedDraft, capabilities: capabilities
+        )
+        XCTAssertEqual(recovered.answerAudioVoiceId, "chosen-voice")
+        XCTAssertEqual(capabilities.defaultAnswerAudioVoiceId, StudyAnswerVoice.defaultVoice.id)
+        XCTAssertTrue(StudyAnswerVoice.japanese.map(\.id).contains(
+            StudyCapabilities.fallback.cardAuthoring.randomDefaultVoiceId()
+        ))
+    }
+
 }

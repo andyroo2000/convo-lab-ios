@@ -192,7 +192,7 @@ final class StudyCapabilitiesTests: XCTestCase {
         let created = try XCTUnwrap(store.libraryCards.first)
         XCTAssertEqual(
             created.answer["answerAudioVoiceId"]?.stringValue,
-            "server-advertised-voice"
+            "new-card-voice"
         )
 
         let existing = cardWithoutSavedVoice()
@@ -260,7 +260,8 @@ final class StudyCapabilitiesTests: XCTestCase {
                 creationKinds: fallback.cardAuthoring.creationKinds,
                 imagePlacements: fallback.cardAuthoring.imagePlacements,
                 previewAudioRoles: fallback.cardAuthoring.previewAudioRoles,
-                legacyDefaultAnswerAudioVoiceId: "server-advertised-voice",
+                defaultAnswerAudioVoiceId: "server-advertised-voice",
+                defaultAnswerAudioVoiceIds: ["new-card-voice"],
                 defaultFemaleAnswerAudioVoiceId: fallback.cardAuthoring
                     .defaultFemaleAnswerAudioVoiceId,
                 limits: fallback.cardAuthoring.limits
