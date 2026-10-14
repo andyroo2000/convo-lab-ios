@@ -186,24 +186,7 @@ final class StudyCapabilitiesTests: XCTestCase {
                 context: container.mainContext
             )
         )
-        let fallback = StudyCapabilities.fallback
-        store.capabilities = StudyCapabilities(
-            version: fallback.version,
-            settings: fallback.settings,
-            cardAuthoring: .init(
-                creationKinds: fallback.cardAuthoring.creationKinds,
-                imagePlacements: fallback.cardAuthoring.imagePlacements,
-                previewAudioRoles: fallback.cardAuthoring.previewAudioRoles,
-                defaultAnswerAudioVoiceId: "server-advertised-voice",
-                defaultFemaleAnswerAudioVoiceId: fallback.cardAuthoring
-                    .defaultFemaleAnswerAudioVoiceId,
-                limits: fallback.cardAuthoring.limits
-            ),
-            dailyAudio: fallback.dailyAudio,
-            offlineReserve: fallback.offlineReserve,
-            imports: fallback.imports,
-            studyActivity: fallback.studyActivity
-        )
+        store.capabilities = advertisedVoiceCapabilities()
 
         try await store.createCard(expression: "猫", reading: "ねこ", meaning: "cat")
         let created = try XCTUnwrap(store.libraryCards.first)
@@ -212,26 +195,7 @@ final class StudyCapabilitiesTests: XCTestCase {
             "server-advertised-voice"
         )
 
-        let existing = StudyCard(
-            id: "01J0000000000000000000000CV",
-            syncId: nil,
-            noteId: nil,
-            revision: 1,
-            cardType: "recognition",
-            prompt: .object(["cueText": .string("old")]),
-            answer: .object(["meaning": .string("old")]),
-            state: .init(
-                dueAt: nil,
-                introducedAt: nil,
-                failedAt: nil,
-                queueState: "new",
-                scheduler: nil,
-                source: .object([:])
-            ),
-            answerAudioSource: "missing",
-            createdAt: .now,
-            updatedAt: .now
-        )
+        let existing = cardWithoutSavedVoice()
         let updateContainer = try Persistence.makeContainer(inMemory: true)
         updateContainer.mainContext.insert(LocalCardRecord(
             card: existing,
@@ -261,6 +225,50 @@ final class StudyCapabilitiesTests: XCTestCase {
         XCTAssertEqual(
             updateStore.libraryCards.first?.answer["answerAudioVoiceId"]?.stringValue,
             "server-advertised-voice"
+        )
+    }
+
+    private func cardWithoutSavedVoice() -> StudyCard {
+        return StudyCard(
+            id: "01J0000000000000000000000CV",
+            syncId: nil,
+            noteId: nil,
+            revision: 1,
+            cardType: "recognition",
+            prompt: .object(["cueText": .string("old")]),
+            answer: .object(["meaning": .string("old")]),
+            state: .init(
+                dueAt: nil,
+                introducedAt: nil,
+                failedAt: nil,
+                queueState: "new",
+                scheduler: nil,
+                source: .object([:])
+            ),
+            answerAudioSource: "missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+    }
+
+    private func advertisedVoiceCapabilities() -> StudyCapabilities {
+        let fallback = StudyCapabilities.fallback
+        return StudyCapabilities(
+            version: fallback.version,
+            settings: fallback.settings,
+            cardAuthoring: .init(
+                creationKinds: fallback.cardAuthoring.creationKinds,
+                imagePlacements: fallback.cardAuthoring.imagePlacements,
+                previewAudioRoles: fallback.cardAuthoring.previewAudioRoles,
+                legacyDefaultAnswerAudioVoiceId: "server-advertised-voice",
+                defaultFemaleAnswerAudioVoiceId: fallback.cardAuthoring
+                    .defaultFemaleAnswerAudioVoiceId,
+                limits: fallback.cardAuthoring.limits
+            ),
+            dailyAudio: fallback.dailyAudio,
+            offlineReserve: fallback.offlineReserve,
+            imports: fallback.imports,
+            studyActivity: fallback.studyActivity
         )
     }
 

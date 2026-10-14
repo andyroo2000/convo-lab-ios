@@ -270,7 +270,21 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
         let creationKinds: [String]
         let imagePlacements: [String]
         let previewAudioRoles: [String]
-        let defaultAnswerAudioVoiceId: String
+        let legacyDefaultAnswerAudioVoiceId: String
+        var defaultAnswerAudioVoiceIds: [String]? = nil
+
+        // This is a selection default, sampled for each new draft. Saved voices
+        // are read from the draft/card itself and never resampled.
+        var defaultAnswerAudioVoiceId: String {
+            defaultAnswerAudioVoiceIds?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .randomElement() ?? legacyDefaultAnswerAudioVoiceId
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case creationKinds, imagePlacements, previewAudioRoles
+            case legacyDefaultAnswerAudioVoiceId = "defaultAnswerAudioVoiceId"
+            case defaultAnswerAudioVoiceIds, defaultFemaleAnswerAudioVoiceId, limits
+        }
         let defaultFemaleAnswerAudioVoiceId: String
         let limits: Limits
     }
@@ -318,7 +332,8 @@ struct StudyCapabilities: nonisolated Codable, Equatable, Sendable {
             creationKinds: StudyCardCreationKind.allCases.map(\.rawValue),
             imagePlacements: StudyCardDraft.ImagePlacement.allCases.map(\.rawValue),
             previewAudioRoles: ["prompt", "answer"],
-            defaultAnswerAudioVoiceId: StudyAnswerVoice.defaultVoice.id,
+            legacyDefaultAnswerAudioVoiceId: StudyAnswerVoice.defaultVoice.id,
+            defaultAnswerAudioVoiceIds: StudyAnswerVoice.japanese.map(\.id),
             defaultFemaleAnswerAudioVoiceId: "fishaudio:9639f090aa6346329d7d3aca7e6b7226",
             limits: CardAuthoring.Limits(
                 combinedPayloadBytes: 24_576,
