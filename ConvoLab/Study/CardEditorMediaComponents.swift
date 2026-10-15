@@ -183,10 +183,11 @@ struct CardEditorAnswerAudioSection: View {
                 if !StudyAnswerVoice.japanese.contains(
                     where: { $0.id == draft.answerAudioVoiceId }
                 ) {
-                    Text("Current voice").tag(draft.answerAudioVoiceId)
+                    Text(StudyAnswerVoice.currentVoiceLabel(for: draft.answerAudioVoiceId))
+                        .tag(draft.answerAudioVoiceId)
                 }
                 ForEach(StudyAnswerVoice.japanese) { voice in
-                    Text("\(voice.name) — \(voice.detail)").tag(voice.id)
+                    Text(voice.pickerLabel).tag(voice.id)
                 }
             }
 
