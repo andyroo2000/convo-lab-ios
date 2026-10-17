@@ -32,7 +32,6 @@ final class AppModel {
     let studyAudioPlayer: StudyAudioPlayer
     let studyTime: StudyTimeStore
     let satoriReaderTracking: SatoriReaderTrackingStore
-    let achievements: StudyAchievementStore
     let storageStatus: StorageStatus
     private(set) var accountDeletionCleanupFailures: [AccountDeletionCleanupFailure] = []
     private(set) var isRetryingAccountDeletionCleanup = false
@@ -124,11 +123,7 @@ final class AppModel {
             context: container.mainContext,
             mediaCache: mediaCache
         )
-        let achievements = StudyAchievementStore(
-            api: api,
-            mediaCache: mediaCache,
-            defaults: accountDeletionCleanupDefaults
-        )
+
 
         self.container = container
         studyTimeContainer = timeContainer
@@ -137,7 +132,6 @@ final class AppModel {
         self.mediaCache = mediaCache
         self.studyTime = studyTime
         self.satoriReaderTracking = satoriReaderTracking
-        self.achievements = achievements
         self.storageStatus = storageStatus
         self.study = study
         // Daily Audio creation is server-first and downloaded media is a disposable
@@ -198,7 +192,6 @@ final class AppModel {
                     }
                 },
                 .milestones: { userID in
-                    achievements.deleteLocalData(userID: userID)
                     return true
                 },
             ]
@@ -289,14 +282,12 @@ final class AppModel {
             )
             async let timeSync: Void = studyTime.synchronize()
             async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-            async let achievementRefresh: Void = achievements.refreshIfNeeded(maxAge: 300)
             _ = await (
                 studySync,
                 draftCreateRetry,
                 dailyAudioRefresh,
                 timeSync,
-                weeklyRecap,
-                achievementRefresh
+                weeklyRecap
             )
         }
     }
@@ -308,7 +299,6 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
-        achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         satoriReaderTracking.setActiveUserID(nil)
@@ -319,7 +309,6 @@ final class AppModel {
         audioPlayer.stop()
         studyAudioPlayer.stop()
         try mediaCache.clearDownloadedMedia()
-        achievements.downloadedMediaWasCleared()
     }
 
     func deleteAccount(currentPassword: String) async -> Bool {
@@ -328,6 +317,15 @@ final class AppModel {
         }
         let interruptedSession = studyTime.active
         let deletionStartedAt = Date.now
+        let resumeInterruptedStudyTime = {
+            guard let interruptedSession else { return }
+            self.studyTime.start(
+                activity: interruptedSession.activity,
+                source: interruptedSession.source,
+                name: interruptedSession.name,
+                at: deletionStartedAt
+            )
+        }
         var serverConfirmedDeletion = false
         // A failed finish remains an open durable row. If deletion is rejected,
         // reactivation below recovers that row instead of creating a duplicate.
@@ -345,21 +343,13 @@ final class AppModel {
             if case let .signedIn(currentUser) = auth.state,
                currentUser.id == user.id {
                 studyTime.activate(userID: user.id)
-                if let interruptedSession {
-                    studyTime.start(
-                        activity: interruptedSession.activity,
-                        source: interruptedSession.source,
-                        name: interruptedSession.name,
-                        at: deletionStartedAt
-                    )
-                }
+                resumeInterruptedStudyTime()
             }
             return false
         }
         audioPlayer.stop()
         studyAudioPlayer.stop()
         study.deactivate()
-        achievements.deactivate()
         dailyAudio.deactivate()
         mediaCache.deactivate()
         await retryAccountDeletionCleanup()
@@ -412,14 +402,12 @@ final class AppModel {
         async let studySync: Void = study.synchronize()
         async let timeSync: Void = studyTime.synchronize()
         async let weeklyRecap: Void = studyTime.loadWeeklyRecap()
-        async let achievementRefresh: Void = achievements.refresh()
         _ = await (
             studySync,
             draftCreateRetry,
             audioRefresh,
             timeSync,
-            weeklyRecap,
-            achievementRefresh
+            weeklyRecap
         )
     }
 
@@ -432,7 +420,6 @@ final class AppModel {
     private func activateLocalData(for user: CurrentUser) {
         mediaCache.activate(userID: user.id)
         study.activate(userID: user.id)
-        achievements.activate(userID: user.id)
         dailyAudio.activate(userID: user.id)
         studyTime.activate(userID: user.id)
         satoriReaderTracking.setActiveUserID(user.id)

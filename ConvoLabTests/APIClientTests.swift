@@ -27,8 +27,8 @@ final class APIClientTests: XCTestCase {
         Self.retainedClients.append(client)
 
         XCTAssertEqual(
-            client.sameOriginResourceURL("/achievement-assets/series/badge.png")?.absoluteString,
-            "https://learning-os.example/achievement-assets/series/badge.png"
+            client.sameOriginResourceURL("/media/cards/image.png")?.absoluteString,
+            "https://learning-os.example/media/cards/image.png"
         )
         XCTAssertNil(client.sameOriginResourceURL("https://example.com/tracker.png"))
     }

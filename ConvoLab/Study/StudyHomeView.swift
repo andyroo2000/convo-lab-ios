@@ -4,10 +4,7 @@ struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
-    let achievementStore: StudyAchievementStore
     @State private var showingFailedChanges = false
-    @State private var interruptedCompletion: StudyAchievementCompletion?
-    @State private var newAchievementIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -15,10 +12,6 @@ struct StudyHomeView: View {
                 VStack(spacing: 18) {
                     todayPlan
                     masterySpread
-                    StudyAchievementSpotlight(
-                        store: achievementStore,
-                        newAchievementIDs: newAchievementIDs
-                    )
                     readiness
 
                     if store.cards.isEmpty, store.sessionCounts.hasRemainingReviews {
@@ -45,7 +38,6 @@ struct StudyHomeView: View {
                     Button {
                         Task {
                             await store.synchronize()
-                            await achievementStore.refresh()
                             await refreshWaniKaniIfNeeded(force: true)
                             await refreshCalendarIfNeeded(force: true)
                         }
@@ -61,15 +53,10 @@ struct StudyHomeView: View {
             }
             .refreshable {
                 await store.synchronize()
-                await achievementStore.refresh()
                 await refreshWaniKaniIfNeeded(force: true)
                 await refreshCalendarIfNeeded(force: true)
             }
             .task {
-                if interruptedCompletion == nil {
-                    await achievementStore.refresh()
-                    interruptedCompletion = achievementStore.prepareInterruptedCompletion()
-                }
                 // AppModel owns app-wide synchronization. This surface refresh can be
                 // cancelled on tab switches and restarted when Study appears again.
                 do {
@@ -84,21 +71,7 @@ struct StudyHomeView: View {
             .sheet(isPresented: $showingFailedChanges) {
                 FailedStudyChangesView(store: store)
             }
-            .fullScreenCover(item: $interruptedCompletion, onDismiss: {
-                interruptedCompletion = nil
-            }) { completion in
-                NavigationStack {
-                    StudySessionView(
-                        store: store,
-                        player: player,
-                        mode: .reviews,
-                        timeStore: timeStore,
-                        achievementStore: achievementStore,
-                        restoredCompletion: completion,
-                        onSessionAchievementsLanded: { newAchievementIDs = $0 }
-                    )
-                }
-            }
+
         }
     }
 
@@ -155,9 +128,7 @@ struct StudyHomeView: View {
                 store: store,
                 player: player,
                 mode: .reviews,
-                timeStore: timeStore,
-                achievementStore: achievementStore,
-                onSessionAchievementsLanded: { newAchievementIDs = $0 }
+                timeStore: timeStore
             )
         } label: {
             HStack(spacing: 16) {
@@ -196,8 +167,7 @@ struct StudyHomeView: View {
                 store: store,
                 player: player,
                 mode: .lessons,
-                timeStore: timeStore,
-                achievementStore: achievementStore
+                timeStore: timeStore
             )
         } label: {
             todayTile(

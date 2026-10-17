@@ -68,34 +68,7 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testCreateCardDraftRecoversAcrossRelaunch() {
         let app = launchFixture("create-card-recovery", reset: true)
-        let create = app.buttons["Create Card"]
-        XCTAssertTrue(create.waitForExistence(timeout: 5))
-        create.tap()
-        let cardType = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS %@", "Text recognition")
-        ).firstMatch
-        XCTAssertTrue(cardType.waitForExistence(timeout: 5))
-        cardType.tap()
-        let audioRecognition = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label == %@", "Audio recognition")
-        ).firstMatch
-        XCTAssertTrue(waitForHittable(audioRecognition, timeout: 20))
-        audioRecognition.tap()
-        let answer = app.textFields["Japanese answer"]
-        XCTAssertTrue(answer.waitForExistence(timeout: 5))
-        answer.tap()
-        answer.typeText("忘れない")
-        let meaning = app.textFields["Meaning (optional)"]
-        meaning.tap()
-        meaning.typeText("not to forget")
-        let prepare = app.buttons["Prepare"]
-        XCTAssertTrue(prepare.isEnabled)
-        prepare.tap()
-        app.swipeUp()
-        XCTAssertTrue(
-            app.staticTexts["card-editor-error"]
-                .waitForExistence(timeout: 8)
-        )
+        prepareFailingAudioRecognitionDraft(app)
 
         app.terminate()
         launchFixture("create-card-recovery", reset: false, application: app)
@@ -145,6 +118,39 @@ final class ConvoLabUITests: XCTestCase {
         let restagedMeaning = app.textFields["card-editor-answer-meaning"]
         XCTAssertTrue(restagedMeaning.waitForExistence(timeout: 8))
         XCTAssertEqual(restagedMeaning.value as? String, "always remember")
+    }
+
+    @MainActor
+    private func prepareFailingAudioRecognitionDraft(_ app: XCUIApplication) {
+        let create = app.buttons["Create Card"]
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        create.tap()
+        let cardType = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "Text recognition")
+        ).firstMatch
+        XCTAssertTrue(cardType.waitForExistence(timeout: 5))
+        cardType.tap()
+        let audioRecognition = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "Audio recognition")
+        ).firstMatch
+        XCTAssertTrue(waitForHittable(audioRecognition, timeout: 20))
+        audioRecognition.tap()
+        let answer = app.textFields["Japanese answer"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 5))
+        answer.tap()
+        answer.typeText("忘れない")
+        let meaning = app.textFields["Meaning (optional)"]
+        meaning.tap()
+        meaning.typeText("not to forget")
+        let prepare = app.buttons["Prepare"]
+        XCTAssertTrue(prepare.isEnabled)
+        prepare.tap()
+        app.swipeUp()
+        XCTAssertTrue(
+            app.staticTexts["card-editor-error"]
+                .waitForExistence(timeout: 8)
+        )
+
     }
 
     @MainActor
@@ -224,11 +230,7 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertTrue(itemSpread.waitForExistence(timeout: 8))
         XCTAssertFalse(app.staticTexts["846 cards total"].exists)
 
-        let badge = app.descendants(matching: .any)["StudyAchievementBadge.yearfire.first-ember"]
-        app.swipeUp()
-        XCTAssertTrue(badge.waitForExistence(timeout: 8))
-        XCTAssertEqual(badge.frame.width, 128, accuracy: 1)
-        XCTAssertTrue(badge.label.contains("Kept 25 cards stable for a year"))
+
     }
 
     @MainActor
