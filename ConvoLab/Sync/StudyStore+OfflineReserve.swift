@@ -59,7 +59,9 @@ extension StudyStore {
     ) async throws {
         // The feed may already be caught up while an older cached due date or
         // eligibility projection survives outside both server-selected queues.
-        try await StudyOfflineCardReconciler(api: api, context: context).reconcile(
+        try await StudyOfflineCardReconciler(
+            api: api, context: context, repository: localCardRepository
+        ).reconcile(
             confirmedCards: cards + reserve.cards,
             at: reserve.generatedAt,
             userID: userID,

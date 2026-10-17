@@ -365,6 +365,7 @@ final class StudyStore {
     }
 
     private func deactivateOwnedServices() {
+        localCardRepository.clearDecodedCache()
         mediaCache.deactivate()
         knownKanjiService.deactivate()
         cardOutbox.deactivate()
@@ -443,6 +444,7 @@ final class StudyStore {
     }
 
     func deleteLocalData(userID: Int) throws {
+        localCardRepository.clearDecodedCache()
         if activeUserID == userID {
             deactivate()
         }

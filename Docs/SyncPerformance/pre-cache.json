@@ -1,0 +1,302 @@
+[
+  {
+    "activationMS": 6.437583,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 5697.430959,
+      "firstSessionVisibleMS": 4380.637084,
+      "heartbeatSamples": 216,
+      "mainActorGapsOver50MS": 8,
+      "mainActorMaxGapMS": 1244.6256250000001,
+      "mainActorP95GapMS": 46.50775
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 463.809959,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2772.438292,
+      "firstSessionVisibleMS": 56.251792,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 4,
+      "mainActorMaxGapMS": 1244.66975,
+      "mainActorP95GapMS": 875.769458
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3057.371167,
+      "firstSessionVisibleMS": 38.703792,
+      "heartbeatSamples": 29,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1263.052209,
+      "mainActorP95GapMS": 420.768833
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.7055,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 5726.129125,
+      "firstSessionVisibleMS": 4403.669291,
+      "heartbeatSamples": 214,
+      "mainActorGapsOver50MS": 9,
+      "mainActorMaxGapMS": 1250.146,
+      "mainActorP95GapMS": 47.407583
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 458.668208,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2762.518542,
+      "firstSessionVisibleMS": 56.646042,
+      "heartbeatSamples": 17,
+      "mainActorGapsOver50MS": 4,
+      "mainActorMaxGapMS": 1249.667084,
+      "mainActorP95GapMS": 869.702958
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3042.51075,
+      "firstSessionVisibleMS": 37.227667,
+      "heartbeatSamples": 29,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1249.708166,
+      "mainActorP95GapMS": 423.343875
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.708208,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 5717.204041,
+      "firstSessionVisibleMS": 4392.275666,
+      "heartbeatSamples": 214,
+      "mainActorGapsOver50MS": 8,
+      "mainActorMaxGapMS": 1252.392583,
+      "mainActorP95GapMS": 47.832834
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 462.426166,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2749.461208,
+      "firstSessionVisibleMS": 48.580833,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 3,
+      "mainActorMaxGapMS": 1253.6412500000001,
+      "mainActorP95GapMS": 856.510208
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3042.838333,
+      "firstSessionVisibleMS": 36.899166,
+      "heartbeatSamples": 30,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1246.550667,
+      "mainActorP95GapMS": 422.284209
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  }
+]
