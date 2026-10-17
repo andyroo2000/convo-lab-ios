@@ -125,7 +125,8 @@ private struct MainModeView: View {
                 StudyHomeView(
                     store: model.study,
                     player: model.studyAudioPlayer,
-                    timeStore: model.studyTime
+                    timeStore: model.studyTime,
+                    automaticSynchronization: model.refreshStudyIfNeeded
                 )
                 .toolbar(.hidden, for: .tabBar)
             }

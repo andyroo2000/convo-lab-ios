@@ -48,6 +48,7 @@ final class AppModel {
     var isUsingEphemeralStorage: Bool { storageStatus.study == .temporary }
     @ObservationIgnored private var shouldClaimLegacyData = false
     @ObservationIgnored private let accountDeletionCleanup: AccountDeletionCleanupCoordinator
+    @ObservationIgnored private let syncLifecycle = AppSyncLifecycle()
 
     init(
         configuration: AppConfiguration = .load(),
@@ -248,6 +249,10 @@ final class AppModel {
     }
 
     func start() async {
+        await syncLifecycle.start { await self.performStart() }
+    }
+
+    private func performStart() async {
         // The retry ledger is independent of credentials: account deletion already
         // removed them, and a signed-out relaunch must still finish local purging.
         await retryAccountDeletionCleanup()
@@ -264,6 +269,14 @@ final class AppModel {
     }
 
     func synchronize() async {
+        let account = authenticatedSyncAccount
+        await syncLifecycle.refresh(.authenticated(account)) {
+            guard self.authenticatedSyncAccount == account else { return }
+            await self.performAuthenticatedSynchronization()
+        }
+    }
+
+    private func performAuthenticatedSynchronization() async {
         if case .signedIn = auth.state {
             await refreshAuthenticatedData()
             return
@@ -275,6 +288,32 @@ final class AppModel {
 
     func applicationDidBecomeActive() async {
         study.activateOfflineDueCards()
+        guard syncLifecycle.hasStarted else {
+            await start()
+            return
+        }
+        guard let account = authenticatedSyncAccount else { return }
+        await syncLifecycle.refresh(.foreground(account)) {
+            guard self.authenticatedSyncAccount == account else { return }
+            await self.refreshForegroundData()
+        }
+    }
+
+    func refreshStudyIfNeeded() async {
+        await start()
+        guard !Task.isCancelled, let account = authenticatedSyncAccount else { return }
+        await syncLifecycle.refresh(.studySurface(account)) {
+            guard self.authenticatedSyncAccount == account else { return }
+            await self.study.synchronizeIfNeeded(maxAge: .seconds(60))
+        }
+    }
+
+    private var authenticatedSyncAccount: AppSyncLifecycle.Account? {
+        guard case let .signedIn(user) = auth.state else { return nil }
+        return .init(userID: user.id, credential: api.accessToken)
+    }
+
+    private func refreshForegroundData() async {
         if case .signedIn = auth.state {
             await importPendingSatoriReaderSessions()
             async let studySync: Void = study.synchronizeIfNeeded(maxAge: .seconds(300))
