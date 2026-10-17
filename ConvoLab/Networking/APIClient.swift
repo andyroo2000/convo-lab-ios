@@ -96,7 +96,9 @@ final class APIClient {
 
     func readingResource(_ path: String, method: String = "GET") async throws -> Data {
         guard path.hasPrefix("/api/convolab/readings/"),
-              sameOriginResourceURL(path) != nil else {
+              !path.contains("%"), !path.contains(".."), !path.contains("\\"),
+              let url = sameOriginResourceURL(path),
+              url.path.hasPrefix("/api/convolab/readings/") else {
             throw APIClientError.invalidResponse
         }
         return try await sendRequest(path, method: method, query: [], body: nil, timeout: 120)

@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 
 @Observable
-final class ReadingAudioPlayer {
+final class ReadingAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -23,9 +23,15 @@ final class ReadingAudioPlayer {
                                                     key: "audio:\(reading.id):\(reading.revision):\(reading.voiceId):\(sentence)", method: "POST")
                 try store.checkSession()
                 guard requestGeneration == generation else { return }
-                let player = try AVAudioPlayer(data: data)
+                let player: AVAudioPlayer
+                do { player = try AVAudioPlayer(data: data) }
+                catch {
+                    store.invalidateResource(key: "audio:\(reading.id):\(reading.revision):\(reading.voiceId):\(sentence)")
+                    throw error
+                }
                 try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                 try AVAudioSession.sharedInstance().setActive(true)
+                player.delegate = self
                 self.player = player
                 guard player.play() else { throw APIClientError.invalidResponse }
             } catch is CancellationError {
@@ -34,11 +40,18 @@ final class ReadingAudioPlayer {
         }
     }
 
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in self?.stop() }
+    }
+
     func stop() {
         generation += 1
         task?.cancel()
         task = nil
-        player?.stop()
+        if player != nil {
+            player?.stop()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         player = nil
         preparing = false
     }

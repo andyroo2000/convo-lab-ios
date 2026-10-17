@@ -31,12 +31,15 @@ final class ReadingStore {
     func position(_ id: String) -> ReadingPosition? { snapshot.positions[id] }
 
     func checkSession() throws {
-        guard token != nil, api.accessToken == token else { throw CancellationError() }
+        guard token != nil, api.accessToken == token else {
+            throw APIClientError.rejected(status: 401, message: "Your session changed. Reopen Readings to continue.")
+        }
         try Task.checkCancellation()
     }
 
     func loadLibrary(page requestedPage: Int? = nil) async {
-        page = requestedPage ?? page
+        let targetPage = requestedPage ?? page
+        if snapshot.library[targetPage] != nil { page = targetPage }
         loadGeneration += 1
         let generation = loadGeneration
         isLoading = true
@@ -44,10 +47,11 @@ final class ReadingStore {
         do {
             try checkSession()
             await synchronizePositions()
-            let result: ReadingLibraryPage = try await api.request("/api/reading-library", query: [.init(name: "page", value: String(page))])
+            let result: ReadingLibraryPage = try await api.request("/api/reading-library", query: [.init(name: "page", value: String(targetPage))])
             try checkSession()
             guard generation == loadGeneration else { return }
-            snapshot.library[page] = result
+            page = targetPage
+            snapshot.library[targetPage] = result
             let continuation: ReadingContinueResponse = try await api.request("/api/reading-progress")
             try checkSession()
             acceptResume(continuation.continue)
@@ -92,8 +96,13 @@ final class ReadingStore {
     func synchronizePositions() async {
         guard !isSyncing else { return }
         isSyncing = true
-        defer { isSyncing = false }
-        while let pending = snapshot.pending.values.min(by: { $0.readAt < $1.readAt }) {
+        var rejected = Set<String>()
+        var failure: String?
+        defer {
+            isSyncing = false
+            if let failure { errorMessage = failure }
+        }
+        while let pending = snapshot.pending.values.filter({ !rejected.contains($0.readingId) }).min(by: { $0.readAt < $1.readAt }) {
             do {
                 try checkSession()
                 let result: ReadingPositionResponse = try await api.request("/api/reading-progress/\(pending.readingId)", method: "PUT", body: pending)
@@ -107,9 +116,16 @@ final class ReadingStore {
                 persist()
             } catch {
                 report(error)
-                return
+                failure = errorMessage
+                guard isPositionRejection(error) else { return }
+                rejected.insert(pending.readingId)
             }
         }
+    }
+
+    private func isPositionRejection(_ error: any Error) -> Bool {
+        guard case let APIClientError.rejected(status, _) = error else { return false }
+        return [400, 403, 404, 409, 422].contains(status)
     }
 
     func resource(_ path: String, key: String, method: String = "GET") async throws -> Data {
@@ -120,6 +136,10 @@ final class ReadingStore {
         do { try storage.saveResource(data, key: key) }
         catch { errorMessage = "This media could not be saved for offline use." }
         return data
+    }
+
+    func invalidateResource(key: String) {
+        try? storage.removeResource(key: key)
     }
 
     private func acceptPosition(_ position: ReadingPosition) {

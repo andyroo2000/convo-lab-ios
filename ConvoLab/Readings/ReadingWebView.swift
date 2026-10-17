@@ -92,6 +92,7 @@ struct ReadingWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard parent.reading.document.pages.indices.contains(parent.pageIndex) else { return }
             let page = parent.reading.document.pages[parent.pageIndex]
             let cover = page.kind == "title" ? parent.reading.illustrationUrl : nil
             guard let path = page.imageUrl ?? cover else { return }
@@ -103,6 +104,10 @@ struct ReadingWebView: UIViewRepresentable {
                     let bytes = try await parent.store.resource(path, key: "image:\(parent.reading.revision):\(path)")
                     try parent.store.checkSession()
                     guard key == requestKey else { return }
+                    guard UIImage(data: bytes) != nil else {
+                        parent.store.invalidateResource(key: "image:\(parent.reading.revision):\(path)")
+                        throw APIClientError.invalidResponse
+                    }
                     let url = "data:image/\(bytes.starts(with: [0x89, 0x50, 0x4e, 0x47]) ? "png" : "jpeg");base64,\(bytes.base64EncodedString())"
                     let value = String(data: try JSONEncoder().encode(url), encoding: .utf8) ?? "null"
                     _ = try await webView?.evaluateJavaScript("window.readerImage(\(value))")

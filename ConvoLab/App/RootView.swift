@@ -150,7 +150,7 @@ private struct MainModeView: View {
                     model.audioPlayer.stop()
                     model.studyAudioPlayer.stop()
                 }
-                .id(user.id)
+                .id("\(user.id):\(model.api.accessToken ?? "")")
                 .toolbar(.hidden, for: .tabBar)
             }
             Tab("Time", systemImage: "clock.fill", value: AppMode.time) {

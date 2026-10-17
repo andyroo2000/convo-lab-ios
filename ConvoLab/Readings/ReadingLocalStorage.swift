@@ -44,6 +44,26 @@ struct ReadingLocalStorage {
     func saveResource(_ data: Data, key: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: resourceURL(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try pruneResources()
+    }
+
+    func removeResource(key: String) throws {
+        let url = resourceURL(key)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+
+    private func pruneResources() throws {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
+            .filter { $0.lastPathComponent.count == 64 }
+            .map { ($0, try $0.resourceValues(forKeys: keys)) }
+            .sorted { ($0.1.contentModificationDate ?? .distantPast) < ($1.1.contentModificationDate ?? .distantPast) }
+        var total = files.reduce(0) { $0 + ($1.1.fileSize ?? 0) }
+        for (url, values) in files {
+            guard total > 200 * 1024 * 1024 else { break }
+            try FileManager.default.removeItem(at: url)
+            total -= values.fileSize ?? 0
+        }
     }
 
     private func resourceURL(_ key: String) -> URL {

@@ -75,6 +75,43 @@ final class ReadingSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testRejectedPositionDoesNotBlockOtherReadings() async throws {
+        let owner = -404
+        defer { try? ReadingLocalStorage.remove(userID: owner); MockURLProtocol.handler = nil }
+        try ReadingLocalStorage.remove(userID: owner)
+        let store = ReadingStore(api: client(), userID: owner)
+        store.record(reading(), pageNumber: 24, sentence: nil)
+        let other = reading(id: "other")
+        store.record(other, pageNumber: 25, sentence: nil)
+        let response = try Self.acknowledgement(XCTUnwrap(store.snapshot.pending["other"]))
+        MockURLProtocol.handler = { request in
+            let rejected = request.url!.path.hasSuffix("/reading")
+            let data = rejected ? Data("{\"message\":\"Reading changed\"}".utf8) : response
+            return (HTTPURLResponse(url: request.url!, statusCode: rejected ? 409 : 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        await store.synchronizePositions()
+        XCTAssertNotNil(store.snapshot.pending["reading"])
+        XCTAssertNil(store.snapshot.pending["other"])
+        XCTAssertNotNil(store.errorMessage)
+    }
+
+    @MainActor
+    func testReadingMediaRejectsTraversalBeforeNetworkRequest() async {
+        let api = client()
+        MockURLProtocol.handler = { _ in
+            XCTFail("Invalid media path reached the network")
+            throw URLError(.cancelled)
+        }
+        defer { MockURLProtocol.handler = nil }
+        for path in ["/api/convolab/readings/../../x", "/api/convolab/readings/%2e%2e/x", "https://outside.invalid/audio"] {
+            do {
+                _ = try await api.readingResource(path)
+                XCTFail("Accepted invalid media path")
+            } catch { XCTAssertTrue(error is APIClientError) }
+        }
+    }
+
+    @MainActor
     private func client() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
@@ -92,8 +129,8 @@ final class ReadingSyncTests: XCTestCase {
     }
 
     @MainActor
-    private func reading() -> ReadingDetail {
-        ReadingDetail(id: "reading", title: "Story", revision: 1, document: ReadingDocument(title: "Story", author: "Author", pages: [
+    private func reading(id: String = "reading") -> ReadingDetail {
+        ReadingDetail(id: id, title: "Story", revision: 1, document: ReadingDocument(title: "Story", author: "Author", pages: [
             ReadingPage(number: 24, kind: "text", columns: [[ReadingSegment(index: 0, text: "犬です。")]]),
             ReadingPage(number: 25, kind: "text", columns: [[ReadingSegment(index: 0, text: "犬です。")]])
         ], sentences: [ReadingSentence(text: "犬です。", translation: "A dog.")]), voiceId: "voice", voiceName: "Narrator")

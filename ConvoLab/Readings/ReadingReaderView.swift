@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct ReadingReaderView: View {
     let id: String
@@ -40,6 +41,11 @@ struct ReadingReaderView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { controls } }
         .task { await openReading() }
         .onDisappear { finish() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in player.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+            let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { player.stop() }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { finish() }
         }
