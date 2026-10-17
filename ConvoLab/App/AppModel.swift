@@ -166,6 +166,11 @@ final class AppModel {
                     }
                 },
                 .study: { userID in
+                    do {
+                        try ReadingLocalStorage.remove(userID: userID)
+                    } catch {
+                        return false
+                    }
                     // This cache remains durable even when SwiftData had to fall
                     // back to temporary storage, so purge it on every attempt.
                     cardCatalogSnapshotCache.remove(userID: userID)

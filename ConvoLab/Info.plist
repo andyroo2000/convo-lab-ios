@@ -29,8 +29,6 @@
 	<string>ConvoLab can add completed or planned study sessions to your calendar, including synced Google calendars.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ConvoLab uses your photo library so you can add images to study cards.</string>
-	<key>UIUserInterfaceStyle</key>
-	<string>Light</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

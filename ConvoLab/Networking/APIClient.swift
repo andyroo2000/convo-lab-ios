@@ -94,6 +94,14 @@ final class APIClient {
         )
     }
 
+    func readingResource(_ path: String, method: String = "GET") async throws -> Data {
+        guard path.hasPrefix("/api/convolab/readings/"),
+              sameOriginResourceURL(path) != nil else {
+            throw APIClientError.invalidResponse
+        }
+        return try await sendRequest(path, method: method, query: [], body: nil, timeout: 120)
+    }
+
     private func sendRequest(
         _ path: String,
         method: String,

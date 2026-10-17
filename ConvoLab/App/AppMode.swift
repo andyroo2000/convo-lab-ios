@@ -3,6 +3,7 @@ import SwiftUI
 enum AppMode: String, CaseIterable, Hashable, Identifiable {
     case study = "Study"
     case dailyAudio = "Daily Audio"
+    case readings = "Readings"
     case cards = "Cards"
     case time = "Time"
     case settings = "Settings"
@@ -12,13 +13,14 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .study: "rectangle.stack.fill"
         case .dailyAudio: "headphones"
+        case .readings: "book.closed"
         case .cards: "square.and.pencil"
         case .time: "clock.fill"
         case .settings: "gearshape.fill"
         }
     }
 
-    static let practice: [Self] = [.study, .dailyAudio]
+    static let practice: [Self] = [.study, .dailyAudio, .readings]
     static let manage: [Self] = [.cards, .time, .settings]
 }
 
@@ -55,6 +57,7 @@ struct AppModePicker: View {
             } label: {
                 Label(mode.rawValue, systemImage: mode == selection ? "checkmark" : mode.icon)
             }
+            .accessibilityAddTraits(mode == selection ? .isSelected : [])
             .accessibilityIdentifier("app-mode-\(mode)")
         }
     }
