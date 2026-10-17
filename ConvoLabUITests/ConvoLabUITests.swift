@@ -24,12 +24,16 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testRestoresLoginIntoProductionRootViewAcrossRelaunch() {
         let app = launchFixture("login-restoration", reset: true)
-        XCTAssertTrue(app.tabBars.buttons["Study"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.tabBars.buttons["Settings"].exists)
+        XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        app.buttons["app-mode-picker"].tap()
+        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 3))
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.buttons["app-mode-picker"].label.contains("Settings"))
 
         app.terminate()
         launchFixture("login-restoration", reset: false, application: app)
-        XCTAssertTrue(app.tabBars.buttons["Study"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
     }
 
     @MainActor
