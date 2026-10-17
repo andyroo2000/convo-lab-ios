@@ -9,7 +9,9 @@ struct StudyCardLocalRepository {
 
         func prepare(_ records: [LocalCardRecord]) {
             guard case .activeSession = self else { return }
-            records.forEach { $0.isInActiveSession = false }
+            for record in records where record.isInActiveSession {
+                record.isInActiveSession = false
+            }
         }
 
         func applyQueueMetadata(to record: LocalCardRecord, index: Int) {
@@ -45,9 +47,15 @@ struct StudyCardLocalRepository {
     }
 
     private let context: ModelContext
+    private let decodingCache: StudyCardDecodingCache
 
-    init(context: ModelContext) {
+    init(context: ModelContext, decodingCache: StudyCardDecodingCache = StudyCardDecodingCache()) {
         self.context = context
+        self.decodingCache = decodingCache
+    }
+
+    func clearDecodedCache() {
+        decodingCache.clear()
     }
 
     func replaceActiveSession(with cards: [StudyCard], userID: Int) throws {
@@ -140,10 +148,7 @@ struct StudyCardLocalRepository {
         var changed = false
         for record in try records(userID: userID)
         where !normalizedIdentifiers.isDisjoint(with: [record.normalizedID, record.syncID]) {
-            guard let currentCard = try? StorageCodec.decoder.decode(
-                StudyCard.self,
-                from: record.payload
-            ) else { continue }
+            guard let currentCard = try? decodingCache.card(from: record) else { continue }
             record.replacePayload(encoded: try StorageCodec.encoder.encode(
                 currentCard.replacingVariantStatus("locked")
             ))
@@ -160,10 +165,7 @@ struct StudyCardLocalRepository {
         storedIn record: LocalCardRecord
     ) -> StudyCard {
         guard !card.includesProgressionMetadataProjection else { return card }
-        guard let storedCard = try? StorageCodec.decoder.decode(
-            StudyCard.self,
-            from: record.payload
-        ) else { return card }
+        guard let storedCard = try? decodingCache.card(from: record) else { return card }
         return card.resolvingProgressionMetadata(fallingBackTo: storedCard)
     }
 
@@ -205,7 +207,7 @@ struct StudyCardLocalRepository {
         guard let card = recordIdentifiers(record).lazy.compactMap({
             cardsByIdentifier[$0]
         }).first else {
-            if clearingIfMissing {
+            if clearingIfMissing, record.mediaPreparedAt != nil {
                 record.mediaPreparedAt = nil
             }
             return
@@ -213,10 +215,13 @@ struct StudyCardLocalRepository {
         let isPrepared = card.mediaURLs.allSatisfy {
             cachedKeys.contains(MediaCache.stableCacheKey(for: $0))
         }
-        record.mediaPreparedAt = isPrepared ? .now : nil
+        if isPrepared || record.mediaPreparedAt != nil {
+            record.mediaPreparedAt = isPrepared ? .now : nil
+        }
     }
 
     func activeCards(userID: Int) throws -> [StudyCard] {
+        decodingCache.selectAccount(userID)
         let descriptor = FetchDescriptor<LocalCardRecord>(
             predicate: #Predicate { $0.userID == userID && $0.isInActiveSession },
             sortBy: [SortDescriptor(\.queueIndex)]
@@ -229,7 +234,9 @@ struct StudyCardLocalRepository {
             predicate: #Predicate { $0.userID == userID },
             sortBy: [SortDescriptor(\.serverUpdatedAt, order: .reverse)]
         )
-        return try context.fetch(descriptor).compactMap(decodeCard)
+        let records = try context.fetch(descriptor)
+        decodingCache.retainOnly(recordIDs: Set(records.map(\.id)), userID: userID)
+        return records.compactMap(decodeCard)
     }
 
     func record(matching card: StudyCard, userID: Int) throws -> LocalCardRecord? {
@@ -272,7 +279,7 @@ struct StudyCardLocalRepository {
     }
 
     private func decodeCard(record: LocalCardRecord) -> StudyCard? {
-        try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload)
+        try? decodingCache.card(from: record)
     }
 
     private func matchPriority(

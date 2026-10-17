@@ -25,6 +25,13 @@ struct StudyOfflineCardReconciler {
 
     let api: APIClient
     let context: ModelContext
+    private let repository: StudyCardLocalRepository
+
+    init(api: APIClient, context: ModelContext, repository: StudyCardLocalRepository? = nil) {
+        self.api = api
+        self.context = context
+        self.repository = repository ?? StudyCardLocalRepository(context: context)
+    }
 
     func reconcile(
         confirmedCards: [StudyCard],
@@ -34,7 +41,6 @@ struct StudyOfflineCardReconciler {
         isCurrent: () -> Bool,
         didReconcile: ([Change]) -> Void
     ) async throws {
-        let repository = StudyCardLocalRepository(context: context)
         let confirmedIdentifiers = confirmedCards.reduce(into: Set<String>()) {
             $0.formUnion(StudyCardIdentity.identifiers(for: $1))
         }
@@ -133,7 +139,6 @@ struct StudyOfflineCardReconciler {
         for card: StudyCard, userID: Int, pending: Set<String>
     ) throws -> LocalCardRecord? {
         guard !StudyCardIdentity.matches(card, any: pending) else { return nil }
-        let repository = StudyCardLocalRepository(context: context)
         guard let record = try repository.record(matching: card, userID: userID),
               record.locallyUpdatedAt == nil
         else { return nil }
