@@ -18,6 +18,7 @@ struct StudySessionView: View {
     @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @Environment(\.appModeDestination) private var appModeDestination
 
+    @State private var headerActionID = UUID()
     @State private var showingAnswer = false
     @State private var cardTimer = StudySessionCardTimer(startedAt: .now)
     @State private var submittingReviewCardIDs: Set<String> = []
@@ -225,7 +226,7 @@ struct StudySessionView: View {
         .navigationTitle(practiceMode ? "Toughest Practice" : "Practice")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(mode == .reviews)
-        .preference(key: AppModeActionKey.self, value: hasAppModeHeader ? [appModeDestination: AnyView(endSessionControl)] : [:])
+        .preference(key: AppModeActionKey.self, value: headerActions)
         .safeAreaInset(edge: .top, spacing: 0) {
             if !hasAppModeHeader {
                 HStack { Spacer(); endSessionControl }
@@ -268,12 +269,25 @@ struct StudySessionView: View {
         }
     }
 
+    private var headerActions: [AppMode: AppModeHeaderAction] {
+        guard hasAppModeHeader, mode == .reviews, !displayingCompletion, !practiceMode else { return [:] }
+        return [appModeDestination: AppModeHeaderAction(
+            id: headerActionID,
+            isEnabled: canEndSession,
+            perform: endReviewSession
+        )]
+    }
+
+    private var canEndSession: Bool {
+        submittingReviewCardIDs.isEmpty && submittingCardActionIDs.isEmpty && store.masteryAnimation == nil
+    }
+
     @ViewBuilder
     private var endSessionControl: some View {
         if mode == .reviews, !displayingCompletion, !practiceMode {
             Button("End session") { endReviewSession() }
                 .frame(minHeight: 44)
-                .disabled(!submittingReviewCardIDs.isEmpty || !submittingCardActionIDs.isEmpty || store.masteryAnimation != nil)
+                .disabled(!canEndSession)
                 .accessibilityIdentifier("StudyEndSessionButton")
         }
     }
@@ -1124,6 +1138,8 @@ struct StudySessionView: View {
     }
 
     private func endReviewSession() {
+        // Grades are already persisted; onDisappear stops and saves the automatic timer.
+        // Manual exit returns home, while natural completion still shows the wrap-up.
         player.stop()
         dismiss()
     }

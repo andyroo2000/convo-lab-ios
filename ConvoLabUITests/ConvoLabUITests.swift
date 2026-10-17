@@ -247,6 +247,23 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testReviewHeaderFitsAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let end = app.buttons["StudyEndSessionButton"]
+        let picker = app.buttons["app-mode-picker"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        XCTAssertTrue(end.isHittable)
+        XCTAssertTrue(picker.isHittable)
+        XCTAssertLessThanOrEqual(picker.frame.maxX, end.frame.minX)
+        end.tap()
+        XCTAssertTrue(app.buttons["Review cards"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testReviewCanEndAndReturnToStudy() {
         let app = launchFixture("study-dashboard", reset: true)
         let reviews = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reviews,")).firstMatch

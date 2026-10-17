@@ -26,6 +26,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
 
 struct AppModePicker: View {
     @Binding var selection: AppMode
+    var action: AppModeHeaderAction? = nil
 
     var body: some View {
         HStack {
@@ -43,7 +44,13 @@ struct AppModePicker: View {
             }
             .accessibilityLabel("Switch mode, \(selection.rawValue)")
             .accessibilityIdentifier("app-mode-picker")
-            Spacer()
+            Spacer(minLength: 12)
+            if let action {
+                Button("End session", action: action.perform)
+                    .frame(minHeight: 44)
+                    .disabled(!action.isEnabled)
+                    .accessibilityIdentifier("StudyEndSessionButton")
+            }
         }
         .padding(.horizontal, 20)
         .foregroundStyle(ConvoLabTheme.navy)
@@ -63,9 +70,20 @@ struct AppModePicker: View {
     }
 }
 
+struct AppModeHeaderAction: Equatable {
+    let id: UUID
+    let isEnabled: Bool
+    let perform: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.isEnabled == rhs.isEnabled
+    }
+}
+
+// Each mode has at most one active session publishing its header action.
 struct AppModeActionKey: PreferenceKey {
-    static var defaultValue: [AppMode: AnyView] { [:] }
-    static func reduce(value: inout [AppMode: AnyView], nextValue: () -> [AppMode: AnyView]) {
+    static var defaultValue: [AppMode: AppModeHeaderAction] { [:] }
+    static func reduce(value: inout [AppMode: AppModeHeaderAction], nextValue: () -> [AppMode: AppModeHeaderAction]) {
         value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
@@ -92,15 +110,14 @@ extension EnvironmentValues {
 
 struct AppModeHeader: ViewModifier {
     @Binding var selection: AppMode
+    @State private var actions: [AppMode: AppModeHeaderAction] = [:]
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
-            AppModePicker(selection: $selection)
+            AppModePicker(selection: $selection, action: actions[selection])
             content
         }
         .environment(\.hasAppModeHeader, true)
-        .overlayPreferenceValue(AppModeActionKey.self, alignment: .topTrailing) { action in
-            action[selection].padding(.trailing, 20)
-        }
+        .onPreferenceChange(AppModeActionKey.self) { actions = $0 }
     }
 }
