@@ -11,11 +11,8 @@ struct StudySessionView: View {
     let player: StudyAudioPlayer
     let mode: Mode
     let timeStore: StudyTimeStore?
-    let achievementStore: StudyAchievementStore?
-    let restoredCompletion: StudyAchievementCompletion?
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
-    let onSessionAchievementsLanded: (Set<String>) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -39,57 +36,30 @@ struct StudySessionView: View {
     @State private var cardPendingSetDue: StudyCard?
     @State private var cardActionErrorMessage: String?
     @State private var sessionReviewRecords: [StudySessionReviewRecord] = []
-    @State private var sessionCompletion: StudyAchievementCompletion?
-    @State private var completionAchievements: [PresentedStudyAchievement] = []
     @State private var sessionWasEnded = false
-    @State private var currentAwardIndex = 0
-    @State private var celebrationPresented = false
-    @State private var isCompletionRefreshPending = false
     @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
     @State private var practiceInitialCount = 0
     @State private var lessonPresentationID = UUID()
-    @Namespace private var achievementFlight
 
     init(
         store: StudyStore,
         player: StudyAudioPlayer,
         mode: Mode = .reviews,
         timeStore: StudyTimeStore? = nil,
-        achievementStore: StudyAchievementStore? = nil,
-        restoredCompletion: StudyAchievementCompletion? = nil,
         lessonCohortID: String? = nil,
         lessonPresentationID: UUID = UUID(),
-        allowsLessonDismissal: Bool = false,
-        onSessionAchievementsLanded: @escaping (Set<String>) -> Void = { _ in }
+        allowsLessonDismissal: Bool = false
     ) {
         self.store = store
         self.player = player
         self.mode = mode
         self.timeStore = timeStore
-        self.achievementStore = achievementStore
-        self.restoredCompletion = restoredCompletion
         self.lessonCohortID = lessonCohortID
         self.allowsLessonDismissal = allowsLessonDismissal
-        self.onSessionAchievementsLanded = onSessionAchievementsLanded
         _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
-        _sessionReviewRecords = State(initialValue: restoredCompletion?.records ?? [])
-        _wrapUpSummary = State(
-            initialValue: StudySessionWrapUpSummary.build(
-                from: restoredCompletion?.records ?? []
-            )
-        )
-        _sessionCompletion = State(initialValue: restoredCompletion)
-        _completionAchievements = State(
-            initialValue: restoredCompletion?.newAwardIDs.compactMap {
-                achievementStore?.achievement(id: $0)
-            } ?? []
-        )
-        _sessionWasEnded = State(initialValue: restoredCompletion != nil)
-        _celebrationPresented = State(
-            initialValue: restoredCompletion?.celebrationPresented ?? false
-        )
+        _wrapUpSummary = State(initialValue: StudySessionWrapUpSummary.build(from: []))
     }
 
     private var card: StudyCard? {
@@ -123,14 +93,7 @@ struct StudySessionView: View {
     }
 
     private var displayingCompletion: Bool {
-        sessionWasEnded || sessionCompletion != nil || reviewSessionComplete
-    }
-
-    private var currentAchievement: PresentedStudyAchievement? {
-        guard !celebrationPresented,
-              completionAchievements.indices.contains(currentAwardIndex)
-        else { return nil }
-        return completionAchievements[currentAwardIndex]
+        sessionWasEnded || reviewSessionComplete
     }
 
     private var displayedProgress: Double {
@@ -156,32 +119,15 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var sessionProgressContent: some View {
-        if currentAchievement == nil {
-            ProgressView(value: displayedProgress)
-                .tint(.green)
-                .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
-            masteryFeedbackLane
-        }
+        ProgressView(value: displayedProgress)
+            .tint(.green)
+            .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
+        masteryFeedbackLane
     }
 
     @ViewBuilder
     private var activeSessionContent: some View {
-        if let achievement = currentAchievement {
-            StudyAchievementAwardView(
-                achievement: achievement,
-                imageURL: achievementStore?.imageURL(for: achievement),
-                position: currentAwardIndex + 1,
-                total: completionAchievements.count,
-                flightNamespace: achievementFlight
-            ) {
-                advanceAchievement()
-            }
-            .id(achievement.id)
-            .transition(.asymmetric(
-                insertion: .move(edge: .trailing),
-                removal: .move(edge: .leading)
-            ))
-        } else if mode == .lessons, lessonPreview {
+        if mode == .lessons, lessonPreview {
             lessonPreviewContent
         } else if displayingCompletion, !practiceMode {
             wrapUpContent
@@ -286,7 +232,6 @@ struct StudySessionView: View {
                     }
                 }
             } else if mode == .reviews,
-                      restoredCompletion == nil,
                       !displayingCompletion
             {
                 ToolbarItem(placement: .topBarLeading) {
@@ -330,18 +275,6 @@ struct StudySessionView: View {
     private var sessionViewWithLifecycle: some View {
         sessionViewWithChrome
         .task {
-            if let restoredCompletion {
-                sessionReviewRecords = restoredCompletion.records
-                sessionCompletion = restoredCompletion
-                completionAchievements = restoredCompletion.newAwardIDs.compactMap {
-                    achievementStore?.achievement(id: $0)
-                }
-                sessionWasEnded = true
-                celebrationPresented = restoredCompletion.celebrationPresented
-                currentAwardIndex = 0
-                return
-            }
-            onSessionAchievementsLanded([])
             startTimeTracking()
             sessionReviewRecords = []
             practiceCards = nil
@@ -355,14 +288,11 @@ struct StudySessionView: View {
                 await loadLessonBatch()
             } else {
                 store.beginSessionFailureTracking()
-                achievementStore?.beginReviewSession()
                 _ = try? await store.refreshSession()
-                await achievementStore?.refreshIfNeeded(maxAge: 60, evaluate: false)
-                achievementStore?.refreshCurrentSessionBaseline()
             }
         }
         .onChange(of: reviewSessionComplete) { _, isComplete in
-            guard isComplete, sessionCompletion == nil else { return }
+            guard isComplete, !sessionWasEnded else { return }
             prepareSessionCompletion()
         }
         .onChange(of: sessionReviewRecords) { _, records in
@@ -691,51 +621,13 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyToughestSection")
                 }
 
-                if !completionAchievements.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Earned this session")
-                            .font(.headline)
-                        ScrollView(.horizontal) {
-                            HStack(alignment: .top, spacing: 14) {
-                                ForEach(Array(completionAchievements.reversed())) { achievement in
-                                    StudyAchievementBadgeCard(
-                                        achievement: achievement,
-                                        imageURL: achievementStore?.imageURL(for: achievement),
-                                        isNew: true,
-                                        showsShadow: false
-                                    )
-                                    .matchedGeometryEffect(
-                                        id: "session-achievement-\(achievement.id)",
-                                        in: achievementFlight,
-                                        properties: .frame,
-                                        anchor: .center,
-                                        isSource: false
-                                    )
-                                }
-                            }
-                            .padding(.bottom, 2)
-                        }
-                        .scrollIndicators(.hidden)
-                    }
-                    .padding()
-                    .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
-                    .accessibilityIdentifier("StudySessionAchievements")
-                }
-
                 Button("Done") {
-                    if let completionID = sessionCompletion?.id {
-                        achievementStore?.consumeCompletion(sessionID: completionID)
-                    }
-                    onSessionAchievementsLanded(Set(completionAchievements.map(\.id)))
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ConvoLabTheme.navy)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .disabled(!Self.canDismissWrapUp(
-                    isCompletionRefreshPending: isCompletionRefreshPending
-                ))
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
             .frame(maxWidth: 560)
@@ -895,29 +787,34 @@ struct StudySessionView: View {
                 }
 
                 ForEach(face.textBlocks) { block in
-                    let text = block.role == .note ? "• \(block.text)" : block.text
-
-                    if block.role.supportsRuby {
-                        StudyRubyText(
-                            text,
-                            knownKanji: store.knownKanji,
-                            pointSize: pointSize(for: block.role),
-                            color: uiColor(for: block.role)
-                        )
-                        .font(font(for: block.role))
-                        .foregroundStyle(color(for: block.role))
-                        .accessibilityElement(children: .combine)
-                    } else {
-                        Text(text)
-                            .multilineTextAlignment(.center)
-                            .textSelection(.enabled)
-                            .font(font(for: block.role))
-                            .foregroundStyle(color(for: block.role))
-                            .accessibilityElement(children: .combine)
-                    }
+                    answerTextBlock(block)
                 }
             }
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func answerTextBlock(_ block: StudyCardPresentation.TextBlock) -> some View {
+        let text = block.role == .note ? "• \(block.text)" : block.text
+
+        if block.role.supportsRuby {
+            StudyRubyText(
+                text,
+                knownKanji: store.knownKanji,
+                pointSize: pointSize(for: block.role),
+                color: uiColor(for: block.role)
+            )
+            .font(font(for: block.role))
+            .foregroundStyle(color(for: block.role))
+            .accessibilityElement(children: .combine)
+        } else {
+            Text(text)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .font(font(for: block.role))
+                .foregroundStyle(color(for: block.role))
+                .accessibilityElement(children: .combine)
         }
     }
 
@@ -1033,63 +930,7 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
-            guard showingAnswer else { return }
-            if practiceMode {
-                player.stop()
-                didAutoplayAnswerForCardID = nil
-                practiceCards = StudySessionPracticeQueue.applying(
-                    rating,
-                    to: practiceCards ?? []
-                )
-                showingAnswer = false
-                resetCardTimer()
-                return
-            }
-            if mode == .lessons, rating == .again {
-                player.stop()
-                didAutoplayAnswerForCardID = nil
-                store.retryLessonCard(card)
-                showingAnswer = false
-                resetCardTimer()
-                return
-            }
-            guard submittingReviewCardIDs.insert(card.id).inserted else { return }
-            let reviewedAt = Date.now
-            if rating == .again {
-                didAutoplayAnswerForCardID = nil
-            }
-            let duration = cardTimer.duration(at: reviewedAt)
-            let durationMilliseconds = Int(duration * 1_000)
-            Task {
-                let stagedReview = await store.recordReviewResult(
-                    card: card,
-                    rating: rating,
-                    duration: .milliseconds(Int64(durationMilliseconds)),
-                    reviewedAt: reviewedAt
-                )
-                if let stagedReview {
-                    pushUndo(
-                        .grade(
-                            eventID: stagedReview.eventID,
-                            cardBefore: stagedReview.cardBefore
-                        )
-                    )
-                    sessionReviewRecords.append(
-                        StudySessionReviewRecord(
-                            id: stagedReview.eventID,
-                            cardBefore: stagedReview.cardBefore,
-                            cardAfter: stagedReview.cardAfter,
-                            rating: rating,
-                            durationMilliseconds: durationMilliseconds,
-                            reviewedAt: reviewedAt
-                        )
-                    )
-                    if mode == .reviews, let record = sessionReviewRecords.last {
-                        achievementStore?.recordReview(record)
-                    }
-                }
-                submittingReviewCardIDs.remove(card.id)
-            }
+            submitGrade(rating, card: card)
         } label: {
             Text(title)
                 .frame(maxWidth: .infinity)
@@ -1103,6 +944,63 @@ struct StudySessionView: View {
                 || isUndoing
                 || store.masteryAnimation != nil
         )
+    }
+
+    private func submitGrade(_ rating: ReviewRating, card: StudyCard) {
+        guard showingAnswer else { return }
+        if practiceMode {
+            player.stop()
+            didAutoplayAnswerForCardID = nil
+            practiceCards = StudySessionPracticeQueue.applying(
+                rating,
+                to: practiceCards ?? []
+            )
+            showingAnswer = false
+            resetCardTimer()
+            return
+        }
+        if mode == .lessons, rating == .again {
+            player.stop()
+            didAutoplayAnswerForCardID = nil
+            store.retryLessonCard(card)
+            showingAnswer = false
+            resetCardTimer()
+            return
+        }
+        guard submittingReviewCardIDs.insert(card.id).inserted else { return }
+        let reviewedAt = Date.now
+        if rating == .again {
+            didAutoplayAnswerForCardID = nil
+        }
+        let duration = cardTimer.duration(at: reviewedAt)
+        let durationMilliseconds = Int(duration * 1_000)
+        Task {
+            let stagedReview = await store.recordReviewResult(
+                card: card,
+                rating: rating,
+                duration: .milliseconds(Int64(durationMilliseconds)),
+                reviewedAt: reviewedAt
+            )
+            if let stagedReview {
+                pushUndo(
+                    .grade(
+                        eventID: stagedReview.eventID,
+                        cardBefore: stagedReview.cardBefore
+                    )
+                )
+                sessionReviewRecords.append(
+                    StudySessionReviewRecord(
+                        id: stagedReview.eventID,
+                        cardBefore: stagedReview.cardBefore,
+                        cardAfter: stagedReview.cardAfter,
+                        rating: rating,
+                        durationMilliseconds: durationMilliseconds,
+                        reviewedAt: reviewedAt
+                    )
+                )
+            }
+            submittingReviewCardIDs.remove(card.id)
+        }
     }
 
     @ViewBuilder
@@ -1196,14 +1094,6 @@ struct StudySessionView: View {
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 sessionReviewRecords.removeAll { $0.id == eventID }
-                if mode == .reviews {
-                    achievementStore?.undoReview(eventID: eventID)
-                    // The review is already undone at this point. Achievement
-                    // reconciliation is secondary and may involve multiple network
-                    // requests, so it must not keep the restored card's controls
-                    // disabled while it finishes.
-                    Task { await achievementStore?.refresh() }
-                }
                 showingAnswer = true
                 resetCardTimer()
                 didAutoplayAnswerForCardID = nil
@@ -1227,27 +1117,9 @@ struct StudySessionView: View {
         return "Plays downloaded study audio."
     }
 
-    private func advanceAchievement() {
-        guard let completion = sessionCompletion else { return }
-        if currentAwardIndex + 1 < completionAchievements.count {
-            withAnimation(.timingCurve(0.33, 1, 0.68, 1, duration: 0.56)) {
-                currentAwardIndex += 1
-            }
-            return
-        }
-        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.9)) {
-            celebrationPresented = true
-        }
-        achievementStore?.markCelebrationPresented(sessionID: completion.id)
-        if completion.records.isEmpty {
-            dismiss()
-        }
-    }
-
     private func endReviewSession() {
         player.stop()
         guard !sessionReviewRecords.isEmpty else {
-            achievementStore?.cancelCurrentSession()
             dismiss()
             return
         }
@@ -1257,99 +1129,8 @@ struct StudySessionView: View {
     private func prepareSessionCompletion() {
         guard !sessionWasEnded else { return }
         sessionWasEnded = true
-        let completion = achievementStore?.prepareCurrentSessionCompletion()
-        applySessionCompletion(completion)
-        isCompletionRefreshPending = true
-
-        // Completion is already durable locally. Achievement evaluation may
-        // enrich the wrap-up, but it must never gate leaving the session.
-        Task { @MainActor in
-            defer { isCompletionRefreshPending = false }
-            await achievementStore?.refresh()
-            guard sessionWasEnded,
-                  sessionCompletion?.id == completion?.id
-            else { return }
-            guard let completionID = completion?.id else { return }
-            let refreshedCompletion = achievementStore?.prepareCurrentSessionCompletion(
-                expectedSessionID: completionID
-            )
-            guard refreshedCompletion?.id == completion?.id else { return }
-            applySessionCompletion(refreshedCompletion)
-        }
     }
 
-    private func applySessionCompletion(_ completion: StudyAchievementCompletion?) {
-        let presentation = Self.reconciledCompletionPresentation(
-            current: sessionCompletion,
-            updated: completion,
-            currentAwardIDs: completionAchievements.map(\.id),
-            currentAwardIndex: currentAwardIndex,
-            celebrationPresented: celebrationPresented
-        )
-        sessionCompletion = completion
-        completionAchievements = presentation.awardIDs.compactMap {
-            achievementStore?.achievement(id: $0)
-        }
-        currentAwardIndex = presentation.currentAwardIndex
-        celebrationPresented = presentation.celebrationPresented
-    }
-
-    nonisolated static func canDismissWrapUp(
-        isCompletionRefreshPending _: Bool
-    ) -> Bool {
-        true
-    }
-
-    nonisolated static func shouldResetCompletionPresentation(
-        current: StudyAchievementCompletion?,
-        updated: StudyAchievementCompletion?
-    ) -> Bool {
-        current?.id != updated?.id
-            || current?.records != updated?.records
-    }
-
-    nonisolated static func reconciledCompletionPresentation(
-        current: StudyAchievementCompletion?,
-        updated: StudyAchievementCompletion?,
-        currentAwardIDs: [String],
-        currentAwardIndex: Int,
-        celebrationPresented: Bool
-    ) -> (
-        awardIDs: [String],
-        currentAwardIndex: Int,
-        celebrationPresented: Bool
-    ) {
-        let updatedAwardIDs = updated?.newAwardIDs ?? []
-        if shouldResetCompletionPresentation(current: current, updated: updated) {
-            return (
-                updatedAwardIDs,
-                0,
-                updated?.celebrationPresented ?? true
-            )
-        }
-
-        let updatedAwardIDSet = Set(updatedAwardIDs)
-        let retainedAwardIDs = currentAwardIDs.filter { updatedAwardIDSet.contains($0) }
-        let currentAwardIDSet = Set(currentAwardIDs)
-        let appendedAwardIDs = updatedAwardIDs.filter { !currentAwardIDSet.contains($0) }
-        let reconciledAwardIDs = retainedAwardIDs + appendedAwardIDs
-        let maximumIndex = max(0, reconciledAwardIDs.count - 1)
-
-        if celebrationPresented, !appendedAwardIDs.isEmpty {
-            return (
-                reconciledAwardIDs,
-                min(retainedAwardIDs.count, maximumIndex),
-                false
-            )
-        }
-
-        return (
-            reconciledAwardIDs,
-            min(currentAwardIndex, maximumIndex),
-            appendedAwardIDs.isEmpty
-                && (celebrationPresented || updated?.celebrationPresented == true)
-        )
-    }
 }
 
 private enum StudyUndoAction {

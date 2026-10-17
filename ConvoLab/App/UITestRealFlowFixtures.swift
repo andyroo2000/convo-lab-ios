@@ -247,8 +247,6 @@ private final class UITestRealFlowComposition: ObservableObject {
             mediaCache: mediaCache
         )
         store.setOverview(fixtureStudyOverview)
-        let achievementStore = StudyAchievementStore(api: api, mediaCache: mediaCache)
-        achievementStore.activate(userID: userID)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let nextLessonStart = DateComponents(
@@ -279,8 +277,7 @@ private final class UITestRealFlowComposition: ObservableObject {
             AnyView(StudyHomeView(
                 store: store,
                 player: player,
-                timeStore: timeStore,
-                achievementStore: achievementStore
+                timeStore: timeStore
             )),
             [
                 container,
@@ -288,7 +285,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 api,
                 mediaCache,
                 store,
-                achievementStore,
                 calendarService,
                 timeStore,
                 player,
@@ -478,20 +474,6 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        if request.url?.path.hasPrefix("/achievement-assets/") == true {
-            succeed(with: Self.fixturePNG, contentType: "image/png")
-            return
-        }
-        if request.url?.path == "/api/achievements/catalog" {
-            succeed(with: Self.achievementCatalog)
-            return
-        }
-        if request.httpMethod == "POST", request.url?.path == "/api/achievements/evaluate" {
-            succeed(with: Data(
-                #"{"revision":"achievement-collection-v2","metricValues":{"cards.stability_365d.count":25,"reviews.count":25,"study.conversation.hours":25},"awards":[{"id":"roarer.first-roar","earnedAt":"2026-02-01T00:00:00.000Z"},{"id":"yearfire.first-ember","earnedAt":"2026-01-01T00:00:00.000Z"}]}"#.utf8
-            ))
-            return
-        }
         if request.httpMethod == "POST",
            request.url?.path == "/api/study/card-drafts",
            let url = request.url,
@@ -541,24 +523,6 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
-
-    private static let fixturePNG = Data(
-        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-    )!
-
-    private static let achievementCatalog = Data(
-        #"""
-        {
-          "revision":"achievement-collection-v2",
-          "presentation":{"targetVisibleBadgeCount":3,"fillWithLockedCandidates":true,"noDataFallbackTierIds":["yearfire.first-ember","card-muncher.first-nibble","roarer.first-roar"]},
-          "families":[
-            {"key":"yearfire","title":"Matsuri Light","metricKey":"cards.stability_365d.count","unit":"cards","tiers":[{"key":"first-ember","title":"First Ember","threshold":25,"description":"25 cards have reached one year of memory stability.","earnedDescription":"Kept 25 cards stable for a year","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/matsuri-light-series-v1/first-ember/locked-512.png","width":512,"height":512}}}}}]},
-            {"key":"card-muncher","title":"Card Muncher","metricKey":"reviews.count","unit":"reviews","tiers":[{"key":"first-nibble","title":"First Nibble","threshold":100,"description":"Complete 100 reviews.","earnedDescription":"Completed 100 reviews","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/card-muncher-series-v1/first-nibble/locked-512.png","width":512,"height":512}}}}}]},
-            {"key":"roarer","title":"Roarer","metricKey":"study.conversation.hours","unit":"hours","tiers":[{"key":"first-roar","title":"First Roar","threshold":1,"description":"Log 1 hour of target-language conversation study.","earnedDescription":"Spoke for 1 hour","assets":{"earned":{"png":{"256":{"path":"/achievement-assets/roarer-series-v7/first-roar/earned-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/roarer-series-v7/first-roar/earned-512.png","width":512,"height":512}}},"locked":{"png":{"256":{"path":"/achievement-assets/roarer-series-v7/first-roar/locked-256.png","width":256,"height":256},"512":{"path":"/achievement-assets/roarer-series-v7/first-roar/locked-512.png","width":512,"height":512}}}}}]}
-          ]
-        }
-        """#.utf8
-    )
 
     override func stopLoading() {}
 }

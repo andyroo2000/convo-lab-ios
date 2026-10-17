@@ -5,7 +5,6 @@ enum AccountDeletionCleanupDomain: String, CaseIterable, Hashable, Sendable {
     case dailyAudio
     case study
     case studyTime
-    case milestones
 }
 
 struct AccountDeletionCleanupItem: Hashable, Sendable {
@@ -49,6 +48,21 @@ final class AccountDeletionCleanupLedger {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        removeRetiredAwardData()
+    }
+
+    private func removeRetiredAwardData() {
+        let prefixes = [
+            "study-achievements-v1-",
+            "study-achievement-sessions-v1-",
+            "study-milestones-v1-",
+        ]
+        for key in defaults.dictionaryRepresentation().keys {
+            if prefixes.contains(where: key.hasPrefix) {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        store(Set(storedValues.filter { !$0.hasSuffix(":milestones") }))
     }
 
     var pendingItems: [AccountDeletionCleanupItem] {

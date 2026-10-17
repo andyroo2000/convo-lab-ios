@@ -9,6 +9,27 @@ final class AccountDeletionCleanupTests: XCTestCase {
     // state. Retain these short-lived probes until the test process exits.
     private nonisolated(unsafe) static var retainedFixtures: [AnyObject] = []
 
+    func testUpgradeRemovesRetiredAwardDataAndPreservesActiveCleanup() async throws {
+        let defaults = try makeDefaults()
+        let retiredKeys = [
+            "study-achievements-v1-42",
+            "study-achievement-sessions-v1-42",
+            "study-milestones-v1-99",
+        ]
+        for key in retiredKeys { defaults.set(Data([1]), forKey: key) }
+        defaults.set("preserved", forKey: "unrelated-preference")
+        defaults.set(["42:milestones", "42:study"],
+                     forKey: "ConvoLab.accountDeletion.pendingLocalCleanup")
+
+        let ledger = AccountDeletionCleanupLedger(defaults: defaults)
+
+        for key in retiredKeys { XCTAssertNil(defaults.object(forKey: key)) }
+        XCTAssertEqual(defaults.string(forKey: "unrelated-preference"), "preserved")
+        XCTAssertEqual(ledger.pendingItems, [AccountDeletionCleanupItem(userID: 42, domain: .study)])
+        XCTAssertEqual(defaults.stringArray(forKey: "ConvoLab.accountDeletion.pendingLocalCleanup"),
+                       ["42:study"])
+    }
+
     func testCleanupAttemptsEveryDomainAndRetainsEveryFailure() async throws {
         let defaults = try makeDefaults()
         let ledger = AccountDeletionCleanupLedger(defaults: defaults)
@@ -188,7 +209,6 @@ final class AccountDeletionCleanupTests: XCTestCase {
         }
         let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
         let expectedPendingDomains = Set(AccountDeletionCleanupDomain.allCases)
-            .subtracting([.milestones])
         XCTAssertEqual(pending.count, expectedPendingDomains.count)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
@@ -199,7 +219,6 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertTrue(expectedPendingDomains.allSatisfy { domain in
             pending.contains { $0.userID == fixture.user.id && $0.domain == domain }
         })
-        XCTAssertFalse(pending.contains { $0.domain == .milestones })
         await model.retryAccountDeletionCleanup()
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)

@@ -132,8 +132,7 @@ private struct MainTabView: View {
                 StudyHomeView(
                     store: model.study,
                     player: model.studyAudioPlayer,
-                    timeStore: model.studyTime,
-                    achievementStore: model.achievements
+                    timeStore: model.studyTime
                 )
             }
             Tab("Cards", systemImage: "square.and.pencil", value: MainTab.cards) {
