@@ -5,6 +5,7 @@ struct ReadingReaderView: View {
     let id: String
     let store: ReadingStore
     let beforeAudio: () -> Void
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("reading-theme") private var themeID = "system"
@@ -20,25 +21,19 @@ struct ReadingReaderView: View {
     private var reading: ReadingDetail? { store.document(id) }
 
     var body: some View {
-        Group {
-            if let reading, reading.document.pages.indices.contains(pageIndex) {
-                reader(reading)
-            } else {
-                VStack(spacing: 16) {
-                    if let message = store.errorMessage {
-                        Text(message).font(.callout)
-                        Button("Try again") { Task { await openReading() } }
-                    } else { ProgressView("Opening reading") }
-                }.padding()
-            }
+        VStack(spacing: 0) {
+            navigationControls
+            readerContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            pageControls
         }
         .background(theme.background)
+        .background {
+            InteractivePopGestureGuard(isDisabled: true) { dismiss() }
+        }
         .tint(theme.accent)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbarBackground(theme.background, for: .navigationBar)
-        .toolbarColorScheme(theme.isDark ? .dark : .light, for: .navigationBar)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { controls } }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .task { await openReading() }
         .onDisappear { finish() }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
@@ -57,6 +52,21 @@ struct ReadingReaderView: View {
         } message: { Text(player.errorMessage ?? "") }
     }
 
+    private var readerContent: some View {
+        Group {
+            if let reading, reading.document.pages.indices.contains(pageIndex) {
+                reader(reading)
+            } else {
+                VStack(spacing: 16) {
+                    if let message = store.errorMessage {
+                        Text(message).font(.callout)
+                        Button("Try again") { Task { await openReading() } }
+                    } else { ProgressView("Opening reading") }
+                }.padding()
+            }
+        }
+    }
+
     private func reader(_ reading: ReadingDetail) -> some View {
         VStack(spacing: 0) {
             if player.preparing { ProgressView().controlSize(.mini).accessibilityLabel("Preparing narration") }
@@ -73,13 +83,47 @@ struct ReadingReaderView: View {
             .simultaneousGesture(DragGesture(minimumDistance: 65).onEnded { gesture in
                 guard format != .original,
                       abs(gesture.translation.width) > abs(gesture.translation.height) * 2 else { return }
-                movePage(gesture.translation.width < 0 ? 1 : -1)
+                movePage(gesture.translation.width < 0 ? -1 : 1)
             })
             if let message = store.errorMessage {
                 ReadingErrorNotice(message: message) { store.errorMessage = nil }
                     .foregroundStyle(theme.foreground)
             }
         }
+    }
+
+    private var navigationControls: some View {
+        HStack(spacing: 4) {
+            Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("reading-back")
+            Spacer(minLength: 8)
+            controls
+        }
+        .padding(.horizontal, 16)
+        .foregroundStyle(theme.foreground)
+        .background(theme.background)
+    }
+
+    private var pageControls: some View {
+        HStack {
+            if pageIndex > 0 { pageButton(offset: -1) }
+            Spacer()
+            if let reading, pageIndex < reading.document.pages.count - 1 { pageButton(offset: 1) }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+        .background(theme.background)
+    }
+
+    private func pageButton(offset: Int) -> some View {
+        Button { movePage(offset) } label: {
+            Image(systemName: offset < 0 ? "chevron.left" : "chevron.right")
+                .frame(width: 44, height: 44)
+                .background(theme.foreground.opacity(0.08), in: .circle)
+        }
+        .accessibilityLabel(offset < 0 ? "Previous page" : "Next page")
+        .accessibilityIdentifier(offset < 0 ? "reading-previous-page" : "reading-next-page")
     }
 
     private var controls: some View {
@@ -111,10 +155,9 @@ struct ReadingReaderView: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(pageNumber.map(String.init) ?? "—").monospacedDigit()
-                Image(systemName: "chevron.down").font(.caption2)
-            }.frame(minWidth: 44, minHeight: 44)
+            Text(pageNumber.map { "p. \($0)" } ?? "—")
+                .monospacedDigit()
+                .frame(minWidth: 44, minHeight: 44)
         }
         .accessibilityLabel("Page \(pageNumber ?? 0), choose page")
     }

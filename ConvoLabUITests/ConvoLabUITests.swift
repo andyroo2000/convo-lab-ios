@@ -40,8 +40,10 @@ final class ConvoLabUITests: XCTestCase {
     func testOfflineReviewRemainsQueuedAcrossRelaunch() {
         let app = launchFixture("offline-review", reset: true)
         XCTAssertTrue(app.textViews["復習する"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["StudyEndSessionButton"].isHittable)
         app.buttons["Show Answer"].tap()
         XCTAssertTrue(app.buttons["Good"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["StudyEndSessionButton"].isHittable)
         app.buttons["Good"].tap()
         XCTAssertTrue(app.staticTexts["Nice work"].waitForExistence(timeout: 8))
         let pendingCount = app.staticTexts["pending-offline-review-count"]
@@ -215,6 +217,20 @@ final class ConvoLabUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(openShortcuts.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testReviewCanEndAndReturnToStudy() {
+        let app = launchFixture("study-dashboard", reset: true)
+        let reviews = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reviews,")).firstMatch
+        XCTAssertTrue(reviews.waitForExistence(timeout: 8))
+        reviews.tap()
+        let end = app.buttons["StudyEndSessionButton"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        XCTAssertTrue(end.isHittable)
+        end.tap()
+        XCTAssertTrue(reviews.waitForExistence(timeout: 5))
+        XCTAssertFalse(end.exists)
     }
 
     @MainActor

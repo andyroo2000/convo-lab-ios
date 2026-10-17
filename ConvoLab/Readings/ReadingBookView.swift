@@ -1,11 +1,33 @@
 import SwiftUI
 
 struct ReadingBookView: View {
+    @Environment(\.dismiss) private var dismiss
     let id: String
     let store: ReadingStore
     let beforeAudio: () -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            backControl
+            chapters
+        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var backControl: some View {
+        HStack {
+            Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("reading-book-back")
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .foregroundStyle(ConvoLabTheme.navy)
+        .background(ConvoLabTheme.cream)
+    }
+
+    private var chapters: some View {
         List {
             if let book = store.book(id) {
                 Section {
@@ -39,9 +61,6 @@ struct ReadingBookView: View {
             }
         }
         .paperBackground()
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbarColorScheme(.light, for: .navigationBar)
         .task { await store.loadBook(id) }
         .refreshable { await store.loadBook(id) }
     }

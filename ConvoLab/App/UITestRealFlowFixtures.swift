@@ -278,7 +278,7 @@ private final class UITestRealFlowComposition: ObservableObject {
                 store: store,
                 player: player,
                 timeStore: timeStore
-            )),
+            ).modifier(AppModeHeader(selection: .constant(.study)))),
             [
                 container,
                 timeContainer,

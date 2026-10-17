@@ -62,3 +62,36 @@ struct AppModePicker: View {
         }
     }
 }
+
+struct AppModeActionKey: PreferenceKey {
+    static var defaultValue: AnyView? { nil }
+    static func reduce(value: inout AnyView?, nextValue: () -> AnyView?) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct HasAppModeHeaderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var hasAppModeHeader: Bool {
+        get { self[HasAppModeHeaderKey.self] }
+        set { self[HasAppModeHeaderKey.self] = newValue }
+    }
+}
+
+struct AppModeHeader: ViewModifier {
+    @Binding var selection: AppMode
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            AppModePicker(selection: $selection)
+            content
+        }
+        .environment(\.hasAppModeHeader, true)
+        .overlayPreferenceValue(AppModeActionKey.self, alignment: .topTrailing) { action in
+            action.padding(.trailing, 20)
+        }
+    }
+}

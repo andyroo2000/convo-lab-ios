@@ -163,9 +163,7 @@ private struct MainModeView: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            AppModePicker(selection: tabSelection)
-        }
+        .modifier(AppModeHeader(selection: tabSelection))
         .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
     }
