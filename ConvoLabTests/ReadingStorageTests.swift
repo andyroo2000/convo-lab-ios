@@ -33,6 +33,28 @@ final class ReadingStorageTests: XCTestCase {
     }
 
     @MainActor
+    func testDamagedDocumentCachePreservesIndependentPendingPositions() throws {
+        let owner = -303
+        defer { try? ReadingLocalStorage.remove(userID: owner) }
+        try ReadingLocalStorage.remove(userID: owner)
+        let storage = ReadingLocalStorage(userID: owner)
+        let position = ReadingPosition(readingId: "reading", pageNumber: 24, sentenceIndex: nil,
+                                       readingRevision: 1, eventId: UUID().uuidString, readAt: Date())
+        var snapshot = ReadingSnapshot()
+        snapshot.pending["reading"] = position
+        try storage.save(snapshot)
+        let directory = URL.applicationSupportDirectory.appending(path: "Readings/\(owner)")
+        let cache = directory.appending(path: "library.json")
+        try Data("damaged document cache".utf8).write(to: cache)
+        let restored = try storage.load()
+        XCTAssertEqual(restored.pending["reading"]?.eventId, position.eventId)
+        try storage.savePositions(restored)
+        XCTAssertEqual(try String(contentsOf: cache, encoding: .utf8), "damaged document cache")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertTrue(backups.contains { $0.hasPrefix("library.json.recovery-") })
+    }
+
+    @MainActor
     func testNewerPositionOrderingMatchesServerTieBreak() {
         let date = Date(timeIntervalSince1970: 1000)
         let first = ReadingPosition(readingId: "reading", pageNumber: 24, sentenceIndex: 0,

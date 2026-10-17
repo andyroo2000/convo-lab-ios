@@ -90,7 +90,7 @@ final class ReadingStore {
         snapshot.positions[reading.id] = position
         snapshot.pending[reading.id] = position
         snapshot.resume = ReadingContinue(id: reading.id, title: reading.title, position: position)
-        persist()
+        persistPositions()
     }
 
     func synchronizePositions() async {
@@ -113,7 +113,7 @@ final class ReadingStore {
                 }
                 acceptPosition(acknowledged)
                 errorMessage = nil
-                persist()
+                persistPositions()
             } catch {
                 report(error)
                 failure = errorMessage
@@ -154,6 +154,11 @@ final class ReadingStore {
         guard let item else { return }
         if let local = snapshot.resume, local.position.isNewer(than: item.position) { return }
         snapshot.resume = item
+    }
+
+    private func persistPositions() {
+        do { try storage.savePositions(snapshot) }
+        catch { errorMessage = "Could not save your reading position on this device: \(error.localizedDescription)" }
     }
 
     private func persist() {

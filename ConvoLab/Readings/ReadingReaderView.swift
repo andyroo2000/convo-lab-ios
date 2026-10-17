@@ -41,7 +41,10 @@ struct ReadingReaderView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { controls } }
         .task { await openReading() }
         .onDisappear { finish() }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in player.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+            let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            if type == AVAudioSession.InterruptionType.began.rawValue { player.stop() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
             let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { player.stop() }
@@ -138,10 +141,7 @@ struct ReadingReaderView: View {
         }
         guard !initialized else { return }
         restorePosition()
-        if let reading {
-            initialized = true
-            record(reading)
-        }
+        if reading != nil { initialized = true }
     }
 
     private func restorePosition() {

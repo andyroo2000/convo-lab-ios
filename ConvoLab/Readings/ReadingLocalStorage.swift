@@ -10,6 +10,12 @@ struct ReadingSnapshot: Codable {
     var resume: ReadingContinue?
 }
 
+private struct ReadingPositionState: Codable {
+    let positions: [String: ReadingPosition]
+    let pending: [String: ReadingPosition]
+    let resume: ReadingContinue?
+}
+
 struct ReadingLocalStorage {
     let userID: Int
     private var directory: URL {
@@ -20,15 +26,41 @@ struct ReadingLocalStorage {
     }
 
     func load() throws -> ReadingSnapshot {
-        let url = directory.appending(path: "library.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return ReadingSnapshot() }
-        return try JSONDecoder().decode(ReadingSnapshot.self, from: Data(contentsOf: url))
+        var snapshot = (try? read(ReadingSnapshot.self, name: "library.json")) ?? ReadingSnapshot()
+        if let positions = try read(ReadingPositionState.self, name: "positions.json") {
+            snapshot.positions = positions.positions
+            snapshot.pending = positions.pending
+            snapshot.resume = positions.resume
+        }
+        return snapshot
+    }
+
+    private func read<T: Decodable>(_ type: T.Type, name: String) throws -> T? {
+        let url = directory.appending(path: name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do { return try JSONDecoder().decode(type, from: Data(contentsOf: url)) }
+        catch {
+            // Preserve unreadable state for recovery before allowing any later save.
+            let backup = directory.appending(path: "\(name).recovery-\(UUID().uuidString)")
+            try FileManager.default.copyItem(at: url, to: backup)
+            throw error
+        }
     }
 
     func save(_ snapshot: ReadingSnapshot) throws {
+        try write(snapshot, name: "library.json")
+        try savePositions(snapshot)
+    }
+
+    func savePositions(_ snapshot: ReadingSnapshot) throws {
+        let state = ReadingPositionState(positions: snapshot.positions, pending: snapshot.pending, resume: snapshot.resume)
+        try write(state, name: "positions.json")
+    }
+
+    private func write<T: Encodable>(_ value: T, name: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(snapshot)
-        try data.write(to: directory.appending(path: "library.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        let data = try JSONEncoder().encode(value)
+        try data.write(to: directory.appending(path: name), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         var url = directory
         var values = URLResourceValues()
         values.isExcludedFromBackup = true

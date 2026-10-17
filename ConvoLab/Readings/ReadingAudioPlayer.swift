@@ -41,7 +41,11 @@ final class ReadingAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor [weak self] in self?.stop() }
+        let finished = ObjectIdentifier(player)
+        Task { @MainActor [weak self] in
+            guard let self, self.player.map(ObjectIdentifier.init) == finished else { return }
+            stop()
+        }
     }
 
     func stop() {
