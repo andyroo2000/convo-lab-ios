@@ -83,6 +83,7 @@ struct ReadingReaderView: View {
             .simultaneousGesture(DragGesture(minimumDistance: 65).onEnded { gesture in
                 guard format != .original,
                       abs(gesture.translation.width) > abs(gesture.translation.height) * 2 else { return }
+                // Match the requested Japanese book paging: left goes back, right advances.
                 movePage(gesture.translation.width < 0 ? -1 : 1)
             })
             if let message = store.errorMessage {

@@ -220,6 +220,33 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testEndingReviewPreservesCompletedWorkAndClearsModeAction() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-review-navigation"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let end = app.buttons["StudyEndSessionButton"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["Readings"].tap()
+        XCTAssertTrue(app.staticTexts["Readings landing"].waitForExistence(timeout: 5))
+        XCTAssertFalse(end.exists)
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["Study"].tap()
+        XCTAssertTrue(end.waitForExistence(timeout: 5))
+        app.buttons["Show Answer"].tap()
+        app.buttons["Good"].tap()
+        XCTAssertTrue(app.staticTexts["Pending offline reviews: 1"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 8))
+        end.tap()
+        XCTAssertTrue(app.buttons["Review cards"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Pending offline reviews: 1"].exists)
+        XCTAssertTrue(app.staticTexts["Timer stopped"].exists)
+        XCTAssertTrue(app.staticTexts["Time record saved"].exists)
+        XCTAssertFalse(end.exists)
+    }
+
+    @MainActor
     func testReviewCanEndAndReturnToStudy() {
         let app = launchFixture("study-dashboard", reset: true)
         let reviews = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reviews,")).firstMatch

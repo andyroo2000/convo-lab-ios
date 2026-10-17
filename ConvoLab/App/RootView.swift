@@ -135,6 +135,7 @@ private struct MainModeView: View {
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime
                 )
+                .environment(\.appModeDestination, .cards)
                 .toolbar(.hidden, for: .tabBar)
             }
             Tab("Daily Audio", systemImage: "headphones", value: AppMode.dailyAudio) {
