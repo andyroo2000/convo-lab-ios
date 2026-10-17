@@ -60,3 +60,21 @@ Use the same simulator, Xcode, build configuration, workload, and idle host for 
 comparison. Do not run compilers or other tests concurrently. Keep all repetitions
 and report medians and ranges. The test prints `SYNC_PERFORMANCE_JSON` and retains
 `sync-performance-metrics.json` as an XCTest attachment in the result bundle.
+
+## Baseline: 2026-10-17
+
+Production source: `4ff481d42f828c5be225355702f7d0ef3f1dec16`; benchmark revision:
+`ecdd6c8`. Xcode 26.2, iOS 26.2 simulator, Debug, three serial repetitions with no
+concurrent builds/tests. Raw measurements: [baseline.json](baseline.json).
+
+| Metric (median; range) | Cold | Warm | Delta |
+| --- | --- | --- | --- |
+| Sync elapsed, ms | 31,629.8; 31,398.1–31,988.9 | 3,178.7; 3,158.5–3,260.6 | 3,581.6; 3,556.9–3,613.2 |
+| Maximum main-actor gap, ms | 1,204.1; 1,194.6–1,226.2 | 1,603.0; 1,598.6–1,652.8 | 1,629.2; 1,621.8–1,641.8 |
+| HTTP requests | 133 | 4 | 9 |
+| Decoded media bytes downloaded | 8,192,000 | 0 | 0 |
+
+An earlier exploratory run overlapped another compiler job and is excluded from
+this baseline. Cached activation is a same-container deactivate/reactivate path;
+it is not a fresh-process cold SQLite launch. Media payloads are opaque bytes for
+transfer/persistence testing, not playable assets or a rendering workload.
