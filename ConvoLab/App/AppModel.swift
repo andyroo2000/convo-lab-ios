@@ -191,9 +191,6 @@ final class AppModel {
                         return false
                     }
                 },
-                .milestones: { userID in
-                    return true
-                },
             ]
         )
         let audioPlayer = makeAudioPlayer()

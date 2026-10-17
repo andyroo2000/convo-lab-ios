@@ -188,7 +188,6 @@ final class AccountDeletionCleanupTests: XCTestCase {
         }
         let pending = AccountDeletionCleanupLedger(defaults: defaults).pendingItems
         let expectedPendingDomains = Set(AccountDeletionCleanupDomain.allCases)
-            .subtracting([.milestones])
         XCTAssertEqual(pending.count, expectedPendingDomains.count)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
@@ -199,7 +198,6 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertTrue(expectedPendingDomains.allSatisfy { domain in
             pending.contains { $0.userID == fixture.user.id && $0.domain == domain }
         })
-        XCTAssertFalse(pending.contains { $0.domain == .milestones })
         await model.retryAccountDeletionCleanup()
         XCTAssertEqual(model.accountDeletionCleanupStatus, .cleanupRequired)
         XCTAssertEqual(model.accountDeletionCleanupFailures.count, pending.count)
