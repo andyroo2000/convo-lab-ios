@@ -66,8 +66,9 @@ final class ReadingStorageTests: XCTestCase {
         let directory = URL.applicationSupportDirectory.appending(path: "Readings/\(owner)")
         try Data("damaged position file".utf8).write(to: directory.appending(path: "positions.json"))
         XCTAssertEqual(try storage.load().library[1]?.data.first?.id, "story")
+        XCTAssertNotNil(try storage.load().recoveryMessage)
         let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        XCTAssertTrue(backups.contains { $0.hasPrefix("positions.json.recovery-") })
+        XCTAssertEqual(backups.filter { $0.hasPrefix("positions.json.recovery-") }.count, 1)
     }
 
     @MainActor

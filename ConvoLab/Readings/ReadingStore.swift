@@ -18,6 +18,7 @@ final class ReadingStore {
         storage = ReadingLocalStorage(userID: userID)
         do {
             snapshot = try storage.load()
+            errorMessage = snapshot.recoveryMessage
         } catch {
             snapshot = ReadingSnapshot()
             errorMessage = "Saved readings could not be opened: \(error.localizedDescription)"

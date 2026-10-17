@@ -9,6 +9,7 @@ struct ReadingSnapshot: Codable {
     var pending: [String: ReadingPosition] = [:]
     var rejected: [String: ReadingPosition]?
     var resume: ReadingContinue?
+    var recoveryMessage: String?
 }
 
 private struct ReadingPositionState: Codable {
@@ -28,13 +29,17 @@ struct ReadingLocalStorage {
     }
 
     func load() throws -> ReadingSnapshot {
-        var snapshot = (try? read(ReadingSnapshot.self, name: "library.json")) ?? ReadingSnapshot()
-        if let positions = try? read(ReadingPositionState.self, name: "positions.json") {
-            snapshot.positions = positions.positions
-            snapshot.pending = positions.pending
-            snapshot.rejected = positions.rejected
-            snapshot.resume = positions.resume
-        }
+        var snapshot = ReadingSnapshot()
+        do { snapshot = try read(ReadingSnapshot.self, name: "library.json") ?? snapshot }
+        catch { snapshot.recoveryMessage = "Saved book content could not be opened. A recovery copy was preserved." }
+        do {
+            if let positions = try read(ReadingPositionState.self, name: "positions.json") {
+                snapshot.positions = positions.positions
+                snapshot.pending = positions.pending
+                snapshot.rejected = positions.rejected
+                snapshot.resume = positions.resume
+            }
+        } catch { snapshot.recoveryMessage = "Saved reading positions could not be opened. A recovery copy was preserved." }
         return snapshot
     }
 
@@ -44,8 +49,12 @@ struct ReadingLocalStorage {
         do { return try JSONDecoder().decode(type, from: Data(contentsOf: url)) }
         catch {
             // Preserve unreadable state for recovery before allowing any later save.
-            let backup = directory.appending(path: "\(name).recovery-\(UUID().uuidString)")
-            try FileManager.default.copyItem(at: url, to: backup)
+            let bytes = try Data(contentsOf: url)
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            let backup = directory.appending(path: "\(name).recovery-\(digest)")
+            if !FileManager.default.fileExists(atPath: backup.path) {
+                try FileManager.default.copyItem(at: url, to: backup)
+            }
             throw error
         }
     }
