@@ -1,0 +1,302 @@
+[
+  {
+    "activationMS": 6.557875,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 29456.295,
+      "firstSessionVisibleMS": 28022.910042,
+      "heartbeatSamples": 216,
+      "mainActorGapsOver50MS": 41,
+      "mainActorMaxGapMS": 1362.763083,
+      "mainActorP95GapMS": 915.3475
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 463.778833,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2774.2965,
+      "firstSessionVisibleMS": 58.9655,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 4,
+      "mainActorMaxGapMS": 1254.489875,
+      "mainActorP95GapMS": 867.163625
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3080.356792,
+      "firstSessionVisibleMS": 38.749084,
+      "heartbeatSamples": 30,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1246.3359169999999,
+      "mainActorP95GapMS": 425.668958
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.696125,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 28896.662667,
+      "firstSessionVisibleMS": 27597.019333,
+      "heartbeatSamples": 214,
+      "mainActorGapsOver50MS": 42,
+      "mainActorMaxGapMS": 1228.932167,
+      "mainActorP95GapMS": 918.897083
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 459.807125,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2751.9910840000002,
+      "firstSessionVisibleMS": 53.994667,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 4,
+      "mainActorMaxGapMS": 1243.2639159999999,
+      "mainActorP95GapMS": 862.575334
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3049.084917,
+      "firstSessionVisibleMS": 37.4445,
+      "heartbeatSamples": 29,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1241.790875,
+      "mainActorP95GapMS": 422.621917
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.662125,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 28962.470291999998,
+      "firstSessionVisibleMS": 27649.4605,
+      "heartbeatSamples": 214,
+      "mainActorGapsOver50MS": 42,
+      "mainActorMaxGapMS": 1240.888625,
+      "mainActorP95GapMS": 910.705709
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 1940782
+    }
+  },
+  {
+    "activationMS": 461.18675,
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2753.969708,
+      "firstSessionVisibleMS": 49.066375,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 3,
+      "mainActorMaxGapMS": 1237.111458,
+      "mainActorP95GapMS": 875.071584
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 0,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 0,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 3078.905125,
+      "firstSessionVisibleMS": 35.057584,
+      "heartbeatSamples": 30,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1257.862917,
+      "mainActorP95GapMS": 422.27375
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  }
+]

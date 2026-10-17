@@ -1,0 +1,305 @@
+[
+  {
+    "activationMS": 6.797542,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 30929.639041,
+      "firstSessionVisibleMS": 27803.854916,
+      "heartbeatSamples": 346,
+      "mainActorGapsOver50MS": 43,
+      "mainActorMaxGapMS": 1215.2092499999999,
+      "mainActorP95GapMS": 695.755333
+    },
+    "traffic": {
+      "mediaBytes": 8192000,
+      "mediaItems": 1000,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/media/batch": 50,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 12936332
+    }
+  },
+  {
+    "activationMS": 466.41575,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2549.473875,
+      "firstSessionVisibleMS": 29.570708,
+      "heartbeatSamples": 18,
+      "mainActorGapsOver50MS": 3,
+      "mainActorMaxGapMS": 1297.347583,
+      "mainActorP95GapMS": 631.672167
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 1,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2903.080041,
+      "firstSessionVisibleMS": 41.07575,
+      "heartbeatSamples": 29,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1280.945541,
+      "mainActorP95GapMS": 427.839875
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.699375,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 30566.878458,
+      "firstSessionVisibleMS": 27465.079292,
+      "heartbeatSamples": 349,
+      "mainActorGapsOver50MS": 44,
+      "mainActorMaxGapMS": 1200.801291,
+      "mainActorP95GapMS": 692.536542
+    },
+    "traffic": {
+      "mediaBytes": 8192000,
+      "mediaItems": 1000,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/media/batch": 50,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 12936332
+    }
+  },
+  {
+    "activationMS": 457.6515,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2553.216375,
+      "firstSessionVisibleMS": 27.387375,
+      "heartbeatSamples": 17,
+      "mainActorGapsOver50MS": 3,
+      "mainActorMaxGapMS": 1306.596708,
+      "mainActorP95GapMS": 629.828792
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 2,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2915.4750830000003,
+      "firstSessionVisibleMS": 36.629333,
+      "heartbeatSamples": 29,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1296.263292,
+      "mainActorP95GapMS": 425.279958
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  },
+  {
+    "activationMS": 0.729292,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "cold",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 30505.545042,
+      "firstSessionVisibleMS": 27490.69325,
+      "heartbeatSamples": 340,
+      "mainActorGapsOver50MS": 43,
+      "mainActorMaxGapMS": 1197.6266249999999,
+      "mainActorP95GapMS": 718.223542
+    },
+    "traffic": {
+      "mediaBytes": 8192000,
+      "mediaItems": 1000,
+      "requestsByPath": {
+        "/api/study/cards/batch": 40,
+        "/api/study/known-kanji": 1,
+        "/api/study/media/batch": 50,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 40
+      },
+      "responseBytes": 12936332
+    }
+  },
+  {
+    "activationMS": 460.874083,
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2000,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "warm",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2545.650542,
+      "firstSessionVisibleMS": 26.103083,
+      "heartbeatSamples": 17,
+      "mainActorGapsOver50MS": 3,
+      "mainActorMaxGapMS": 1297.669875,
+      "mainActorP95GapMS": 631.517042
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 1
+      },
+      "responseBytes": 354318
+    }
+  },
+  {
+    "activeCardCount": 100,
+    "cachedMediaCount": 1000,
+    "cardCount": 2000,
+    "checkpoint": 2120,
+    "iteration": 3,
+    "mediaBytesPerItem": 8192,
+    "persistedCardCount": 2000,
+    "phase": "delta",
+    "preparedCardCount": 500,
+    "reserveCardCount": 400,
+    "simulatedRequestLatencyMS": 20,
+    "timing": {
+      "elapsedMS": 2909.239083,
+      "firstSessionVisibleMS": 37.094125,
+      "heartbeatSamples": 30,
+      "mainActorGapsOver50MS": 6,
+      "mainActorMaxGapMS": 1294.631291,
+      "mainActorP95GapMS": 422.826625
+    },
+    "traffic": {
+      "mediaBytes": 0,
+      "mediaItems": 0,
+      "requestsByPath": {
+        "/api/study/cards/batch": 3,
+        "/api/study/known-kanji": 1,
+        "/api/study/offline-reserve": 1,
+        "/api/study/session/start": 1,
+        "/api/sync/feed": 3
+      },
+      "responseBytes": 442326
+    }
+  }
+]
