@@ -52,6 +52,7 @@ final class ReadingStore {
             guard generation == loadGeneration else { return }
             page = targetPage
             snapshot.library[targetPage] = result
+            persist()
             let continuation: ReadingContinueResponse = try await api.request("/api/reading-progress")
             try checkSession()
             acceptResume(continuation.continue)
@@ -89,6 +90,7 @@ final class ReadingStore {
                                        readingRevision: reading.revision, eventId: UUID().uuidString.lowercased(), readAt: Date())
         snapshot.positions[reading.id] = position
         snapshot.pending[reading.id] = position
+        snapshot.rejected?.removeValue(forKey: reading.id)
         snapshot.resume = ReadingContinue(id: reading.id, title: reading.title, position: position)
         persistPositions()
     }
@@ -119,8 +121,17 @@ final class ReadingStore {
                 failure = errorMessage
                 guard isPositionRejection(error) else { return }
                 rejected.insert(pending.readingId)
+                retainRejected(pending)
             }
         }
+    }
+
+    private func retainRejected(_ position: ReadingPosition) {
+        guard snapshot.pending[position.readingId]?.eventId == position.eventId else { return }
+        if snapshot.rejected == nil { snapshot.rejected = [:] }
+        snapshot.rejected?[position.readingId] = position
+        snapshot.pending.removeValue(forKey: position.readingId)
+        persistPositions()
     }
 
     private func isPositionRejection(_ error: any Error) -> Bool {

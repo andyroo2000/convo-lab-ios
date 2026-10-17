@@ -90,9 +90,18 @@ final class ReadingSyncTests: XCTestCase {
             return (HTTPURLResponse(url: request.url!, statusCode: rejected ? 409 : 200, httpVersion: nil, headerFields: nil)!, data)
         }
         await store.synchronizePositions()
-        XCTAssertNotNil(store.snapshot.pending["reading"])
+        XCTAssertNil(store.snapshot.pending["reading"])
+        XCTAssertNotNil(store.snapshot.rejected?["reading"])
         XCTAssertNil(store.snapshot.pending["other"])
         XCTAssertNotNil(store.errorMessage)
+        store.record(reading(), pageNumber: 25, sentence: nil)
+        XCTAssertNil(store.snapshot.rejected?["reading"])
+        let retry = try Self.acknowledgement(XCTUnwrap(store.snapshot.pending["reading"]))
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, retry)
+        }
+        await store.synchronizePositions()
+        XCTAssertTrue(store.snapshot.pending.isEmpty)
     }
 
     @MainActor

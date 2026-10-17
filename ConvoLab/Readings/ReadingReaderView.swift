@@ -50,7 +50,7 @@ struct ReadingReaderView: View {
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { player.stop() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { finish() }
+            if phase == .background { finish() }
         }
         .alert("Audio unavailable", isPresented: Binding(get: { player.errorMessage != nil }, set: { if !$0 { player.errorMessage = nil } })) {
             Button("OK", role: .cancel) { player.errorMessage = nil }

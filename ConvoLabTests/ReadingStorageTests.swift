@@ -55,6 +55,22 @@ final class ReadingStorageTests: XCTestCase {
     }
 
     @MainActor
+    func testDamagedPositionFileRetainsValidLibraryAndRecoveryCopy() throws {
+        let owner = -304
+        defer { try? ReadingLocalStorage.remove(userID: owner) }
+        try ReadingLocalStorage.remove(userID: owner)
+        let storage = ReadingLocalStorage(userID: owner)
+        var snapshot = ReadingSnapshot()
+        snapshot.library[1] = ReadingLibraryPage(data: [.init(id: "story", title: "Story", kind: "reading")], currentPage: 1, lastPage: 1)
+        try storage.save(snapshot)
+        let directory = URL.applicationSupportDirectory.appending(path: "Readings/\(owner)")
+        try Data("damaged position file".utf8).write(to: directory.appending(path: "positions.json"))
+        XCTAssertEqual(try storage.load().library[1]?.data.first?.id, "story")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertTrue(backups.contains { $0.hasPrefix("positions.json.recovery-") })
+    }
+
+    @MainActor
     func testNewerPositionOrderingMatchesServerTieBreak() {
         let date = Date(timeIntervalSince1970: 1000)
         let first = ReadingPosition(readingId: "reading", pageNumber: 24, sentenceIndex: 0,

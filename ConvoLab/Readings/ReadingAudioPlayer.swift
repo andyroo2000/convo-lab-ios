@@ -36,7 +36,11 @@ final class ReadingAudioPlayer: NSObject, AVAudioPlayerDelegate {
                 guard player.play() else { throw APIClientError.invalidResponse }
             } catch is CancellationError {
                 return
-            } catch { errorMessage = error.localizedDescription }
+            } catch {
+                guard requestGeneration == generation else { return }
+                stop()
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

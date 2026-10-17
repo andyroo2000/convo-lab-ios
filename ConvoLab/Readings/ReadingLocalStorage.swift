@@ -7,12 +7,14 @@ struct ReadingSnapshot: Codable {
     var documents: [String: ReadingDetail] = [:]
     var positions: [String: ReadingPosition] = [:]
     var pending: [String: ReadingPosition] = [:]
+    var rejected: [String: ReadingPosition]?
     var resume: ReadingContinue?
 }
 
 private struct ReadingPositionState: Codable {
     let positions: [String: ReadingPosition]
     let pending: [String: ReadingPosition]
+    let rejected: [String: ReadingPosition]?
     let resume: ReadingContinue?
 }
 
@@ -27,9 +29,10 @@ struct ReadingLocalStorage {
 
     func load() throws -> ReadingSnapshot {
         var snapshot = (try? read(ReadingSnapshot.self, name: "library.json")) ?? ReadingSnapshot()
-        if let positions = try read(ReadingPositionState.self, name: "positions.json") {
+        if let positions = try? read(ReadingPositionState.self, name: "positions.json") {
             snapshot.positions = positions.positions
             snapshot.pending = positions.pending
+            snapshot.rejected = positions.rejected
             snapshot.resume = positions.resume
         }
         return snapshot
@@ -53,7 +56,7 @@ struct ReadingLocalStorage {
     }
 
     func savePositions(_ snapshot: ReadingSnapshot) throws {
-        let state = ReadingPositionState(positions: snapshot.positions, pending: snapshot.pending, resume: snapshot.resume)
+        let state = ReadingPositionState(positions: snapshot.positions, pending: snapshot.pending, rejected: snapshot.rejected, resume: snapshot.resume)
         try write(state, name: "positions.json")
     }
 
