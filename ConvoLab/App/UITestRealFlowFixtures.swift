@@ -72,7 +72,7 @@ private final class UITestRealFlowComposition: ObservableObject {
             try calendarConnection()
         case .studyDashboard:
             try studyDashboard()
-        case .loginScreen:
+        case .loginScreen, .readings:
             (AnyView(EmptyView()), [])
         case .loginRestoration, .offlineReview, .createCardRecovery, .dailyAudioPlayback:
             preconditionFailure("Primary UI-test fixtures must be composed by makeResult")

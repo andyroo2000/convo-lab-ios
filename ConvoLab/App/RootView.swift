@@ -87,6 +87,7 @@ struct RootView: View {
             LoginView(auth: model.auth) {
                 await model.synchronize()
             }
+            .preferredColorScheme(.light)
         case let .signedIn(user):
             MainModeView(model: model, user: user)
         }
@@ -144,6 +145,14 @@ private struct MainModeView: View {
                 )
                 .toolbar(.hidden, for: .tabBar)
             }
+            Tab("Readings", systemImage: "book.closed", value: AppMode.readings) {
+                ReadingLibraryView(api: model.api, userID: user.id) {
+                    model.audioPlayer.stop()
+                    model.studyAudioPlayer.stop()
+                }
+                .id("\(user.id):\(model.api.accessToken ?? "")")
+                .toolbar(.hidden, for: .tabBar)
+            }
             Tab("Time", systemImage: "clock.fill", value: AppMode.time) {
                 StudyTimeView(store: model.studyTime, studyStore: model.study)
                     .toolbar(.hidden, for: .tabBar)
@@ -157,6 +166,7 @@ private struct MainModeView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             AppModePicker(selection: tabSelection)
         }
+        .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
     }
 }

@@ -5,6 +5,7 @@ import SwiftUI
 /// the production AppModel graph; feature-specific compositions can supply isolated
 /// stores and dependencies without opening normal SwiftData stores or audio services.
 enum UITestFixture: String {
+    case readings = "readings"
     case loginScreen = "login-screen"
     case loginRestoration = "login-restoration"
     case offlineReview = "offline-review"
@@ -28,6 +29,8 @@ struct UITestFixtureView: View {
 
     var body: some View {
         switch fixture {
+        case .readings:
+            UITestReadingFixture()
         case .loginScreen:
             UITestLoginScreenFixture()
         case .loginRestoration, .offlineReview, .createCardRecovery,
