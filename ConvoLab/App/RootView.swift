@@ -88,25 +88,17 @@ struct RootView: View {
                 await model.synchronize()
             }
         case let .signedIn(user):
-            MainTabView(model: model, user: user)
+            MainModeView(model: model, user: user)
         }
     }
 }
 
-private struct MainTabView: View {
-    private enum MainTab: Hashable {
-        case study
-        case cards
-        case dailyAudio
-        case time
-        case settings
-    }
-
+private struct MainModeView: View {
     let model: AppModel
     let user: CurrentUser
-    @State private var selectedTab: MainTab = .study
+    @State private var selectedTab: AppMode = .study
 
-    private var tabSelection: Binding<MainTab> {
+    private var tabSelection: Binding<AppMode> {
         Binding(
             get: { selectedTab },
             set: { newTab in
@@ -128,33 +120,42 @@ private struct MainTabView: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            Tab("Study", systemImage: "rectangle.stack.fill", value: MainTab.study) {
+            Tab("Study", systemImage: "rectangle.stack.fill", value: AppMode.study) {
                 StudyHomeView(
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime
                 )
+                .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Cards", systemImage: "square.and.pencil", value: MainTab.cards) {
+            Tab("Cards", systemImage: "square.and.pencil", value: AppMode.cards) {
                 CardLibraryView(
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime
                 )
+                .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Daily Audio", systemImage: "headphones", value: MainTab.dailyAudio) {
+            Tab("Daily Audio", systemImage: "headphones", value: AppMode.dailyAudio) {
                 DailyAudioView(
                     store: model.dailyAudio,
                     player: model.audioPlayer,
                     capabilities: model.study.capabilities.dailyAudio
                 )
+                .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Time", systemImage: "clock.fill", value: MainTab.time) {
+            Tab("Time", systemImage: "clock.fill", value: AppMode.time) {
                 StudyTimeView(store: model.studyTime, studyStore: model.study)
+                    .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Settings", systemImage: "gearshape.fill", value: MainTab.settings) {
+            Tab("Settings", systemImage: "gearshape.fill", value: AppMode.settings) {
                 SettingsView(model: model, user: user)
+                    .toolbar(.hidden, for: .tabBar)
             }
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppModePicker(selection: tabSelection)
         }
         .tint(ConvoLabTheme.navy)
     }
