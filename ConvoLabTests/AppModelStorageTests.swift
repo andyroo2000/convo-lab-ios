@@ -241,6 +241,73 @@ final class AppModelStorageTests: XCTestCase {
         Self.retainedObservableStores.append(model)
     }
 
+    func testStartupForegroundAndStudySurfaceShareCapabilityGatedStartup() async throws {
+        let paths = LockedRequestPaths()
+        let capability = LockedDeferredResponse()
+        let capabilityStarted = expectation(description: "Capabilities requested once")
+        MockURLProtocol.handler = nil
+        MockURLProtocol.deferredHandler = { request, completion in
+            let path = request.url?.path ?? ""
+            paths.append(path)
+            if path == "/api/study/capabilities" {
+                capability.hold(completion)
+                capabilityStarted.fulfill()
+            } else {
+                completion(.failure(URLError(.notConnectedToInternet)))
+            }
+        }
+        defer { Self.resetMockURLProtocol() }
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let credentials = try makeCachedCredentials()
+        let defaultsName = "AppModelStorageTests.lifecycle.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let model = AppModel(
+            configuration: testConfiguration(),
+            makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },
+            makeStudyTimeContainer: { _ in
+                try StudyTimePersistence.makeContainer(inMemory: true)
+            },
+            makeAPIClient: { baseURL in
+                APIClient(baseURL: baseURL, session: URLSession(configuration: sessionConfiguration))
+            },
+            makeAuthStore: { AuthStore(api: $0, keychain: credentials) },
+            accountDeletionCleanupDefaults: defaults
+        )
+        let firstStart = Task { await model.start() }
+        await fulfillment(of: [capabilityStarted], timeout: 2)
+        let waiting = expectation(description: "Other lifecycle callbacks waiting")
+        waiting.expectedFulfillmentCount = 3
+        let secondStart = Task {
+            waiting.fulfill()
+            await model.start()
+        }
+        let active = Task {
+            waiting.fulfill()
+            await model.applicationDidBecomeActive()
+        }
+        let surface = Task {
+            waiting.fulfill()
+            await model.refreshStudyIfNeeded()
+        }
+        await fulfillment(of: [waiting], timeout: 2)
+        XCTAssertFalse(paths.values.contains("/api/sync/feed"))
+        capability.succeed(with: Self.response(
+            url: URL(string: "https://example.com/api/study/capabilities")!,
+            data: try JSONEncoder().encode(StudyCapabilities.fallback)
+        ))
+        await firstStart.value
+        await secondStart.value
+        await active.value
+        await surface.value
+        XCTAssertEqual(paths.values.filter { $0 == "/api/me" }.count, 1)
+        XCTAssertEqual(paths.values.filter { $0 == "/api/study/capabilities" }.count, 1)
+        XCTAssertEqual(paths.values.filter { $0 == "/api/daily-audio-practice" }.count, 1)
+        XCTAssertTrue(paths.values.contains("/api/sync/feed"))
+        Self.retainedObservableStores.append(model)
+    }
+
     func testLaunchReportsMainStoreFallbackAndRejectsCardWrites() async throws {
         let model = AppModel(
             configuration: testConfiguration(),

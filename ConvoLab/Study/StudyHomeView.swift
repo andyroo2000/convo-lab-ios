@@ -4,6 +4,7 @@ struct StudyHomeView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
+    var automaticSynchronization: (() async -> Void)? = nil
     @State private var showingFailedChanges = false
 
     var body: some View {
@@ -278,7 +279,11 @@ struct StudyHomeView: View {
     }
 
     private func refreshStudyIfNeeded() async {
-        await store.synchronizeIfNeeded(maxAge: .seconds(60))
+        if let automaticSynchronization {
+            await automaticSynchronization()
+        } else {
+            await store.synchronizeIfNeeded(maxAge: .seconds(60))
+        }
         guard !Task.isCancelled else { return }
         await refreshWaniKaniIfNeeded()
     }
