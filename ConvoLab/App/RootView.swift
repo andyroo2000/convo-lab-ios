@@ -135,6 +135,7 @@ private struct MainModeView: View {
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime
                 )
+                .environment(\.appModeDestination, .cards)
                 .toolbar(.hidden, for: .tabBar)
             }
             Tab("Daily Audio", systemImage: "headphones", value: AppMode.dailyAudio) {
@@ -163,9 +164,7 @@ private struct MainModeView: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            AppModePicker(selection: tabSelection)
-        }
+        .modifier(AppModeHeader(selection: tabSelection))
         .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
     }

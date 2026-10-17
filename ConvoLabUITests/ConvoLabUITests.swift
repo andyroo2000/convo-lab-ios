@@ -40,8 +40,10 @@ final class ConvoLabUITests: XCTestCase {
     func testOfflineReviewRemainsQueuedAcrossRelaunch() {
         let app = launchFixture("offline-review", reset: true)
         XCTAssertTrue(app.textViews["復習する"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["StudyEndSessionButton"].isHittable)
         app.buttons["Show Answer"].tap()
         XCTAssertTrue(app.buttons["Good"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["StudyEndSessionButton"].isHittable)
         app.buttons["Good"].tap()
         XCTAssertTrue(app.staticTexts["Nice work"].waitForExistence(timeout: 8))
         let pendingCount = app.staticTexts["pending-offline-review-count"]
@@ -215,6 +217,64 @@ final class ConvoLabUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(openShortcuts.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testEndingReviewPreservesCompletedWorkAndClearsModeAction() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-review-navigation"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let end = app.buttons["StudyEndSessionButton"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["Readings"].tap()
+        XCTAssertTrue(app.staticTexts["Readings landing"].waitForExistence(timeout: 5))
+        XCTAssertFalse(end.exists)
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["Study"].tap()
+        XCTAssertTrue(end.waitForExistence(timeout: 5))
+        app.buttons["Show Answer"].tap()
+        app.buttons["Good"].tap()
+        XCTAssertTrue(app.staticTexts["Pending offline reviews: 1"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 8))
+        end.tap()
+        XCTAssertTrue(app.buttons["Review cards"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Pending offline reviews: 1"].exists)
+        XCTAssertTrue(app.staticTexts["Timer stopped"].exists)
+        XCTAssertTrue(app.staticTexts["Time record saved"].exists)
+        XCTAssertFalse(end.exists)
+    }
+
+    @MainActor
+    func testReviewHeaderFitsAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let end = app.buttons["StudyEndSessionButton"]
+        let picker = app.buttons["app-mode-picker"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        XCTAssertTrue(end.isHittable)
+        XCTAssertTrue(picker.isHittable)
+        XCTAssertLessThanOrEqual(picker.frame.maxX, end.frame.minX)
+        end.tap()
+        XCTAssertTrue(app.buttons["Review cards"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testReviewCanEndAndReturnToStudy() {
+        let app = launchFixture("study-dashboard", reset: true)
+        let reviews = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reviews,")).firstMatch
+        XCTAssertTrue(reviews.waitForExistence(timeout: 8))
+        reviews.tap()
+        let end = app.buttons["StudyEndSessionButton"]
+        XCTAssertTrue(end.waitForExistence(timeout: 8))
+        XCTAssertTrue(end.isHittable)
+        end.tap()
+        XCTAssertTrue(reviews.waitForExistence(timeout: 5))
+        XCTAssertFalse(end.exists)
     }
 
     @MainActor

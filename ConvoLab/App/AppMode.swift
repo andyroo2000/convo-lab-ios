@@ -26,6 +26,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
 
 struct AppModePicker: View {
     @Binding var selection: AppMode
+    var action: AppModeHeaderAction? = nil
 
     var body: some View {
         HStack {
@@ -43,7 +44,13 @@ struct AppModePicker: View {
             }
             .accessibilityLabel("Switch mode, \(selection.rawValue)")
             .accessibilityIdentifier("app-mode-picker")
-            Spacer()
+            Spacer(minLength: 12)
+            if let action {
+                Button("End session", action: action.perform)
+                    .frame(minHeight: 44)
+                    .disabled(!action.isEnabled)
+                    .accessibilityIdentifier("StudyEndSessionButton")
+            }
         }
         .padding(.horizontal, 20)
         .foregroundStyle(ConvoLabTheme.navy)
@@ -60,5 +67,57 @@ struct AppModePicker: View {
             .accessibilityAddTraits(mode == selection ? .isSelected : [])
             .accessibilityIdentifier("app-mode-\(mode)")
         }
+    }
+}
+
+struct AppModeHeaderAction: Equatable {
+    let id: UUID
+    let isEnabled: Bool
+    let perform: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.isEnabled == rhs.isEnabled
+    }
+}
+
+// Each mode has at most one active session publishing its header action.
+struct AppModeActionKey: PreferenceKey {
+    static var defaultValue: [AppMode: AppModeHeaderAction] { [:] }
+    static func reduce(value: inout [AppMode: AppModeHeaderAction], nextValue: () -> [AppMode: AppModeHeaderAction]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+private struct HasAppModeHeaderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct AppModeDestinationKey: EnvironmentKey {
+    static let defaultValue = AppMode.study
+}
+
+extension EnvironmentValues {
+    var appModeDestination: AppMode {
+        get { self[AppModeDestinationKey.self] }
+        set { self[AppModeDestinationKey.self] = newValue }
+    }
+
+    var hasAppModeHeader: Bool {
+        get { self[HasAppModeHeaderKey.self] }
+        set { self[HasAppModeHeaderKey.self] = newValue }
+    }
+}
+
+struct AppModeHeader: ViewModifier {
+    @Binding var selection: AppMode
+    @State private var actions: [AppMode: AppModeHeaderAction] = [:]
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            AppModePicker(selection: $selection, action: actions[selection])
+            content
+        }
+        .environment(\.hasAppModeHeader, true)
+        .onPreferenceChange(AppModeActionKey.self) { actions = $0 }
     }
 }

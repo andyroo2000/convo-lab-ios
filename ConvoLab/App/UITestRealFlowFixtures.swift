@@ -107,13 +107,20 @@ private final class UITestRealFlowComposition: ObservableObject {
     private static func offlineReview() throws -> Result {
         let container = try persistentContainer(named: "offline-review")
         if try container.mainContext.fetch(FetchDescriptor<LocalCardRecord>()).isEmpty {
-            let card = fixtureReviewCard
+            let card = fixtureReviewCard()
             container.mainContext.insert(LocalCardRecord(
                 card: card,
                 userID: userID,
                 queueIndex: 0,
                 payload: try StorageCodec.encoder.encode(card)
             ))
+            if ProcessInfo.processInfo.arguments.contains("-ui-test-review-navigation") {
+                let second = fixtureReviewCard(id: "01JUITESTOFFLINEREVIEW0001")
+                container.mainContext.insert(LocalCardRecord(
+                    card: second, userID: userID, queueIndex: 1,
+                    payload: try StorageCodec.encoder.encode(second)
+                ))
+            }
             try container.mainContext.save()
         }
         let api = mockAPI()
@@ -133,9 +140,7 @@ private final class UITestRealFlowComposition: ObservableObject {
         )
         let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
         return (
-            AnyView(NavigationStack {
-                UITestOfflineReviewFixture(store: store, player: player)
-            }),
+            AnyView(UITestOfflineReviewFixture(store: store, player: player)),
             [container, api, mediaCache, store, player]
         )
     }
@@ -278,7 +283,7 @@ private final class UITestRealFlowComposition: ObservableObject {
                 store: store,
                 player: player,
                 timeStore: timeStore
-            )),
+            ).modifier(AppModeHeader(selection: .constant(.study)))),
             [
                 container,
                 timeContainer,
@@ -393,9 +398,9 @@ private final class UITestRealFlowComposition: ObservableObject {
         emailVerifiedAt: nil
     )
 
-    private static var fixtureReviewCard: StudyCard {
+    private static func fixtureReviewCard(id: String = "01JUITESTOFFLINEREVIEW0000") -> StudyCard {
         StudyCard(
-            id: "01JUITESTOFFLINEREVIEW0000",
+            id: id,
             noteId: nil,
             cardType: "recognition",
             prompt: .object(["cueText": .string("復習する")]),
@@ -448,22 +453,6 @@ private final class UITestRealFlowComposition: ObservableObject {
                 updatedAt: now
             )]
         )
-    }
-}
-
-@MainActor
-private struct UITestOfflineReviewFixture: View {
-    let store: StudyStore
-    let player: StudyAudioPlayer
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text("Pending offline reviews: \(store.pendingOfflineReviewCount)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("pending-offline-review-count")
-            StudySessionView(store: store, player: player)
-        }
     }
 }
 

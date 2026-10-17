@@ -16,7 +16,14 @@ struct UITestReadingFixture: View {
     }
 
     var body: some View {
-        ReadingLibraryView(api: api, userID: -204, beforeAudio: {})
+        TabView {
+            Tab("Readings", systemImage: "book.closed") {
+                ReadingLibraryView(api: api, userID: -204, beforeAudio: {})
+                    .toolbar(.hidden, for: .tabBar)
+            }
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .modifier(AppModeHeader(selection: .constant(.readings)))
     }
 }
 
