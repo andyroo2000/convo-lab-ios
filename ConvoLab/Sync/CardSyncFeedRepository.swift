@@ -60,6 +60,30 @@ final class CardSyncFeedRepository {
         let appliedUpserts: [AppliedUpsert]
     }
 
+    enum CommitQuery {
+        case pendingMutations
+        case activeCardCount
+    }
+
+    private struct CommitState {
+        let pendingByIdentifier: [String: [PendingMutation]]
+        var activeCardCount: Int
+
+        func pending(matching identifiers: Set<String>) -> [PendingMutation] {
+            identifiers.flatMap { pendingByIdentifier[$0] ?? [] }
+        }
+    }
+
+    private struct PreparedUpsert {
+        let serverCard: StudyCard
+        let card: StudyCard
+        let existingRecord: LocalCardRecord?
+        let matchingRecords: [LocalCardRecord]
+        let pending: [PendingMutation]
+        let identifiers: Set<String>
+        let preservesLocalContent: Bool
+    }
+
     private struct RemovedRecord {
         let record: LocalCardRecord
         let identifiers: Set<String>
@@ -116,34 +140,25 @@ final class CardSyncFeedRepository {
             relevantEntityNames: Set<String>
         ) -> Bool {
             guard let userInfo = notification.userInfo else { return true }
-            var foundIdentifierCollection = false
-            for key in [
+            let values = [
                 ModelContext.NotificationKey.insertedIdentifiers,
                 .updatedIdentifiers,
                 .deletedIdentifiers,
                 .invalidatedAllIdentifiers,
-            ] {
-                let value = userInfo[key.rawValue]
-                if let identifiers = value as? [PersistentIdentifier] {
-                    foundIdentifierCollection = true
-                    if identifiers.contains(where: {
-                        relevantEntityNames.contains($0.entityName)
-                    }) {
-                        return true
-                    }
-                } else if let identifiers = value as? Set<PersistentIdentifier> {
-                    foundIdentifierCollection = true
-                    if identifiers.contains(where: {
-                        relevantEntityNames.contains($0.entityName)
-                    }) {
-                        return true
-                    }
-                } else if let invalidatedAll = value as? Bool, invalidatedAll {
-                    return true
-                }
-            }
+            ].map { userInfo[$0.rawValue] }
+            if values.contains(where: { $0 as? Bool == true }) { return true }
+            let collections = values.compactMap(identifierCollection)
             // Unknown notification payloads must invalidate conservatively.
-            return !foundIdentifierCollection
+            if collections.isEmpty { return true }
+            return collections.joined().contains {
+                relevantEntityNames.contains($0.entityName)
+            }
+        }
+
+        private static func identifierCollection(_ value: Any?) -> [PersistentIdentifier]? {
+            if let identifiers = value as? [PersistentIdentifier] { return identifiers }
+            if let identifiers = value as? Set<PersistentIdentifier> { return Array(identifiers) }
+            return nil
         }
 
         deinit {
@@ -155,6 +170,7 @@ final class CardSyncFeedRepository {
     private let context: ModelContext
     private let beforeApplyingEntry: (Int) throws -> Void
     private let onIndexingRecord: () -> Void
+    private let onCommitQuery: (CommitQuery) -> Void
     private let saveRevision: SaveRevision
     private let saveObserver: SaveObserver
     private var activeUserID: Int?
@@ -167,12 +183,14 @@ final class CardSyncFeedRepository {
         api: APIClient,
         context: ModelContext,
         beforeApplyingEntry: @escaping (Int) throws -> Void = { _ in },
-        onIndexingRecord: @escaping () -> Void = {}
+        onIndexingRecord: @escaping () -> Void = {},
+        onCommitQuery: @escaping (CommitQuery) -> Void = { _ in }
     ) {
         self.api = api
         self.context = context
         self.beforeApplyingEntry = beforeApplyingEntry
         self.onIndexingRecord = onIndexingRecord
+        self.onCommitQuery = onCommitQuery
         let saveRevision = SaveRevision()
         self.saveRevision = saveRevision
         saveObserver = SaveObserver(
@@ -219,6 +237,7 @@ final class CardSyncFeedRepository {
 
         do {
             while true {
+                try ensureActive(activation)
                 let page: SyncFeedPage = try await api.request(
                     "/api/sync/feed",
                     query: [
@@ -254,7 +273,9 @@ final class CardSyncFeedRepository {
                     cachedAtSaveRevision = indexedAtSaveRevision
                 }
                 deletedCardIdentifiers = commitResult.deletedCardIdentifiers
-                try ensureActive(activation)
+                // The checkpoint is durable now. Publish its deletions/aliases even
+                // if cancellation arrived during the final synchronous save.
+                try ensureCurrentActivation(activation)
                 let restoredCardIdentifiers = previouslyDeletedCardIdentifiers.subtracting(
                     deletedCardIdentifiers
                 )
@@ -446,6 +467,12 @@ final class CardSyncFeedRepository {
         var updatedRecordIndex = recordIndex ?? RecordIndex()
         try performTransaction {
             try ensureActive(activation)
+            // No await occurs during a commit. These snapshots therefore see every
+            // local write before this page, while avoiding one full query per card.
+            var commitState = try makeCommitState(
+                userID: activation.userID,
+                hasEntries: !entries.isEmpty
+            )
             for (index, entry) in entries.enumerated() {
                 try beforeApplyingEntry(index)
                 try ensureActive(activation)
@@ -454,7 +481,8 @@ final class CardSyncFeedRepository {
                     if let applied = try upsert(
                         card,
                         userID: activation.userID,
-                        recordIndex: &updatedRecordIndex
+                        recordIndex: &updatedRecordIndex,
+                        commitState: &commitState
                     ) {
                         appliedUpserts.append(applied)
                         deletedCardIdentifiers.subtract(applied.identifiers)
@@ -467,7 +495,7 @@ final class CardSyncFeedRepository {
                     )
                     let removed = try removeServerCards(
                         connectedRecords,
-                        userID: activation.userID
+                        commitState: &commitState
                     )
                     for removal in removed {
                         deletedCardIdentifiers.formUnion(removal.identifiers)
@@ -495,143 +523,176 @@ final class CardSyncFeedRepository {
     private func upsert(
         _ serverCard: StudyCard,
         userID: Int,
-        recordIndex: inout RecordIndex
+        recordIndex: inout RecordIndex,
+        commitState: inout CommitState
     ) throws -> AppliedUpsert? {
+        guard let prepared = try prepareUpsert(
+            serverCard,
+            userID: userID,
+            recordIndex: &recordIndex,
+            commitState: commitState
+        ) else { return nil }
+        let applied: AppliedUpsert
+        if let record = prepared.existingRecord {
+            applied = try updateExistingRecord(
+                record,
+                using: prepared,
+                recordIndex: &recordIndex,
+                commitState: &commitState
+            )
+        } else {
+            applied = try insertRecord(prepared, userID: userID, commitState: &commitState)
+        }
+        recordIndex.indexedRecordIDs.insert(applied.record.persistentModelID)
+        addToIndex(applied.record, identifiers: applied.identifiers, in: &recordIndex.recordsByIdentifier)
+        return applied
+    }
+
+    private func prepareUpsert(
+        _ serverCard: StudyCard,
+        userID: Int,
+        recordIndex: inout RecordIndex,
+        commitState: CommitState
+    ) throws -> PreparedUpsert? {
         let (matchingRecords, identifiers) = try connectedRecords(
             startingWith: Set(cardIdentifiers(for: serverCard)),
             userID: userID,
             in: &recordIndex
         )
-        let pending = try pendingMutations(userID: userID, matching: identifiers)
-        // Local content mutations, including rejected mutations held for user
-        // inspection, remain authoritative until explicitly resolved. The feed
-        // must not silently overwrite or recreate that unsynced local intent.
+        let pending = commitState.pending(matching: identifiers)
+        // Pending deletes, including quarantined ones, must never be recreated.
         guard !pending.contains(where: { $0.kind == "cardDelete" }) else { return nil }
-        let record = preferredRecord(
-            from: matchingRecords,
-            for: serverCard,
-            pending: pending
-        )
-        let localCard = try record.flatMap {
+        let record = preferredRecord(from: matchingRecords, for: serverCard, pending: pending)
+        let localCard = try record.map {
             try StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
         }
-        let pendingReviews = pending.filter {
-            $0.kind == "review" && $0.lastError == nil
-        }
-        let hasPendingReview = !pendingReviews.isEmpty || pending.contains {
-            $0.kind == "cardAction" && $0.lastError == nil
-        }
-        let pendingReviewCard = pendingReviews
-            .sorted {
-                if $0.createdAt != $1.createdAt {
-                    return $0.createdAt > $1.createdAt
-                }
-                return $0.id.lowercased() < $1.id.lowercased()
-            }
-            .lazy
-            .compactMap { mutation in
-                matchingRecords.first {
-                    $0.id.lowercased() == mutation.resourceID.lowercased()
-                }
-            }
-            .first
-            .flatMap {
-                try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
-            }
-        let preservesLocalContent = matchingRecords.contains {
-            $0.locallyUpdatedAt != nil
-        } || pending.contains {
-            ($0.kind == "cardCreate" || $0.kind == "cardUpdate")
-                && $0.lastError == nil
-        }
-        var merged = mergedCard(
+        let pendingReviews = pending.filter { $0.kind == "review" && $0.lastError == nil }
+        let preservesLocalContent = preservesLocalContent(matchingRecords, pending: pending)
+        let merged = mergedCard(
             serverCard,
             localCard: localCard,
-            pendingReviewCard: pendingReviewCard,
-            preservingPendingReview: hasPendingReview,
+            pendingReviewCard: latestPendingReviewCard(pendingReviews, matchingRecords: matchingRecords),
+            preservingPendingReview: !pendingReviews.isEmpty || pending.contains {
+                $0.kind == "cardAction" && $0.lastError == nil
+            },
             preservingLocalContent: preservesLocalContent
         )
-
-        let appliedRecord: LocalCardRecord
-        var absorbedIdentifiers: Set<String> = []
-        if let record {
-            let recordIdentifiers = try self.identifiers(for: record)
-            let pendingResourceIDs = Set(pending.map { $0.resourceID.lowercased() })
-            var removableDuplicates: [LocalCardRecord] = []
-            for duplicate in matchingRecords
-            where duplicate !== record && duplicate.locallyUpdatedAt == nil {
-                let duplicateIdentifiers = try self.identifiers(for: duplicate)
-                if pendingResourceIDs.isDisjoint(with: duplicateIdentifiers) {
-                    removableDuplicates.append(duplicate)
-                }
-            }
-            let replicaRecords = [record] + removableDuplicates
-            let mediaPreparedAt = preparedMediaTimestamp(
-                for: merged,
-                from: replicaRecords
-            )
-            if record.id != merged.id {
-                merged = merged.replacingIdentity(
-                    id: record.id,
-                    syncId: serverCard.reviewCardID
-                )
-            }
-            record.replacePayload(encoded: try StorageCodec.encoder.encode(merged))
-            record.serverUpdatedAt = serverCard.updatedAt
-            if preservesLocalContent, record.locallyUpdatedAt == nil {
-                record.locallyUpdatedAt = .now
-            } else if !preservesLocalContent {
-                record.locallyUpdatedAt = nil
-            }
-            reconcileActiveSessionMetadata(
-                from: matchingRecords,
-                into: record
-            )
-            record.mediaPreparedAt = mediaPreparedAt
-            for duplicate in removableDuplicates {
-                let duplicateIdentifiers = try self.identifiers(for: duplicate)
-                absorbedIdentifiers.formUnion(duplicateIdentifiers)
-                remove(
-                    duplicate,
-                    identifiers: duplicateIdentifiers,
-                    from: &recordIndex.recordsByIdentifier
-                )
-                context.delete(duplicate)
-            }
-            remove(
-                record,
-                identifiers: recordIdentifiers,
-                from: &recordIndex.recordsByIdentifier
-            )
-            appliedRecord = record
-        } else {
-            let queueIndex = try context.fetch(
-                FetchDescriptor<LocalCardRecord>(
-                    predicate: #Predicate { $0.userID == userID && $0.isInActiveSession }
-                )
-            ).count
-            let record = LocalCardRecord(
-                card: merged,
-                userID: userID,
-                queueIndex: queueIndex,
-                payload: try StorageCodec.encoder.encode(merged)
-            )
-            record.serverUpdatedAt = serverCard.updatedAt
-            record.locallyUpdatedAt = preservesLocalContent ? .now : nil
-            context.insert(record)
-            appliedRecord = record
-        }
-        recordIndex.indexedRecordIDs.insert(appliedRecord.persistentModelID)
-        addToIndex(
-            appliedRecord,
-            identifiers: identifiers,
-            in: &recordIndex.recordsByIdentifier
-        )
-        return AppliedUpsert(
-            record: appliedRecord,
+        return PreparedUpsert(
+            serverCard: serverCard,
             card: merged,
+            existingRecord: record,
+            matchingRecords: matchingRecords,
+            pending: pending,
             identifiers: identifiers,
+            preservesLocalContent: preservesLocalContent
+        )
+    }
+
+    private func preservesLocalContent(
+        _ records: [LocalCardRecord],
+        pending: [PendingMutation]
+    ) -> Bool {
+        records.contains { $0.locallyUpdatedAt != nil } || pending.contains {
+            ($0.kind == "cardCreate" || $0.kind == "cardUpdate") && $0.lastError == nil
+        }
+    }
+
+    private func latestPendingReviewCard(
+        _ pendingReviews: [PendingMutation],
+        matchingRecords: [LocalCardRecord]
+    ) -> StudyCard? {
+        pendingReviews.sorted {
+            if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+            return $0.id.lowercased() < $1.id.lowercased()
+        }.lazy.compactMap { mutation in
+            matchingRecords.first { $0.id.lowercased() == mutation.resourceID.lowercased() }
+        }.first.flatMap {
+            try? StorageCodec.decoder.decode(StudyCard.self, from: $0.payload)
+        }
+    }
+
+    private func updateExistingRecord(
+        _ record: LocalCardRecord,
+        using prepared: PreparedUpsert,
+        recordIndex: inout RecordIndex,
+        commitState: inout CommitState
+    ) throws -> AppliedUpsert {
+        let previousIdentifiers = try identifiers(for: record)
+        let duplicates = try removableDuplicates(for: record, prepared: prepared)
+        let mediaPreparedAt = preparedMediaTimestamp(for: prepared.card, from: [record] + duplicates)
+        let merged = record.id == prepared.card.id
+            ? prepared.card
+            : prepared.card.replacingIdentity(id: record.id, syncId: prepared.serverCard.reviewCardID)
+        record.replacePayload(encoded: try StorageCodec.encoder.encode(merged))
+        record.serverUpdatedAt = prepared.serverCard.updatedAt
+        updateDirtyTimestamp(of: record, preservingLocalContent: prepared.preservesLocalContent)
+        let previousActiveCount = prepared.matchingRecords.filter(\.isInActiveSession).count
+        reconcileActiveSessionMetadata(from: prepared.matchingRecords, into: record)
+        commitState.activeCardCount += (record.isInActiveSession ? 1 : 0) - previousActiveCount
+        record.mediaPreparedAt = mediaPreparedAt
+        let absorbedIdentifiers = try removeDuplicates(duplicates, recordIndex: &recordIndex)
+        remove(record, identifiers: previousIdentifiers, from: &recordIndex.recordsByIdentifier)
+        return AppliedUpsert(
+            record: record,
+            card: merged,
+            identifiers: prepared.identifiers,
             absorbedIdentifiers: absorbedIdentifiers
+        )
+    }
+
+    private func removableDuplicates(
+        for record: LocalCardRecord,
+        prepared: PreparedUpsert
+    ) throws -> [LocalCardRecord] {
+        let pendingResourceIDs = Set(prepared.pending.map { $0.resourceID.lowercased() })
+        return try prepared.matchingRecords.filter { duplicate in
+            guard duplicate !== record, duplicate.locallyUpdatedAt == nil else { return false }
+            return pendingResourceIDs.isDisjoint(with: try identifiers(for: duplicate))
+        }
+    }
+
+    private func updateDirtyTimestamp(of record: LocalCardRecord, preservingLocalContent: Bool) {
+        if preservingLocalContent {
+            record.locallyUpdatedAt = record.locallyUpdatedAt ?? .now
+        } else {
+            record.locallyUpdatedAt = nil
+        }
+    }
+
+    private func removeDuplicates(
+        _ duplicates: [LocalCardRecord],
+        recordIndex: inout RecordIndex
+    ) throws -> Set<String> {
+        var absorbedIdentifiers: Set<String> = []
+        for duplicate in duplicates {
+            let identifiers = try identifiers(for: duplicate)
+            absorbedIdentifiers.formUnion(identifiers)
+            remove(duplicate, identifiers: identifiers, from: &recordIndex.recordsByIdentifier)
+            context.delete(duplicate)
+        }
+        return absorbedIdentifiers
+    }
+
+    private func insertRecord(
+        _ prepared: PreparedUpsert,
+        userID: Int,
+        commitState: inout CommitState
+    ) throws -> AppliedUpsert {
+        let record = LocalCardRecord(
+            card: prepared.card,
+            userID: userID,
+            queueIndex: commitState.activeCardCount,
+            payload: try StorageCodec.encoder.encode(prepared.card)
+        )
+        record.serverUpdatedAt = prepared.serverCard.updatedAt
+        record.locallyUpdatedAt = prepared.preservesLocalContent ? .now : nil
+        context.insert(record)
+        commitState.activeCardCount += 1
+        return AppliedUpsert(
+            record: record,
+            card: prepared.card,
+            identifiers: prepared.identifiers,
+            absorbedIdentifiers: []
         )
     }
 
@@ -825,16 +886,17 @@ final class CardSyncFeedRepository {
 
     private func removeServerCards(
         _ records: [LocalCardRecord],
-        userID: Int
+        commitState: inout CommitState
     ) throws -> [RemovedRecord] {
         var removed: [RemovedRecord] = []
         for record in records {
             let identifiers = try identifiers(for: record)
             guard record.locallyUpdatedAt == nil,
-                  try pendingMutations(userID: userID, matching: identifiers).isEmpty
+                  commitState.pending(matching: identifiers).isEmpty
             else {
                 continue
             }
+            if record.isInActiveSession { commitState.activeCardCount -= 1 }
             context.delete(record)
             removed.append(RemovedRecord(record: record, identifiers: identifiers))
         }
@@ -875,12 +937,10 @@ final class CardSyncFeedRepository {
                     predicate: #Predicate { $0.userID == userID }
                 )
             )
+            let pendingByIdentifier = try pendingMutationIndex(userID: userID)
             for record in records where record.locallyUpdatedAt == nil {
                 let identifiers = try identifiers(for: record)
-                if try pendingMutations(
-                    userID: userID,
-                    matching: identifiers
-                ).isEmpty {
+                if identifiers.allSatisfy({ pendingByIdentifier[$0] == nil }) {
                     context.delete(record)
                     deletedCardIdentifiers.formUnion(identifiers)
                 }
@@ -900,11 +960,19 @@ final class CardSyncFeedRepository {
         [card.id, card.reviewCardID].map { $0.lowercased() }
     }
 
-    private func pendingMutations(
-        userID: Int,
-        matching identifiers: Set<String>
-    ) throws -> [PendingMutation] {
-        try context.fetch(
+    private func makeCommitState(userID: Int, hasEntries: Bool) throws -> CommitState {
+        guard hasEntries else { return CommitState(pendingByIdentifier: [:], activeCardCount: 0) }
+        let pending = try pendingMutationIndex(userID: userID)
+        onCommitQuery(.activeCardCount)
+        let activeCount = try context.fetchCount(FetchDescriptor<LocalCardRecord>(
+            predicate: #Predicate { $0.userID == userID && $0.isInActiveSession }
+        ))
+        return CommitState(pendingByIdentifier: pending, activeCardCount: activeCount)
+    }
+
+    private func pendingMutationIndex(userID: Int) throws -> [String: [PendingMutation]] {
+        onCommitQuery(.pendingMutations)
+        let pending = try context.fetch(
             FetchDescriptor<PendingMutation>(
                 predicate: #Predicate {
                     $0.userID == userID
@@ -915,7 +983,8 @@ final class CardSyncFeedRepository {
                             || $0.kind == "review")
                 }
             )
-        ).filter { identifiers.contains($0.resourceID.lowercased()) }
+        )
+        return Dictionary(grouping: pending) { $0.resourceID.lowercased() }
     }
 
     private func syncState(
@@ -938,6 +1007,11 @@ final class CardSyncFeedRepository {
     }
 
     private func ensureActive(_ activation: Activation) throws {
+        try Task.checkCancellation()
+        try ensureCurrentActivation(activation)
+    }
+
+    private func ensureCurrentActivation(_ activation: Activation) throws {
         guard
             activeUserID == activation.userID,
             generation == activation.generation
