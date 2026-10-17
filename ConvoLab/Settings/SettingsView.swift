@@ -73,6 +73,14 @@ struct SettingsView: View {
                         )
                     )
                     LabeledContent("Study window", value: offlineStudyWindow)
+                    LabeledContent("Cards ready offline", value: model.study.preparedCardCount.formatted())
+                    Button("Download Offline Study") {
+                        Task { await model.study.downloadOfflineStudy() }
+                    }
+                    .disabled(model.study.syncStatus == .syncing)
+                    Text("Sync updates your cards without downloading media. Download your study window here before going offline.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Button("Remove Downloaded Media", role: .destructive) {
                         confirmingClearDownloads = true
                     }

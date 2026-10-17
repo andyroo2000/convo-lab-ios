@@ -12,7 +12,8 @@ extension StudyStore {
     func refreshOfflineReserve(
         userID: Int,
         activationGeneration: Int,
-        clearingOtherRecords: Bool
+        clearingOtherRecords: Bool,
+        preparesMedia: Bool = true
     ) async throws {
         let reserve: StudyOfflineReserve = try await api.request(
             "/api/study/offline-reserve",
@@ -38,10 +39,12 @@ extension StudyStore {
         cardCatalogSnapshotCache?.saveOfflineReserveMetadata(reserve.metadata, userID: userID)
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
-        await mediaCache.prepare(
-            urls: reserve.cards.flatMap(\.mediaURLs),
-            category: "offline-study"
-        )
+        if preparesMedia {
+            await mediaCache.prepare(
+                urls: reserve.cards.flatMap(\.mediaURLs),
+                category: "offline-study"
+            )
+        }
         guard isCurrentActivation(userID, generation: activationGeneration) else { return }
         markPrepared(
             cards: cards + reserve.cards + persistedActiveCards,

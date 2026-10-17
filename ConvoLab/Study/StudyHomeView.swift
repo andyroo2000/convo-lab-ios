@@ -386,7 +386,7 @@ struct StudyHomeView: View {
                         .foregroundStyle(.secondary)
                 }
             case .syncing:
-                Label("Preparing study media…", systemImage: "arrow.down.circle")
+                Label("Syncing study data…", systemImage: "arrow.trianglehead.2.clockwise")
                     .font(.caption)
             case .offline:
                 Label("Offline — saved work will sync later", systemImage: "wifi.slash")

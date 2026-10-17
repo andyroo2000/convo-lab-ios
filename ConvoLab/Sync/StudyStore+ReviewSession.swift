@@ -31,9 +31,11 @@ extension StudyStore {
     }
 
     @discardableResult
-    func refreshSession() async throws -> Bool {
+    func refreshSession(preparesMedia: Bool = true) async throws -> Bool {
         guard let load = try await sessionLoadingService.load(.reviews) else { return false }
-        try await applyReviewSessionLoad(load, resettingSessionProgress: true)
+        try await applyReviewSessionLoad(
+            load, resettingSessionProgress: true, preparesMedia: preparesMedia
+        )
         return true
     }
 
@@ -41,19 +43,16 @@ extension StudyStore {
         expectedStudySurfaceRevision: Int? = nil
     ) async throws {
         guard sessionKind == "reviews", !lessonSessionIsPresented else { return }
-        if let expectedStudySurfaceRevision {
-            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
-        }
+        guard expectedStudySurfaceRevision.map({ $0 == studySurfaceRevision }) ?? true else { return }
         guard let load = try await sessionLoadingService.load(.reviews) else { return }
-        if let expectedStudySurfaceRevision {
-            guard studySurfaceRevision == expectedStudySurfaceRevision else { return }
-        }
+        guard expectedStudySurfaceRevision.map({ $0 == studySurfaceRevision }) ?? true else { return }
         try await applyReviewSessionLoad(load, resettingSessionProgress: false)
     }
 
     private func applyReviewSessionLoad(
         _ load: StudySessionLoad,
-        resettingSessionProgress: Bool
+        resettingSessionProgress: Bool,
+        preparesMedia: Bool = true
     ) async throws {
         let userID = load.userID
         let session = load.response.session
@@ -92,8 +91,9 @@ extension StudyStore {
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
 
-        let mediaURLs = activeCards.flatMap(\.mediaURLs)
-        await mediaCache.prepare(urls: mediaURLs, category: "active-study")
+        if preparesMedia {
+            await mediaCache.prepare(urls: activeCards.flatMap(\.mediaURLs), category: "active-study")
+        }
         if sessionLoadingService.isCurrent(load) {
             markPrepared(cards: activeCards)
             lastSessionRefreshAt = .now
@@ -102,9 +102,9 @@ extension StudyStore {
 
     /// A foreground sync must not replace a frozen lesson batch with review cards.
     /// The lesson remains stable until the user finishes it or explicitly leaves it.
-    func refreshSessionPreservingActiveLessons() async throws -> Bool {
+    func refreshSessionPreservingActiveLessons(preparesMedia: Bool = true) async throws -> Bool {
         guard !lessonSessionIsPresented else { return false }
-        return try await refreshSession()
+        return try await refreshSession(preparesMedia: preparesMedia)
     }
 
     @discardableResult
@@ -261,14 +261,7 @@ extension StudyStore {
             if try cardOutbox.hasPendingCreate(for: currentCard.id) {
                 try await flushCardOutbox()
             }
-            let flushResult: ReviewEventFlushResult
-            var deferredFlushError: (any Error)?
-            do {
-                flushResult = try await flushSchedulingOutboxes()
-            } catch let failure as ReviewEventFlushFailure {
-                flushResult = failure.result
-                deferredFlushError = failure.underlyingError
-            }
+            let (flushResult, deferredFlushError) = try await flushReviewWithPartialResult()
             let currentReviewWasProgressionLocked = flushResult
                 .progressionLockedEventIDs
                 .contains(staged.eventID)
@@ -280,9 +273,7 @@ extension StudyStore {
                     userID: userID
                 )
             }
-            if currentCard.belongsToLearningProgression
-                || !flushResult.progressionLockedEventIDs.isEmpty
-            {
+            if needsProgressionRevalidation(card: currentCard, result: flushResult) {
                 scheduleProgressionRevalidation(
                     userID: userID,
                     activationGeneration: activationGeneration,
@@ -294,23 +285,36 @@ extension StudyStore {
             }
             return stagedReview
         } catch {
-            var schedulerStateRecovered = false
-            if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
-                schedulerStateRecovered = await recoverCorruptedSchedulerState(
-                    for: card,
-                    userID: userID,
-                    activationGeneration: activationGeneration
-                )
-            }
-            markOutboxRetryNeeded(for: error)
-            if !schedulerStateRecovered {
-                handleSyncError(
-                    error,
-                    for: userID,
-                    activationGeneration: activationGeneration
-                )
-            }
+            await handleReviewRecordingError(error, card: card, userID: userID,
+                                            activationGeneration: activationGeneration)
             return stagedReview
+        }
+    }
+
+    private func needsProgressionRevalidation(card: StudyCard, result: ReviewEventFlushResult) -> Bool {
+        card.belongsToLearningProgression || !result.progressionLockedEventIDs.isEmpty
+    }
+
+    private func flushReviewWithPartialResult() async throws -> (ReviewEventFlushResult, (any Error)?) {
+        do {
+            return (try await flushSchedulingOutboxes(), nil)
+        } catch let failure as ReviewEventFlushFailure {
+            return (failure.result, failure.underlyingError)
+        }
+    }
+
+    private func handleReviewRecordingError(
+        _ error: any Error, card: StudyCard, userID: Int, activationGeneration: Int
+    ) async {
+        var schedulerStateRecovered = false
+        if error is FSRSReviewScheduler.InvalidSchedulerTimestampError {
+            schedulerStateRecovered = await recoverCorruptedSchedulerState(
+                for: card, userID: userID, activationGeneration: activationGeneration
+            )
+        }
+        markOutboxRetryNeeded(for: error)
+        if !schedulerStateRecovered {
+            handleSyncError(error, for: userID, activationGeneration: activationGeneration)
         }
     }
 
@@ -448,9 +452,7 @@ extension StudyStore {
         guard isCurrentActivation(userID, generation: activationGeneration) else {
             throw CancellationError()
         }
-        guard try !cardOutbox.hasPendingDelete(for: cardBefore) else {
-            throw DeletedCardUndoError()
-        }
+        try requireCardCanBeRestored(cardBefore)
         if try reviewOutbox.stageRemoval(eventID: eventID) {
             reviewOutboxRevision &+= 1
             // The view may hold a pre-reconciliation snapshot. For a locally
@@ -498,6 +500,12 @@ extension StudyStore {
             before: eventID,
             presentationRevision: presentationRevision
         )
+    }
+
+    private func requireCardCanBeRestored(_ card: StudyCard) throws {
+        guard try !cardOutbox.hasPendingDelete(for: card) else {
+            throw DeletedCardUndoError()
+        }
     }
 
     func resolvedReviewTimeBudget(from responseOverview: StudyOverview? = nil) -> Int {

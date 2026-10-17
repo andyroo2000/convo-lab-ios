@@ -26,11 +26,17 @@ extension StudyStore {
     }
 
     func synchronize() async {
-        await performSynchronization(requestingPromptRetryOnOutboxFailure: true)
+        await performSynchronization(requestingPromptRetryOnOutboxFailure: true, preparesMedia: false)
+    }
+
+    /// Explicitly prepare the current study window for use without a connection.
+    func downloadOfflineStudy() async {
+        await performSynchronization(requestingPromptRetryOnOutboxFailure: true, preparesMedia: true)
     }
 
     private func performSynchronization(
-        requestingPromptRetryOnOutboxFailure: Bool
+        requestingPromptRetryOnOutboxFailure: Bool,
+        preparesMedia: Bool
     ) async {
         guard let userID = activeUserID, syncStatus != .syncing else { return }
         let diagnosticInterval = diagnostics.begin(.synchronization)
@@ -48,23 +54,9 @@ extension StudyStore {
         var progress = SynchronizationProgress()
 
         do {
-            progress.record(await captureSynchronizationFailure(requiringRetry: true) {
-                try await self.flushCardOutbox()
-            })
-            try requireCurrentActivation(userID, generation: activationGeneration)
-
-            progress.record(await captureSynchronizationFailure(requiringRetry: true) {
-                try await self.retryPendingDraftMutations(
-                    userID: userID,
-                    activationGeneration: activationGeneration
-                )
-            })
-            try requireCurrentActivation(userID, generation: activationGeneration)
-
-            progress.record(await captureSynchronizationFailure(requiringRetry: true) {
-                try await self.flushSchedulingOutboxes()
-            })
-            try requireCurrentActivation(userID, generation: activationGeneration)
+            progress = try await flushSynchronizationOutboxes(
+                userID: userID, activationGeneration: activationGeneration
+            )
 
             let pullResult = await pullCardChangesForSynchronization(userID: userID)
             if pullResult.responseWasDiscarded {
@@ -82,7 +74,7 @@ extension StudyStore {
             })
             try requireCurrentActivation(userID, generation: activationGeneration)
 
-            let sessionResult = await refreshSessionForSynchronization()
+            let sessionResult = await refreshSessionForSynchronization(preparesMedia: preparesMedia)
             progress.record(sessionResult.failure)
             progress.refreshed = sessionResult.refreshed
             try requireCurrentActivation(userID, generation: activationGeneration)
@@ -91,7 +83,8 @@ extension StudyStore {
                 try await self.refreshOfflineReserve(
                     userID: userID,
                     activationGeneration: activationGeneration,
-                    clearingOtherRecords: progress.checkpointWasReset || progress.refreshed
+                    clearingOtherRecords: progress.checkpointWasReset || progress.refreshed,
+                    preparesMedia: preparesMedia
                 )
             })
             try requireCurrentActivation(userID, generation: activationGeneration)
@@ -105,6 +98,32 @@ extension StudyStore {
             activationGeneration: activationGeneration,
             requestingPromptRetryOnOutboxFailure: requestingPromptRetryOnOutboxFailure
         )
+    }
+
+    private func flushSynchronizationOutboxes(
+        userID: Int, activationGeneration: Int
+    ) async throws -> SynchronizationProgress {
+        var progress = SynchronizationProgress()
+        try requireCurrentActivation(userID, generation: activationGeneration)
+        progress.record(await captureSynchronizationFailure(requiringRetry: true) {
+            try await self.flushCardOutbox()
+        })
+        try requireCurrentActivation(userID, generation: activationGeneration)
+
+        progress.record(await captureSynchronizationFailure(requiringRetry: true) {
+            try await self.retryPendingDraftMutations(
+                userID: userID,
+                activationGeneration: activationGeneration
+            )
+        })
+        try requireCurrentActivation(userID, generation: activationGeneration)
+
+        progress.record(await captureSynchronizationFailure(requiringRetry: true) {
+            try await self.flushSchedulingOutboxes()
+        })
+        try requireCurrentActivation(userID, generation: activationGeneration)
+
+        return progress
     }
 
     private func clearInterruptedSynchronizationStatus(
@@ -138,6 +157,7 @@ extension StudyStore {
         _ userID: Int,
         generation: Int
     ) throws {
+        try Task.checkCancellation()
         guard isCurrentActivation(userID, generation: generation) else {
             throw CancellationError()
         }
@@ -184,12 +204,12 @@ extension StudyStore {
         }
     }
 
-    private func refreshSessionForSynchronization() async -> (
+    private func refreshSessionForSynchronization(preparesMedia: Bool) async -> (
         refreshed: Bool,
         failure: SynchronizationFailure?
     ) {
         do {
-            return (try await refreshSessionPreservingActiveLessons(), nil)
+            return (try await refreshSessionPreservingActiveLessons(preparesMedia: preparesMedia), nil)
         } catch {
             return (false, SynchronizationFailure(error: error, requiresRetry: false))
         }
@@ -267,7 +287,7 @@ extension StudyStore {
             // the revision observed here so an interleaved eager failure is not
             // lost while this sync is suspended at a network await.
             consumedOutboxRetryRevision = outboxRetryRevision
-            await performSynchronization(requestingPromptRetryOnOutboxFailure: false)
+            await performSynchronization(requestingPromptRetryOnOutboxFailure: false, preparesMedia: false)
             return
         }
         let components = maxAge.components
