@@ -13,6 +13,7 @@ enum UITestFixture: String {
     case dailyAudioPlayback = "daily-audio-playback"
     case calendarConnection = "calendar-connection"
     case studyDashboard = "study-dashboard"
+    case modeNavigation = "mode-navigation"
 
     static func fromProcessArguments(
         _ arguments: [String] = ProcessInfo.processInfo.arguments
@@ -31,6 +32,8 @@ struct UITestFixtureView: View {
         switch fixture {
         case .readings:
             UITestReadingFixture()
+        case .modeNavigation:
+            UITestModeNavigationFixture()
         case .loginScreen:
             UITestLoginScreenFixture()
         case .loginRestoration, .offlineReview, .createCardRecovery,
