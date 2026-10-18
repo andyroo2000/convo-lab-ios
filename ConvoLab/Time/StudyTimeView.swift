@@ -31,8 +31,6 @@ struct StudyTimeView: View {
     @State var analyticsCardWidth = CGFloat(360)
     @State var isSettlingAnalyticsSwipe = false
     @State var analyticsNavigationGeneration = 0
-    @State private var selectedActivity: StudyActivityKind = .cardCreation
-    @State private var timerName = ""
     @State var entryErrorMessage: String?
     @State private var isJLPTMasteryExpanded = false
     @State private var isManualTimeEntryExpanded = false
@@ -126,21 +124,12 @@ struct StudyTimeView: View {
                     sessions: editableSessions,
                     reduceMotion: reduceMotion,
                     isExpanded: $isManualTimeEntryExpanded,
-                    selectedActivity: $selectedActivity,
-                    timerName: $timerName,
+                    onAdd: { showingEntry = true },
                     onEdit: { editingSession = $0 },
                     onDelete: delete
                 )
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingEntry = true
-                    } label: {
-                        Label("Add time", systemImage: "calendar.badge.plus")
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingEntry) {
                 StudyTimeEntryView(store: store)
             }

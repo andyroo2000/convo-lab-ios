@@ -5,8 +5,7 @@ struct StudyTimeManualEntrySection: View {
     let sessions: [StudyActivitySession]
     let reduceMotion: Bool
     @Binding var isExpanded: Bool
-    @Binding var selectedActivity: StudyActivityKind
-    @Binding var timerName: String
+    let onAdd: () -> Void
     let onEdit: (StudyActivitySession) -> Void
     let onDelete: (StudyActivitySession) -> Void
 
@@ -35,19 +34,19 @@ struct StudyTimeManualEntrySection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("ManualStudyTimeSection")
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(
                 isExpanded
-                    ? "Hides the timer and editable entries"
-                    : "Shows the timer and editable entries"
+                    ? "Hides manual time entry and editable entries"
+                    : "Shows manual time entry and editable entries"
             )
 
             if isExpanded {
-                StudyTimeTimerRows(
-                    store: store,
-                    selectedActivity: $selectedActivity,
-                    timerName: $timerName
-                )
+                Button(action: onAdd) {
+                    Label("Add Study Time", systemImage: "plus")
+                }
+                .accessibilityIdentifier("ManualStudyTimeAddButton")
                 editableEntryRows
             }
         }
@@ -150,7 +149,6 @@ struct StudyTimeEntryView: View {
     @State private var startedAt: Date
     @State private var minutes: Int
     @State private var durationWasAdjusted = false
-    @State private var addToCalendar = false
     @State private var errorMessage: String?
     @State private var isSaving = false
     @State private var entrySaved = false
@@ -186,9 +184,6 @@ struct StudyTimeEntryView: View {
                     in: 1...1_440,
                     step: 5
                 )
-                if session == nil {
-                    Toggle("Add to my calendar", isOn: $addToCalendar)
-                }
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
@@ -227,46 +222,41 @@ struct StudyTimeEntryView: View {
         Task {
             defer { isSaving = false }
             do {
-                if let session {
-                    let duration = durationWasAdjusted
-                        ? TimeInterval(minutes * 60)
-                        : TimeInterval(session.durationMs) / 1_000
-                    let calendarWarning = try await store.update(
-                        session: session,
-                        activity: activity,
-                        name: name.nilIfBlank,
-                        startedAt: startedAt,
-                        duration: duration
-                    )
-                    if let calendarWarning {
-                        entrySaved = true
-                        errorMessage =
-                            "Study time was saved, but the linked calendar event "
-                            + "could not be updated. \(calendarWarning)"
-                    } else {
-                        dismiss()
-                    }
+                if let calendarWarning = try await persistEntry() {
+                    entrySaved = true
+                    errorMessage =
+                        "Study time was saved, but the linked calendar event "
+                        + "could not be updated. \(calendarWarning)"
                 } else {
-                    let calendarWarning = try await store.recordCompleted(
-                        activity: activity,
-                        source: addToCalendar ? .calendar : .manual,
-                        name: name.nilIfBlank,
-                        startedAt: startedAt,
-                        duration: TimeInterval(minutes * 60),
-                        addToCalendar: addToCalendar
-                    )
-                    if let calendarWarning {
-                        entrySaved = true
-                        errorMessage =
-                            "Study time was saved, but the calendar event was not added. "
-                            + calendarWarning
-                    } else {
-                        dismiss()
-                    }
+                    dismiss()
                 }
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func persistEntry() async throws -> String? {
+        guard let session else {
+            _ = try await store.recordCompleted(
+                activity: activity,
+                source: .manual,
+                name: name.nilIfBlank,
+                startedAt: startedAt,
+                duration: TimeInterval(minutes * 60),
+                addToCalendar: false
+            )
+            return nil
+        }
+        let duration = durationWasAdjusted
+            ? TimeInterval(minutes * 60)
+            : TimeInterval(session.durationMs) / 1_000
+        return try await store.update(
+            session: session,
+            activity: activity,
+            name: name.nilIfBlank,
+            startedAt: startedAt,
+            duration: duration
+        )
     }
 }
