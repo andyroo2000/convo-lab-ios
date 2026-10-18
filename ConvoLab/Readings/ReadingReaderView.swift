@@ -25,7 +25,6 @@ struct ReadingReaderView: View {
             navigationControls
             readerContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            pageControls
         }
         .background(theme.background)
         .background {
@@ -104,27 +103,6 @@ struct ReadingReaderView: View {
         .padding(.horizontal, 16)
         .foregroundStyle(theme.foreground)
         .background(theme.background)
-    }
-
-    private var pageControls: some View {
-        HStack {
-            if pageIndex > 0 { pageButton(offset: -1) }
-            Spacer()
-            if let reading, pageIndex < reading.document.pages.count - 1 { pageButton(offset: 1) }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 6)
-        .background(theme.background)
-    }
-
-    private func pageButton(offset: Int) -> some View {
-        Button { movePage(offset) } label: {
-            Image(systemName: offset < 0 ? "chevron.left" : "chevron.right")
-                .frame(width: 44, height: 44)
-                .background(theme.foreground.opacity(0.08), in: .circle)
-        }
-        .accessibilityLabel(offset < 0 ? "Previous page" : "Next page")
-        .accessibilityIdentifier(offset < 0 ? "reading-previous-page" : "reading-next-page")
     }
 
     private var controls: some View {

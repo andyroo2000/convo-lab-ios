@@ -32,8 +32,8 @@ struct ReadingWebView: UIViewRepresentable {
         let key = "\(reading.id):\(reading.revision):\(pageIndex):\(format.rawValue):\(theme.id)"
         if coordinator.key != key {
             coordinator.key = key
-            coordinator.imageTask?.cancel()
-            view.loadHTMLString(html(), baseURL: nil)
+            coordinator.images.cancel()
+            coordinator.navigation = view.loadHTMLString(html(), baseURL: nil)
         } else if coordinator.selected != selectedSentence {
             view.evaluateJavaScript("window.readerSelect(\(selectedSentence.map(String.init) ?? "null"), false)")
         }
@@ -41,7 +41,8 @@ struct ReadingWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
-        coordinator.imageTask?.cancel()
+        coordinator.images.cancel()
+        coordinator.navigation = nil
         view.configuration.userContentController.removeScriptMessageHandler(forName: "reading")
         view.navigationDelegate = nil
         view.stopLoading()
@@ -74,7 +75,8 @@ struct ReadingWebView: UIViewRepresentable {
         var parent: ReadingWebView
         var key = ""
         var selected: Int?
-        var imageTask: Task<Void, Never>?
+        let images = ReadingPageResourceLoader()
+        var navigation: WKNavigation?
 
         init(_ parent: ReadingWebView) { self.parent = parent }
 
@@ -92,27 +94,26 @@ struct ReadingWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard parent.reading.document.pages.indices.contains(parent.pageIndex) else { return }
+            guard let navigation, navigation === self.navigation,
+                  parent.reading.document.pages.indices.contains(parent.pageIndex) else { return }
             let page = parent.reading.document.pages[parent.pageIndex]
             let cover = page.kind == "title" ? parent.reading.illustrationUrl : nil
             guard let path = page.imageUrl ?? cover else { return }
-            let requestKey = key
-            imageTask = Task { [weak self, weak webView] in
-                guard let self else { return }
-                do {
-                    try parent.store.checkSession()
-                    let bytes = try await parent.store.resource(path, key: "image:\(parent.reading.revision):\(path)")
-                    try parent.store.checkSession()
-                    guard key == requestKey else { return }
-                    guard UIImage(data: bytes) != nil else {
-                        parent.store.invalidateResource(key: "image:\(parent.reading.revision):\(path)")
-                        throw APIClientError.invalidResponse
-                    }
-                    let url = "data:image/\(bytes.starts(with: [0x89, 0x50, 0x4e, 0x47]) ? "png" : "jpeg");base64,\(bytes.base64EncodedString())"
-                    let value = String(data: try JSONEncoder().encode(url), encoding: .utf8) ?? "null"
-                    _ = try await webView?.evaluateJavaScript("window.readerImage(\(value))")
-                } catch is CancellationError { return }
-                catch { parent.store.errorMessage = error.localizedDescription }
+            let store = parent.store
+            let resourceKey = "image:\(parent.reading.revision):\(path)"
+            images.load {
+                try await store.resource(path, key: resourceKey)
+            } apply: { [weak webView] bytes in
+                try store.checkSession()
+                guard UIImage(data: bytes) != nil else {
+                    store.invalidateResource(key: resourceKey)
+                    throw APIClientError.invalidResponse
+                }
+                let url = "data:image/\(bytes.starts(with: [0x89, 0x50, 0x4e, 0x47]) ? "png" : "jpeg");base64,\(bytes.base64EncodedString())"
+                let value = String(data: try JSONEncoder().encode(url), encoding: .utf8) ?? "null"
+                _ = try await webView?.evaluateJavaScript("window.readerImage(\(value))")
+            } report: { error in
+                store.errorMessage = error.localizedDescription
             }
         }
     }
