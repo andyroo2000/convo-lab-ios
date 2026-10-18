@@ -1,0 +1,94 @@
+{
+  "elapsedMS": {
+    "baseline": {
+      "median": 7167.150291,
+      "min": 7150.381916,
+      "max": 7233.536875,
+      "values": [
+        7233.536875,
+        7150.381916,
+        7167.150291
+      ]
+    },
+    "revised": {
+      "median": 7084.064583,
+      "min": 7033.714542,
+      "max": 7216.9325420000005,
+      "values": [
+        7084.064583,
+        7033.714542,
+        7216.9325420000005
+      ]
+    },
+    "medianReductionPercent": 1.1592572309294669
+  },
+  "mainActorMaxGapMS": {
+    "baseline": {
+      "median": 83.248583,
+      "min": 80.485334,
+      "max": 84.044333,
+      "values": [
+        83.248583,
+        84.044333,
+        80.485334
+      ]
+    },
+    "revised": {
+      "median": 90.448792,
+      "min": 73.681458,
+      "max": 98.59825,
+      "values": [
+        98.59825,
+        73.681458,
+        90.448792
+      ]
+    },
+    "medianReductionPercent": -8.649046915309055
+  },
+  "mainActorP95GapMS": {
+    "baseline": {
+      "median": 38.569,
+      "min": 36.411083,
+      "max": 39.813291,
+      "values": [
+        39.813291,
+        38.569,
+        36.411083
+      ]
+    },
+    "revised": {
+      "median": 16.715208,
+      "min": 14.32625,
+      "max": 16.908167,
+      "values": [
+        14.32625,
+        16.715208,
+        16.908167
+      ]
+    },
+    "medianReductionPercent": 56.66154683813425
+  },
+  "mainActorGapsOver50MS": {
+    "baseline": {
+      "median": 12,
+      "min": 10,
+      "max": 13,
+      "values": [
+        12,
+        10,
+        13
+      ]
+    },
+    "revised": {
+      "median": 6,
+      "min": 5,
+      "max": 6,
+      "values": [
+        6,
+        6,
+        5
+      ]
+    },
+    "medianReductionPercent": 50.0
+  }
+}

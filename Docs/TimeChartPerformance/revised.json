@@ -1,0 +1,116 @@
+[
+  {
+    "elapsedMS": 7084.064583,
+    "heartbeatSamples": 553,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 6,
+    "mainActorMaxGapMS": 98.59825,
+    "mainActorP95GapMS": 14.32625,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 1
+  },
+  {
+    "elapsedMS": 14001.178375,
+    "heartbeatSamples": 1094,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 7,
+    "mainActorMaxGapMS": 91.541542,
+    "mainActorP95GapMS": 15.936292,
+    "phase": "adjacent-week-round-trips",
+    "traffic": {
+      "2026-08-01": 0,
+      "2026-09-01": 0,
+      "2026-09-20": 0,
+      "2026-09-27": 0,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 13915
+    },
+    "iteration": 1
+  },
+  {
+    "elapsedMS": 7033.714542,
+    "heartbeatSamples": 534,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 6,
+    "mainActorMaxGapMS": 73.681458,
+    "mainActorP95GapMS": 16.715208,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 2
+  },
+  {
+    "elapsedMS": 13750.991417,
+    "heartbeatSamples": 1062,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 7,
+    "mainActorMaxGapMS": 98.428875,
+    "mainActorP95GapMS": 16.5115,
+    "phase": "adjacent-week-round-trips",
+    "traffic": {
+      "2026-08-01": 0,
+      "2026-09-01": 0,
+      "2026-09-20": 0,
+      "2026-09-27": 0,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 13915
+    },
+    "iteration": 2
+  },
+  {
+    "elapsedMS": 7216.9325420000005,
+    "heartbeatSamples": 540,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 5,
+    "mainActorMaxGapMS": 90.448792,
+    "mainActorP95GapMS": 16.908167,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 3
+  },
+  {
+    "elapsedMS": 13917.317709,
+    "heartbeatSamples": 1066,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 7,
+    "mainActorMaxGapMS": 92.741708,
+    "mainActorP95GapMS": 16.616292,
+    "phase": "adjacent-week-round-trips",
+    "traffic": {
+      "2026-08-01": 0,
+      "2026-09-01": 0,
+      "2026-09-20": 0,
+      "2026-09-27": 0,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 13915
+    },
+    "iteration": 3
+  }
+]
