@@ -8,6 +8,8 @@ struct AppModeToolbarAction: Identifiable, Equatable {
     var isLoading = false
     let perform: () -> Void
 
+    // Actions must read changing state through bindings or reference types.
+    // Closures are not comparable, so presentation state drives preference updates.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id && lhs.title == rhs.title && lhs.icon == rhs.icon
             && lhs.isEnabled == rhs.isEnabled && lhs.isLoading == rhs.isLoading

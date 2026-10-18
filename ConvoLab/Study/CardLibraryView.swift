@@ -59,7 +59,11 @@ struct CardLibraryView: View {
             .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
             .preference(key: AppModeToolbarKey.self, value: headerToolbar)
             .onAppear { isRootVisible = true }
-            .onDisappear { isRootVisible = false }
+            .onDisappear {
+                isRootVisible = false
+                editMode = .inactive
+            }
+            .onChange(of: collectionMode) { editMode = .inactive }
             .toolbar {
                 if !hasAppModeHeader {
                     ToolbarItem(placement: .topBarTrailing) {
