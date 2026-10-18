@@ -144,13 +144,13 @@ final class StudyTimeInsightsController {
         if analyticsCache[key] != nil {
             return RefreshResult(loaded: true, failureMessage: nil)
         }
-        guard let userID = activeUserID else {
+        guard let userID = activeUserID, !Task.isCancelled else {
             return RefreshResult(loaded: false, failureMessage: nil)
         }
         let cacheGeneration = analyticsCacheGeneration
         do {
             let fetchedAnalytics = try await fetchAnalytics(anchorDate: anchorDate)
-            guard activeUserID == userID,
+            guard !Task.isCancelled, activeUserID == userID,
                   analyticsCacheGeneration == cacheGeneration
             else {
                 return RefreshResult(loaded: false, failureMessage: nil)
@@ -159,7 +159,7 @@ final class StudyTimeInsightsController {
             analyticsCache[fetchedAnalytics.anchorDate] = fetchedAnalytics
             return RefreshResult(loaded: true, failureMessage: nil)
         } catch {
-            guard activeUserID == userID,
+            guard !Task.isCancelled, activeUserID == userID,
                   analyticsCacheGeneration == cacheGeneration
             else {
                 return RefreshResult(loaded: false, failureMessage: nil)
@@ -182,7 +182,7 @@ final class StudyTimeInsightsController {
     }
 
     func prepareRefresh(anchorDate: Date? = nil) -> RefreshRequest? {
-        guard let userID = activeUserID else { return nil }
+        guard let userID = activeUserID, !Task.isCancelled else { return nil }
         let effectiveAnchor = anchorDate ?? requestedAnalyticsAnchor ?? .now
         invalidateAnalyticsCache()
         analyticsRequestGeneration += 1
@@ -220,7 +220,8 @@ final class StudyTimeInsightsController {
     }
 
     private func isCurrent(_ request: RefreshRequest) -> Bool {
-        activeUserID == request.userID && analyticsRequestGeneration == request.generation
+        !Task.isCancelled && activeUserID == request.userID
+            && analyticsRequestGeneration == request.generation
     }
 
     private func fetchAnalytics(anchorDate: Date) async throws -> StudyTimeAnalytics {

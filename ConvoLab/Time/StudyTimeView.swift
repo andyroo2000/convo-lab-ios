@@ -27,10 +27,8 @@ struct StudyTimeView: View {
     @State var selectedRange: StudyTimeRange = .week
     @State var includedCategories = Set(StudyActivityCategory.allCases)
     @State var suppressNextHistoricalRangeReset = false
-    @State var analyticsDragOffset = CGFloat.zero
+    @State var analyticsMotion = StudyTimeAnalyticsMotion()
     @State var analyticsCardWidth = CGFloat(360)
-    @State var isSettlingAnalyticsSwipe = false
-    @State var analyticsNavigationGeneration = 0
     @State var entryErrorMessage: String?
     @State private var isJLPTMasteryExpanded = false
     @State private var isManualTimeEntryExpanded = false
@@ -57,9 +55,7 @@ struct StudyTimeView: View {
                     .labelsHidden()
                     .accessibilityLabel("Time span")
                     .onChange(of: selectedRange) {
-                        analyticsNavigationGeneration += 1
-                        isSettlingAnalyticsSwipe = false
-                        analyticsDragOffset = 0
+                        cancelAnalyticsNavigation()
                         if suppressNextHistoricalRangeReset {
                             suppressNextHistoricalRangeReset = false
                             return
@@ -72,7 +68,7 @@ struct StudyTimeView: View {
                         else {
                             return
                         }
-                        Task { await store.loadAnalytics(anchorDate: .now) }
+                        scheduleAnalyticsLoad(anchorDate: .now)
                     }
 
                     if let analytics = selectedAnalytics {
@@ -130,6 +126,7 @@ struct StudyTimeView: View {
                 )
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onDisappear { cancelAnalyticsNavigation() }
             .sheet(isPresented: $showingEntry) {
                 StudyTimeEntryView(store: store)
             }

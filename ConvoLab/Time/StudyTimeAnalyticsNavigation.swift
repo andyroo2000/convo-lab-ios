@@ -8,8 +8,10 @@ enum StudyTimeSwipeRecognition {
         case snapBack
     }
 
-    static func isHorizontal(translation: CGPoint) -> Bool {
-        abs(translation.x) > abs(translation.y)
+    static func isHorizontal(translation: CGPoint, velocity: CGPoint = .zero) -> Bool {
+        // UIKit can ask before translation is populated, particularly for left swipes.
+        let direction = translation == .zero ? velocity : translation
+        return abs(direction.x) > abs(direction.y)
     }
 
     static func navigation(
@@ -27,7 +29,7 @@ enum StudyTimeSwipeRecognition {
         return .snapBack
     }
 }
-private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
+struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
     let isEnabled: Bool
     let onChanged: (CGFloat) -> Void
     let onEnded: (_ translation: CGPoint, _ projectedTranslationX: CGFloat) -> Void
@@ -47,7 +49,8 @@ private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
                 return false
             }
             return StudyTimeSwipeRecognition.isHorizontal(
-                translation: pan.translation(in: pan.view)
+                translation: pan.translation(in: pan.view),
+                velocity: pan.velocity(in: pan.view)
             )
         }
 
@@ -68,7 +71,7 @@ private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
         recognizer.delegate = context.coordinator
         recognizer.cancelsTouchesInView = false
         recognizer.maximumNumberOfTouches = 1
-        recognizer.isEnabled = isEnabled
+        if recognizer.isEnabled != isEnabled { recognizer.isEnabled = isEnabled }
         return recognizer
     }
 
@@ -77,7 +80,7 @@ private struct HorizontalStudyTimePanGesture: UIGestureRecognizerRepresentable {
         context: Context
     ) {
         context.coordinator.configuration = self
-        recognizer.isEnabled = isEnabled
+        if recognizer.isEnabled != isEnabled { recognizer.isEnabled = isEnabled }
     }
 
     func handleUIGestureRecognizerAction(
@@ -104,28 +107,28 @@ extension StudyTimeView {
     func swipeableAnalytics(
         _ analytics: StudyTimeAnalyticsRange
     ) -> some View {
-        let dragOffset = displayedAnalyticsDragOffset(analytics)
-        return ZStack {
-            if let previous = adjacentAnalytics(by: -1) {
-                analyticsPage(previous.range, generatedAt: previous.generatedAt)
-                    .offset(x: -analyticsCardWidth + dragOffset)
-                    .accessibilityHidden(true)
-            }
-
-            analyticsPage(
+        let previous = adjacentAnalytics(by: -1)
+        let next = canNavigateLater(from: analytics) ? adjacentAnalytics(by: 1) : nil
+        return StudyTimeAnalyticsPager(
+            motion: analyticsMotion,
+            current: analyticsPage(
                 analytics,
                 generatedAt: store.analytics?.generatedAt ?? .now
-            )
-            .offset(x: dragOffset)
-
-            if canNavigateLater(from: analytics),
-               let next = adjacentAnalytics(by: 1)
-            {
-                analyticsPage(next.range, generatedAt: next.generatedAt)
-                    .offset(x: analyticsCardWidth + dragOffset)
-                    .accessibilityHidden(true)
-            }
-        }
+            ),
+            previous: previous.map { analyticsPage($0.range, generatedAt: $0.generatedAt) },
+            next: next.map { analyticsPage($0.range, generatedAt: $0.generatedAt) },
+            width: analyticsCardWidth,
+            canSwipe: selectedRange != .all,
+            canNavigateLater: canNavigateLater(from: analytics),
+            onEnded: { translation, projectedTranslationX in
+                finishAnalyticsPan(
+                    translation: translation,
+                    projectedTranslationX: projectedTranslationX,
+                    analytics: analytics
+                )
+            },
+            onCancelled: snapAnalyticsBack
+        )
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -137,22 +140,6 @@ extension StudyTimeView {
                     }
             }
         }
-        .clipped()
-        .contentShape(Rectangle())
-        .gesture(
-            HorizontalStudyTimePanGesture(
-                isEnabled: selectedRange != .all && !isSettlingAnalyticsSwipe,
-                onChanged: { analyticsDragOffset = $0 },
-                onEnded: { translation, projectedTranslationX in
-                    finishAnalyticsPan(
-                        translation: translation,
-                        projectedTranslationX: projectedTranslationX,
-                        analytics: analytics
-                    )
-                },
-                onCancelled: snapAnalyticsBack
-            )
-        )
         .task(
             id: "\(store.analytics?.anchorDate ?? "")"
                 + "-\(selectedRange.rawValue)-\(store.analyticsCacheGeneration)"
@@ -216,16 +203,23 @@ extension StudyTimeView {
 
     func drillDown(_ bucket: StudyTimeAnalyticsBucket) {
         guard let nextRange = selectedRange.drillDownTarget else { return }
-        analyticsNavigationGeneration += 1
-        let navigationGeneration = analyticsNavigationGeneration
-        isSettlingAnalyticsSwipe = false
-        analyticsDragOffset = 0
+        cancelAnalyticsNavigation()
+        scheduleAnalyticsLoad(anchorDate: bucket.startsAt, selecting: nextRange)
+    }
 
-        Task {
-            guard await store.loadAnalytics(anchorDate: bucket.startsAt) else { return }
-            guard analyticsNavigationGeneration == navigationGeneration else { return }
-            suppressNextHistoricalRangeReset = true
-            selectedRange = nextRange
+    func cancelAnalyticsNavigation() {
+        analyticsMotion.cancelNavigation()
+    }
+
+    func scheduleAnalyticsLoad(anchorDate: Date, selecting range: StudyTimeRange? = nil) {
+        analyticsMotion.startNavigation { navigationGeneration in
+            guard await store.loadAnalytics(anchorDate: anchorDate), !Task.isCancelled,
+                  analyticsMotion.isCurrentNavigation(navigationGeneration)
+            else { return }
+            if let range {
+                suppressNextHistoricalRangeReset = true
+                selectedRange = range
+            }
         }
     }
 
@@ -245,23 +239,14 @@ extension StudyTimeView {
         from analytics: StudyTimeAnalyticsRange
     ) async {
         guard selectedRange != .all else { return }
-        if let previousAnchor = shiftedAnalyticsAnchor(by: -1) {
+        let previousAnchor = shiftedAnalyticsAnchor(by: -1)
+        let nextAnchor = canNavigateLater(from: analytics) ? shiftedAnalyticsAnchor(by: 1) : nil
+        if let previousAnchor, !Task.isCancelled {
             _ = await store.prefetchAnalytics(anchorDate: previousAnchor)
         }
-        if canNavigateLater(from: analytics),
-           let nextAnchor = shiftedAnalyticsAnchor(by: 1)
-        {
+        if let nextAnchor, !Task.isCancelled {
             _ = await store.prefetchAnalytics(anchorDate: nextAnchor)
         }
-    }
-
-    func displayedAnalyticsDragOffset(
-        _ analytics: StudyTimeAnalyticsRange
-    ) -> CGFloat {
-        if analyticsDragOffset < 0, !canNavigateLater(from: analytics) {
-            return rubberBand(analyticsDragOffset)
-        }
-        return analyticsDragOffset
     }
 
     func finishAnalyticsPan(
@@ -269,7 +254,7 @@ extension StudyTimeView {
         projectedTranslationX: CGFloat,
         analytics: StudyTimeAnalyticsRange
     ) {
-        guard selectedRange != .all, !isSettlingAnalyticsSwipe else { return }
+        guard selectedRange != .all, !analyticsMotion.isSettling else { return }
         switch StudyTimeSwipeRecognition.navigation(
             translation: translation,
             projectedTranslationX: projectedTranslationX,
@@ -294,67 +279,66 @@ extension StudyTimeView {
     }
 
     func completeAnalyticsSwipe(by amount: Int) {
-        guard !isSettlingAnalyticsSwipe,
+        guard !analyticsMotion.isSettling,
               let nextAnchor = shiftedAnalyticsAnchor(by: amount)
         else {
             return
         }
 
-        isSettlingAnalyticsSwipe = true
-        analyticsNavigationGeneration += 1
-        let navigationGeneration = analyticsNavigationGeneration
         let outgoingOffset = amount < 0 ? analyticsCardWidth : -analyticsCardWidth
 
-        Task {
+        analyticsMotion.startNavigation(settling: true) { navigationGeneration in
             var ready = store.cachedAnalytics(anchorDate: nextAnchor) != nil
             if !ready {
+                analyticsMotion.isLoading = true
+                snapAnalyticsBack()
                 ready = await store.prefetchAnalytics(
                     anchorDate: nextAnchor,
                     reportFailure: true
                 )
             }
-            guard analyticsNavigationGeneration == navigationGeneration else { return }
+            guard !Task.isCancelled,
+                  analyticsMotion.isCurrentNavigation(navigationGeneration)
+            else { return }
+            analyticsMotion.isLoading = false
             guard ready else {
                 snapAnalyticsBack()
-                isSettlingAnalyticsSwipe = false
+                analyticsMotion.finishNavigation(navigationGeneration)
                 return
             }
 
             if reduceMotion {
-                _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
-                analyticsDragOffset = 0
-                isSettlingAnalyticsSwipe = false
+                analyticsMotion.finishNavigation(navigationGeneration) {
+                    _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                }
                 return
             }
 
             withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
-                analyticsDragOffset = outgoingOffset
+                analyticsMotion.dragOffset = outgoingOffset
             } completion: {
-                guard analyticsNavigationGeneration == navigationGeneration else {
-                    return
-                }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    let selected = store.selectCachedAnalytics(anchorDate: nextAnchor)
-                    if !selected {
-                        entryErrorMessage =
-                            "Study time changed while navigating. Swipe again to reload."
+                    analyticsMotion.finishNavigation(navigationGeneration) {
+                        let selected = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                        if !selected {
+                            entryErrorMessage =
+                                "Study time changed while navigating. Swipe again to reload."
+                        }
                     }
-                    analyticsDragOffset = 0
-                    isSettlingAnalyticsSwipe = false
                 }
             }
         }
     }
 
     func snapAnalyticsBack() {
-        guard analyticsDragOffset != 0 else { return }
+        guard analyticsMotion.dragOffset != 0 else { return }
         if reduceMotion {
-            analyticsDragOffset = 0
+            analyticsMotion.dragOffset = 0
         } else {
             withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
-                analyticsDragOffset = 0
+                analyticsMotion.dragOffset = 0
             }
         }
     }
@@ -411,11 +395,6 @@ extension StudyTimeView {
         case .all:
             return ""
         }
-    }
-
-    func rubberBand(_ offset: CGFloat) -> CGFloat {
-        let magnitude = abs(offset)
-        return copysign(42 * (1 - exp(-magnitude / 110)), offset)
     }
 
     func analyticsAnchorDate(from value: String) -> Date? {

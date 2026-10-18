@@ -1,0 +1,56 @@
+[
+  {
+    "elapsedMS": 7233.536875,
+    "heartbeatSamples": 407,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 12,
+    "mainActorMaxGapMS": 83.248583,
+    "mainActorP95GapMS": 39.813291,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 1
+  },
+  {
+    "elapsedMS": 7150.381916,
+    "heartbeatSamples": 405,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 10,
+    "mainActorMaxGapMS": 84.044333,
+    "mainActorP95GapMS": 38.569,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 2
+  },
+  {
+    "elapsedMS": 7167.150291,
+    "heartbeatSamples": 412,
+    "historySessionCount": 17514,
+    "mainActorGapsOver50MS": 13,
+    "mainActorMaxGapMS": 80.485334,
+    "mainActorP95GapMS": 36.411083,
+    "phase": "previous-week-sequence",
+    "traffic": {
+      "2026-09-20": 1,
+      "2026-09-27": 1,
+      "2026-10-04": 1,
+      "2026-10-11": 0,
+      "2026-10-18": 0,
+      "responseBytes": 44344
+    },
+    "iteration": 3
+  }
+]
