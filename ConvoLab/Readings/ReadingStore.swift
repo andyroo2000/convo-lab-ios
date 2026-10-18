@@ -10,7 +10,7 @@ final class ReadingStore {
     private(set) var isLoading = false
     var errorMessage: String?
     private var loadGeneration = 0
-    private var isSyncing = false
+    private var positionSyncTask: Task<Void, Never>?
 
     init(api: APIClient, userID: Int) {
         self.api = api
@@ -97,12 +97,24 @@ final class ReadingStore {
     }
 
     func synchronizePositions() async {
-        guard !isSyncing else { return }
-        isSyncing = true
+        if let positionSyncTask {
+            await positionSyncTask.value
+            return
+        }
+        // Page/view tasks own only their debounce. Once started, an upload is
+        // store-owned so another swipe or leaving the reader cannot cancel it.
+        let task = Task {
+            defer { positionSyncTask = nil }
+            await uploadPositions()
+        }
+        positionSyncTask = task
+        await task.value
+    }
+
+    private func uploadPositions() async {
         var rejected = Set<String>()
         var failure: String?
         defer {
-            isSyncing = false
             if let failure { errorMessage = failure }
         }
         while let pending = snapshot.pending.values.filter({ !rejected.contains($0.readingId) }).min(by: { $0.readAt < $1.readAt }) {
@@ -179,7 +191,7 @@ final class ReadingStore {
     }
 
     private func report(_ error: any Error) {
-        if error is CancellationError { return }
+        if Task.isCancelled || error is CancellationError { return }
         errorMessage = error.localizedDescription
     }
 }
