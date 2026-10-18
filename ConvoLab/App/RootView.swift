@@ -94,10 +94,44 @@ struct RootView: View {
     }
 }
 
-private struct MainModeView: View {
+struct MainModeView: View {
+    // Five native slots avoid UIKit's automatic More navigation controller.
+    // The four practice/library stacks retain their navigation when switching modes.
+    private enum TabSlot: Hashable {
+        case study, cards, dailyAudio, readings, manage
+
+        init(_ mode: AppMode) {
+            switch mode {
+            case .study: self = .study
+            case .cards: self = .cards
+            case .dailyAudio: self = .dailyAudio
+            case .readings: self = .readings
+            case .time, .settings: self = .manage
+            }
+        }
+
+        func mode(management: AppMode) -> AppMode {
+            switch self {
+            case .study: .study
+            case .cards: .cards
+            case .dailyAudio: .dailyAudio
+            case .readings: .readings
+            case .manage: management
+            }
+        }
+    }
+
     let model: AppModel
     let user: CurrentUser
     @State private var selectedTab: AppMode = .study
+    @State private var managementMode: AppMode = .time
+
+    private var slotSelection: Binding<TabSlot> {
+        Binding(
+            get: { TabSlot(selectedTab) },
+            set: { tabSelection.wrappedValue = $0.mode(management: managementMode) }
+        )
+    }
 
     private var tabSelection: Binding<AppMode> {
         Binding(
@@ -114,40 +148,44 @@ private struct MainModeView: View {
                         source: .automatic
                     )
                 }
+                if newTab == .time || newTab == .settings { managementMode = newTab }
                 selectedTab = newTab
             }
         )
     }
 
     var body: some View {
-        TabView(selection: tabSelection) {
-            Tab("Study", systemImage: "rectangle.stack.fill", value: AppMode.study) {
+        TabView(selection: slotSelection) {
+            Tab("Study", systemImage: "rectangle.stack.fill", value: TabSlot.study) {
                 StudyHomeView(
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime,
                     automaticSynchronization: model.refreshStudyIfNeeded
                 )
+                .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Cards", systemImage: "square.and.pencil", value: AppMode.cards) {
+            Tab("Cards", systemImage: "square.and.pencil", value: TabSlot.cards) {
                 CardLibraryView(
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime
                 )
                 .environment(\.appModeDestination, .cards)
+                .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Daily Audio", systemImage: "headphones", value: AppMode.dailyAudio) {
+            Tab("Daily Audio", systemImage: "headphones", value: TabSlot.dailyAudio) {
                 DailyAudioView(
                     store: model.dailyAudio,
                     player: model.audioPlayer,
                     capabilities: model.study.capabilities.dailyAudio
                 )
+                .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Readings", systemImage: "book.closed", value: AppMode.readings) {
+            Tab("Readings", systemImage: "book.closed", value: TabSlot.readings) {
                 ReadingLibraryView(api: model.api, userID: user.id) {
                     model.audioPlayer.stop()
                     model.studyAudioPlayer.stop()
@@ -155,12 +193,9 @@ private struct MainModeView: View {
                 .id("\(user.id):\(model.api.accessToken ?? "")")
                 .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Time", systemImage: "clock.fill", value: AppMode.time) {
-                StudyTimeView(store: model.studyTime, studyStore: model.study)
-                    .toolbar(.hidden, for: .tabBar)
-            }
-            Tab("Settings", systemImage: "gearshape.fill", value: AppMode.settings) {
-                SettingsView(model: model, user: user)
+            Tab("Manage", systemImage: "gearshape.fill", value: TabSlot.manage) {
+                managementContent
+                    .environment(\.colorScheme, .light)
                     .toolbar(.hidden, for: .tabBar)
             }
         }
@@ -168,5 +203,14 @@ private struct MainModeView: View {
         .modifier(AppModeHeader(selection: tabSelection))
         .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
+    }
+
+    @ViewBuilder
+    private var managementContent: some View {
+        if managementMode == .settings {
+            SettingsView(model: model, user: user)
+        } else {
+            StudyTimeView(store: model.studyTime, studyStore: model.study)
+        }
     }
 }

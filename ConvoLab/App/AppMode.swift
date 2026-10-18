@@ -27,43 +27,91 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
 struct AppModePicker: View {
     @Binding var selection: AppMode
     var action: AppModeHeaderAction? = nil
+    var toolbar: AppModeToolbar = .init()
+    @State private var showingDestinations = false
 
     var body: some View {
         HStack {
-            Menu {
-                Section("Practice") { destinations(AppMode.practice) }
-                Section("Manage") { destinations(AppMode.manage) }
-            } label: {
+            Button { showingDestinations = true } label: {
                 HStack(spacing: 9) {
                     Image(systemName: selection.icon)
+                        .frame(width: 24, height: 24)
+                        .contentTransition(.identity)
                     Text(selection.rawValue).fontWeight(.semibold)
                     Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Switch mode, \(selection.rawValue)")
             .accessibilityIdentifier("app-mode-picker")
+            .popover(isPresented: $showingDestinations, arrowEdge: .top) {
+                destinationPicker
+                    .presentationCompactAdaptation(.popover)
+                    .presentationBackground(ConvoLabTheme.cream)
+                    .preferredColorScheme(.light)
+            }
             Spacer(minLength: 12)
             if let action {
                 Button("End session", action: action.perform)
                     .frame(minHeight: 44)
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("StudyEndSessionButton")
+            } else {
+                AppModeToolbarView(toolbar: toolbar)
             }
         }
         .padding(.horizontal, 20)
         .foregroundStyle(ConvoLabTheme.navy)
         .background(ConvoLabTheme.cream)
+        .environment(\.colorScheme, .light)
+    }
+
+    private var destinationPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            destinationGroup("Practice", modes: AppMode.practice)
+            Divider().padding(.horizontal, 12)
+            destinationGroup("Manage", modes: AppMode.manage)
+        }
+        .padding(10)
+        .frame(minWidth: 240)
+        .foregroundStyle(ConvoLabTheme.navy)
+        .background(ConvoLabTheme.cream)
+    }
+
+    private func destinationGroup(_ title: String, modes: [AppMode]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+            destinations(modes)
+        }
     }
 
     private func destinations(_ modes: [AppMode]) -> some View {
         ForEach(modes) { mode in
             Button {
+                showingDestinations = false
                 selection = mode
             } label: {
-                Label(mode.rawValue, systemImage: mode == selection ? "checkmark" : mode.icon)
+                HStack(spacing: 12) {
+                    Image(systemName: mode.icon).frame(width: 24)
+                    Text(mode.rawValue)
+                    Spacer(minLength: 12)
+                    if mode == selection { Image(systemName: "checkmark") }
+                }
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(mode.rawValue)
             .accessibilityAddTraits(mode == selection ? .isSelected : [])
             .accessibilityIdentifier("app-mode-\(mode)")
         }
@@ -111,13 +159,15 @@ extension EnvironmentValues {
 struct AppModeHeader: ViewModifier {
     @Binding var selection: AppMode
     @State private var actions: [AppMode: AppModeHeaderAction] = [:]
+    @State private var toolbars: [AppMode: AppModeToolbar] = [:]
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
-            AppModePicker(selection: $selection, action: actions[selection])
+            AppModePicker(selection: $selection, action: actions[selection], toolbar: toolbars[selection] ?? .init())
             content
         }
         .environment(\.hasAppModeHeader, true)
         .onPreferenceChange(AppModeActionKey.self) { actions = $0 }
+        .onPreferenceChange(AppModeToolbarKey.self) { toolbars = $0 }
     }
 }

@@ -201,7 +201,7 @@ extension StudyActivitySessionTests {
         XCTAssertEqual(StudyTimeEditableEntries.sectionTitle, "Editable entries")
         XCTAssertEqual(
             StudyTimeEditableEntries.emptyDescription,
-            "Timers and manually added study time you can edit appear here."
+            "Study time you add manually appears here."
         )
 
         let editable = makeSession(source: .manual, origin: .ios)

@@ -3,7 +3,7 @@ import SwiftUI
 enum StudyTimeEditableEntries {
     static let sectionTitle = "Editable entries"
     static let emptyTitle = "No editable entries"
-    static let emptyDescription = "Timers and manually added study time you can edit appear here."
+    static let emptyDescription = "Study time you add manually appears here."
 
     static func filter(_ sessions: [StudyActivitySession]) -> [StudyActivitySession] {
         sessions.filter(\.isEditable)

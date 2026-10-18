@@ -25,6 +25,9 @@ struct CardLibraryView: View {
     let store: StudyStore
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
+    @Environment(\.hasAppModeHeader) private var hasAppModeHeader
+    @State private var editMode = EditMode.inactive
+    @State private var isRootVisible = false
     @State private var collectionMode: CollectionMode = .queue
     @State private var searchText = ""
     @State private var showingCreate = false
@@ -47,73 +50,24 @@ struct CardLibraryView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if collectionMode == .all {
-                    cardList
-                        .searchable(
-                            text: $searchText,
-                            placement: .navigationBarDrawer(displayMode: .always),
-                            prompt: "Search your cards"
-                        )
-                } else {
-                    cardList
-                }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("Card collection", selection: $collectionMode) {
-                    ForEach(CollectionMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(selectingLessonFollowup)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
+            cardList
+            .environment(\.editMode, $editMode)
+            .safeAreaInset(edge: .top, spacing: 0) { collectionControls }
             .scrollContentBackground(.hidden)
             .paperBackground()
-            .navigationTitle("Cards")
+            .navigationTitle(hasAppModeHeader ? "" : "Cards")
+            .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
+            .preference(key: AppModeToolbarKey.self, value: headerToolbar)
+            .onAppear { isRootVisible = true }
+            .onDisappear {
+                isRootVisible = false
+                editMode = .inactive
+            }
+            .onChange(of: collectionMode) { editMode = .inactive }
             .toolbar {
-                if selectingLessonFollowup {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { cancelLessonFollowupSelection() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Next") { showingLessonFollowupSetup = true }
-                            .disabled(
-                                selectedLessonFollowupCardIDs.isEmpty
-                                    || store.lessonSessionIsPresented
-                            )
-                    }
-                } else {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingCreate = true
-                        } label: {
-                            Label("Create Card", systemImage: "plus")
-                        }
-                    }
-                }
-                if collectionMode == .queue {
-                    ToolbarItem(placement: .secondaryAction) {
-                        EditButton()
-                            .disabled(
-                                selectingLessonFollowup
-                                    || store.newCardQueue.count > Self.maximumReorderableCards
-                            )
-                    }
-                    if !selectingLessonFollowup {
-                        ToolbarItem(placement: .secondaryAction) {
-                            Button("Study Lesson Cards Now") {
-                                selectingLessonFollowup = true
-                                lessonFollowupCohortID = ClientIdentifier.ulid()
-                                queueErrorMessage = nil
-                            }
-                            .disabled(
-                                store.newCardQueue.isEmpty || store.lessonSessionIsPresented
-                            )
-                        }
+                if !hasAppModeHeader {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AppModeToolbarView(toolbar: cardToolbar)
                     }
                 }
             }
@@ -225,6 +179,81 @@ struct CardLibraryView: View {
                 }
             }
         }
+    }
+
+    private var collectionControls: some View {
+        VStack(spacing: 8) {
+            Picker("Card collection", selection: $collectionMode) {
+                ForEach(CollectionMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(selectingLessonFollowup)
+            if collectionMode == .all {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search your cards", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("CardsSearchField")
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .accessibilityLabel("Clear search")
+                    }
+                }
+                .padding(10)
+                .background(Color.white.opacity(0.8), in: .rect(cornerRadius: 10))
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(ConvoLabTheme.cream)
+    }
+
+    private var headerToolbar: [AppMode: AppModeToolbar] {
+        hasAppModeHeader && isRootVisible ? [.cards: cardToolbar] : [:]
+    }
+
+    private var cardToolbar: AppModeToolbar {
+        if selectingLessonFollowup {
+            return AppModeToolbar(buttons: [
+                AppModeToolbarAction(id: "CardsCancelSelectionButton", title: "Cancel") {
+                    cancelLessonFollowupSelection()
+                },
+                AppModeToolbarAction(
+                    id: "CardsNextSelectionButton", title: "Next",
+                    isEnabled: !selectedLessonFollowupCardIDs.isEmpty && !store.lessonSessionIsPresented
+                ) { showingLessonFollowupSetup = true }
+            ])
+        }
+        return AppModeToolbar(
+            buttons: [AppModeToolbarAction(id: "CardsCreateButton", title: "Create Card", icon: "plus") {
+                showingCreate = true
+            }],
+            menu: collectionMode == .queue ? queueActions : [],
+            menuIdentifier: "CardsMoreButton"
+        )
+    }
+
+    private var queueActions: [AppModeToolbarAction] {
+        [
+            AppModeToolbarAction(
+                id: "CardsEditQueueButton", title: editMode == .active ? "Done editing" : "Edit queue",
+                isEnabled: store.newCardQueue.count <= Self.maximumReorderableCards
+            ) {
+                withAnimation { editMode = editMode == .active ? .inactive : .active }
+            },
+            AppModeToolbarAction(
+                id: "CardsStudyLessonsButton", title: "Study Lesson Cards Now",
+                isEnabled: !store.newCardQueue.isEmpty && !store.lessonSessionIsPresented
+            ) {
+                editMode = .inactive
+                selectingLessonFollowup = true
+                lessonFollowupCohortID = ClientIdentifier.ulid()
+                queueErrorMessage = nil
+            }
+        ]
     }
 
     @ViewBuilder

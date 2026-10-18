@@ -4,6 +4,7 @@ struct SettingsView: View {
     let model: AppModel
     let user: CurrentUser
 
+    @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @Environment(\.scenePhase) private var scenePhase
     @State private var wanikaniAPIToken = ""
     @State private var confirmingWaniKaniDisconnect = false
@@ -335,7 +336,8 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle(hasAppModeHeader ? "" : "Settings")
+            .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
             .task {
                 if await model.study.refreshCapabilities() {
                     model.studyTime.applyStudyActivityCapabilities(

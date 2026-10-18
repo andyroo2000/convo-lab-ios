@@ -177,10 +177,11 @@ final class ConvoLabUITests: XCTestCase {
     func testGoogleCalendarConnectsThroughProductionSettingsFlow() {
         let app = launchFixture("calendar-connection", reset: true)
         let connect = app.buttons["Connect Google Calendar"]
-        for _ in 0..<3 where !connect.exists {
+        for _ in 0..<5 where !connect.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(connect.waitForExistence(timeout: 8))
+        XCTAssertTrue(connect.isHittable)
         connect.tap()
         XCTAssertTrue(app.staticTexts["Connected"].waitForExistence(timeout: 8))
         XCTAssertTrue(
@@ -191,32 +192,40 @@ final class ConvoLabUITests: XCTestCase {
                 ))
                 .firstMatch.exists
         )
-        XCTAssertTrue(app.buttons["Calendar Settings"].exists)
+        let calendarSettings = app.buttons["Calendar Settings"]
+        for _ in 0..<3 where !calendarSettings.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(calendarSettings.waitForExistence(timeout: 8))
+        XCTAssertTrue(calendarSettings.isHittable)
     }
 
     @MainActor
     func testSatoriReaderSetupIsDiscoverableOnlyThroughSettings() {
         let app = launchFixture("calendar-connection", reset: true)
         let integration = app.buttons["SatoriReaderIntegrationLink"]
-        for _ in 0..<3 where !integration.exists {
+        for _ in 0..<5 where !integration.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(integration.waitForExistence(timeout: 8))
+        XCTAssertTrue(integration.isHittable)
         integration.tap()
 
         XCTAssertTrue(app.navigationBars["Satori Reader"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Tracking not detected"].exists)
         XCTAssertTrue(app.staticTexts["1. Track opening Satori Reader"].exists)
         let startTest = app.buttons["Start Test"]
-        for _ in 0..<3 where !startTest.exists {
+        for _ in 0..<3 where !startTest.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(startTest.waitForExistence(timeout: 8))
+        XCTAssertTrue(startTest.isHittable)
         let openShortcuts = app.buttons["Open Shortcuts"]
-        for _ in 0..<2 where !openShortcuts.exists {
+        for _ in 0..<2 where !openShortcuts.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(openShortcuts.waitForExistence(timeout: 8))
+        XCTAssertTrue(openShortcuts.isHittable)
     }
 
     @MainActor

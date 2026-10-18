@@ -5,7 +5,9 @@ struct StudyHomeView: View {
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
     var automaticSynchronization: (() async -> Void)? = nil
+    @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @State private var showingFailedChanges = false
+    @State private var isRootVisible = false
 
     var body: some View {
         NavigationStack {
@@ -34,29 +36,18 @@ struct StudyHomeView: View {
                 .padding()
             }
             .paperBackground()
+            .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
+            .preference(key: AppModeToolbarKey.self, value: headerToolbar)
+            .onAppear { isRootVisible = true }
+            .onDisappear { isRootVisible = false }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task {
-                            await store.synchronize()
-                            await refreshWaniKaniIfNeeded(force: true)
-                            await refreshCalendarIfNeeded(force: true)
-                        }
-                    } label: {
-                        if store.syncStatus == .syncing {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.trianglehead.2.clockwise")
-                        }
+                if !hasAppModeHeader {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AppModeToolbarView(toolbar: refreshToolbar)
                     }
-                    .accessibilityLabel("Sync")
                 }
             }
-            .refreshable {
-                await store.synchronize()
-                await refreshWaniKaniIfNeeded(force: true)
-                await refreshCalendarIfNeeded(force: true)
-            }
+            .refreshable { await refresh() }
             .task {
                 // AppModel owns app-wide synchronization. This surface refresh can be
                 // cancelled on tab switches and restarted when Study appears again.
@@ -74,6 +65,23 @@ struct StudyHomeView: View {
             }
 
         }
+    }
+
+    private var headerToolbar: [AppMode: AppModeToolbar] {
+        hasAppModeHeader && isRootVisible ? [.study: refreshToolbar] : [:]
+    }
+
+    private var refreshToolbar: AppModeToolbar {
+        AppModeToolbar(buttons: [AppModeToolbarAction(
+            id: "StudySyncButton", title: "Sync", icon: "arrow.trianglehead.2.clockwise",
+            isEnabled: store.syncStatus != .syncing, isLoading: store.syncStatus == .syncing
+        ) { Task { await refresh() } }])
+    }
+
+    private func refresh() async {
+        await store.synchronize()
+        await refreshWaniKaniIfNeeded(force: true)
+        await refreshCalendarIfNeeded(force: true)
     }
 
     private var todayPlan: some View {
