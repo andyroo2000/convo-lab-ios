@@ -32,13 +32,20 @@ jobs:
 
       # The shared scheme includes both unit and native UI-test targets. Keeping one
       # destination and serial execution also makes relaunch persistence deterministic.
+      # Set the device appearance itself: app launch defaults are overridden when
+      # the mode shell returns from its light chrome to the reader's system theme.
       - name: Run simulator tests serially
         run: |
           set -euo pipefail
+          test_simulator=$(xcrun simctl list devices available --json | jq -er '
+            .devices["com.apple.CoreSimulator.SimRuntime.iOS-26-2"]
+            | map(select(.name == "iPhone 17 Pro")) | .[0].udid')
+          xcrun simctl bootstatus "$test_simulator" -b
+          xcrun simctl ui "$test_simulator" appearance dark
           xcodebuild test \
             -project ConvoLab.xcodeproj \
             -scheme ConvoLab \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
+            -destination "platform=iOS Simulator,id=$test_simulator" \
             -resultBundlePath TestResults.xcresult \
             -parallel-testing-enabled NO \
             -maximum-concurrent-test-simulator-destinations 1

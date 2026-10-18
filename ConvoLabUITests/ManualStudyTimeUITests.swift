@@ -21,6 +21,7 @@ final class ManualStudyTimeUITests: XCTestCase {
         let name = app.textFields["Name"]
         name.tap()
         name.typeText("Paper book reading")
+        waitForName("Paper book reading", in: name)
         app.buttons["Add"].tap()
         XCTAssertTrue(app.navigationBars["Add Study Time"].waitForNonExistence(timeout: 8))
 
@@ -29,8 +30,10 @@ final class ManualStudyTimeUITests: XCTestCase {
         entry.tap()
         XCTAssertTrue(app.navigationBars["Edit Study Time"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.switches["Add to my calendar"].exists)
-        name.tap()
-        name.typeText(" chapter two")
+        let editName = app.textFields["Name"]
+        editName.tap()
+        editName.typeText(" chapter two")
+        waitForName("Paper book reading chapter two", in: editName)
         app.buttons["Save"].tap()
         XCTAssertTrue(app.navigationBars["Edit Study Time"].waitForNonExistence(timeout: 8))
 
@@ -56,6 +59,15 @@ final class ManualStudyTimeUITests: XCTestCase {
         section.tap()
         reveal(app.buttons["ManualStudyTimeAddButton"], in: app)
         return app
+    }
+
+    @MainActor
+    private func waitForName(_ expected: String, in field: XCUIElement) {
+        let completeInput = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", expected),
+            object: field
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [completeInput], timeout: 8), .completed)
     }
 
     @MainActor
