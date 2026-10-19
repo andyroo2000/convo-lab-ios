@@ -65,9 +65,8 @@ final class StudyTimePersistentCacheBenchmarkTests: XCTestCase {
             let elapsed = started.duration(to: .now)
             milliseconds.append(Double(elapsed.components.seconds) * 1_000
                                 + Double(elapsed.components.attoseconds) / 1e15)
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encodedBytes = try encoder.encode(snapshot).count
+            encodedBytes = (defaults.persistentDomain(forName: suite) ?? [:]).values
+                .compactMap { $0 as? Data }.reduce(0) { $0 + $1.count }
         }
         XCTAssertEqual(cache.load(userID: 42, timeZone: context.timeZone.identifier)?.periodHistory?.snapshots.count, 12)
         let sorted = milliseconds.sorted()
