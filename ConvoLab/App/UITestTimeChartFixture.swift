@@ -10,6 +10,8 @@ struct UITestTimeChartFixture: View {
     private let history = TimeChartFixtureHistory.shared
 
     init() {
+        // Each fixture launch starts cold, regardless of earlier UI-test runs.
+        UserDefaultsStudyTimeSnapshotCache().remove(userID: -208)
         let baseURL = URL(string: "https://time-chart.ui-tests.invalid")!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TimeChartFixtureProtocol.self]
