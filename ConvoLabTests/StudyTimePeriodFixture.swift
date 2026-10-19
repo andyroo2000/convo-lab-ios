@@ -83,7 +83,10 @@ final class StudyTimePeriodHarness {
     let requests = LockedCounter()
     let controller: StudyTimeInsightsController
 
-    init(delay: Duration = .zero, fixture: StudyTimePeriodFixture = .init()) {
+    init(
+        delay: Duration = .zero, fixture: StudyTimePeriodFixture = .init(),
+        snapshotCache: (any StudyTimeSnapshotCaching)? = nil
+    ) {
         self.fixture = fixture
         let requests = requests
         MockURLProtocol.handler = nil
@@ -107,7 +110,7 @@ final class StudyTimePeriodHarness {
         configuration.protocolClasses = [MockURLProtocol.self]
         let api = APIClient(baseURL: URL(string: "https://period.test")!,
                             session: URLSession(configuration: configuration))
-        controller = StudyTimeInsightsController(api: api, snapshotCache: EmptyStudyTimeSnapshotCache(),
+        controller = StudyTimeInsightsController(api: api, snapshotCache: snapshotCache ?? EmptyStudyTimeSnapshotCache(),
                                                 now: { fixture.now }, timeZone: { fixture.calendar.timeZone })
         controller.activate(userID: 42)
     }

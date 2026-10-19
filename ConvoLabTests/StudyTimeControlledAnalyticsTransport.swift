@@ -15,7 +15,10 @@ final class StudyTimeControlledAnalyticsTransport {
 
     nonisolated deinit {}
 
-    func makeController(timeZone: @escaping () -> TimeZone = { TimeZone(identifier: "America/New_York")! })
+    func makeController(
+        timeZone: @escaping () -> TimeZone = { TimeZone(identifier: "America/New_York")! },
+        now: @escaping () -> Date = { .now }, snapshotCache: (any StudyTimeSnapshotCaching)? = nil
+    )
         -> StudyTimeInsightsController {
         MockURLProtocol.handler = nil
         MockURLProtocol.deferredHandler = { [weak self] request, completion in
@@ -29,8 +32,8 @@ final class StudyTimeControlledAnalyticsTransport {
         configuration.protocolClasses = [MockURLProtocol.self]
         let api = APIClient(baseURL: URL(string: "https://controlled-period.test")!,
                             session: URLSession(configuration: configuration))
-        let controller = StudyTimeInsightsController(api: api, snapshotCache: EmptyStudyTimeSnapshotCache(),
-                                                    timeZone: timeZone)
+        let controller = StudyTimeInsightsController(api: api, snapshotCache: snapshotCache ?? EmptyStudyTimeSnapshotCache(),
+                                                    now: now, timeZone: timeZone)
         controller.activate(userID: 42)
         return controller
     }

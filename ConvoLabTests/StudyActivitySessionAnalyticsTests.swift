@@ -38,7 +38,8 @@ extension StudyActivitySessionTests {
                 Data("[]".utf8)
             )
         }
-        let store = StudyTimeStore(api: client, context: container.mainContext)
+        let store = StudyTimeStore(api: client, context: container.mainContext,
+                                   snapshotCache: EmptyStudyTimeSnapshotCache())
         store.activate(userID: 42)
         await store.synchronize()
         let currentAnalytics = try XCTUnwrap(store.analytics)
@@ -83,7 +84,8 @@ extension StudyActivitySessionTests {
                 Data("[]".utf8)
             )
         }
-        let store = StudyTimeStore(api: client, context: container.mainContext)
+        let store = StudyTimeStore(api: client, context: container.mainContext,
+                                   snapshotCache: EmptyStudyTimeSnapshotCache())
         store.activate(userID: 42)
         await store.synchronize()
         let visibleAnchor = try XCTUnwrap(store.analytics?.anchorDate)
@@ -133,7 +135,8 @@ extension StudyActivitySessionTests {
                 Data("[]".utf8)
             )
         }
-        let store = StudyTimeStore(api: client, context: container.mainContext)
+        let store = StudyTimeStore(api: client, context: container.mainContext,
+                                   snapshotCache: EmptyStudyTimeSnapshotCache())
         store.activate(userID: 42)
 
         let loaded = await store.loadAnalytics(
@@ -173,7 +176,8 @@ extension StudyActivitySessionTests {
                 completion(.failure(error))
             }
         }
-        let store = StudyTimeStore(api: client, context: container.mainContext)
+        let store = StudyTimeStore(api: client, context: container.mainContext,
+                                   snapshotCache: EmptyStudyTimeSnapshotCache())
         store.activate(userID: 42)
         let staleAnchor = try Date("2026-06-15T12:00:00Z", strategy: .iso8601)
         let currentAnchor = try Date("2026-06-16T12:00:00Z", strategy: .iso8601)

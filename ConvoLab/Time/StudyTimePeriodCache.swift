@@ -6,6 +6,12 @@ struct StudyTimePeriodCache {
     struct Entry {
         let value: StudyTimeAnalytics
         let generation: Int
+        let receivedAt: Date
+    }
+
+    private struct Record {
+        let requestedAnchors: [String]
+        let entry: Entry
     }
 
     private struct Key: Hashable {
@@ -20,14 +26,34 @@ struct StudyTimePeriodCache {
 
     private var responses: [String: Entry] = [:]
     private var periods: [Key: Entry] = [:]
+    private var records: [Record] = []
 
     var analytics: [String: StudyTimeAnalytics] { responses.mapValues(\.value) }
+    var snapshots: [StudyTimePeriodSnapshot] {
+        records.map { .init(value: $0.entry.value, receivedAt: $0.entry.receivedAt) }
+    }
 
-    mutating func insert(_ value: StudyTimeAnalytics, requestedAnchor: String, generation: Int) {
-        let entry = Entry(value: value, generation: generation)
-        responses[requestedAnchor] = entry
-        responses[value.anchorDate] = entry
-        for range in value.ranges {
+    mutating func insert(
+        _ value: StudyTimeAnalytics, requestedAnchor: String, generation: Int, receivedAt: Date = .now
+    ) {
+        let entry = Entry(value: value, generation: generation, receivedAt: receivedAt)
+        let previous = records.first { $0.entry.value.anchorDate == value.anchorDate }
+        guard shouldReplace(previous?.entry, with: entry) else { return }
+        let previousAnchors = previous?.requestedAnchors ?? []
+        let anchors = previousAnchors.filter { $0 != requestedAnchor } + [requestedAnchor]
+        records.removeAll { $0.entry.value.anchorDate == value.anchorDate }
+        records.append(.init(requestedAnchors: Array(anchors.suffix(StudyTimePeriodHistory.limit)), entry: entry))
+        records = Array(records.suffix(StudyTimePeriodHistory.limit))
+        responses = [:]
+        periods = [:]
+        for record in records { index(record) }
+    }
+
+    private mutating func index(_ record: Record) {
+        let entry = record.entry
+        for anchor in record.requestedAnchors { responses[anchor] = entry }
+        responses[entry.value.anchorDate] = entry
+        for range in entry.value.ranges {
             let key = Key(range: range.key, start: range.startsAt)
             guard shouldReplace(periods[key], with: entry) else { continue }
             periods[key] = entry
@@ -67,7 +93,8 @@ struct StudyTimePeriodCache {
         // Only the known range belongs to this selection. In particular, a
         // derived week cannot supply the hourly chart for its anchor day.
         Entry(value: .init(generatedAt: entry.value.generatedAt, anchorDate: context.anchor(anchor),
-                           timezone: entry.value.timezone, ranges: [range]), generation: entry.generation)
+                           timezone: entry.value.timezone, ranges: [range]), generation: entry.generation,
+              receivedAt: entry.receivedAt)
     }
 
     private func coveredWeek(
