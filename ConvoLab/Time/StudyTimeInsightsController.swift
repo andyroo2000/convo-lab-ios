@@ -55,6 +55,7 @@ final class StudyTimeInsightsController {
     }
 
     func activate(userID: Int) {
+        ensureContext()
         guard activeUserID != userID else { return }
         analyticsRequestGeneration += 1
         weeklyRecapRequestGeneration += 1
@@ -94,7 +95,13 @@ final class StudyTimeInsightsController {
         snapshotCache.remove(userID: userID)
         guard activeUserID == userID else { return }
         analyticsRequestGeneration += 1
+        weeklyRecapRequestGeneration += 1
         analytics = nil
+        requestedAnalyticsAnchor = nil
+        weeklyRecap = nil
+        weeklyRecapIsLoading = false
+        weeklyRecapErrorMessage = nil
+        weeklyRecapRefreshedAt = nil
         invalidateAnalyticsCache()
     }
 
@@ -147,7 +154,7 @@ final class StudyTimeInsightsController {
 
     func cachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> StudyTimeAnalytics? {
         guard activeUserID != nil, context.timeZone == timeZone() else { return nil }
-        return periodCache.entry(anchor: anchorDate, range: range, context: context)?.value
+        return availableEntry(anchorDate: anchorDate, range: range)?.value
     }
 
     @discardableResult
@@ -156,8 +163,7 @@ final class StudyTimeInsightsController {
         guard let request = requestContext(anchorDate: anchorDate) else {
             return .init(loaded: false, failureMessage: nil)
         }
-        if periodCache.entry(anchor: anchorDate, range: range, context: context)?.generation
-            == analyticsCacheGeneration {
+        if let entry = availableEntry(anchorDate: anchorDate, range: range), isFresh(entry) {
             return .init(loaded: true, failureMessage: nil)
         }
         do {
@@ -174,12 +180,12 @@ final class StudyTimeInsightsController {
     func selectCachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> Bool {
         ensureContext()
         guard activeUserID != nil, !Task.isCancelled,
-              let entry = periodCache.entry(anchor: anchorDate, range: range, context: context)
+              let entry = availableEntry(anchorDate: anchorDate, range: range)
         else { return false }
         analyticsRequestGeneration += 1
         revalidationTask?.cancel()
         publish(entry.value)
-        if entry.generation != analyticsCacheGeneration { revalidate(anchorDate: anchorDate) }
+        if !isFresh(entry) { revalidate(anchorDate: anchorDate) }
         return true
     }
 
@@ -202,7 +208,6 @@ final class StudyTimeInsightsController {
                 return .init(loaded: false, failureMessage: nil)
             }
             publish(fetched)
-            persistSnapshot()
             return .init(loaded: true, failureMessage: nil)
         } catch {
             guard analyticsRequestGeneration == request.generation else {
@@ -243,7 +248,18 @@ final class StudyTimeInsightsController {
 
     private func cache(_ value: StudyTimeAnalytics, for request: RefreshRequest) {
         periodCache.insert(value, requestedAnchor: request.context.anchor(request.anchorDate),
-                           generation: request.cacheGeneration)
+                           generation: request.cacheGeneration, receivedAt: now())
+        persistSnapshot(analytics: value)
+    }
+
+    private func availableEntry(anchorDate: Date, range: StudyTimeRange?) -> StudyTimePeriodCache.Entry? {
+        guard let entry = periodCache.entry(anchor: anchorDate, range: range, context: context) else { return nil }
+        let age = now().timeIntervalSince(entry.receivedAt)
+        return age >= 0 && age < StudyTimePeriodHistory.maximumAge ? entry : nil
+    }
+
+    private func isFresh(_ entry: StudyTimePeriodCache.Entry) -> Bool {
+        StudyTimePeriodFreshness.isFresh(entry, generation: analyticsCacheGeneration, now: now(), context: context)
     }
 
     private func publish(_ value: StudyTimeAnalytics) {
@@ -303,17 +319,11 @@ final class StudyTimeInsightsController {
     }
 
     private func restoreSnapshot(userID: Int) {
-        let timeZone = TimeZone.autoupdatingCurrent.identifier
+        let timeZone = context.timeZone.identifier
         guard let snapshot = snapshotCache.load(userID: userID, timeZone: timeZone) else { return }
         let age = now().timeIntervalSince(snapshot.savedAt)
         guard age >= 0, age < 7 * 86_400 else { return }
-        if let cachedAnalytics = snapshot.analytics,
-           cachedAnalytics.anchorDate == context.anchor(now())
-        {
-            analytics = cachedAnalytics
-            periodCache.insert(cachedAnalytics, requestedAnchor: cachedAnalytics.anchorDate,
-                               generation: analyticsCacheGeneration)
-        }
+        restoreAnalytics(snapshot, userID: userID)
         if let cachedRecap = snapshot.weeklyRecap,
            recapMatchesMostRecentCompletedWeek(cachedRecap, timeZone: timeZone)
         {
@@ -322,16 +332,36 @@ final class StudyTimeInsightsController {
         }
     }
 
+    private func restoreAnalytics(_ snapshot: StudyTimeSnapshot, userID: Int) {
+        if let history = snapshot.periodHistory {
+            for entry in history.restored(userID: userID, context: context, now: now()) {
+                periodCache.insert(entry.value, requestedAnchor: entry.value.anchorDate,
+                                   generation: analyticsCacheGeneration - 1, receivedAt: entry.receivedAt)
+            }
+        } else if let value = snapshot.analytics,
+                  value.timezone == context.timeZone.identifier, value.anchorDate == context.anchor(now()) {
+            periodCache.insert(value, requestedAnchor: value.anchorDate,
+                               generation: analyticsCacheGeneration - 1, receivedAt: snapshot.savedAt)
+        }
+        analytics = availableEntry(anchorDate: now(), range: .week)?.value
+            ?? availableEntry(anchorDate: now(), range: nil)?.value
+    }
+
     private func persistSnapshot(
-        timeZone: String = TimeZone.autoupdatingCurrent.identifier
+        analytics value: StudyTimeAnalytics? = nil, timeZone: String? = nil
     ) {
         guard let userID = activeUserID else { return }
+        let timeZone = timeZone ?? context.timeZone.identifier
+        let value = value ?? analytics
+        let history = timeZone == context.timeZone.identifier
+            ? StudyTimePeriodHistory(userID: userID, context: context, snapshots: periodCache.snapshots) : nil
         snapshotCache.save(
             StudyTimeSnapshot(
                 savedAt: now(),
-                analytics: analytics,
+                analytics: value?.timezone == timeZone ? value : nil,
                 weeklyRecap: weeklyRecap,
-                weeklyRecapRefreshedAt: weeklyRecapRefreshedAt
+                weeklyRecapRefreshedAt: weeklyRecapRefreshedAt,
+                periodHistory: history
             ),
             userID: userID,
             timeZone: timeZone

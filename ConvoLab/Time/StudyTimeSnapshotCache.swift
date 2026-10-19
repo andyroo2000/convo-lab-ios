@@ -5,17 +5,20 @@ struct StudyTimeSnapshot: Codable, Equatable {
     let analytics: StudyTimeAnalytics?
     let weeklyRecap: WeeklyStudyRecap?
     let weeklyRecapRefreshedAt: Date?
+    let periodHistory: StudyTimePeriodHistory?
 
     init(
         savedAt: Date,
         analytics: StudyTimeAnalytics?,
         weeklyRecap: WeeklyStudyRecap?,
-        weeklyRecapRefreshedAt: Date? = nil
+        weeklyRecapRefreshedAt: Date? = nil,
+        periodHistory: StudyTimePeriodHistory? = nil
     ) {
         self.savedAt = savedAt
         self.analytics = analytics
         self.weeklyRecap = weeklyRecap
         self.weeklyRecapRefreshedAt = weeklyRecapRefreshedAt
+        self.periodHistory = periodHistory
     }
 }
 
