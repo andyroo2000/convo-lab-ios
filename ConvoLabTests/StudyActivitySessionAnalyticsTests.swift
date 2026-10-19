@@ -100,7 +100,7 @@ extension StudyActivitySessionTests {
 
         await store.synchronize()
 
-        XCTAssertNil(store.cachedAnalytics(anchorDate: nextAnchor))
+        XCTAssertNotNil(store.cachedAnalytics(anchorDate: nextAnchor))
     }
 
     func testLoadedAnalyticsUsesTheServerConfirmedAnchorForLaterSynchronization() async throws {
@@ -145,7 +145,7 @@ extension StudyActivitySessionTests {
         XCTAssertTrue(loaded)
     }
 
-    func testCacheInvalidationDiscardsAnOlderInFlightPrefetch() async throws {
+    func testNavigationRetainsAnOlderInFlightPrefetchWithoutReplacingTheSelectedChart() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let (prefetchStarted, prefetchStartedContinuation) = AsyncStream<Void>.makeStream()
         let (releasePrefetch, releasePrefetchContinuation) = AsyncStream<Void>.makeStream()
@@ -189,8 +189,8 @@ extension StudyActivitySessionTests {
         releasePrefetchContinuation.yield()
         let stalePrefetchSucceeded = await stalePrefetch.value
 
-        XCTAssertFalse(stalePrefetchSucceeded)
-        XCTAssertNil(store.cachedAnalytics(anchorDate: staleAnchor))
+        XCTAssertTrue(stalePrefetchSucceeded)
+        XCTAssertNotNil(store.cachedAnalytics(anchorDate: staleAnchor))
         XCTAssertEqual(store.analytics?.anchorDate, "2026-06-16")
     }
 

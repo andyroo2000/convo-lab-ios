@@ -18,6 +18,12 @@ enum StudyTimeManualEntryLoading {
     }
 }
 
+enum StudyTimeRangeSelection {
+    static func fallback(preferred: StudyTimeRange, analytics: StudyTimeAnalytics?) -> StudyTimeRange? {
+        analytics?.range(preferred)?.key ?? analytics?.ranges.first?.key
+    }
+}
+
 struct StudyTimeView: View {
     let store: StudyTimeStore
     let studyStore: StudyStore
@@ -54,21 +60,16 @@ struct StudyTimeView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .accessibilityLabel("Time span")
-                    .onChange(of: selectedRange) {
+                    .onChange(of: selectedRange) { previous, _ in
                         cancelAnalyticsNavigation()
                         if suppressNextHistoricalRangeReset {
                             suppressNextHistoricalRangeReset = false
                             return
                         }
-                        // A range response already contains every span. Only fetch when a
-                        // range switch intentionally returns a historical view to now.
-                        guard let anchorDate = store.analytics?.anchorDate,
-                              let anchor = analyticsAnchorDate(from: anchorDate),
-                              !Calendar.current.isDateInToday(anchor)
-                        else {
-                            return
-                        }
-                        scheduleAnalyticsLoad(anchorDate: .now)
+                        // Canonical cached ranges can be selected immediately. A
+                        // derived week intentionally has no invented hourly data.
+                        let fallback = StudyTimeRangeSelection.fallback(preferred: previous, analytics: store.analytics)
+                        scheduleAnalyticsLoad(anchorDate: .now, fallback: fallback)
                     }
 
                     if let analytics = selectedAnalytics {

@@ -66,8 +66,9 @@ struct UITestTimeChartFixture: View {
     }
 
     private func loadUncachedWeek() async {
-        let anchor = history.calendar.date(byAdding: .day, value: -21, to: history.now)!
-        let previous = history.calendar.date(byAdding: .day, value: -28, to: history.now)!
+        let monthStart = history.calendar.dateInterval(of: .month, for: history.now)!.start
+        let anchor = history.calendar.date(byAdding: .month, value: -1, to: monthStart)!
+        let previous = history.calendar.date(byAdding: .day, value: -7, to: anchor)!
         TimeChartFixtureProtocol.delay(anchor: history.anchor(previous))
         _ = await model.studyTime.loadAnalytics(anchorDate: anchor)
     }
