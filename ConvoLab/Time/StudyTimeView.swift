@@ -22,6 +22,15 @@ enum StudyTimeRangeSelection {
     static func fallback(preferred: StudyTimeRange, analytics: StudyTimeAnalytics?) -> StudyTimeRange? {
         analytics?.range(preferred)?.key ?? analytics?.ranges.first?.key
     }
+
+    static func assign(
+        _ target: StudyTimeRange?, selected: inout StudyTimeRange, suppressNextReset: inout Bool
+    ) {
+        // A same-value assignment does not fire onChange to consume this flag.
+        guard let target, target != selected else { return }
+        suppressNextReset = true
+        selected = target
+    }
 }
 
 struct StudyTimeView: View {

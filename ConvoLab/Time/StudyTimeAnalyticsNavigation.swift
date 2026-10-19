@@ -222,17 +222,14 @@ extension StudyTimeView {
                 restoreAnalyticsRange(fallback)
                 return
             }
-            if let range {
-                suppressNextHistoricalRangeReset = true
-                selectedRange = range
-            }
+            restoreAnalyticsRange(range)
         }
     }
 
     private func restoreAnalyticsRange(_ range: StudyTimeRange?) {
-        guard let range else { return }
-        suppressNextHistoricalRangeReset = true
-        selectedRange = range
+        StudyTimeRangeSelection.assign(
+            range, selected: &selectedRange, suppressNextReset: &suppressNextHistoricalRangeReset
+        )
     }
 
     func adjacentAnalytics(
