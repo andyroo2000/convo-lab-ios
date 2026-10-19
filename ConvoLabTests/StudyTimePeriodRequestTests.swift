@@ -51,7 +51,7 @@ final class StudyTimePeriodRequestTests: XCTestCase {
         let transport = StudyTimeControlledAnalyticsTransport()
         let controller = transport.makeController()
         let anchor = StudyTimePeriodFixture().date("2026-10-11")
-        let prefetch = Task { await controller.prefetchAnalytics(anchorDate: anchor) }
+        let prefetch = Task { await controller.prefetchAnalytics(anchorDate: anchor, range: .week) }
         await fulfillment(of: [transport.expecting(1)], timeout: 2)
         let joined = expectation(description: "Navigation joined")
         let navigation = Task {
@@ -169,7 +169,7 @@ final class StudyTimePeriodRequestTests: XCTestCase {
         XCTAssertEqual(controller.analytics?.anchorDate, "2026-10-11")
         try transport.complete(2)
         // Join the revalidation transport instead of using a timing-dependent sleep.
-        let result = await controller.prefetchAnalytics(anchorDate: fixture.date("2026-10-11"))
+        let result = await controller.prefetchAnalytics(anchorDate: fixture.date("2026-10-11"), range: .week)
         XCTAssertTrue(result.loaded)
         XCTAssertEqual(transport.count, 3)
         XCTAssertEqual(controller.analytics?.anchorDate, "2026-10-11")

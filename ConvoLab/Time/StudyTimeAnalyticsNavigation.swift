@@ -144,7 +144,7 @@ extension StudyTimeView {
             id: "\(store.analytics?.anchorDate ?? "")"
                 + "-\(selectedRange.rawValue)-\(store.analyticsCacheGeneration)"
         ) {
-            await prefetchAdjacentAnalytics(from: analytics)
+            store.updateAnalyticsPrefetching(range: selectedRange)
         }
         .accessibilityActions {
             if selectedRange != .all {
@@ -242,20 +242,6 @@ extension StudyTimeView {
             return nil
         }
         return (range, cached.generatedAt)
-    }
-
-    func prefetchAdjacentAnalytics(
-        from analytics: StudyTimeAnalyticsRange
-    ) async {
-        guard selectedRange != .all else { return }
-        let previousAnchor = shiftedAnalyticsAnchor(by: -1)
-        let nextAnchor = canNavigateLater(from: analytics) ? shiftedAnalyticsAnchor(by: 1) : nil
-        if let previousAnchor, !Task.isCancelled {
-            _ = await store.prefetchAnalytics(anchorDate: previousAnchor, range: selectedRange)
-        }
-        if let nextAnchor, !Task.isCancelled {
-            _ = await store.prefetchAnalytics(anchorDate: nextAnchor, range: selectedRange)
-        }
     }
 
     func finishAnalyticsPan(

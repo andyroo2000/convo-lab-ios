@@ -29,6 +29,20 @@ struct StudyTimeAnalyticsCalendar: Equatable {
         return calendar.dateInterval(of: unit, for: anchor)
     }
 
+    func shifted(_ anchor: Date, range: StudyTimeRange, by amount: Int) -> Date? {
+        switch range {
+        case .today: calendar.date(byAdding: .day, value: amount, to: anchor)
+        case .week: calendar.date(byAdding: .day, value: amount * 7, to: anchor)
+        case .month: bounds(range, anchor: anchor).flatMap {
+            calendar.date(byAdding: .month, value: amount, to: $0.start)
+        }
+        case .year: bounds(range, anchor: anchor).flatMap {
+            calendar.date(byAdding: .year, value: amount, to: $0.start)
+        }
+        case .all: nil
+        }
+    }
+
     private var formatter: DateFormatter {
         let result = DateFormatter()
         result.calendar = calendar

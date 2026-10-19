@@ -11,6 +11,7 @@ struct StudyTimePeriodCache {
 
     private struct Record {
         let requestedAnchors: [String]
+        let requestedRanges: [StudyTimeRange]?
         let entry: Entry
     }
 
@@ -30,34 +31,47 @@ struct StudyTimePeriodCache {
 
     var analytics: [String: StudyTimeAnalytics] { responses.mapValues(\.value) }
     var snapshots: [StudyTimePeriodSnapshot] {
-        records.map { .init(value: $0.entry.value, receivedAt: $0.entry.receivedAt) }
+        records.map { .init(value: $0.entry.value, receivedAt: $0.entry.receivedAt,
+                            requestedRanges: $0.requestedRanges) }
     }
 
     mutating func insert(
-        _ value: StudyTimeAnalytics, requestedAnchor: String, generation: Int, receivedAt: Date = .now
+        _ value: StudyTimeAnalytics, requestedAnchor: String, generation: Int, receivedAt: Date = .now,
+        requestedRanges: [StudyTimeRange]? = nil
     ) {
         let entry = Entry(value: value, generation: generation, receivedAt: receivedAt)
-        let previous = records.first { $0.entry.value.anchorDate == value.anchorDate }
+        let key = StudyTimeAnalyticsScope.key(anchor: value.anchorDate, ranges: requestedRanges)
+        let previous = records.first { Self.recordKey($0) == key }
         guard shouldReplace(previous?.entry, with: entry) else { return }
         let previousAnchors = previous?.requestedAnchors ?? []
         let anchors = previousAnchors.filter { $0 != requestedAnchor } + [requestedAnchor]
-        records.removeAll { $0.entry.value.anchorDate == value.anchorDate }
-        records.append(.init(requestedAnchors: Array(anchors.suffix(StudyTimePeriodHistory.limit)), entry: entry))
+        records.removeAll { Self.recordKey($0) == key }
+        records.append(.init(requestedAnchors: Array(anchors.suffix(StudyTimePeriodHistory.limit)),
+                             requestedRanges: requestedRanges, entry: entry))
         records = Array(records.suffix(StudyTimePeriodHistory.limit))
         responses = [:]
         periods = [:]
         for record in records { index(record) }
     }
 
+    private static func recordKey(_ record: Record) -> String {
+        StudyTimeAnalyticsScope.key(anchor: record.entry.value.anchorDate, ranges: record.requestedRanges)
+    }
+
     private mutating func index(_ record: Record) {
         let entry = record.entry
-        for anchor in record.requestedAnchors { responses[anchor] = entry }
-        responses[entry.value.anchorDate] = entry
+        indexFullResponse(record)
         for range in entry.value.ranges {
             let key = Key(range: range.key, start: range.startsAt)
             guard shouldReplace(periods[key], with: entry) else { continue }
             periods[key] = entry
         }
+    }
+
+    private mutating func indexFullResponse(_ record: Record) {
+        guard record.requestedRanges == nil else { return }
+        for anchor in record.requestedAnchors { responses[anchor] = record.entry }
+        responses[record.entry.value.anchorDate] = record.entry
     }
 
     func entry(anchor: Date, range: StudyTimeRange?, context: StudyTimeAnalyticsCalendar) -> Entry? {

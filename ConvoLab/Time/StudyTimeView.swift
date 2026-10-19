@@ -37,6 +37,7 @@ struct StudyTimeView: View {
     let store: StudyTimeStore
     let studyStore: StudyStore
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showingEntry = false
     @State private var editingSession: StudyActivitySession?
     @State var selectedRange: StudyTimeRange = .week
@@ -71,6 +72,7 @@ struct StudyTimeView: View {
                     .accessibilityLabel("Time span")
                     .onChange(of: selectedRange) { previous, _ in
                         cancelAnalyticsNavigation()
+                        store.stopAnalyticsPrefetching()
                         if suppressNextHistoricalRangeReset {
                             suppressNextHistoricalRangeReset = false
                             return
@@ -136,7 +138,17 @@ struct StudyTimeView: View {
                 )
             }
             .toolbar(.hidden, for: .navigationBar)
-            .onDisappear { cancelAnalyticsNavigation() }
+            .onDisappear {
+                cancelAnalyticsNavigation()
+                store.stopAnalyticsPrefetching()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    store.updateAnalyticsPrefetching(range: selectedRange)
+                } else {
+                    store.stopAnalyticsPrefetching()
+                }
+            }
             .sheet(isPresented: $showingEntry) {
                 StudyTimeEntryView(store: store)
             }

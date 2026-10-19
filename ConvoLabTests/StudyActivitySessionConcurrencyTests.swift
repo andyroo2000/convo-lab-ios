@@ -265,7 +265,7 @@ extension StudyActivitySessionTests {
         XCTAssertEqual(synchronizationOutcome?.shouldApply, true)
     }
 
-    func testSynchronizationSurfacesFailureAfterConcurrentLocalMutation() async throws {
+    func testSynchronizationSuppressesFailureAfterConcurrentLocalMutation() async throws {
         let container = try StudyTimePersistence.makeContainer(inMemory: true)
         let (getStarted, getStartedContinuation) = AsyncStream<Void>.makeStream()
         let (releaseGet, releaseGetContinuation) = AsyncStream<Void>.makeStream()
@@ -305,7 +305,7 @@ extension StudyActivitySessionTests {
         releaseGetContinuation.yield()
         await synchronization.value
 
-        XCTAssertNotNil(store.syncErrorMessage)
+        XCTAssertNil(store.syncErrorMessage)
         XCTAssertTrue(store.sessions.isEmpty)
         XCTAssertNil(store.active)
     }

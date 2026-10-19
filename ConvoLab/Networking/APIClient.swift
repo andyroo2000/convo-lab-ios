@@ -83,14 +83,16 @@ final class APIClient {
         method: String = "GET",
         query: [URLQueryItem] = [],
         body: (any Encodable)? = nil,
-        timeout: TimeInterval = 45
+        timeout: TimeInterval = 45,
+        authorizationToken: String? = nil
     ) async throws {
         _ = try await sendRequest(
             path,
             method: method,
             query: query,
             body: body,
-            timeout: timeout
+            timeout: timeout,
+            authorizationToken: authorizationToken
         )
     }
 

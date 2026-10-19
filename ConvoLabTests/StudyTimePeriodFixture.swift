@@ -29,10 +29,10 @@ nonisolated struct StudyTimePeriodFixture {
         return formatter
     }
 
-    @MainActor func response(anchor: Date) -> StudyTimeAnalytics {
+    @MainActor func response(anchor: Date, ranges: [StudyTimeRange]? = nil) -> StudyTimeAnalytics {
         StudyTimeAnalytics(
             generatedAt: now, anchorDate: self.anchor(anchor), timezone: calendar.timeZone.identifier,
-            ranges: StudyTimeRange.allCases.map { range($0, anchor: anchor) }
+            ranges: (ranges ?? StudyTimeRange.allCases).map { range($0, anchor: anchor) }
         )
     }
 
@@ -96,7 +96,9 @@ final class StudyTimePeriodHarness {
                 .queryItems?.first { $0.name == "anchorDate" }?.value ?? fixture.anchor(fixture.now)
             Task {
                 try? await Task.sleep(for: delay)
-                let response = await fixture.response(anchor: fixture.date(anchor))
+                let ranges = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "ranges[]" }.compactMap { $0.value.flatMap(StudyTimeRange.init(rawValue:)) }
+                let response = await fixture.response(anchor: fixture.date(anchor), ranges: ranges?.isEmpty == false ? ranges : nil)
                 completion(Result {
                     let encoder = JSONEncoder()
                     encoder.dateEncodingStrategy = .iso8601

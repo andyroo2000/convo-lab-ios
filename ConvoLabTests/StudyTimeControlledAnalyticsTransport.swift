@@ -12,6 +12,7 @@ final class StudyTimeControlledAnalyticsTransport {
     private var pending: [Pending] = []
     private var expectations: [Int: XCTestExpectation] = [:]
     var count: Int { pending.count }
+    var urls: [URL] { pending.map { $0.request.url! } }
 
     nonisolated deinit {}
 
@@ -53,9 +54,11 @@ final class StudyTimeControlledAnalyticsTransport {
         let url = pending.request.url!
         let anchor = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
             .first { $0.name == "anchorDate" }!.value!
+        let ranges = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .filter { $0.name == "ranges[]" }.compactMap { $0.value.flatMap(StudyTimeRange.init(rawValue:)) }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         pending.completion(.success((HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                                     try encoder.encode(fixture.response(anchor: fixture.date(anchor!))))))
+                                     try encoder.encode(fixture.response(anchor: fixture.date(anchor!), ranges: ranges?.isEmpty == false ? ranges : nil)))))
     }
 }

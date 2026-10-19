@@ -3,6 +3,13 @@ import Foundation
 struct StudyTimePeriodSnapshot: Codable, Equatable {
     let value: StudyTimeAnalytics
     let receivedAt: Date
+    let requestedRanges: [StudyTimeRange]?
+
+    init(value: StudyTimeAnalytics, receivedAt: Date, requestedRanges: [StudyTimeRange]? = nil) {
+        self.value = value
+        self.receivedAt = receivedAt
+        self.requestedRanges = requestedRanges
+    }
 }
 
 struct StudyTimePeriodHistory: Codable, Equatable {
@@ -16,7 +23,7 @@ struct StudyTimePeriodHistory: Codable, Equatable {
     let snapshots: [StudyTimePeriodSnapshot]
 
     init(userID: Int, context: StudyTimeAnalyticsCalendar, snapshots: [StudyTimePeriodSnapshot]) {
-        version = 1
+        version = 2
         self.userID = userID
         timezone = context.timeZone.identifier
         weekStartsOn = context.weekStartsOn
@@ -24,7 +31,7 @@ struct StudyTimePeriodHistory: Codable, Equatable {
     }
 
     func restored(userID: Int, context: StudyTimeAnalyticsCalendar, now: Date) -> [StudyTimePeriodSnapshot] {
-        guard version == 1, self.userID == userID,
+        guard [1, 2].contains(version), self.userID == userID,
               timezone == context.timeZone.identifier, weekStartsOn == context.weekStartsOn
         else { return [] }
         return snapshots.suffix(Self.limit).filter {
