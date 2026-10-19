@@ -164,8 +164,10 @@ final class ModeNavigationUITests: XCTestCase {
     @MainActor
     private func assertSettingsDetailBack(_ app: XCUIApplication) {
         let integration = app.buttons["SatoriReaderIntegrationLink"]
-        for _ in 0..<4 where !integration.isHittable { app.swipeUp() }
-        XCTAssertTrue(integration.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !isFullyVisibleSettingsRow(integration, app: app) {
+            app.collectionViews.firstMatch.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(isFullyVisibleSettingsRow(integration, app: app))
         integration.tap()
         let detail = app.navigationBars["Satori Reader"]
         XCTAssertTrue(detail.waitForExistence(timeout: 5))
@@ -175,5 +177,13 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertTrue(integration.waitForExistence(timeout: 5))
         XCTAssertFalse(detail.exists)
         XCTAssertFalse(app.navigationBars.buttons["Back"].exists)
+    }
+
+    @MainActor
+    private func isFullyVisibleSettingsRow(_ row: XCUIElement, app: XCUIApplication) -> Bool {
+        guard row.exists, row.isHittable else { return false }
+        // XCTest can consider a few pixels behind the home indicator hittable.
+        return row.frame.minY > app.buttons["app-mode-picker"].frame.maxY
+            && row.frame.maxY < app.frame.maxY - 60
     }
 }
