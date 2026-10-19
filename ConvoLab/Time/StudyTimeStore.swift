@@ -35,7 +35,10 @@ final class StudyTimeStore {
     private(set) var active: ActiveSession?
     private(set) var storageWriteErrorMessage: String?
     private var storageWriteErrorOperation: StudyTimeStorageWriteOperation?
-    private(set) var syncErrorMessage: String?
+    private(set) var syncErrorMessage: String? {
+        didSet { syncErrorGeneration += 1 }
+    }
+    private var syncErrorGeneration = 0
     private(set) var googleCalendarStatus: GoogleCalendarConnectionStatus?
     private(set) var googleCalendarStatusRefreshedAt: Date?
     private(set) var googleCalendarIsLoading = false
@@ -614,15 +617,13 @@ final class StudyTimeStore {
     }
 
     func synchronize() async {
-        guard let requestedUserID = activeUserID,
-              let outcome = await synchronizationCoordinator.synchronize(),
-              synchronizationCoordinator.isCurrent(userID: requestedUserID),
-              outcome.shouldApply
+        let errorGeneration = syncErrorGeneration
+        guard let outcome = await synchronizationCoordinator.synchronize(),
+              synchronizationCoordinator.canApply(outcome.context),
+              !outcome.becameStale, outcome.shouldApply
         else { return }
-        if !outcome.becameStale {
-            applyLoadedSessions(outcome.loadedSessions)
-        }
-        syncErrorMessage = outcome.failureMessage
+        applyLoadedSessions(outcome.loadedSessions)
+        if syncErrorGeneration == errorGeneration { syncErrorMessage = outcome.failureMessage }
     }
 
     func deleteLocalData(userID: Int) throws {
@@ -707,13 +708,13 @@ final class StudyTimeStore {
     }
 
     private func pushPending() async {
-        guard let requestedUserID = activeUserID,
-              let outcome = await synchronizationCoordinator.pushPending(),
-              synchronizationCoordinator.isCurrent(userID: requestedUserID),
+        let errorGeneration = syncErrorGeneration
+        guard let outcome = await synchronizationCoordinator.pushPending(),
+              synchronizationCoordinator.canApply(outcome.context),
               !outcome.becameStale,
               outcome.shouldApply
         else { return }
-        syncErrorMessage = outcome.failureMessage
+        if syncErrorGeneration == errorGeneration { syncErrorMessage = outcome.failureMessage }
         applyLoadedSessions(outcome.loadedSessions)
     }
 
@@ -782,6 +783,12 @@ final class StudyTimeStore {
         }
         return result.loaded
     }
+
+    func updateAnalyticsPrefetching(range: StudyTimeRange) {
+        insightsController.updatePrefetching(range: range)
+    }
+
+    func stopAnalyticsPrefetching() { insightsController.stopPrefetching() }
 
     func cachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> StudyTimeAnalytics? {
         insightsController.cachedAnalytics(anchorDate: anchorDate, range: range)

@@ -9,6 +9,8 @@ final class StudyTimeInsightsController {
         let anchorDate: Date
         let cacheGeneration: Int
         let context: StudyTimeAnalyticsCalendar
+        let range: StudyTimeRange?
+        let authorizationToken: String?
     }
 
     struct RefreshResult {
@@ -25,6 +27,9 @@ final class StudyTimeInsightsController {
     private var periodCache = StudyTimePeriodCache()
     private let requests = StudyTimeAnalyticsRequests()
     private var revalidationTask: Task<Void, Never>?
+    private let prefetch = StudyTimeAnalyticsPrefetch()
+    private var viewport = StudyTimeAnalyticsViewport()
+    private var contextToken: String?
 
     private(set) var analytics: StudyTimeAnalytics?
     var analyticsCache: [String: StudyTimeAnalytics] { periodCache.analytics }
@@ -38,6 +43,7 @@ final class StudyTimeInsightsController {
     private var weeklyRecapRequestGeneration = 0
     private var weeklyRecapRefreshedAt: Date?
     private var requestedAnalyticsAnchor: Date?
+    private var requestedAnalyticsRange: StudyTimeRange? = .week
 
     init(
         api: APIClient,
@@ -52,6 +58,7 @@ final class StudyTimeInsightsController {
         self.now = now
         self.timeZone = timeZone
         context = StudyTimeAnalyticsCalendar(timeZone: timeZone())
+        contextToken = api.accessToken
     }
 
     func activate(userID: Int) {
@@ -60,6 +67,7 @@ final class StudyTimeInsightsController {
         analyticsRequestGeneration += 1
         weeklyRecapRequestGeneration += 1
         requestedAnalyticsAnchor = nil
+        requestedAnalyticsRange = .week
         analytics = nil
         invalidateAnalyticsCache()
         weeklyRecap = nil
@@ -76,6 +84,7 @@ final class StudyTimeInsightsController {
         requestedAnalyticsAnchor = nil
         requests.cancelAll()
         revalidationTask?.cancel()
+        prefetch.cancel()
         activeUserID = nil
     }
 
@@ -146,34 +155,48 @@ final class StudyTimeInsightsController {
         if selectCachedAnalytics(anchorDate: anchorDate, range: range) {
             return .init(loaded: true, failureMessage: nil)
         }
-        guard let request = prepareSelection(anchorDate: anchorDate) else {
+        guard let request = prepareSelection(anchorDate: anchorDate, range: range) else {
             return .init(loaded: false, failureMessage: nil)
         }
-        return await finishRefresh(request)
+        let result = await finishRefresh(request)
+        if shouldRetrySelection(request) { return await loadAnalytics(anchorDate: anchorDate, range: range) }
+        return result
     }
 
     func cachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> StudyTimeAnalytics? {
-        guard activeUserID != nil, context.timeZone == timeZone() else { return nil }
+        guard activeUserID != nil, context.timeZone == timeZone(), contextToken == api.accessToken else { return nil }
         return availableEntry(anchorDate: anchorDate, range: range)?.value
     }
 
     @discardableResult
-    func prefetchAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) async -> RefreshResult {
+    func prefetchAnalytics(
+        anchorDate: Date, range: StudyTimeRange? = nil, speculative: Bool = false
+    ) async -> RefreshResult {
         ensureContext()
-        guard let request = requestContext(anchorDate: anchorDate) else {
+        guard let request = requestContext(anchorDate: anchorDate, range: range) else {
             return .init(loaded: false, failureMessage: nil)
         }
         if let entry = availableEntry(anchorDate: anchorDate, range: range), isFresh(entry) {
             return .init(loaded: true, failureMessage: nil)
         }
+        if !speculative { prefetch.beginForeground() }
+        defer { if !speculative { prefetch.endForeground() } }
         do {
             let fetched = try await fetchAnalytics(request)
-            guard isCurrentContext(request) else { return .init(loaded: false, failureMessage: nil) }
+            guard isCurrentContext(request) else {
+                return await retryPrefetch(request, speculative: speculative)
+            }
             cache(fetched, for: request)
             return .init(loaded: true, failureMessage: nil)
         } catch {
+            if shouldRetrySelection(request) { return await retryPrefetch(request, speculative: speculative) }
             return failure(error, for: request)
         }
+    }
+
+    private func retryPrefetch(_ request: RefreshRequest, speculative: Bool) async -> RefreshResult {
+        guard !speculative, shouldRetrySelection(request) else { return .init(loaded: false, failureMessage: nil) }
+        return await prefetchAnalytics(anchorDate: request.anchorDate, range: request.range)
     }
 
     @discardableResult
@@ -184,8 +207,9 @@ final class StudyTimeInsightsController {
         else { return false }
         analyticsRequestGeneration += 1
         revalidationTask?.cancel()
+        requestedAnalyticsRange = range
         publish(entry.value)
-        if !isFresh(entry) { revalidate(anchorDate: anchorDate) }
+        if !isFresh(entry) { revalidate(anchorDate: anchorDate, range: range) }
         return true
     }
 
@@ -195,11 +219,14 @@ final class StudyTimeInsightsController {
         // Keep usable snapshots on screen. The new epoch prevents older network
         // completions from marking them fresh after a sync or mutation.
         advanceCacheGeneration()
-        return prepareSelection(anchorDate: anchorDate ?? requestedAnalyticsAnchor ?? now())
+        if let anchorDate { return prepareSelection(anchorDate: anchorDate, range: requestedAnalyticsRange) }
+        return requestContext(anchorDate: requestedAnalyticsAnchor ?? now(), range: requestedAnalyticsRange)
     }
 
     func finishRefresh(_ request: RefreshRequest) async -> RefreshResult {
         guard isCurrentContext(request) else { return .init(loaded: false, failureMessage: nil) }
+        prefetch.beginForeground()
+        defer { prefetch.endForeground() }
         do {
             let fetched = try await fetchAnalytics(request)
             guard isCurrentContext(request) else { return .init(loaded: false, failureMessage: nil) }
@@ -213,6 +240,7 @@ final class StudyTimeInsightsController {
             guard analyticsRequestGeneration == request.generation else {
                 return .init(loaded: false, failureMessage: nil)
             }
+            if request.cacheGeneration == analyticsCacheGeneration { restoreRequestedSelection() }
             return failure(error, for: request)
         }
     }
@@ -224,22 +252,61 @@ final class StudyTimeInsightsController {
         return await finishRefresh(request)
     }
 
-    private func prepareSelection(anchorDate: Date) -> RefreshRequest? {
+    func invalidateForMutation() {
         analyticsRequestGeneration += 1
-        revalidationTask?.cancel()
-        return requestContext(anchorDate: anchorDate)
+        advanceCacheGeneration()
     }
 
-    private func requestContext(anchorDate: Date) -> RefreshRequest? {
+    func stopPrefetching() { prefetch.cancel() }
+
+    func updatePrefetching(range: StudyTimeRange) {
+        ensureContext()
+        guard activeUserID != nil, let analytics,
+              let anchor = context.date(analytics.anchorDate) else { return }
+        let targets = viewport.targets(anchor: anchor, range: range,
+                                       generatedAt: analytics.generatedAt, context: context)
+        let needed = targets.filter { target in
+            guard let entry = availableEntry(anchorDate: target.anchor, range: target.range) else { return true }
+            return !isFresh(entry)
+        }
+        prefetch.update(needed) { [weak self] target in
+            _ = await self?.prefetchAnalytics(anchorDate: target.anchor, range: target.range, speculative: true)
+        }
+    }
+
+    private func prepareSelection(anchorDate: Date, range: StudyTimeRange?) -> RefreshRequest? {
+        analyticsRequestGeneration += 1
+        revalidationTask?.cancel()
+        requestedAnalyticsAnchor = anchorDate
+        requestedAnalyticsRange = range
+        return requestContext(anchorDate: anchorDate, range: range)
+    }
+
+    private func restoreRequestedSelection() {
+        requestedAnalyticsAnchor = analytics.flatMap { context.date($0.anchorDate) }
+        requestedAnalyticsRange = requestedAnalyticsRange.flatMap { analytics?.range($0)?.key }
+            ?? analytics?.ranges.first?.key ?? .week
+    }
+
+    private func shouldRetrySelection(_ request: RefreshRequest) -> Bool {
+        !Task.isCancelled && activeUserID == request.userID && api.accessToken == request.authorizationToken
+            && context == request.context && context.timeZone == timeZone()
+            && analyticsRequestGeneration == request.generation
+            && analyticsCacheGeneration != request.cacheGeneration
+    }
+
+    private func requestContext(anchorDate: Date, range: StudyTimeRange?) -> RefreshRequest? {
         guard let userID = activeUserID, !Task.isCancelled else { return nil }
         return .init(userID: userID, generation: analyticsRequestGeneration, anchorDate: anchorDate,
-                     cacheGeneration: analyticsCacheGeneration, context: context)
+                     cacheGeneration: analyticsCacheGeneration, context: context,
+                     range: range, authorizationToken: api.accessToken)
     }
 
     private func isCurrentContext(_ request: RefreshRequest) -> Bool {
         !Task.isCancelled && activeUserID == request.userID
             && analyticsCacheGeneration == request.cacheGeneration
             && context == request.context && context.timeZone == timeZone()
+            && api.accessToken == request.authorizationToken
     }
 
     private func failure(_ error: Error, for request: RefreshRequest) -> RefreshResult {
@@ -248,7 +315,8 @@ final class StudyTimeInsightsController {
 
     private func cache(_ value: StudyTimeAnalytics, for request: RefreshRequest) {
         periodCache.insert(value, requestedAnchor: request.context.anchor(request.anchorDate),
-                           generation: request.cacheGeneration, receivedAt: now())
+                           generation: request.cacheGeneration, receivedAt: now(),
+                           requestedRanges: StudyTimeAnalyticsScope.ranges(for: request.range))
         persistSnapshot(analytics: value)
     }
 
@@ -270,8 +338,8 @@ final class StudyTimeInsightsController {
         }
     }
 
-    private func revalidate(anchorDate: Date) {
-        guard let request = requestContext(anchorDate: anchorDate) else { return }
+    private func revalidate(anchorDate: Date, range: StudyTimeRange?) {
+        guard let request = requestContext(anchorDate: anchorDate, range: range) else { return }
         revalidationTask = Task {
             _ = await self.finishRefresh(request)
             if self.analyticsRequestGeneration == request.generation { self.revalidationTask = nil }
@@ -282,22 +350,26 @@ final class StudyTimeInsightsController {
         guard isCurrentContext(request) else { throw CancellationError() }
         let anchor = request.context.anchor(request.anchorDate)
         let api = api
-        let token = api.accessToken
-        return try await requests.value(for: anchor) {
+        let ranges = StudyTimeAnalyticsScope.ranges(for: request.range)
+        let key = StudyTimeAnalyticsScope.key(anchor: anchor, ranges: ranges)
+        return try await requests.value(for: key) {
             try Task.checkCancellation()
+            guard api.accessToken == request.authorizationToken else { throw CancellationError() }
             return try await api.request(
                 "/api/study/activity-analytics",
                 query: [
                     URLQueryItem(name: "timezone", value: request.context.timeZone.identifier),
                     URLQueryItem(name: "weekStartsOn", value: String(request.context.weekStartsOn)),
                     URLQueryItem(name: "anchorDate", value: anchor),
-                ], authorizationToken: token, response: StudyTimeAnalytics.self
+                ] + StudyTimeAnalyticsScope.query(ranges),
+                authorizationToken: request.authorizationToken, response: StudyTimeAnalytics.self
             )
         }
     }
 
     private func advanceCacheGeneration() {
         analyticsCacheGeneration += 1
+        prefetch.cancel()
         requests.cancelAll()
         revalidationTask?.cancel()
         revalidationTask = nil
@@ -310,8 +382,9 @@ final class StudyTimeInsightsController {
 
     private func ensureContext() {
         let current = StudyTimeAnalyticsCalendar(timeZone: timeZone())
-        guard context != current else { return }
+        guard context != current || contextToken != api.accessToken else { return }
         context = current
+        contextToken = api.accessToken
         analyticsRequestGeneration += 1
         analytics = nil
         requestedAnalyticsAnchor = nil
@@ -336,7 +409,8 @@ final class StudyTimeInsightsController {
         if let history = snapshot.periodHistory {
             for entry in history.restored(userID: userID, context: context, now: now()) {
                 periodCache.insert(entry.value, requestedAnchor: entry.value.anchorDate,
-                                   generation: analyticsCacheGeneration - 1, receivedAt: entry.receivedAt)
+                                   generation: analyticsCacheGeneration - 1, receivedAt: entry.receivedAt,
+                                   requestedRanges: entry.requestedRanges)
             }
         } else if let value = snapshot.analytics,
                   value.timezone == context.timeZone.identifier, value.anchorDate == context.anchor(now()) {

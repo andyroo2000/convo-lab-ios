@@ -5,6 +5,7 @@ final class StudyTimeSynchronizationCoordinator {
     typealias LoadedSessions = StudyTimeSessionMutationRepository.LoadedSessions
 
     struct PushOutcome {
+        let context: Context?
         let loadedSessions: LoadedSessions?
         let failureMessage: String?
         let becameStale: Bool
@@ -12,6 +13,7 @@ final class StudyTimeSynchronizationCoordinator {
 
         func joined() -> Self {
             Self(
+                context: context,
                 loadedSessions: loadedSessions,
                 failureMessage: failureMessage,
                 becameStale: becameStale,
@@ -21,6 +23,7 @@ final class StudyTimeSynchronizationCoordinator {
     }
 
     struct SynchronizationOutcome {
+        let context: Context?
         let loadedSessions: LoadedSessions?
         let failureMessage: String?
         let becameStale: Bool
@@ -28,6 +31,7 @@ final class StudyTimeSynchronizationCoordinator {
 
         func joined() -> Self {
             Self(
+                context: context,
                 loadedSessions: loadedSessions,
                 failureMessage: failureMessage,
                 becameStale: becameStale,
@@ -36,9 +40,11 @@ final class StudyTimeSynchronizationCoordinator {
         }
     }
 
-    private struct Context: Equatable {
+    struct Context {
         let userID: Int
+        let activationID: UUID
         let mutationGeneration: Int
+        let authorizationToken: String?
     }
 
     private let api: APIClient
@@ -46,18 +52,17 @@ final class StudyTimeSynchronizationCoordinator {
     private let insights: StudyTimeInsightsController
 
     private var activeUserID: Int?
+    private(set) var activationID: UUID?
     private var localMutationGeneration = 0
     private var synchronizationTask: Task<SynchronizationOutcome, Never>?
-    private var synchronizingUserID: Int?
+    private var synchronizationID: UUID?
+    private var synchronizationContext: Context?
     private var pendingPushTask: Task<PushOutcome, Never>?
     private var pendingPushID: UUID?
+    private var pendingPushContext: Context?
     private var pendingPushNeedsAnotherPass = false
 
-    init(
-        api: APIClient,
-        repository: StudyTimeSessionMutationRepository,
-        insights: StudyTimeInsightsController
-    ) {
+    init(api: APIClient, repository: StudyTimeSessionMutationRepository, insights: StudyTimeInsightsController) {
         self.api = api
         self.repository = repository
         self.insights = insights
@@ -65,183 +70,177 @@ final class StudyTimeSynchronizationCoordinator {
 
     func activate(userID: Int) {
         guard activeUserID != userID else { return }
+        cancelPendingWork()
         localMutationGeneration += 1
+        activationID = UUID()
         activeUserID = userID
     }
 
     func deactivate() {
+        cancelPendingWork()
         localMutationGeneration += 1
+        activationID = nil
         activeUserID = nil
     }
 
     func markLocalMutation() {
         localMutationGeneration += 1
+        insights.invalidateForMutation()
     }
 
-    func isCurrent(userID: Int) -> Bool {
-        activeUserID == userID
-    }
+    func canApply(_ context: Context?) -> Bool { context.map(isCurrent) == true }
 
     func pushPending() async -> PushOutcome? {
-        if let pendingPushTask {
+        guard let context = currentContext() else { return nil }
+        if let pendingPushTask, pendingPushContext.map(isActive) == true {
             pendingPushNeedsAnotherPass = true
-            return await pendingPushTask.value.joined()
+            let outcome = await pendingPushTask.value
+            return isActive(context) ? outcome.joined() : nil
         }
-        guard activeUserID != nil else { return nil }
+        pendingPushTask?.cancel()
         let pushID = UUID()
         let task = Task { [weak self] in
-            guard let self else {
-                return PushOutcome(
-                    loadedSessions: nil,
-                    failureMessage: nil,
-                    becameStale: true,
-                    shouldApply: true
-                )
-            }
-            let outcome = await self.drainPendingPushes()
+            guard let self else { return Self.stalePush() }
+            let outcome = await self.drainPendingPushes(context: context)
             if self.pendingPushID == pushID {
                 self.pendingPushTask = nil
                 self.pendingPushID = nil
+                self.pendingPushContext = nil
             }
             return outcome
         }
         pendingPushID = pushID
+        pendingPushContext = context
         pendingPushTask = task
         return await task.value
     }
 
     func synchronize() async -> SynchronizationOutcome? {
-        guard let requestedUserID = activeUserID else { return nil }
-        if let synchronizationTask {
-            let inFlightUserID = synchronizingUserID
+        guard let context = currentContext() else { return nil }
+        if let synchronizationTask, synchronizationContext.map(isActive) == true {
             let outcome = await synchronizationTask.value
-            guard activeUserID == requestedUserID else { return nil }
-            if inFlightUserID == requestedUserID { return outcome.joined() }
+            return isActive(context) ? outcome.joined() : nil
         }
-        guard activeUserID == requestedUserID else { return nil }
+        synchronizationTask?.cancel()
+        let synchronizationID = UUID()
         let task = Task { [weak self] in
-            guard let self else {
-                return SynchronizationOutcome(
-                    loadedSessions: nil,
-                    failureMessage: nil,
-                    becameStale: true,
-                    shouldApply: true
-                )
-            }
-            return await self.performSynchronization(userID: requestedUserID)
+            guard let self else { return Self.staleSynchronization() }
+            return await self.performSynchronization(context: context)
         }
+        self.synchronizationID = synchronizationID
+        synchronizationContext = context
         synchronizationTask = task
-        synchronizingUserID = requestedUserID
         let outcome = await task.value
-        if synchronizingUserID == requestedUserID {
+        if self.synchronizationID == synchronizationID {
             synchronizationTask = nil
-            synchronizingUserID = nil
+            self.synchronizationID = nil
+            synchronizationContext = nil
         }
         return outcome
     }
 
-    private func performSynchronization(userID: Int) async -> SynchronizationOutcome {
-        let analyticsRequest = insights.prepareRefresh()
+    private func performSynchronization(context activation: Context) async -> SynchronizationOutcome {
+        guard isActive(activation) else { return Self.staleSynchronization() }
         let pushOutcome = await pushPending()
-        var loadedSessions = pushOutcome?.loadedSessions
-        var failures = pushOutcome?.failureMessage.map { [$0] } ?? []
-        let context = Context(userID: userID, mutationGeneration: localMutationGeneration)
+        guard isActive(activation), let context = currentContext() else { return Self.staleSynchronization() }
+        // The upload barrier owns the new analytics epoch. Reads started before
+        // acknowledged writes cannot be reused as the post-upload refresh.
+        let analyticsRequest = insights.prepareRefresh()
+        async let analytics = refreshAnalytics(analyticsRequest)
+        let history = await refreshHistory(context: context)
+        let analyticsResult = await analytics
+        guard isCurrent(context) else { return Self.staleSynchronization() }
+        return SynchronizationOutcome(
+            context: context,
+            loadedSessions: history.loadedSessions ?? pushOutcome?.loadedSessions,
+            failureMessage: pushOutcome?.failureMessage ?? history.failureMessage ?? analyticsResult.failureMessage,
+            becameStale: false,
+            shouldApply: true
+        )
+    }
+
+    private func refreshAnalytics(_ request: StudyTimeInsightsController.RefreshRequest?) async
+        -> StudyTimeInsightsController.RefreshResult {
+        guard let request else { return .init(loaded: false, failureMessage: nil) }
+        return await insights.finishRefresh(request)
+    }
+
+    private func refreshHistory(context: Context) async -> SynchronizationOutcome {
+        guard isCurrent(context) else { return Self.staleSynchronization() }
         let to = Date.now.addingTimeInterval(60)
         let from = to.addingTimeInterval(-93 * 86_400)
         do {
             let remote = try await api.request(
                 "/api/study/activity-sessions",
-                query: [
-                    URLQueryItem(name: "from", value: from.ISO8601Format()),
-                    URLQueryItem(name: "to", value: to.ISO8601Format()),
-                ],
+                query: [URLQueryItem(name: "from", value: from.ISO8601Format()),
+                        URLQueryItem(name: "to", value: to.ISO8601Format())],
+                authorizationToken: context.authorizationToken,
                 response: [StudyActivitySession].self
             )
-            if isCurrent(context) {
-                _ = try repository.mergeRemoteSessions(remote, userID: userID)
-                loadedSessions = repository.loadLocalSessions(userID: userID)
-            }
+            guard isCurrent(context) else { return Self.staleSynchronization() }
+            _ = try repository.mergeRemoteSessions(remote, userID: context.userID)
+            return .init(context: context, loadedSessions: repository.loadLocalSessions(userID: context.userID),
+                         failureMessage: nil, becameStale: false, shouldApply: true)
         } catch {
-            failures.append(error.localizedDescription)
+            guard isCurrent(context) else { return Self.staleSynchronization() }
+            return .init(context: context, loadedSessions: nil, failureMessage: error.localizedDescription,
+                         becameStale: false, shouldApply: true)
         }
-        if let analyticsRequest {
-            let analyticsResult = await insights.finishRefresh(analyticsRequest)
-            if let failure = analyticsResult.failureMessage {
-                failures.append(failure)
-            }
-        }
-        guard isCurrent(context) else {
-            return SynchronizationOutcome(
-                loadedSessions: nil,
-                failureMessage: failures.first,
-                becameStale: true,
-                shouldApply: true
-            )
-        }
-        return SynchronizationOutcome(
-            loadedSessions: loadedSessions,
-            failureMessage: failures.first,
-            becameStale: false,
-            shouldApply: true
-        )
     }
 
-    private func drainPendingPushes() async -> PushOutcome {
-        var latestOutcome = PushOutcome(
-            loadedSessions: nil,
-            failureMessage: nil,
-            becameStale: false,
-            shouldApply: true
-        )
+    private func drainPendingPushes(context activation: Context) async -> PushOutcome {
+        var latestOutcome = Self.stalePush()
         repeat {
+            guard isActive(activation), let context = currentContext() else { return Self.stalePush() }
             pendingPushNeedsAnotherPass = false
-            guard let userID = activeUserID else {
-                return PushOutcome(
-                    loadedSessions: nil,
-                    failureMessage: nil,
-                    becameStale: true,
-                    shouldApply: true
-                )
-            }
-            let context = Context(
-                userID: userID,
-                mutationGeneration: localMutationGeneration
-            )
             latestOutcome = await performPushPending(context: context)
-            if activeUserID != nil, !isCurrent(context) {
-                pendingPushNeedsAnotherPass = true
-            }
-        } while pendingPushNeedsAnotherPass
+            if isActive(activation), !isCurrent(context) { pendingPushNeedsAnotherPass = true }
+        } while isActive(activation) && pendingPushNeedsAnotherPass
         return latestOutcome
     }
 
     private func performPushPending(context: Context) async -> PushOutcome {
         let result = await repository.pushPending(
-            userID: context.userID,
-            mutationGeneration: context.mutationGeneration
-        ) { [weak self] userID, generation in
-            self?.isCurrent(
-                Context(userID: userID, mutationGeneration: generation)
-            ) == true
-        }
-        guard !result.becameStale, isCurrent(context) else {
-            return PushOutcome(
-                loadedSessions: nil,
-                failureMessage: nil,
-                becameStale: true,
-                shouldApply: true
-            )
-        }
-        return PushOutcome(
-            loadedSessions: repository.loadLocalSessions(userID: context.userID),
-            failureMessage: result.failures.first,
-            becameStale: false,
-            shouldApply: true
-        )
+            userID: context.userID, mutationGeneration: context.mutationGeneration,
+            authorizationToken: context.authorizationToken
+        ) { [weak self] _, _ in self?.isCurrent(context) == true }
+        guard !result.becameStale, isCurrent(context) else { return Self.stalePush() }
+        return PushOutcome(context: context, loadedSessions: repository.loadLocalSessions(userID: context.userID),
+                           failureMessage: result.failures.first, becameStale: false, shouldApply: true)
+    }
+
+    private func currentContext() -> Context? {
+        guard let userID = activeUserID, let activationID, !Task.isCancelled else { return nil }
+        return Context(userID: userID, activationID: activationID, mutationGeneration: localMutationGeneration,
+                       authorizationToken: api.accessToken)
+    }
+
+    private func isActive(_ context: Context) -> Bool {
+        !Task.isCancelled && activeUserID == context.userID && activationID == context.activationID
+            && api.accessToken == context.authorizationToken
     }
 
     private func isCurrent(_ context: Context) -> Bool {
-        activeUserID == context.userID
-            && localMutationGeneration == context.mutationGeneration
+        isActive(context) && localMutationGeneration == context.mutationGeneration
+    }
+
+    private func cancelPendingWork() {
+        synchronizationTask?.cancel()
+        synchronizationTask = nil
+        synchronizationID = nil
+        synchronizationContext = nil
+        pendingPushTask?.cancel()
+        pendingPushTask = nil
+        pendingPushID = nil
+        pendingPushContext = nil
+        pendingPushNeedsAnotherPass = false
+    }
+
+    private static func stalePush() -> PushOutcome {
+        .init(context: nil, loadedSessions: nil, failureMessage: nil, becameStale: true, shouldApply: true)
+    }
+
+    private static func staleSynchronization() -> SynchronizationOutcome {
+        .init(context: nil, loadedSessions: nil, failureMessage: nil, becameStale: true, shouldApply: true)
     }
 }

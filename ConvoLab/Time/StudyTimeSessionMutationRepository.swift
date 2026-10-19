@@ -346,27 +346,9 @@ final class StudyTimeSessionMutationRepository {
         }
         let boundedDuration = max(0, min(duration, 86_400))
         let endedAt = startedAt.addingTimeInterval(boundedDuration)
-        var calendarWarning: String?
-        if let identifier = record.calendarEventIdentifier {
-            do {
-                try await calendar.updateEvent(
-                    identifier: identifier,
-                    title: name ?? activity.title,
-                    start: startedAt,
-                    end: endedAt
-                )
-            } catch StudyCalendarError.eventNotFound {
-                calendarWarning = StudyCalendarError.eventNotFound.localizedDescription
-                record.calendarEventIdentifier = nil
-                record.source = StudyActivitySource.manual.rawValue
-            } catch StudyCalendarError.accessDenied {
-                calendarWarning = StudyCalendarError.accessDenied.localizedDescription
-                record.calendarEventIdentifier = nil
-                record.source = StudyActivitySource.manual.rawValue
-            } catch {
-                throw error
-            }
-        }
+        let calendarWarning = try await updateCalendar(
+            record, title: name ?? activity.title, start: startedAt, end: endedAt
+        )
         record.category = category.rawValue
         record.activity = activity.rawValue
         record.name = name
@@ -378,22 +360,40 @@ final class StudyTimeSessionMutationRepository {
         do {
             try contextSaver.save()
         } catch {
-            let calendarEventIdentifier = record.calendarEventIdentifier
-            context.rollback()
-            if let identifier = calendarEventIdentifier {
-                try? await calendar.updateEvent(
-                    identifier: identifier,
-                    title: previousSession.name ?? previousSession.activity.title,
-                    start: previousSession.startedAt,
-                    end: previousSession.endedAt
-                )
-            }
+            await restoreCalendar(record, previousSession: previousSession)
             throw StudyTimeMutationPersistenceError(underlying: error)
         }
         return CompletedMutation(
             session: record.session,
             calendarWarning: calendarWarning
         )
+    }
+
+    private func updateCalendar(
+        _ record: LocalStudyActivitySession, title: String, start: Date, end: Date
+    ) async throws -> String? {
+        guard let identifier = record.calendarEventIdentifier else { return nil }
+        do {
+            try await calendar.updateEvent(identifier: identifier, title: title, start: start, end: end)
+            return nil
+        } catch StudyCalendarError.eventNotFound {
+            record.calendarEventIdentifier = nil
+            record.source = StudyActivitySource.manual.rawValue
+            return StudyCalendarError.eventNotFound.localizedDescription
+        } catch StudyCalendarError.accessDenied {
+            record.calendarEventIdentifier = nil
+            record.source = StudyActivitySource.manual.rawValue
+            return StudyCalendarError.accessDenied.localizedDescription
+        }
+    }
+
+    private func restoreCalendar(_ record: LocalStudyActivitySession, previousSession: StudyActivitySession) async {
+        let identifier = record.calendarEventIdentifier
+        context.rollback()
+        guard let identifier else { return }
+        try? await calendar.updateEvent(identifier: identifier,
+                                        title: previousSession.name ?? previousSession.activity.title,
+                                        start: previousSession.startedAt, end: previousSession.endedAt)
     }
 
     func delete(session: StudyActivitySession, userID: Int) throws {
@@ -524,90 +524,85 @@ final class StudyTimeSessionMutationRepository {
     }
 
     func pushPending(
-        userID: Int,
-        mutationGeneration: Int,
-        isCurrent: (Int, Int) -> Bool
+        userID: Int, mutationGeneration: Int, authorizationToken: String?,
+        isCurrent: @escaping (Int, Int) -> Bool
     ) async -> PushResult {
         var failures: [String] = []
+        let ownsRequest = { isCurrent(userID, mutationGeneration) }
         do {
-            let deletions = try context.fetch(
-                FetchDescriptor<LocalStudyActivitySession>(
-                    predicate: #Predicate {
-                        $0.userID == userID && $0.syncPending && $0.isTombstone
-                    }
-                )
-            )
-            for record in deletions {
-                if let identifier = record.calendarEventIdentifier {
-                    do {
-                        try await calendar.deleteEvent(identifier: identifier)
-                        guard isCurrent(userID, mutationGeneration) else {
-                            return PushResult(failures: failures, becameStale: true)
-                        }
-                        record.calendarEventIdentifier = nil
-                        try context.save()
-                    } catch {
-                        record.calendarEventIdentifier = identifier
-                        failures.append(error.localizedDescription)
-                        // Calendar access may have been revoked. The explicit
-                        // study-log deletion must still be allowed to finish,
-                        // while retaining the identifier for a later retry.
-                    }
-                }
-                do {
-                    try await api.request(
-                        "/api/study/activity-sessions/\(record.clientSessionID)",
-                        method: "DELETE"
-                    )
-                } catch APIClientError.rejected(status: 404, message: _) {
-                    // The server already forgot this retry-safe tombstone.
-                } catch {
-                    failures.append(error.localizedDescription)
-                    continue
-                }
-                guard isCurrent(userID, mutationGeneration) else {
-                    return PushResult(failures: failures, becameStale: true)
-                }
-                record.syncPending = record.calendarEventIdentifier != nil
-                // Do not carry dirty ModelContext state across the next network
-                // await. Foreground write failures use context.rollback(), so
-                // each background mutation must be committed first.
-                try context.save()
-            }
-            let pending = try context.fetch(
-                FetchDescriptor<LocalStudyActivitySession>(
-                    predicate: #Predicate {
-                        $0.userID == userID
-                            && $0.syncPending
-                            && !$0.isTombstone
-                            && $0.endedAt != nil
-                    }
-                )
-            )
-            if !pending.isEmpty {
-                let payload = pending.compactMap(\.session)
-                let saved = try await api.request(
-                    "/api/study/activity-sessions/batch",
-                    method: "POST",
-                    body: StudyActivityBatchRequest(sessions: payload),
-                    response: [StudyActivitySession].self
-                )
-                guard isCurrent(userID, mutationGeneration) else {
-                    return PushResult(failures: failures, becameStale: true)
-                }
-                let savedIDs = Set(saved.map(\.clientSessionId))
-                pending.filter { savedIDs.contains($0.clientSessionID) }.forEach {
-                    $0.syncPending = false
-                }
-                try context.save()
-            }
+            failures = try await pushDeletions(userID: userID, token: authorizationToken, isCurrent: ownsRequest)
+            try await pushCompleted(userID: userID, token: authorizationToken, isCurrent: ownsRequest)
         } catch {
-            guard isCurrent(userID, mutationGeneration) else {
-                return PushResult(failures: failures, becameStale: true)
-            }
+            guard ownsRequest() else { return PushResult(failures: failures, becameStale: true) }
             failures.append(error.localizedDescription)
         }
-        return PushResult(failures: failures, becameStale: false)
+        return PushResult(failures: failures, becameStale: !ownsRequest())
+    }
+
+    private func pushDeletions(userID: Int, token: String?, isCurrent: () -> Bool) async throws -> [String] {
+        let deletions = try context.fetch(FetchDescriptor<LocalStudyActivitySession>(
+            predicate: #Predicate { $0.userID == userID && $0.syncPending && $0.isTombstone }
+        ))
+        var failures: [String] = []
+        for record in deletions {
+            try requireCurrent(isCurrent)
+            if let warning = try await deleteCalendar(record, isCurrent: isCurrent) { failures.append(warning) }
+            try requireCurrent(isCurrent)
+            do {
+                try await api.request("/api/study/activity-sessions/\(record.clientSessionID)",
+                                      method: "DELETE", authorizationToken: token)
+            } catch APIClientError.rejected(status: 404, message: _) {
+                // The server already forgot this retry-safe tombstone.
+            } catch {
+                try requireCurrent(isCurrent)
+                failures.append(error.localizedDescription)
+                continue
+            }
+            try requireCurrent(isCurrent)
+            record.syncPending = record.calendarEventIdentifier != nil
+            // Commit before another network await: foreground failures can roll back the shared context.
+            try context.save()
+        }
+        return failures
+    }
+
+    private func deleteCalendar(_ record: LocalStudyActivitySession, isCurrent: () -> Bool) async throws -> String? {
+        guard let identifier = record.calendarEventIdentifier else { return nil }
+        do {
+            try await calendar.deleteEvent(identifier: identifier)
+            try requireCurrent(isCurrent)
+            record.calendarEventIdentifier = nil
+            try context.save()
+            return nil
+        } catch {
+            try requireCurrent(isCurrent)
+            record.calendarEventIdentifier = identifier
+            // A revoked calendar permission must not prevent deleting the study-log entry.
+            return error.localizedDescription
+        }
+    }
+
+    private func pushCompleted(userID: Int, token: String?, isCurrent: () -> Bool) async throws {
+        try requireCurrent(isCurrent)
+        let pending = try context.fetch(FetchDescriptor<LocalStudyActivitySession>(
+            predicate: #Predicate {
+                $0.userID == userID && $0.syncPending && !$0.isTombstone && $0.endedAt != nil
+            }
+        ))
+        guard !pending.isEmpty else { return }
+        let saved = try await api.request(
+            "/api/study/activity-sessions/batch", method: "POST",
+            body: StudyActivityBatchRequest(sessions: pending.compactMap(\.session)),
+            authorizationToken: token, response: [StudyActivitySession].self
+        )
+        try requireCurrent(isCurrent)
+        let savedIDs = Set(saved.map(\.clientSessionId))
+        pending.filter { savedIDs.contains($0.clientSessionID) }.forEach { $0.syncPending = false }
+        try context.save()
+    }
+
+    private func requireCurrent(_ isCurrent: () -> Bool) throws {
+        guard isCurrent() else { throw CancellationError() }
     }
 
     private func mutationRecord(
