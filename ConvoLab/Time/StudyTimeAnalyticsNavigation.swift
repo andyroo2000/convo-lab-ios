@@ -211,23 +211,32 @@ extension StudyTimeView {
         analyticsMotion.cancelNavigation()
     }
 
-    func scheduleAnalyticsLoad(anchorDate: Date, selecting range: StudyTimeRange? = nil) {
+    func scheduleAnalyticsLoad(
+        anchorDate: Date, selecting range: StudyTimeRange? = nil, fallback: StudyTimeRange? = nil
+    ) {
+        let target = range ?? selectedRange
         analyticsMotion.startNavigation { navigationGeneration in
-            guard await store.loadAnalytics(anchorDate: anchorDate), !Task.isCancelled,
-                  analyticsMotion.isCurrentNavigation(navigationGeneration)
-            else { return }
-            if let range {
-                suppressNextHistoricalRangeReset = true
-                selectedRange = range
+            let loaded = await store.loadAnalytics(anchorDate: anchorDate, range: target)
+            guard !Task.isCancelled, analyticsMotion.isCurrentNavigation(navigationGeneration) else { return }
+            guard loaded else {
+                restoreAnalyticsRange(fallback)
+                return
             }
+            restoreAnalyticsRange(range)
         }
+    }
+
+    private func restoreAnalyticsRange(_ range: StudyTimeRange?) {
+        StudyTimeRangeSelection.assign(
+            range, selected: &selectedRange, suppressNextReset: &suppressNextHistoricalRangeReset
+        )
     }
 
     func adjacentAnalytics(
         by amount: Int
     ) -> (range: StudyTimeAnalyticsRange, generatedAt: Date)? {
         guard let anchor = shiftedAnalyticsAnchor(by: amount),
-              let cached = store.cachedAnalytics(anchorDate: anchor),
+              let cached = store.cachedAnalytics(anchorDate: anchor, range: selectedRange),
               let range = cached.range(selectedRange)
         else {
             return nil
@@ -242,10 +251,10 @@ extension StudyTimeView {
         let previousAnchor = shiftedAnalyticsAnchor(by: -1)
         let nextAnchor = canNavigateLater(from: analytics) ? shiftedAnalyticsAnchor(by: 1) : nil
         if let previousAnchor, !Task.isCancelled {
-            _ = await store.prefetchAnalytics(anchorDate: previousAnchor)
+            _ = await store.prefetchAnalytics(anchorDate: previousAnchor, range: selectedRange)
         }
         if let nextAnchor, !Task.isCancelled {
-            _ = await store.prefetchAnalytics(anchorDate: nextAnchor)
+            _ = await store.prefetchAnalytics(anchorDate: nextAnchor, range: selectedRange)
         }
     }
 
@@ -288,12 +297,13 @@ extension StudyTimeView {
         let outgoingOffset = amount < 0 ? analyticsCardWidth : -analyticsCardWidth
 
         analyticsMotion.startNavigation(settling: true) { navigationGeneration in
-            var ready = store.cachedAnalytics(anchorDate: nextAnchor) != nil
+            var ready = store.cachedAnalytics(anchorDate: nextAnchor, range: selectedRange) != nil
             if !ready {
                 analyticsMotion.isLoading = true
                 snapAnalyticsBack()
                 ready = await store.prefetchAnalytics(
                     anchorDate: nextAnchor,
+                    range: selectedRange,
                     reportFailure: true
                 )
             }
@@ -309,7 +319,7 @@ extension StudyTimeView {
 
             if reduceMotion {
                 analyticsMotion.finishNavigation(navigationGeneration) {
-                    _ = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                    _ = store.selectCachedAnalytics(anchorDate: nextAnchor, range: selectedRange)
                 }
                 return
             }
@@ -321,7 +331,7 @@ extension StudyTimeView {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
                     analyticsMotion.finishNavigation(navigationGeneration) {
-                        let selected = store.selectCachedAnalytics(anchorDate: nextAnchor)
+                        let selected = store.selectCachedAnalytics(anchorDate: nextAnchor, range: selectedRange)
                         if !selected {
                             entryErrorMessage =
                                 "Study time changed while navigating. Swipe again to reload."

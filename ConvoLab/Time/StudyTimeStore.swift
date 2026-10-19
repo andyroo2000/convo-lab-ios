@@ -536,12 +536,7 @@ final class StudyTimeStore {
         synchronizationCoordinator.markLocalMutation()
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let completedSession = result.session {
-            editableSessions = StudyTimeEditableSessionProjection.upserting(
-                completedSession,
-                in: editableSessions
-            )
-        }
+        upsertEditableSession(result.session)
         await pushPending()
         await refreshAnalytics()
         return result.calendarWarning
@@ -583,12 +578,7 @@ final class StudyTimeStore {
         synchronizationCoordinator.markLocalMutation()
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let updatedSession = result.session {
-            editableSessions = StudyTimeEditableSessionProjection.upserting(
-                updatedSession,
-                in: editableSessions
-            )
-        }
+        upsertEditableSession(result.session)
         await pushPending()
         await refreshAnalytics()
         return result.calendarWarning
@@ -687,12 +677,7 @@ final class StudyTimeStore {
         active = nil
         clearStorageWriteError(for: operation)
         loadLocalSessions()
-        if let completedSession {
-            editableSessions = StudyTimeEditableSessionProjection.upserting(
-                completedSession,
-                in: editableSessions
-            )
-        }
+        upsertEditableSession(completedSession)
         if enqueueSync {
             Task {
                 await pushPending()
@@ -700,6 +685,11 @@ final class StudyTimeStore {
             }
         }
         return true
+    }
+
+    private func upsertEditableSession(_ session: StudyActivitySession?) {
+        guard let session else { return }
+        editableSessions = StudyTimeEditableSessionProjection.upserting(session, in: editableSessions)
     }
 
     private func setStorageWriteError(
@@ -785,24 +775,25 @@ final class StudyTimeStore {
     }
 
     @discardableResult
-    func loadAnalytics(anchorDate: Date) async -> Bool {
-        let result = await insightsController.loadAnalytics(anchorDate: anchorDate)
+    func loadAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) async -> Bool {
+        let result = await insightsController.loadAnalytics(anchorDate: anchorDate, range: range)
         if let failure = result.failureMessage, syncErrorMessage == nil {
             syncErrorMessage = failure
         }
         return result.loaded
     }
 
-    func cachedAnalytics(anchorDate: Date) -> StudyTimeAnalytics? {
-        insightsController.cachedAnalytics(anchorDate: anchorDate)
+    func cachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> StudyTimeAnalytics? {
+        insightsController.cachedAnalytics(anchorDate: anchorDate, range: range)
     }
 
     @discardableResult
     func prefetchAnalytics(
         anchorDate: Date,
+        range: StudyTimeRange? = nil,
         reportFailure: Bool = false
     ) async -> Bool {
-        let result = await insightsController.prefetchAnalytics(anchorDate: anchorDate)
+        let result = await insightsController.prefetchAnalytics(anchorDate: anchorDate, range: range)
         if reportFailure, let failure = result.failureMessage {
             syncErrorMessage = failure
         }
@@ -810,8 +801,8 @@ final class StudyTimeStore {
     }
 
     @discardableResult
-    func selectCachedAnalytics(anchorDate: Date) -> Bool {
-        insightsController.selectCachedAnalytics(anchorDate: anchorDate)
+    func selectCachedAnalytics(anchorDate: Date, range: StudyTimeRange? = nil) -> Bool {
+        insightsController.selectCachedAnalytics(anchorDate: anchorDate, range: range)
     }
 
     @discardableResult
