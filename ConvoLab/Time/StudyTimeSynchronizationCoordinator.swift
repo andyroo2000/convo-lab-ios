@@ -149,7 +149,7 @@ final class StudyTimeSynchronizationCoordinator {
         async let analytics = refreshAnalytics(analyticsRequest)
         let history = await refreshHistory(context: context)
         let analyticsResult = await analytics
-        guard isCurrent(context) else { return Self.staleSynchronization() }
+        guard isCurrent(context), !history.becameStale else { return Self.staleSynchronization() }
         return SynchronizationOutcome(
             context: context,
             loadedSessions: history.loadedSessions ?? pushOutcome?.loadedSessions,
@@ -178,9 +178,13 @@ final class StudyTimeSynchronizationCoordinator {
                 response: [StudyActivitySession].self
             )
             guard isCurrent(context) else { return Self.staleSynchronization() }
-            _ = try repository.mergeRemoteSessions(remote, userID: context.userID)
-            return .init(context: context, loadedSessions: repository.loadLocalSessions(userID: context.userID),
+            let loaded = try await repository.mergeRemoteSessions(remote, userID: context.userID) { [weak self] in
+                self?.isCurrent(context) == true
+            }
+            return .init(context: context, loadedSessions: loaded,
                          failureMessage: nil, becameStale: false, shouldApply: true)
+        } catch is CancellationError {
+            return Self.staleSynchronization()
         } catch {
             guard isCurrent(context) else { return Self.staleSynchronization() }
             return .init(context: context, loadedSessions: nil, failureMessage: error.localizedDescription,
@@ -205,7 +209,9 @@ final class StudyTimeSynchronizationCoordinator {
             authorizationToken: context.authorizationToken
         ) { [weak self] _, _ in self?.isCurrent(context) == true }
         guard !result.becameStale, isCurrent(context) else { return Self.stalePush() }
-        return PushOutcome(context: context, loadedSessions: repository.loadLocalSessions(userID: context.userID),
+        // Upload acknowledgements only change sync metadata. The store already
+        // holds the local session values, and history supplies the next projection.
+        return PushOutcome(context: context, loadedSessions: nil,
                            failureMessage: result.failures.first, becameStale: false, shouldApply: true)
     }
 

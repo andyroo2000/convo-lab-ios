@@ -416,44 +416,11 @@ final class StudyTimeSessionMutationRepository {
 
     func mergeRemoteSessions(
         _ remote: [StudyActivitySession],
-        userID: Int
-    ) throws -> [StudyActivitySession] {
-        guard !remote.isEmpty else { return [] }
-        let remoteIDs = remote.map(\.clientSessionId)
-        let existing = try context.fetch(
-            FetchDescriptor<LocalStudyActivitySession>(
-                predicate: #Predicate {
-                    $0.userID == userID && remoteIDs.contains($0.clientSessionID)
-                }
-            )
-        )
-        var recordsByID = existing.reduce(into: [String: LocalStudyActivitySession]()) {
-            records, record in
-            if records[record.clientSessionID] == nil {
-                records[record.clientSessionID] = record
-            }
-        }
-        var didMutate = false
-        for session in remote {
-            if let record = recordsByID[session.clientSessionId] {
-                if !record.isTombstone,
-                   !record.syncPending,
-                   record.session != session
-                {
-                    record.apply(session)
-                    didMutate = true
-                }
-            } else {
-                let record = LocalStudyActivitySession(session: session, userID: userID)
-                context.insert(record)
-                recordsByID[session.clientSessionId] = record
-                didMutate = true
-            }
-        }
-        if didMutate {
-            try context.save()
-        }
-        return remote.compactMap { recordsByID[$0.clientSessionId]?.session }
+        userID: Int,
+        canContinue: @escaping @MainActor () -> Bool
+    ) async throws -> LoadedSessions {
+        try await StudyTimeHistoryImporter(context: context, saver: contextSaver)
+            .mergeAndLoad(remote, userID: userID, canContinue: canContinue)
     }
 
     func deleteLocalData(userID: Int) throws {
