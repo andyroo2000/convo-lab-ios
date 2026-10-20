@@ -4,6 +4,7 @@ import AVFoundation
 struct ReadingReaderView: View {
     let id: String
     let store: ReadingStore
+    @Environment(StudyTimeStore.self) private var timeStore: StudyTimeStore?
     let beforeAudio: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -15,6 +16,8 @@ struct ReadingReaderView: View {
     @State private var initialized = false
     @State private var player = ReadingAudioPlayer()
     @State private var syncTask: Task<Void, Never>?
+    @State private var isVisible = false
+    @State private var timeTracker = ReadingTimeTracker()
 
     private var theme: ReadingTheme { .resolve(themeID, dark: colorScheme == .dark) }
     private var format: ReadingFormat { .init(rawValue: formatName) ?? .reflow }
@@ -34,7 +37,16 @@ struct ReadingReaderView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .task { await openReading() }
-        .onDisappear { finish() }
+        .onAppear {
+            isVisible = true
+            updateTimeTracking()
+        }
+        .onDisappear {
+            isVisible = false
+            updateTimeTracking()
+            finish()
+        }
+        .onChange(of: pageNumber) { updateTimeTracking() }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
             let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             if type == AVAudioSession.InterruptionType.began.rawValue { player.stop() }
@@ -44,6 +56,7 @@ struct ReadingReaderView: View {
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { player.stop() }
         }
         .onChange(of: scenePhase) { _, phase in
+            updateTimeTracking()
             if phase == .background { finish() }
         }
         .alert("Audio unavailable", isPresented: Binding(get: { player.errorMessage != nil }, set: { if !$0 { player.errorMessage = nil } })) {
@@ -155,6 +168,7 @@ struct ReadingReaderView: View {
     }
 
     private func openReading() async {
+        defer { if !Task.isCancelled { updateTimeTracking() } }
         restorePosition()
         await store.loadDocument(id)
         if let reading, !reading.document.pages.indices.contains(pageIndex) {
@@ -164,6 +178,12 @@ struct ReadingReaderView: View {
         guard !initialized else { return }
         restorePosition()
         if reading != nil { initialized = true }
+    }
+
+    private func updateTimeTracking() {
+        let canTrack = isVisible && scenePhase == .active && pageNumber != nil
+            && (try? store.checkSession()) != nil
+        timeTracker.update(title: canTrack ? reading?.title : nil, store: timeStore)
     }
 
     private func restorePosition() {
