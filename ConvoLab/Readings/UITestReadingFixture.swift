@@ -1,8 +1,11 @@
 #if DEBUG
+import SwiftData
 import SwiftUI
 
 struct UITestReadingFixture: View {
     @State private var api: APIClient
+    @State private var timeStore: StudyTimeStore?
+    @State private var timeContainer: ModelContainer?
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -10,6 +13,16 @@ struct UITestReadingFixture: View {
         let api = APIClient(baseURL: URL(string: "https://readings.invalid")!, session: URLSession(configuration: configuration))
         api.setAccessToken("reading-fixture")
         _api = State(initialValue: api)
+        if ProcessInfo.processInfo.arguments.contains("-ui-test-reading-time") {
+            let container = try! StudyTimePersistence.makeContainer(inMemory: true)
+            let timeStore = StudyTimeStore(api: api, context: container.mainContext)
+            timeStore.activate(userID: -204)
+            _timeStore = State(initialValue: timeStore)
+            _timeContainer = State(initialValue: container)
+        } else {
+            _timeStore = State(initialValue: nil)
+            _timeContainer = State(initialValue: nil)
+        }
         if ProcessInfo.processInfo.arguments.contains("-ui-test-reset") {
             try? ReadingLocalStorage.remove(userID: -204)
         }
@@ -19,11 +32,37 @@ struct UITestReadingFixture: View {
         TabView {
             Tab("Readings", systemImage: "book.closed") {
                 ReadingLibraryView(api: api, userID: -204, beforeAudio: {})
+                    .environment(timeStore)
                     .toolbar(.hidden, for: .tabBar)
             }
         }
         .toolbar(.hidden, for: .tabBar)
         .modifier(AppModeHeader(selection: .constant(.readings)))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let timeStore { trackingProbe(timeStore) }
+        }
+    }
+
+    private func trackingProbe(_ store: StudyTimeStore) -> some View {
+        HStack {
+            Text("Reading activity")
+                .accessibilityIdentifier("reading-time-active")
+                .accessibilityValue(activeDescription(store.active))
+            Text("Completed intervals")
+                .accessibilityIdentifier("reading-time-completed")
+                .accessibilityValue(String(store.sessions.count))
+            Text("Last finish")
+                .accessibilityIdentifier("reading-time-finished-at")
+                .accessibilityValue(String(store.sessions.map(\.endedAt).max()?.timeIntervalSince1970 ?? 0))
+        }
+        .font(.caption2)
+        .padding(4)
+    }
+
+    private func activeDescription(_ active: StudyTimeActiveSession?) -> String {
+        guard let active else { return "idle" }
+        return [active.activity.rawValue, active.source.rawValue, active.category.rawValue,
+                active.name ?? "", active.clientSessionID].joined(separator: "|")
     }
 }
 
@@ -34,6 +73,12 @@ private nonisolated final class ReadingFixtureProtocol: URLProtocol, @unchecked 
 
     override func startLoading() {
         guard let url = request.url else { return }
+        // Keep the lifecycle fixture offline so completed intervals stay in the
+        // real local outbox instead of relying on a simulated server response.
+        if url.path.hasPrefix("/api/study/") {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
         let body = request.httpMethod == "PUT" ? acknowledgement() : Self.response(for: url.path)
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

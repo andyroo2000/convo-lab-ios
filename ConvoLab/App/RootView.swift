@@ -148,6 +148,9 @@ struct MainModeView: View {
                         source: .automatic
                     )
                 }
+                if selectedTab == .readings {
+                    model.studyTime.stop(activity: .reading, source: .automatic)
+                }
                 if newTab == .time || newTab == .settings { managementMode = newTab }
                 selectedTab = newTab
             }
@@ -191,6 +194,7 @@ struct MainModeView: View {
                     model.studyAudioPlayer.stop()
                 }
                 .id("\(user.id):\(model.api.accessToken ?? "")")
+                .environment(model.studyTime)
                 .toolbar(.hidden, for: .tabBar)
             }
             Tab("Manage", systemImage: "gearshape.fill", value: TabSlot.manage) {
