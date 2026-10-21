@@ -487,6 +487,7 @@ struct StudySessionView: View {
                                     weight: .semibold
                                 )
                             }
+                            lessonAudioButton(for: previewCard)
                             ForEach(previewCard.presentation.back.textBlocks.prefix(2)) { block in
                                 Text(block.text)
                                     .multilineTextAlignment(.center)
@@ -524,6 +525,28 @@ struct StudySessionView: View {
                     }
                     .controlSize(.large)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lessonAudioButton(for card: StudyCard) -> some View {
+        if let audioURL = card.audioURL {
+            let trackID = "study-lesson-\(card.id)"
+            StudyCardAudioButton(
+                remoteURL: audioURL,
+                trackID: trackID,
+                label: "Play card audio",
+                autoplay: false,
+                store: store,
+                player: player
+            )
+            .keyboardShortcut(.space, modifiers: [])
+            .accessibilityIdentifier("StudyLessonAudioButton")
+            .accessibilityValue(player.isCurrent(trackID) && player.isPlaying ? "Playing" : "Not playing")
+            .id("\(card.id)|\(audioURL.absoluteString)")
+            .onDisappear {
+                if player.isCurrent(trackID) { player.stop() }
             }
         }
     }

@@ -39,6 +39,8 @@ struct UITestFixtureView: View {
             UITestTimeChartFixture()
         case .loginScreen:
             UITestLoginScreenFixture()
+        case .offlineReview where ProcessInfo.processInfo.arguments.contains("-ui-test-lesson-audio"):
+            UITestLessonAudioFixture()
         case .loginRestoration, .offlineReview, .createCardRecovery,
              .dailyAudioPlayback, .calendarConnection, .studyDashboard:
             UITestRealFlowFixtureView(fixture: fixture)
