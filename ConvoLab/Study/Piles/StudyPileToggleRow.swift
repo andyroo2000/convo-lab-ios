@@ -11,7 +11,7 @@ struct StudyPileToggleRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(get: { savedActive ?? item.isActive }, set: save)) {
+            Toggle(isOn: Binding(get: { savedActive ?? item.isActive }, set: { active in save(active) })) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title).font(.headline)
                     Text("\(item.readyCount) ready · \(item.newCount) remaining · \(item.introducedCount) introduced")
