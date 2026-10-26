@@ -170,6 +170,14 @@ struct CardEditorView: View {
                         }
                     }
 
+                    if card == nil, serverDraft == nil {
+                        Section("Source and priority") {
+                            StudyBookSourceFields(store: store, source: $draft.bookSource)
+                            Toggle("Learn soon", isOn: Binding(get: { draft.learnSoon ?? false }, set: { draft.learnSoon = $0 }))
+                        }
+                        .task { await store.refreshPiles() }
+                    }
+
                     if draft.cardType == .cloze {
                         CardEditorClozeFields(draft: $draft)
                     } else {

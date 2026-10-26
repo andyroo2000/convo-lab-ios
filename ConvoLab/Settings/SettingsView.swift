@@ -138,7 +138,7 @@ struct SettingsView: View {
                             in: model.study.capabilities.settings.newCardLaneWeights.standard.range
                         )
                         Stepper(
-                            "Lesson follow-up: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
+                            "Learn soon: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
                             value: laneWeightBinding(\.lessonFollowup),
                             in: model.study.capabilities.settings.newCardLaneWeights.lessonFollowup.range
                         )

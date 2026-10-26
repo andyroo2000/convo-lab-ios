@@ -40,6 +40,8 @@ enum StudyCardEditorProjection {
                 updatedAt: date
             ),
             request: CreateStudyCardRequest(
+                bookSource: draft.bookSource,
+                learnSoon: draft.learnSoon,
                 id: id,
                 cardType: draft.cardType.rawValue,
                 prompt: prompt,

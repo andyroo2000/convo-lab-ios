@@ -1,6 +1,8 @@
 import Foundation
 
 struct StudyCardDraft: Equatable, Sendable {
+    var bookSource: StudyBookSource?
+    var learnSoon: Bool?
     private struct ImportedTextContent {
         let cueText: String
         let cueReading: String

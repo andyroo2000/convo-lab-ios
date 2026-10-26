@@ -29,6 +29,8 @@ extension StudyStore {
         try requirePersistentWrites()
         guard activeUserID != nil else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
+            bookSource: draft.bookSource,
+            learnSoon: draft.learnSoon,
             id: id,
             creationKind: creationKind,
             cardType: creationKind.cardType.rawValue,
