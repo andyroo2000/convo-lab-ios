@@ -15,6 +15,7 @@ extension StudyStore {
                   piles.refreshID == requestID else { return }
             piles.catalog = catalog
         } catch {
+            if Self.isCancelledPileRequest(error) { return }
             guard activeUserID == userID, accountActivationGeneration == generation,
                   piles.refreshID == requestID else { return }
             piles.errorMessage = error.localizedDescription
@@ -32,12 +33,22 @@ extension StudyStore {
             )
             piles.append(contentsOf: page.piles)
             guard let next = page.nextCursor else {
-                page.piles = piles
+                page.piles = Self.uniquePiles(piles)
                 return page
             }
             guard next > cursor else { throw APIClientError.invalidResponse }
             cursor = next
         }
+    }
+
+    private static func isCancelledPileRequest(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as? URLError)?.code == .cancelled
+    }
+
+    private static func uniquePiles(_ piles: [StudyPile]) -> [StudyPile] {
+        var seen = Set<String>()
+        return piles.filter { seen.insert($0.id).inserted }
     }
 
     func savePile(id: String, update: StudyPileUpdate, pileID: String? = nil) async throws {
@@ -49,6 +60,7 @@ extension StudyStore {
         let path = pileID.map { "/api/study/piles/\($0.lowercased())/chapters/\(id.lowercased())" }
             ?? "/api/study/piles/\(id.lowercased())"
         try await api.request(path, method: "PUT", body: update, authorizationToken: token)
+        // The old-account write may complete after switching accounts; never publish it into the new one.
         guard activeUserID == userID, accountActivationGeneration == generation else { return }
         await refreshPiles()
         await refreshOverview()

@@ -61,6 +61,45 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testCancelledPileRefreshDoesNotDisableTheCatalog() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in throw URLError(.cancelled) }
+        client.setAccessToken("test-token")
+        let store = makePileStore(container, client)
+        await store.refreshPiles()
+        XCTAssertNil(store.piles.errorMessage)
+        XCTAssertFalse(store.piles.isRefreshing)
+    }
+
+    @MainActor
+    func testNonadvancingPileCursorFailsInsteadOfLooping() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in
+            var page = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.pileCatalogData) as? [String: Any])
+            page["next_cursor"] = 0
+            return Self.response(data: try JSONSerialization.data(withJSONObject: page))
+        }
+        client.setAccessToken("test-token")
+        let store = makePileStore(container, client)
+        await store.refreshPiles()
+        XCTAssertNotNil(store.piles.errorMessage)
+        XCTAssertNil(store.piles.catalog)
+    }
+
+    @MainActor
+    func testPileSelectionClearsWhenLeavingLessonPresentation() throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { _ in Self.response(data: Self.pileCatalogData) }
+        let store = makePileStore(container, client)
+        XCTAssertTrue(store.beginLessonSessionPresentation(pileID: "learn-soon"))
+        XCTAssertEqual(store.activePileID, "learn-soon")
+        store.endLessonSessionPresentation()
+        XCTAssertNil(store.activePileID)
+        XCTAssertTrue(store.beginLessonSessionPresentation())
+        XCTAssertNil(store.activePileID)
+    }
+
+    @MainActor
     private func makePileStore(_ container: ModelContainer, _ client: APIClient) -> StudyStore {
         StudyStore(initialUserID: 1, api: client, context: container.mainContext,
                    mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext))

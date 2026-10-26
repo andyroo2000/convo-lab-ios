@@ -51,7 +51,7 @@ struct StudyPileShelf: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .disabled(count == 0 || store.piles.errorMessage != nil)
+        .disabled(count == 0)
         .opacity(count == 0 ? 0.5 : 1)
     }
 }
