@@ -14,6 +14,7 @@ struct StudyHomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     todayPlan
+                    StudyPileShelf(store: store, player: player, timeStore: timeStore)
                     masterySpread
                     readiness
 
@@ -80,6 +81,7 @@ struct StudyHomeView: View {
 
     private func refresh() async {
         await store.synchronize()
+        await store.refreshPiles()
         await refreshWaniKaniIfNeeded(force: true)
         await refreshCalendarIfNeeded(force: true)
     }
@@ -180,7 +182,7 @@ struct StudyHomeView: View {
             )
         } label: {
             todayTile(
-                title: "Lessons",
+                title: "My usual mix",
                 detail: StudyTodayPresentation.newCardCountText(store.sessionCounts.newRemaining),
                 systemImage: "book.closed.fill",
                 color: .green

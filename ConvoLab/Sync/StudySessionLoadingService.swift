@@ -3,16 +3,24 @@ import Foundation
 enum StudySessionLoadKind {
     case reviews
     case lessons
+    case pile(String)
     case introductionCohort(String)
 
     fileprivate var path: String {
         switch self {
         case .reviews: "/api/study/session/start"
-        case .lessons: "/api/study/lessons/start"
+        case .lessons, .pile: "/api/study/lessons/start"
         case let .introductionCohort(id):
             "/api/study/introduction-cohorts/\(id)/lessons/start"
         }
     }
+
+    fileprivate var body: [String: String] {
+        var body = ["time_zone": TimeZone.current.identifier]
+        if case let .pile(id) = self { body["pileId"] = id }
+        return body
+    }
+
 }
 
 struct StudySessionLoad {
@@ -67,7 +75,7 @@ final class StudySessionLoadingService {
         let response: StudySessionResponse = try await api.request(
             kind.path,
             method: "POST",
-            body: ["time_zone": TimeZone.current.identifier]
+            body: kind.body
         )
         guard
             self.activeUserID == operation.userID,

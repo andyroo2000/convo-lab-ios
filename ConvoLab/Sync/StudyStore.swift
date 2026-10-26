@@ -45,6 +45,9 @@ final class StudyStore {
         case failed(String)
     }
 
+    let piles = StudyPileState()
+    @ObservationIgnored var activePileID: String?
+
     let api: APIClient
     let context: ModelContext
     let overviewContext: ModelContext
@@ -169,7 +172,7 @@ final class StudyStore {
     }
     var lessonSessionIsPresented = false
     @ObservationIgnored var activeLessonCohortID: String?
-    @ObservationIgnored private var activeLessonPresentationID: UUID?
+    @ObservationIgnored var activeLessonPresentationID: UUID?
     var masteryAnimation: (
         id: UUID,
         card: StudyCard,
@@ -184,36 +187,6 @@ final class StudyStore {
         return min(1, Double(sessionCompletedCardIDs.count) / Double(sessionInitialCardCount))
     }
 
-    var sessionFailureCount: Int {
-        sessionFailedCardIDs.count
-    }
-
-    func beginSessionFailureTracking() {
-        sessionFailedCardIDs = []
-        sessionFailureWasPresentByEventID = [:]
-    }
-
-    @discardableResult
-    func beginLessonSessionPresentation(
-        presentationID: UUID = UUID(),
-        cohortID: String? = nil
-    ) -> Bool {
-        if lessonSessionIsPresented {
-            return activeLessonPresentationID == presentationID
-        }
-        studySurfaceRevision += 1
-        lessonSessionIsPresented = true
-        activeLessonPresentationID = presentationID
-        activeLessonCohortID = cohortID
-        sessionLoadingService.invalidate()
-        dueActivationScheduler.cancel()
-        cards = []
-        sessionInitialCardCount = 0
-        sessionCompletedCardIDs = []
-        masteryAnimation = nil
-        return true
-    }
-
     func endLessonSessionPresentation(presentationID: UUID? = nil) {
         guard lessonSessionIsPresented else { return }
         if let presentationID, activeLessonPresentationID != presentationID { return }
@@ -221,6 +194,7 @@ final class StudyStore {
         lessonSessionIsPresented = false
         activeLessonPresentationID = nil
         activeLessonCohortID = nil
+        activePileID = nil
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
         if let userID = activeUserID {
@@ -407,6 +381,7 @@ final class StudyStore {
         isLoadingMoreNewCardQueue = false
         cardCatalogSnapshot = nil
         manualDraftsRefreshedAt = nil
+        piles.reset()
         overview = nil
         offlineReserveMetadata = nil
         isRefreshingOverview = false
@@ -434,6 +409,7 @@ final class StudyStore {
         lessonSessionIsPresented = false
         activeLessonPresentationID = nil
         activeLessonCohortID = nil
+        activePileID = nil
         masteryAnimation = nil
     }
 

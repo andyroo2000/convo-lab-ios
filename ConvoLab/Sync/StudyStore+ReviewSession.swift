@@ -1,6 +1,15 @@
 import Foundation
 
 extension StudyStore {
+    var sessionFailureCount: Int {
+        sessionFailedCardIDs.count
+    }
+
+    func beginSessionFailureTracking() {
+        sessionFailedCardIDs = []
+        sessionFailureWasPresentByEventID = [:]
+    }
+
     private struct OversizedLessonSessionError: LocalizedError {
         var errorDescription: String? {
             "The lesson response contained more cards than the client contract allows."
@@ -111,6 +120,8 @@ extension StudyStore {
     func refreshLessons() async throws -> Bool {
         let loadKind: StudySessionLoadKind = if let activeLessonCohortID {
             .introductionCohort(activeLessonCohortID)
+        } else if let activePileID {
+            .pile(activePileID)
         } else {
             .lessons
         }
