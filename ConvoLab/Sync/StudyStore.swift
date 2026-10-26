@@ -172,7 +172,7 @@ final class StudyStore {
     }
     var lessonSessionIsPresented = false
     @ObservationIgnored var activeLessonCohortID: String?
-    @ObservationIgnored private var activeLessonPresentationID: UUID?
+    @ObservationIgnored var activeLessonPresentationID: UUID?
     var masteryAnimation: (
         id: UUID,
         card: StudyCard,
@@ -185,29 +185,6 @@ final class StudyStore {
     var sessionProgress: Double {
         guard sessionInitialCardCount > 0 else { return 0 }
         return min(1, Double(sessionCompletedCardIDs.count) / Double(sessionInitialCardCount))
-    }
-
-    @discardableResult
-    func beginLessonSessionPresentation(
-        presentationID: UUID = UUID(),
-        cohortID: String? = nil,
-        pileID: String? = nil
-    ) -> Bool {
-        if lessonSessionIsPresented {
-            return activeLessonPresentationID == presentationID
-        }
-        studySurfaceRevision += 1
-        lessonSessionIsPresented = true
-        activeLessonPresentationID = presentationID
-        activeLessonCohortID = cohortID
-        activePileID = pileID
-        sessionLoadingService.invalidate()
-        dueActivationScheduler.cancel()
-        cards = []
-        sessionInitialCardCount = 0
-        sessionCompletedCardIDs = []
-        masteryAnimation = nil
-        return true
     }
 
     func endLessonSessionPresentation(presentationID: UUID? = nil) {
