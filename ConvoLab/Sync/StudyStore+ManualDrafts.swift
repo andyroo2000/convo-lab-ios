@@ -29,7 +29,8 @@ extension StudyStore {
         try requirePersistentWrites()
         guard activeUserID != nil else { throw CancellationError() }
         let request = CreateStudyManualCardDraftRequest(
-            id: id,
+            bookSource: draft.bookSource,
+            learnSoon: draft.learnSoon,            id: id,
             creationKind: creationKind,
             cardType: creationKind.cardType.rawValue,
             prompt: creationKind == .audioRecognition ? .object([:]) : draft.prompt(),

@@ -4,6 +4,8 @@ struct CardLibraryView: View {
     private static let maximumReorderableCards = 100
     private static let maximumLessonFollowupCards = 100
 
+    private struct PlacementSelection: Identifiable { let id: String }
+
     private struct PendingCreateSelection: Identifiable {
         let request: CreateStudyManualCardDraftRequest
         var id: String { request.id }
@@ -31,6 +33,7 @@ struct CardLibraryView: View {
     @State private var collectionMode: CollectionMode = .queue
     @State private var searchText = ""
     @State private var showingCreate = false
+    @State private var placementSelection: PlacementSelection?
     @State private var selectedCard: StudyCard?
     @State private var selectedDraft: StudyManualCardDraft?
     @State private var selectedPendingCreate: PendingCreateSelection?
@@ -70,6 +73,9 @@ struct CardLibraryView: View {
                         AppModeToolbarView(toolbar: cardToolbar)
                     }
                 }
+            }
+            .sheet(item: $placementSelection) { selection in
+                StudyCardPlacementView(store: store, cardID: selection.id)
             }
             .sheet(isPresented: $showingCreate) {
                 CardEditorView(
@@ -325,6 +331,7 @@ struct CardLibraryView: View {
                                 queueRow(item, number: index + 1)
                             }
                         }
+                        .contextMenu { placementAction(id: item.id) }
                         .task {
                             guard item.id == store.newCardQueue.last?.id else { return }
                             try? await store.loadMoreNewCardQueue()
@@ -450,7 +457,7 @@ struct CardLibraryView: View {
     private func recoveredCardDraft(
         for request: CreateStudyManualCardDraftRequest
     ) -> StudyCardDraft {
-        StudyCardDraft(manualDraft: StudyManualCardDraft(
+        var draft = StudyCardDraft(manualDraft: StudyManualCardDraft(
             id: request.id,
             status: "pending",
             committedCardId: nil,
@@ -467,6 +474,9 @@ struct CardLibraryView: View {
             createdAt: .distantPast,
             updatedAt: .distantPast
         ))
+        draft.bookSource = request.bookSource
+        draft.learnSoon = request.learnSoon
+        return draft
     }
 
     private func toggleLessonFollowupSelection(_ cardID: String) {
@@ -640,6 +650,7 @@ struct CardLibraryView: View {
             }
             .swipeActions {
                 deleteAction(for: card)
+                placementAction(id: card.reviewCardID)
             }
         } else if StudyCardDraft.CardType(
             rawValue: item.representativeCard.cardType
@@ -651,13 +662,22 @@ struct CardLibraryView: View {
             }
             .swipeActions {
                 deleteAction(for: item.representativeCard)
+                placementAction(id: item.representativeCard.syncId)
             }
         } else {
             learningItemSummary(item)
                 .swipeActions {
                     deleteAction(for: item.representativeCard)
+                placementAction(id: item.representativeCard.syncId)
                 }
         }
+    }
+
+    private func placementAction(id: String) -> some View {
+        Button("Source and priority", systemImage: "books.vertical") {
+            placementSelection = PlacementSelection(id: id)
+        }
+        .tint(ConvoLabTheme.cyan)
     }
 
     private func deleteAction(for card: StudyCard) -> some View {
@@ -728,17 +748,7 @@ struct CardLibraryView: View {
         using cardLookup: StudyCardLookup
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: stageIcon(stage.status))
-                    .foregroundStyle(stageColor(stage.status))
-                    .accessibilityHidden(true)
-                Text(stage.number.map { "Stage \($0)" } ?? "Stage")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text(stageStatusText(stage.status))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            stageHeading(stage)
             ForEach(stage.cards) { itemCard in
                 if let card = cardLookup.card(matching: [itemCard.id, itemCard.syncId]),
                    StudyCardDraft.CardType(rawValue: card.cardType) != nil {
@@ -750,6 +760,7 @@ struct CardLibraryView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { placementAction(id: itemCard.syncId) }
                         Button(role: .destructive) {
                             Task { await delete(card) }
                         } label: {
@@ -767,6 +778,7 @@ struct CardLibraryView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { placementAction(id: itemCard.syncId) }
                         Button(role: .destructive) {
                             Task { await delete(itemCard) }
                         } label: {
@@ -791,6 +803,20 @@ struct CardLibraryView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func stageHeading(_ stage: StudyLearningItemStage) -> some View {
+            HStack {
+                Image(systemName: stageIcon(stage.status))
+                    .foregroundStyle(stageColor(stage.status))
+                    .accessibilityHidden(true)
+                Text(stage.number.map { "Stage \($0)" } ?? "Stage")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(stageStatusText(stage.status))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
     }
 
     private func learningItemCardRow(_ card: StudyLearningItemCard) -> some View {

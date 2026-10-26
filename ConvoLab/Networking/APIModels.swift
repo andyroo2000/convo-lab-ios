@@ -171,6 +171,8 @@ struct StudyManualCardDraftListResponse: nonisolated Codable, Sendable {
 }
 
 struct CreateStudyManualCardDraftRequest: Codable, Equatable, Sendable {
+    var bookSource: StudyBookSource? = nil
+    var learnSoon: Bool? = nil
     let id: String
     let creationKind: StudyCardCreationKind
     let cardType: String
@@ -1279,6 +1281,8 @@ struct CreateDailyAudioRequest: Encodable {
 }
 
 struct CreateStudyCardRequest: Codable {
+    var bookSource: StudyBookSource? = nil
+    var learnSoon: Bool? = nil
     let id: String
     let cardType: String
     let prompt: JSONValue
