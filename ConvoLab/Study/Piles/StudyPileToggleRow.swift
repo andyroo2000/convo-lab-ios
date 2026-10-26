@@ -21,6 +21,9 @@ struct StudyPileToggleRow: View {
             .disabled(saving)
             .tint(ConvoLabTheme.cyan)
             .onChange(of: item.isActive) { _, _ in savedActive = nil }
+            .onChange(of: store.piles.isRefreshing) { _, refreshing in
+                if !refreshing && store.piles.errorMessage == nil { savedActive = nil }
+            }
             .accessibilityLabel("Include \(item.title) in new cards")
             .accessibilityValue("\(item.readyCount) ready, \(item.newCount) remaining")
             Button("Edit title and order") { editing = true }
