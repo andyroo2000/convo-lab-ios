@@ -87,7 +87,9 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testPileSelectionClearsWhenLeavingLessonPresentation() throws {
+    // Swift 6.2 XCTest needs a task context for actor-isolated store teardown.
+    // https://github.com/swiftlang/swift/issues/87316
+    func testPileSelectionClearsWhenLeavingLessonPresentation() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let client = makeClient { _ in Self.response(data: Self.pileCatalogData) }
         let store = makePileStore(container, client)
