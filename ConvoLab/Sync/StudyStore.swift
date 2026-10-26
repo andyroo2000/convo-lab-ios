@@ -45,6 +45,9 @@ final class StudyStore {
         case failed(String)
     }
 
+    let piles = StudyPileState()
+    @ObservationIgnored var activePileID: String?
+
     let api: APIClient
     let context: ModelContext
     let overviewContext: ModelContext
@@ -184,19 +187,11 @@ final class StudyStore {
         return min(1, Double(sessionCompletedCardIDs.count) / Double(sessionInitialCardCount))
     }
 
-    var sessionFailureCount: Int {
-        sessionFailedCardIDs.count
-    }
-
-    func beginSessionFailureTracking() {
-        sessionFailedCardIDs = []
-        sessionFailureWasPresentByEventID = [:]
-    }
-
     @discardableResult
     func beginLessonSessionPresentation(
         presentationID: UUID = UUID(),
-        cohortID: String? = nil
+        cohortID: String? = nil,
+        pileID: String? = nil
     ) -> Bool {
         if lessonSessionIsPresented {
             return activeLessonPresentationID == presentationID
@@ -205,6 +200,7 @@ final class StudyStore {
         lessonSessionIsPresented = true
         activeLessonPresentationID = presentationID
         activeLessonCohortID = cohortID
+        activePileID = pileID
         sessionLoadingService.invalidate()
         dueActivationScheduler.cancel()
         cards = []
@@ -221,6 +217,7 @@ final class StudyStore {
         lessonSessionIsPresented = false
         activeLessonPresentationID = nil
         activeLessonCohortID = nil
+        activePileID = nil
         sessionLoadingService.invalidate()
         sessionKind = "reviews"
         if let userID = activeUserID {
@@ -407,6 +404,7 @@ final class StudyStore {
         isLoadingMoreNewCardQueue = false
         cardCatalogSnapshot = nil
         manualDraftsRefreshedAt = nil
+        piles.reset()
         overview = nil
         offlineReserveMetadata = nil
         isRefreshingOverview = false
@@ -434,6 +432,7 @@ final class StudyStore {
         lessonSessionIsPresented = false
         activeLessonPresentationID = nil
         activeLessonCohortID = nil
+        activePileID = nil
         masteryAnimation = nil
     }
 

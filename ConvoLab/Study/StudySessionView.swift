@@ -11,6 +11,7 @@ struct StudySessionView: View {
     let player: StudyAudioPlayer
     let mode: Mode
     let timeStore: StudyTimeStore?
+    let pileID: String?
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
     @Environment(\.scenePhase) private var scenePhase
@@ -51,6 +52,7 @@ struct StudySessionView: View {
         mode: Mode = .reviews,
         timeStore: StudyTimeStore? = nil,
         lessonCohortID: String? = nil,
+        pileID: String? = nil,
         lessonPresentationID: UUID = UUID(),
         allowsLessonDismissal: Bool = false
     ) {
@@ -59,6 +61,7 @@ struct StudySessionView: View {
         self.mode = mode
         self.timeStore = timeStore
         self.lessonCohortID = lessonCohortID
+        self.pileID = pileID
         self.allowsLessonDismissal = allowsLessonDismissal
         _lessonPresentationID = State(initialValue: lessonPresentationID)
         _lessonPreview = State(initialValue: mode == .lessons)
@@ -303,7 +306,8 @@ struct StudySessionView: View {
             if mode == .lessons {
                 guard store.beginLessonSessionPresentation(
                     presentationID: lessonPresentationID,
-                    cohortID: lessonCohortID
+                    cohortID: lessonCohortID,
+                    pileID: pileID
                 ) else { return }
                 await loadLessonBatch()
             } else {
