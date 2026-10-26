@@ -10,6 +10,9 @@ struct StudyBookSourceFields: View {
             set: { source = $0.isEmpty ? nil : StudyBookSource(pileId: $0) }
         )) {
             Text("Uncategorized").tag("")
+            if let id = source?.pileId, !(store.piles.catalog?.piles.contains { $0.id == id } ?? false) {
+                Text("Current source (unavailable)").tag(id)
+            }
             ForEach(store.piles.catalog?.piles ?? []) { pile in
                 Text(pile.isActive ? pile.title : "\(pile.title) — saved for later").tag(pile.id)
             }
@@ -35,6 +38,9 @@ struct StudyBookSourceFields: View {
             set: { source?.chapterId = $0.isEmpty ? nil : $0 }
         )) {
             Text("No chapter").tag("")
+            if let id = source?.chapterId, !chapters.contains(where: { $0.id == id }) {
+                Text("Current chapter (unavailable)").tag(id)
+            }
             ForEach(chapters) { chapter in Text(chapter.title).tag(chapter.id) }
         }
     }

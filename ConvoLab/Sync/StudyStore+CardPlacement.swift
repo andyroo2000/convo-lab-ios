@@ -1,10 +1,16 @@
 import Foundation
 
 extension StudyStore {
+    func canEditCardPlacement(id: String) -> Bool {
+        ClientIdentifier.isULID(id) && (try? cardOutbox.hasPendingCardWrite(for: id)) == false
+    }
+
     func cardPlacement(id: String) async throws -> StudyCardPlacementSnapshot {
         guard let userID = activeUserID else { throw CancellationError() }
         let generation = accountActivationGeneration
-        guard ClientIdentifier.isULID(id) else { throw APIClientError.invalidResponse }
+        guard canEditCardPlacement(id: id) else {
+            throw APIClientError.rejected(status: 409, message: "Sync pending card changes before editing its source or priority.")
+        }
         let snapshot: StudyCardPlacementSnapshot = try await api.request("/api/study/cards/\(id.lowercased())")
         guard isCurrentActivation(userID, generation: generation) else { throw CancellationError() }
         return snapshot
@@ -22,7 +28,9 @@ extension StudyStore {
 
     private func updateCardPlacement(path: String, id: String, body: any Encodable) async throws {
         guard let userID = activeUserID, let token = api.accessToken else { throw CancellationError() }
-        guard ClientIdentifier.isULID(id) else { throw APIClientError.invalidResponse }
+        guard canEditCardPlacement(id: id) else {
+            throw APIClientError.rejected(status: 409, message: "Sync pending card changes before editing its source or priority.")
+        }
         let generation = accountActivationGeneration
         try await api.request("/api/study\(path)", method: "PUT", body: body, authorizationToken: token)
         guard isCurrentActivation(userID, generation: generation) else { throw CancellationError() }

@@ -668,16 +668,19 @@ struct CardLibraryView: View {
             learningItemSummary(item)
                 .swipeActions {
                     deleteAction(for: item.representativeCard)
-                placementAction(id: item.representativeCard.syncId)
+                    placementAction(id: item.representativeCard.syncId)
                 }
         }
     }
 
+    @ViewBuilder
     private func placementAction(id: String) -> some View {
+        if store.canEditCardPlacement(id: id) {
         Button("Source and priority", systemImage: "books.vertical") {
             placementSelection = PlacementSelection(id: id)
         }
         .tint(ConvoLabTheme.cyan)
+        }
     }
 
     private func deleteAction(for card: StudyCard) -> some View {
@@ -806,17 +809,17 @@ struct CardLibraryView: View {
     }
 
     private func stageHeading(_ stage: StudyLearningItemStage) -> some View {
-            HStack {
-                Image(systemName: stageIcon(stage.status))
-                    .foregroundStyle(stageColor(stage.status))
-                    .accessibilityHidden(true)
-                Text(stage.number.map { "Stage \($0)" } ?? "Stage")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text(stageStatusText(stage.status))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        HStack {
+            Image(systemName: stageIcon(stage.status))
+                .foregroundStyle(stageColor(stage.status))
+                .accessibilityHidden(true)
+            Text(stage.number.map { "Stage \($0)" } ?? "Stage")
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            Text(stageStatusText(stage.status))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func learningItemCardRow(_ card: StudyLearningItemCard) -> some View {

@@ -28,6 +28,18 @@ final class StudyCardPlacementTests: XCTestCase {
     }
 
     @MainActor
+    func testManualDraftMetadataSurvivesOfflineRetry() throws {
+        let source = StudyBookSource(pileId: "book", chapterId: "chapter", position: 3)
+        let request = CreateStudyManualCardDraftRequest(
+            bookSource: source, learnSoon: true, id: "draft", creationKind: .textRecognition,
+            cardType: "recognition", prompt: .object([:]), answer: .object([:]),
+            imagePlacement: .none, imagePrompt: nil
+        )
+        let restored = try JSONDecoder().decode(CreateStudyManualCardDraftRequest.self, from: JSONEncoder().encode(request))
+        XCTAssertEqual(restored, request)
+    }
+
+    @MainActor
     func testLegacyOutboxRequestsDecodeWithoutSourceMetadata() throws {
         let data = Data(#"{"id":"card","cardType":"recognition","prompt":{},"answer":{}}"#.utf8)
         let request = try JSONDecoder().decode(CreateStudyCardRequest.self, from: data)
