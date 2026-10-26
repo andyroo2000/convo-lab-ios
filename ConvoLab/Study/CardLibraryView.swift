@@ -673,14 +673,11 @@ struct CardLibraryView: View {
         }
     }
 
-    @ViewBuilder
     private func placementAction(id: String) -> some View {
-        if store.canEditCardPlacement(id: id) {
         Button("Source and priority", systemImage: "books.vertical") {
             placementSelection = PlacementSelection(id: id)
         }
         .tint(ConvoLabTheme.cyan)
-        }
     }
 
     private func deleteAction(for card: StudyCard) -> some View {

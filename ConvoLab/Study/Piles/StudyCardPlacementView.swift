@@ -18,6 +18,7 @@ struct StudyCardPlacementView: View {
                     Section("Card source") {
                         StudyBookSourceFields(store: store, source: $source)
                         if source != nil { TextField("Order within chapter (optional)", text: $order).keyboardType(.numberPad) }
+                        if !validOrder { Text("Order must be a whole number from 0 to 1,000,000.").foregroundStyle(.red) }
                         Button("Save source") { Task { await saveSource() } }.disabled(!validOrder)
                     }
                     if card?.state.queueState == "new" {
@@ -38,6 +39,12 @@ struct StudyCardPlacementView: View {
             }
             .disabled(busy)
             .navigationTitle("Source and priority")
+            .onChange(of: source) { old, new in
+                saved = false
+                if old?.pileId != new?.pileId { order = new?.position.map(String.init) ?? "" }
+            }
+            .onChange(of: learnSoon) { _, _ in saved = false }
+            .onChange(of: order) { _, _ in saved = false }
             .task { await load() }
         }
     }

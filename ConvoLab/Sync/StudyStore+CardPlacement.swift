@@ -18,12 +18,12 @@ extension StudyStore {
 
     func assignCardSource(id: String, source: StudyBookSource?) async throws {
         try await updateCardPlacement(path: "/card-sources", id: id,
-                                      body: StudyCardSourceAssignment(cardIds: [id], bookSource: source))
+                                      body: StudyCardSourceAssignment(cardIds: [id.lowercased()], bookSource: source))
     }
 
     func assignLearnSoon(id: String, value: Bool) async throws {
         try await updateCardPlacement(path: "/learn-soon", id: id,
-                                      body: StudyLearnSoonAssignment(cardIds: [id], learnSoon: value))
+                                      body: StudyLearnSoonAssignment(cardIds: [id.lowercased()], learnSoon: value))
     }
 
     private func updateCardPlacement(path: String, id: String, body: any Encodable) async throws {
