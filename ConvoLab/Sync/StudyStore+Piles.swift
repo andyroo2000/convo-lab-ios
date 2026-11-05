@@ -2,7 +2,8 @@ import Foundation
 
 extension StudyStore {
     func refreshPiles() async {
-        guard let userID = activeUserID, let token = api.accessToken else { return }
+        guard let userID = activeUserID, let token = api.accessToken,
+              !piles.hasPendingSaves else { return }
         let generation = accountActivationGeneration
         let requestID = UUID()
         piles.refreshID = requestID
@@ -57,12 +58,31 @@ extension StudyStore {
             throw APIClientError.invalidResponse
         }
         let generation = accountActivationGeneration
+        let operationID = piles.beginSave()
+        overviewRefreshID = nil
+        isRefreshingOverview = false
+        defer {
+            if isCurrentActivation(userID, generation: generation),
+               piles.finishSave(operationID) {
+                refreshPilesAfterSave(userID: userID, generation: generation)
+            }
+        }
         let path = pileID.map { "/api/study/piles/\($0.lowercased())/chapters/\(id.lowercased())" }
             ?? "/api/study/piles/\(id.lowercased())"
         try await api.request(path, method: "PUT", body: update, authorizationToken: token)
         // The old-account write may complete after switching accounts; never publish it into the new one.
         guard activeUserID == userID, accountActivationGeneration == generation else { return }
-        await refreshPiles()
-        await refreshOverview()
+        piles.catalog?.apply(update, id: id.lowercased(), pileID: pileID?.lowercased())
+    }
+
+    private func refreshPilesAfterSave(userID: Int, generation: Int) {
+        piles.refreshTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled,
+                  self.isCurrentActivation(userID, generation: generation) else { return }
+            await self.refreshPiles()
+            guard !Task.isCancelled,
+                  self.isCurrentActivation(userID, generation: generation) else { return }
+            await self.refreshOverview()
+        }
     }
 }
