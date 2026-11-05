@@ -37,6 +37,8 @@ struct UITestFixtureView: View {
             UITestModeNavigationFixture()
         case .timeChart:
             UITestTimeChartFixture()
+        case .studyDashboard where ProcessInfo.processInfo.arguments.contains("-ui-test-piles"):
+            UITestPileToggleFixture()
         case .loginScreen:
             UITestLoginScreenFixture()
         case .offlineReview where ProcessInfo.processInfo.arguments.contains("-ui-test-lesson-audio"):

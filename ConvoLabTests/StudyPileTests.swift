@@ -36,8 +36,10 @@ extension StudyStoreTests {
         }
         client.setAccessToken("test-token")
         let store = makePileStore(container, client)
+        await store.refreshPiles()
         try await store.savePile(id: id.uppercased(), update: StudyPileUpdate(isActive: false), pileID: id.uppercased())
         XCTAssertNotNil(store.piles.catalog)
+        await store.piles.refreshTask?.value
     }
 
     @MainActor
@@ -102,10 +104,10 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    private func makePileStore(_ container: ModelContainer, _ client: APIClient) -> StudyStore {
+    func makePileStore(_ container: ModelContainer, _ client: APIClient) -> StudyStore {
         StudyStore(initialUserID: 1, api: client, context: container.mainContext,
                    mediaCache: MediaCache(initialUserID: 1, api: client, context: container.mainContext))
     }
 
-    private static let pileCatalogData = Data(#"{"piles":[{"id":"01jzq4nny5xbnzw14q1g68b2yt","title":"Genki II","position":1,"is_active":true,"source_reference":null,"new_count":20,"ready_count":3,"introduced_count":4,"chapters":[{"id":"01jzq4nny5xbnzw14q1g68b2yu","title":"Chapter 20","position":20,"is_active":true,"source_reference":null,"new_count":20,"ready_count":3,"introduced_count":4}]}],"uncategorized":{"new_count":0,"ready_count":0,"introduced_count":0},"learn_soon":{"new_count":0,"ready_count":0,"introduced_count":0},"next_cursor":null}"#.utf8)
+    static let pileCatalogData = Data(#"{"piles":[{"id":"01jzq4nny5xbnzw14q1g68b2yt","title":"Genki II","position":1,"is_active":true,"source_reference":null,"new_count":20,"ready_count":3,"introduced_count":4,"chapters":[{"id":"01jzq4nny5xbnzw14q1g68b2yv","title":"Chapter 20","position":20,"is_active":true,"source_reference":null,"new_count":20,"ready_count":3,"introduced_count":4}]}],"uncategorized":{"new_count":0,"ready_count":0,"introduced_count":0},"learn_soon":{"new_count":0,"ready_count":0,"introduced_count":0},"next_cursor":null}"#.utf8)
 }

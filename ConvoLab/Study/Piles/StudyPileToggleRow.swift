@@ -5,12 +5,13 @@ struct StudyPileToggleRow: View {
     let item: StudyPileChapter
     var pileID: String?
     @State private var saving = false
+    @State private var pendingActive: Bool?
     @State private var error: String?
     @State private var editing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(get: { item.isActive }, set: { active in save(active) })) {
+            Toggle(isOn: Binding(get: { pendingActive ?? item.isActive }, set: { active in save(active) })) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title).font(.headline)
                     Text("\(item.readyCount) ready · \(item.newCount) remaining · \(item.introducedCount) introduced")
@@ -34,9 +35,13 @@ struct StudyPileToggleRow: View {
     private func save(_ active: Bool) {
         guard !saving else { return }
         saving = true
+        pendingActive = active
         error = nil
         Task {
-            defer { saving = false }
+            defer {
+                pendingActive = nil
+                saving = false
+            }
             do { try await store.savePile(id: item.id, update: StudyPileUpdate(isActive: active), pileID: pileID) }
             catch { self.error = error.localizedDescription }
         }
