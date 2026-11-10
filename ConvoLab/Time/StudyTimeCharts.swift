@@ -48,7 +48,8 @@ struct StudyTimeJLPTMasterySection: View {
             if isExpanded {
                 Text(
                     "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
-                        + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate."
+                        + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate. "
+                        + "Grammar matching is conservative and may miss patterns you know, especially at N3–N1."
                 )
             }
         }
@@ -69,6 +70,15 @@ struct StudyTimeJLPTMasterySection: View {
                         caption: "Next step",
                         mastery: n4
                     )
+                }
+                if let n3 = mastery.n3 {
+                    JLPTMasteryLevelBand(level: "N3", caption: "Intermediate", mastery: n3)
+                }
+                if let n2 = mastery.n2 {
+                    JLPTMasteryLevelBand(level: "N2", caption: "Upper intermediate", mastery: n2)
+                }
+                if let n1 = mastery.n1 {
+                    JLPTMasteryLevelBand(level: "N1", caption: "Advanced", mastery: n1)
                 }
             }
             .padding(.vertical, 4)
@@ -509,15 +519,19 @@ struct StudyRhythmChart: View {
     }
 
     private func axisLabel(_ date: Date) -> String {
+        dateLabel(date, compact: true)
+    }
+
+    private func dateLabel(_ date: Date, compact: Bool) -> String {
         switch analytics.key {
         case .today:
             date.formatted(.dateTime.hour())
         case .week:
-            date.formatted(.dateTime.weekday(.narrow))
+            date.formatted(.dateTime.weekday(compact ? .narrow : .abbreviated))
         case .month:
             date.formatted(.dateTime.day())
         case .year:
-            date.formatted(.dateTime.month(.narrow))
+            date.formatted(.dateTime.month(compact ? .narrow : .abbreviated))
         case .all:
             date.formatted(.dateTime.year())
         }
@@ -536,18 +550,7 @@ struct StudyRhythmChart: View {
     }
 
     private func bestBucketLabel(_ bucket: StudyTimeAnalyticsBucket) -> String {
-        switch analytics.key {
-        case .today:
-            bucket.startsAt.formatted(.dateTime.hour())
-        case .week:
-            bucket.startsAt.formatted(.dateTime.weekday(.abbreviated))
-        case .month:
-            bucket.startsAt.formatted(.dateTime.day())
-        case .year:
-            bucket.startsAt.formatted(.dateTime.month(.abbreviated))
-        case .all:
-            bucket.startsAt.formatted(.dateTime.year())
-        }
+        dateLabel(bucket.startsAt, compact: false)
     }
 
     private func axisDuration(_ minutes: Double) -> String {

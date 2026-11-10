@@ -394,15 +394,30 @@ struct StudyMasterySpread: nonisolated Codable, Equatable, Sendable {
 struct StudyJLPTMastery: nonisolated Codable, Equatable, Sendable {
     let n5: StudyJLPTLevelMastery
     let n4: StudyJLPTLevelMastery?
+    let n3: StudyJLPTLevelMastery?
+    let n2: StudyJLPTLevelMastery?
+    let n1: StudyJLPTLevelMastery?
 
-    init(n5: StudyJLPTLevelMastery, n4: StudyJLPTLevelMastery? = nil) {
+    init(
+        n5: StudyJLPTLevelMastery,
+        n4: StudyJLPTLevelMastery? = nil,
+        n3: StudyJLPTLevelMastery? = nil,
+        n2: StudyJLPTLevelMastery? = nil,
+        n1: StudyJLPTLevelMastery? = nil
+    ) {
         self.n5 = n5
         self.n4 = n4
+        self.n3 = n3
+        self.n2 = n2
+        self.n1 = n1
     }
 
     private enum CodingKeys: String, CodingKey {
         case n5 = "N5"
         case n4 = "N4"
+        case n3 = "N3"
+        case n2 = "N2"
+        case n1 = "N1"
     }
 }
 
