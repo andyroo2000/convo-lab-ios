@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 @Observable
-final class JournalAudioPlayer {
+final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var generation = 0
     private(set) var preparing = false
@@ -30,10 +30,19 @@ final class JournalAudioPlayer {
             let audio = try AVAudioPlayer(data: data)
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
+            audio.delegate = self
             player = audio
             guard audio.play() else { throw APIClientError.invalidResponse }
         } catch {
-            if request == generation { errorMessage = "Audio could not be prepared. Try again."; player = nil }
+            if request == generation { stop(); errorMessage = "Audio could not be prepared. Try again." }
+        }
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let finished = ObjectIdentifier(player)
+        Task { @MainActor [weak self] in
+            guard let self, self.player.map(ObjectIdentifier.init) == finished else { return }
+            stop()
         }
     }
 

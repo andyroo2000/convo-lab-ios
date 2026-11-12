@@ -14,6 +14,7 @@ struct JournalHighlights: UIViewRepresentable {
         view.isScrollEnabled = false
         view.isSelectable = false
         view.accessibilityIdentifier = "JournalHighlightedEntry"
+        view.accessibilityHint = "Tap a highlighted phrase for its suggestion and explanation."
         view.textContainer.lineFragmentPadding = 0
         view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:))))
         context.coordinator.view = view
@@ -98,7 +99,7 @@ struct JournalHighlights: UIViewRepresentable {
 
         private func sourceRect(_ index: Int, view: UITextView) -> CGRect {
             guard let start = view.position(from: view.beginningOfDocument, offset: ranges[index].location),
-                  let end = view.position(from: start, offset: 1), let range = view.textRange(from: start, to: end) else { return view.bounds }
+                  let end = view.position(from: start, offset: ranges[index].length), let range = view.textRange(from: start, to: end) else { return view.bounds }
             return view.firstRect(for: range)
         }
 

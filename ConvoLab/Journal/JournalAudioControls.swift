@@ -29,7 +29,7 @@ struct JournalAudioControls: View {
                     }.disabled(voice.isEmpty || player.preparing).accessibilityLabel(player.isPlaying ? "Pause corrected version" : "Play corrected version")
                     Text(clock(player.position)).font(.caption.monospacedDigit())
                     Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
-                        .disabled(player.duration == 0).accessibilityLabel("Audio position")
+                        .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
                     Picker("Voice", selection: $voice) {
                         ForEach(voices) { Text($0.name).tag($0.id) }
                     }.labelsHidden().pickerStyle(.menu).accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
@@ -43,8 +43,8 @@ struct JournalAudioControls: View {
         .onChange(of: voice) { player.stop() }
         .onChange(of: analysis.replyRevision) { player.stop() }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in player.stop() }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { event in
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { _ in player.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main)) { event in
             if event.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
                 player.stop()
             }
@@ -55,7 +55,9 @@ struct JournalAudioControls: View {
     private func loadVoices() async {
         do {
             voices = try await service.voices()
-            voice = voices.first(where: { $0.name == "Ren" })?.id ?? voices.first?.id ?? ""
+            if !voices.contains(where: { $0.id == voice }) {
+                voice = voices.first(where: { $0.name == "Ren" })?.id ?? voices.first?.id ?? ""
+            }
             voiceError = voices.isEmpty
         } catch { voiceError = true }
     }
