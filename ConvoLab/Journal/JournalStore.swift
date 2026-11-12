@@ -66,13 +66,16 @@ final class JournalStore {
     func delete(id: String) async throws {
         try service.checkSession()
         if let entry = entries.first(where: { $0.id == id }) {
-            try await service.delete(entry)
+            try await service.delete(id: id, version: entry.version)
         } else if let draft = try storage.load(id: id), draft.expectedVersion > 0 {
-            let current = try await service.entry(id)
-            try await service.delete(current)
+            try await service.delete(id: id, version: draft.expectedVersion)
         }
-        if let draft = try storage.load(id: id) { try storage.discard(draft) }
         entries.removeAll { $0.id == id }
+        do {
+            if let draft = try storage.load(id: id) { try storage.discard(draft) }
+        } catch {
+            throw APIClientError.rejected(status: 503, message: "Online deletion succeeded, but the device copy could not be removed. Retry to clear it.")
+        }
         refreshDrafts()
     }
 }

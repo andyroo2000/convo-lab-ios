@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 final class JournalEntryModel {
     nonisolated deinit {}
@@ -69,14 +70,18 @@ final class JournalEntryModel {
             analysis = try await store.service.submit(entry)
             isEditing = false
         } catch {
+            hasConflict = Self.isConflict(error)
             errorMessage = "Saved, but feedback could not be requested. Try Submit again."
-            throw APIClientError.rejected(status: 503, message: "Saved, but feedback could not be requested. Try Submit again.")
         }
     }
 
     func refreshAnalysis() async throws {
         let response = try await store.service.analysis(id)
-        guard response.entry.body == draft?.body else { return }
+        guard response.entry.body == draft?.body else {
+            analysis = nil
+            hasConflict = true
+            throw APIClientError.rejected(status: 409, message: "This entry changed on another device. Your writing is still here; save it as a new entry.")
+        }
         analysis = response.data
         // A generated title must never overwrite an unacknowledged edit.
         if try store.storage.load(id: id) == nil {

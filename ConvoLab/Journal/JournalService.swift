@@ -56,9 +56,9 @@ struct JournalService {
         try await request(path(id) + "/analysis")
     }
 
-    func delete(_ entry: JournalEntry) async throws {
+    func delete(id: String, version: Int) async throws {
         try checkSession()
-        try await api.request(path(entry.id), method: "DELETE", body: JournalVersionPayload(expectedVersion: entry.version), authorizationToken: token)
+        try await api.request(path(id), method: "DELETE", body: JournalVersionPayload(expectedVersion: version), authorizationToken: token)
         try checkSession()
     }
 
