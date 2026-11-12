@@ -1,15 +1,17 @@
 import SwiftUI
 
 struct JournalDestination: View {
-    @State private var store: JournalStore
+    let api: APIClient
+    let userID: Int
     let knownKanji: Set<Character>
-
-    init(api: APIClient, userID: Int, knownKanji: Set<Character>) {
-        _store = State(initialValue: JournalStore(api: api, userID: userID))
-        self.knownKanji = knownKanji
-    }
+    @State private var store: JournalStore?
 
     var body: some View {
-        JournalListView(store: store, knownKanji: knownKanji)
+        Group {
+            if let store { JournalListView(store: store, knownKanji: knownKanji) }
+            else { ProgressView() }
+        }.task {
+            if store == nil { store = JournalStore(api: api, userID: userID) }
+        }
     }
 }
