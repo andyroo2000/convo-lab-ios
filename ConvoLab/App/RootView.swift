@@ -167,6 +167,7 @@ struct MainModeView: View {
                     automaticSynchronization: model.refreshStudyIfNeeded,
                     journalDestination: JournalDestination(api: model.api, userID: user.id, knownKanji: model.study.knownKanji)
                 )
+                .id(user.id)
                 .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
