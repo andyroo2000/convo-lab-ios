@@ -146,6 +146,33 @@ final class ModeNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalAnswerCanBeAddedAndUndoneWithEnglishHidden() {
+        let app = launchShell()
+        app.buttons["StudyJournalLink"].tap()
+        let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(app.buttons["Show English"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Who did you watch it with?"].exists)
+        app.swipeUp()
+        app.buttons["Show English"].tap()
+        XCTAssertTrue(app.staticTexts["Who did you watch it with?"].exists)
+        let answer = app.textViews["Your answer (optional)"]
+        answer.tap()
+        answer.typeText("With a friend.")
+        app.buttons["Done"].tap()
+        app.buttons["Add to entry"].tap()
+        let undo = app.buttons["Undo last addition"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Where did you watch it?"].exists)
+        XCTAssertEqual(answer.value as? String, "")
+        attachScreenshot(app, name: "Journal follow-up added to corrected entry")
+        undo.tap()
+        XCTAssertTrue(app.buttons["Show English"].waitForExistence(timeout: 5))
+        XCTAssertFalse(undo.exists)
+    }
+
+    @MainActor
     private func launchShell() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
