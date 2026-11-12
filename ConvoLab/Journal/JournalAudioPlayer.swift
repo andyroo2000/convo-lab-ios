@@ -6,13 +6,14 @@ import Foundation
 final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var generation = 0
+    private var seekRevision = 0
+    private(set) var isPlaying = false
     private(set) var preparing = false
     var errorMessage: String?
     nonisolated deinit {}
 
     var duration: Double { player?.duration ?? 0 }
-    var position: Double { player?.currentTime ?? 0 }
-    var isPlaying: Bool { player?.isPlaying ?? false }
+    var position: Double { _ = seekRevision; return player?.currentTime ?? 0 }
 
     func toggle(entryID: String, analysis: JournalAnalysis, voice: String, service: JournalService) async {
         if let player { togglePlayback(player); return }
@@ -33,6 +34,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
             audio.delegate = self
             player = audio
             guard audio.play() else { throw APIClientError.invalidResponse }
+            isPlaying = true
         } catch {
             if request == generation { stop(); errorMessage = "Audio could not be prepared. Try again." }
         }
@@ -47,12 +49,12 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     private func togglePlayback(_ audio: AVAudioPlayer) {
-        if audio.isPlaying { audio.pause(); return }
+        if audio.isPlaying { audio.pause(); isPlaying = false; return }
         if audio.currentTime >= audio.duration { audio.currentTime = 0 }
-        audio.play()
+        isPlaying = audio.play()
     }
 
-    func seek(_ value: Double) { player?.currentTime = min(max(value, 0), duration) }
+    func seek(_ value: Double) { player?.currentTime = min(max(value, 0), duration); seekRevision += 1 }
     func stop() {
         generation += 1
         if player != nil {
@@ -61,5 +63,6 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         }
         player = nil
         preparing = false
+        isPlaying = false
     }
 }

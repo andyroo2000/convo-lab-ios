@@ -18,7 +18,7 @@ struct JournalAudioControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            TimelineView(.animation(minimumInterval: 0.25, paused: !player.isPlaying)) { _ in
                 HStack(spacing: 12) {
                     Button {
                         if !player.isPlaying { beforeAudio() }
@@ -31,6 +31,7 @@ struct JournalAudioControls: View {
                     Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
                         .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
                     Picker("Voice", selection: $voice) {
+                        if voices.isEmpty { Text("Voice").tag("") }
                         ForEach(voices) { Text($0.name).tag($0.id) }
                     }.labelsHidden().pickerStyle(.menu).accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
                 }

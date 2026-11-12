@@ -77,8 +77,16 @@ struct JournalHighlights: UIViewRepresentable {
         @objc func tap(_ gesture: UITapGestureRecognizer) {
             guard let view, let position = view.closestPosition(to: gesture.location(in: view)) else { return }
             let offset = view.offset(from: view.beginningOfDocument, to: position)
-            guard let index = ranges.firstIndex(where: { NSLocationInRange(offset, $0) }) else { return }
+            let point = gesture.location(in: view)
+            guard let hit = [offset, offset - 1].first(where: { contains(point, offset: $0, view: view) }),
+                  let index = ranges.firstIndex(where: { NSLocationInRange(hit, $0) }) else { return }
             show(index)
+        }
+
+        private func contains(_ point: CGPoint, offset: Int, view: UITextView) -> Bool {
+            guard offset >= 0, let start = view.position(from: view.beginningOfDocument, offset: offset),
+                  let end = view.position(from: start, offset: 1), let character = view.textRange(from: start, to: end) else { return false }
+            return view.firstRect(for: character).insetBy(dx: -2, dy: -6).contains(point)
         }
 
         func show(_ index: Int) {
@@ -86,6 +94,7 @@ struct JournalHighlights: UIViewRepresentable {
             let controller = sequence(first: view.next, next: { $0?.next }).compactMap { $0 as? UIViewController }.first
             guard let controller, controller.presentedViewController == nil else { return }
             let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, width: min(320, (view.window?.bounds.width ?? 368) - 32)))
+            popup.overrideUserInterfaceStyle = view.traitCollection.userInterfaceStyle
             popup.modalPresentationStyle = .popover
             popup.sizingOptions = .preferredContentSize
             if let presentation = popup.popoverPresentationController {

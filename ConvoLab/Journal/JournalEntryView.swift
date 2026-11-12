@@ -10,7 +10,7 @@ struct JournalEntryView: View {
         self.knownKanji = knownKanji
     }
 
-    private var isReviewing: Bool { model.analysis?.status == .ready && !model.isEditing }
+    private var isReviewing: Bool { model.analysis?.status == .ready && model.analysis?.result != nil && !model.isEditing }
     private var pollingKey: String { "\(model.analysis?.id ?? ""):\(model.analysis?.status.rawValue ?? ""):\(model.analysis?.pendingReplyId ?? "")" }
 
     var body: some View {
