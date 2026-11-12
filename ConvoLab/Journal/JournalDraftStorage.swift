@@ -1,6 +1,13 @@
 import Foundation
 import CryptoKit
 
+struct JournalDraftListing {
+    var drafts: [JournalDraft] = []
+    var unreadableCount = 0
+}
+
+// All reads, comparisons, and writes are synchronous on one actor.
+@MainActor
 struct JournalDraftStorage {
     let directory: URL
 
@@ -8,12 +15,20 @@ struct JournalDraftStorage {
         directory = root.appending(path: String(userID), directoryHint: .isDirectory)
     }
 
-    func list() throws -> [JournalDraft] {
-        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
-        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+    func list() throws -> JournalDraftListing {
+        var result = JournalDraftListing()
+        guard FileManager.default.fileExists(atPath: directory.path) else { return result }
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
-            .compactMap { try load(id: $0.deletingPathExtension().lastPathComponent) }
-            .sorted { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }
+        for url in files {
+            do {
+                if let draft = try load(id: url.deletingPathExtension().lastPathComponent) {
+                    result.drafts.append(draft)
+                }
+            } catch { result.unreadableCount += 1 }
+        }
+        result.drafts.sort { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }
+        return result
     }
 
     func load(id: String) throws -> JournalDraft? {

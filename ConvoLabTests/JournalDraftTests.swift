@@ -23,8 +23,8 @@ struct JournalDraftTests {
         var draft = JournalDraft.new()
         draft.body = "映画を見ました。"
         try first.save(draft)
-        #expect(try first.list() == [draft])
-        #expect(try second.list().isEmpty)
+        #expect(try first.list().drafts == [draft])
+        #expect(try second.list().drafts.isEmpty)
         #expect(throws: Error.self) { try first.load(id: "../other") }
         #expect(ClientIdentifier.isULID(draft.id))
         #expect(draft.id == draft.id.lowercased())
@@ -48,6 +48,20 @@ struct JournalDraftTests {
         #expect(try storage.load(id: edited.id) != nil)
         try storage.acknowledge(retained, version: 2)
         #expect(try storage.load(id: edited.id) == nil)
+    }
+
+    @Test func oneUnreadableDraftDoesNotHideOtherWriting() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = JournalDraftStorage(userID: 1, root: root)
+        let good = JournalDraft.new()
+        let broken = JournalDraft.new()
+        try storage.save(good)
+        try storage.save(broken)
+        try Data("broken".utf8).write(to: storage.directory.appending(path: broken.id + ".json"))
+        let listing = try storage.list()
+        #expect(listing.drafts == [good])
+        #expect(listing.unreadableCount == 1)
     }
 
     @Test func corruptDraftBytesArePreservedBeforeReplacement() throws {
