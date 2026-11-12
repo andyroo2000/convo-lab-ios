@@ -106,6 +106,13 @@ final class APIClient {
         return try await sendRequest(path, method: method, query: [], body: nil, timeout: 120)
     }
 
+    func journalAudio(entryID: String, body: JournalAudioPayload, authorizationToken: String?) async throws -> Data {
+        guard ClientIdentifier.isULID(entryID) else { throw APIClientError.invalidResponse }
+        return try await sendRequest("/api/journal/entries/" + entryID.lowercased() + "/audio",
+                                     method: "POST", query: [], body: body, timeout: 120,
+                                     authorizationToken: authorizationToken)
+    }
+
     private func sendRequest(
         _ path: String,
         method: String,
