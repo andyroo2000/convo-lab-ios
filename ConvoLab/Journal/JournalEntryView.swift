@@ -26,7 +26,9 @@ struct JournalEntryView: View {
                     }
                 }
                 if isReviewing { JournalFeedbackView(model: model, knownKanji: knownKanji) } else { JournalEntryForm(model: model) }
-                if model.analysis?.status.isPending == true { ProgressView("Preparing feedback…") }
+                if let analysis = model.analysis, analysis.status.isPending {
+                    JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt).id(analysis.id)
+                }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }

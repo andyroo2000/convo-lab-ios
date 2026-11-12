@@ -31,7 +31,7 @@ struct JournalHighlights: UIViewRepresentable {
                 .attributedString(pointSize: 20, weight: .regular, color: .label, alignment: .left))
             let range = NSRange(location: output.length, length: text.length)
             ranges.append(range)
-            if segment.kind != .plain {
+            if segment.kind.isHighlighted {
                 let tint = Self.tint(segment.kind)
                 text.addAttributes([.backgroundColor: tint.withAlphaComponent(0.12), .underlineColor: tint,
                                     .underlineStyle: Self.underline(segment.kind)], range: NSRange(location: 0, length: text.length))
@@ -44,7 +44,7 @@ struct JournalHighlights: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
         view.accessibilityLabel = segments.map(\.text).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in
-            guard segment.kind != .plain else { return nil }
+            guard segment.kind.isHighlighted else { return nil }
             return UIAccessibilityCustomAction(name: "\(segment.kind.rawValue): \(segment.text)") { [weak coordinator = context.coordinator] _ in
                 coordinator?.show(index)
                 return true
@@ -58,12 +58,11 @@ struct JournalHighlights: UIViewRepresentable {
     }
 
     private static func tint(_ kind: JournalSegment.Kind) -> UIColor {
-        switch kind { case .correction: .systemRed; case .optional: .systemOrange; case .keep: .systemGreen; case .plain: .label }
+        switch kind { case .correction: .systemRed; case .optional: .systemOrange; case .keep, .plain: .label }
     }
     private static func underline(_ kind: JournalSegment.Kind) -> Int {
         switch kind {
         case .optional: NSUnderlineStyle.single.union(.patternDash).rawValue
-        case .keep: NSUnderlineStyle.single.union(.patternDot).rawValue
         default: NSUnderlineStyle.single.rawValue
         }
     }
@@ -90,7 +89,7 @@ struct JournalHighlights: UIViewRepresentable {
         }
 
         func show(_ index: Int) {
-            guard let view, segments.indices.contains(index), segments[index].kind != .plain else { return }
+            guard let view, segments.indices.contains(index), segments[index].kind.isHighlighted else { return }
             let controller = sequence(first: view.next, next: { $0?.next }).compactMap { $0 as? UIViewController }.first
             guard let controller, controller.presentedViewController == nil else { return }
             let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, width: min(320, (view.window?.bounds.width ?? 368) - 32)))
