@@ -10,8 +10,11 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
     func response(path: String, method: String?, body: String, initial: String, entry: String) -> String? {
         guard path.hasPrefix("/api/journal/entries/") else { return nil }
         lock.lock(); defer { lock.unlock() }
-        let original = object(initial)
+        let original = JournalDocumentNavigationFixture.initial(object(initial))
         if analysis == nil { analysis = original }
+        if JournalDocumentNavigationFixture.change(path: path, body: object(body), analysis: &analysis) {
+            return encode(["data": analysis!])
+        }
         if path.hasSuffix("/analysis") { return encode(["data": analysis!, "entry": object(entry)]) }
         if path.hasSuffix("/undo") {
             let revision = (analysis?["replyRevision"] as? Int ?? 0) + 1
@@ -39,6 +42,7 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
         let reply: [String: Any] = ["id": id, "parentId": NSNull(), "answer": body["answer"] ?? "",
                                     "status": "ready", "result": result, "error": NSNull()]
         replies[id] = reply
+        analysis?["correctedDocument"] = ["text": result["entryText"]!, "reading": result["entryReading"]!, "suggestions": []]
         analysis?["currentReply"] = reply
         let revision = (analysis?["replyRevision"] as? Int ?? 0) + 1
         analysis?["replyRevision"] = revision
