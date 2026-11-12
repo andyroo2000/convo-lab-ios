@@ -50,6 +50,21 @@ struct JournalDraftTests {
         #expect(try storage.load(id: edited.id) == nil)
     }
 
+    @Test func mismatchedIdentityIsPreservedBeforeSave() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = JournalDraftStorage(userID: 1, root: root)
+        let draft = JournalDraft.new()
+        try storage.save(draft)
+        let other = JournalDraft.new()
+        let original = try JSONEncoder().encode(other)
+        try original.write(to: storage.directory.appending(path: draft.id + ".json"))
+        try storage.save(draft)
+        let files = try FileManager.default.contentsOfDirectory(at: storage.directory, includingPropertiesForKeys: nil)
+        let backup = try #require(files.first { $0.lastPathComponent.contains(".recovery-") })
+        #expect(try Data(contentsOf: backup) == original)
+    }
+
     @Test func oneUnreadableDraftDoesNotHideOtherWriting() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

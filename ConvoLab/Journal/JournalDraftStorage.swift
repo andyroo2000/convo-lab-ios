@@ -50,16 +50,13 @@ struct JournalDraftStorage {
         // Never overwrite an unreadable draft before preserving its bytes.
         if FileManager.default.fileExists(atPath: url.path) {
             let data = try Data(contentsOf: url)
-            if (try? JSONDecoder().decode(JournalDraft.self, from: data)) == nil {
+            if (try? JSONDecoder().decode(JournalDraft.self, from: data))?.id != draft.id {
                 try preserve(data, from: url)
             }
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(draft).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        var protectedDirectory = directory
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try protectedDirectory.setResourceValues(values)
+        // Unsynced writing remains eligible for device backups.
     }
 
     func discard(_ draft: JournalDraft) throws {
