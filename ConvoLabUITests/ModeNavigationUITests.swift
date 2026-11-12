@@ -128,6 +128,24 @@ final class ModeNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalShowsCompactCorrectionAndVoicePicker() {
+        let app = launchShell()
+        app.buttons["StudyJournalLink"].tap()
+        let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(app.staticTexts["Corrected Version"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        XCTAssertTrue(app.buttons["JournalVoicePicker"].waitForExistence(timeout: 5))
+        let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
+        XCTAssertTrue(highlighted.exists)
+        highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        let explanation = app.textViews.matching(NSPredicate(format: "label CONTAINS %@", "is the polite past form.")).firstMatch
+        XCTAssertTrue(explanation.waitForExistence(timeout: 5))
+        attachScreenshot(app, name: "Journal correction popover with Japanese and English")
+    }
+
+    @MainActor
     private func launchShell() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [

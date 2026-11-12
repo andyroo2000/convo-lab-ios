@@ -45,7 +45,8 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
     private static let responses: [String: String] = [
         "/api/journal/entries": "{\"data\":[\(journalEntry)],\"nextCursor\":null}",
         "/api/journal/entries/01arz3ndektsv4rrffq69g5fav": "{\"data\":\(journalEntry)}",
-        "/api/journal/entries/01arz3ndektsv4rrffq69g5fav/analysis": "{\"data\":null,\"entry\":\(journalEntry)}",
+        "/api/journal/entries/01arz3ndektsv4rrffq69g5fav/analysis": "{\"data\":\(journalAnalysis),\"entry\":\(journalEntry)}",
+        "/api/journal/voices": #"{"data":[{"id":"ren","name":"Ren"},{"id":"yuki","name":"Yuki"}]}"#,
         "/api/me": #"{"data":{"id":-205,"name":"Navigation fixture","email":"navigation@ui-tests.invalid","email_verified_at":null}}"#,
         "/api/study/new-queue": queue,
         "/api/study/new-queue/reorder": queue,
@@ -57,6 +58,15 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
         "/api/reading-progress/navigation-reading": #"{"position":null}"#,
         "/api/convolab/readings/navigation-reading": document,
     ]
+
+    private static let journalAnalysis = #"""
+    {"id":"01arz3ndektsv4rrffq69g5faw","sourceVersion":1,"status":"ready","error":null,"updatedAt":"now","replyRevision":0,"result":{
+      "title":"A movie night","correctedText":"映画を見ました。","correctedReading":"映画[えいが]を見[み]ました。",
+      "question":"誰と見ましたか。","questionReading":"誰[だれ]と見[み]ましたか。","questionTranslation":"Who did you watch it with?",
+      "segments":[{"text":"映画を見た。","reading":"映画[えいが]を見[み]た。","kind":"optional",
+        "suggestion":"映画を見ました。","suggestionReading":"映画[えいが]を見[み]ました。",
+        "explanation":"見ました is the polite past form.","explanationReading":"見[み]ました is the polite past form."}]}}
+    """#
 
     private static let journalEntry = #"{"id":"01arz3ndektsv4rrffq69g5fav","title":"A movie night","body":"映画を見た。","entryDate":"2026-11-12","version":1,"createdAt":"now","updatedAt":"now"}"#
 

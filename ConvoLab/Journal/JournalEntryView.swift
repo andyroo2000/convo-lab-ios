@@ -25,7 +25,7 @@ struct JournalEntryView: View {
                         catch { model.errorMessage = "Could not preserve a separate copy. Keep this entry open." }
                     }
                 }
-                if isReviewing { review } else { JournalEntryForm(model: model) }
+                if isReviewing { JournalFeedbackView(model: model, knownKanji: knownKanji) } else { JournalEntryForm(model: model) }
                 if model.analysis?.status.isPending == true { ProgressView("Preparing feedback…") }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
@@ -43,22 +43,4 @@ struct JournalEntryView: View {
         }
     }
 
-    private var review: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text(model.draft?.entryDate ?? "").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Edit entry") { model.isEditing = true }
-            }
-            Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(ConvoLabTheme.navy)
-            Text(model.draft?.body ?? "").font(.title3).textSelection(.enabled)
-            Divider()
-            HStack {
-                Text("Corrected Version").font(.headline)
-                Spacer()
-                Button("Copy") { UIPasteboard.general.string = model.analysis?.correctedText }
-            }
-            StudyRubyText(model.analysis?.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
-        }
-    }
 }
