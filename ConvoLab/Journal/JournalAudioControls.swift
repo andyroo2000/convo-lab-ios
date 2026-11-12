@@ -28,10 +28,13 @@ struct JournalAudioControls: View {
                     Text(clock(player.position)).font(.caption.monospacedDigit())
                     Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
                         .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
-                    Picker("Voice", selection: $voice.selected) {
+                    Menu {
+                        Picker("Narration voice", selection: $voice.selected) {
                         if voice.selected.isEmpty { Text("Select voice").tag("") }
                         ForEach(voice.voices) { Text($0.name).tag($0.id) }
-                    }.labelsHidden().pickerStyle(.menu).disabled(voice.isLoading || voice.errorMessage != nil)
+                        }
+                    } label: { Image(systemName: "person.wave.2").frame(minWidth: 44, minHeight: 44) }
+                        .disabled(voice.isLoading || voice.errorMessage != nil)
                         .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
                 }
             }

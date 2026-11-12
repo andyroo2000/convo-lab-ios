@@ -186,6 +186,7 @@ struct StudyRubyText: UIViewRepresentable {
     let weight: UIFont.Weight
     let color: UIColor
     let alignment: NSTextAlignment
+    let extraLineSpacing: CGFloat
 
     init(
         _ text: String,
@@ -193,7 +194,8 @@ struct StudyRubyText: UIViewRepresentable {
         pointSize: CGFloat,
         weight: UIFont.Weight = .regular,
         color: UIColor = .label,
-        alignment: NSTextAlignment = .center
+        alignment: NSTextAlignment = .center,
+        extraLineSpacing: CGFloat = 0
     ) {
         self.text = text
         self.knownKanji = knownKanji
@@ -201,6 +203,7 @@ struct StudyRubyText: UIViewRepresentable {
         self.weight = weight
         self.color = color
         self.alignment = alignment
+        self.extraLineSpacing = extraLineSpacing
     }
 
     func makeCoordinator() -> StudyRubyLineBreakDelegate {
@@ -234,7 +237,8 @@ struct StudyRubyText: UIViewRepresentable {
             pointSize: pointSize,
             weight: weight,
             color: color,
-            alignment: alignment
+            alignment: alignment,
+            extraLineSpacing: extraLineSpacing
         )
         context.coordinator.updateRubyRanges(in: attributedText)
         view.attributedText = attributedText
@@ -260,7 +264,8 @@ extension StudyRubyDocument {
         pointSize: CGFloat,
         weight: UIFont.Weight,
         color: UIColor,
-        alignment: NSTextAlignment
+        alignment: NSTextAlignment,
+        extraLineSpacing: CGFloat = 0
     ) -> NSAttributedString {
         let baseFont = UIFont.systemFont(ofSize: pointSize, weight: weight)
         let roundedDescriptor = baseFont.fontDescriptor.withDesign(.rounded)
@@ -274,6 +279,7 @@ extension StudyRubyDocument {
         if hasRuby {
             paragraph.lineSpacing = font.lineHeight * 0.4
         }
+        paragraph.lineSpacing += UIFontMetrics.default.scaledValue(for: extraLineSpacing)
         let output = NSMutableAttributedString()
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,

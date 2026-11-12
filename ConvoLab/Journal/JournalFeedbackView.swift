@@ -21,17 +21,18 @@ struct JournalFeedbackView: View {
                 HStack {
                     Text("Corrected Version").font(.headline)
                     Spacer()
-                    Button("Copy") { UIPasteboard.general.string = analysis.correctedText }
+                    Button { UIPasteboard.general.string = analysis.correctedText } label: { Image(systemName: "doc.on.doc") }
+                        .frame(minWidth: 44, minHeight: 44).accessibilityLabel("Copy corrected version")
                 }
                 JournalAudioControls(entryID: model.id, analysis: analysis, service: model.store.service)
                     .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
                 if let addition = analysis.currentReply?.result {
-                    StudyRubyText(addition.previousReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
-                    StudyRubyText(addition.correctedReading, knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                    StudyRubyText(addition.previousReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 10)
+                    StudyRubyText(addition.correctedReading, knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 10)
                         .padding(8).background(.green.opacity(0.1), in: .rect(cornerRadius: 8))
                         .accessibilityHint("Added from your answer")
                 } else {
-                    StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                    StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 10)
                 }
                 JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id)
             }
