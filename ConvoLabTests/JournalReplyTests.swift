@@ -83,6 +83,26 @@ final class JournalReplyTests: XCTestCase {
         XCTAssertFalse(model.waiting)
     }
 
+    func testLostResponseThatWasAppliedDoesNotShowASubmissionError() async throws {
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        let model = JournalReplyModel(entry: entry, storage: storage)
+        model.change("友達と。")
+        await model.submit()
+        let id = try XCTUnwrap(model.draft.request?.id)
+        var analysis = try XCTUnwrap(entry.analysis)
+        analysis.currentReply = JournalReply(id: id, parentId: nil, answer: "友達と。", status: .ready, result: nil, error: nil)
+        analysis.replyRevision = 1
+        let saved = JournalEntry(id: entry.id, title: nil, body: "", entryDate: "2026-11-12", version: 1, createdAt: "now", updatedAt: "now")
+        let data = try JSONEncoder().encode(JournalAnalysisResponse(data: analysis, entry: saved))
+        MockURLProtocol.handler = { request in
+            if request.httpMethod == "PUT" { throw URLError(.networkConnectionLost) }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        await model.submit()
+        XCTAssertEqual(model.draft.answer, "")
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testUndoSendsDisplayedRevisionAndRefreshesTheModel() async throws {
         entry.analysis?.replyRevision = 4
         var response = try XCTUnwrap(entry.analysis)

@@ -69,7 +69,9 @@ private struct JournalAnswerView: View {
                 Button("Done") { answerFocused = false }
             }
         }
-        .task(id: scenePhase) { if scenePhase == .active { await model.monitor() } }
+        .task(id: "\(model.pendingID ?? ""):\(model.isBusy):\(scenePhase)") {
+            if scenePhase == .active && !model.isBusy { await model.monitor() }
+        }
         .onChange(of: analysis?.replyRevision) { model.reconcile(); showEnglish = false }
     }
 }

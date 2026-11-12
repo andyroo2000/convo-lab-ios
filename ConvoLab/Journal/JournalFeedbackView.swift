@@ -29,6 +29,7 @@ struct JournalFeedbackView: View {
                     StudyRubyText(addition.previousReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
                     StudyRubyText(addition.correctedReading, knownKanji: knownKanji, pointSize: 20, alignment: .left)
                         .padding(8).background(.green.opacity(0.1), in: .rect(cornerRadius: 8))
+                        .accessibilityHint("Added from your answer")
                 } else {
                     StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
                 }

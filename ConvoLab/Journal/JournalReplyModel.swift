@@ -52,24 +52,29 @@ final class JournalReplyModel {
         missing = false
         errorMessage = nil
         defer { isBusy = false }
+        var accepted = false
         do {
             let reply = try await entry.store.service.answer(entryID: entry.id, replyID: request.id, body: request.payload)
             replyStatus = reply.status
+            accepted = true
             try await entry.refreshAnalysis()
             reconcile()
         } catch {
             try? await entry.refreshAnalysis()
             reconcile()
-            errorMessage = "Could not add this answer. Your writing is kept here; try again."
+            if draft.request != nil {
+                errorMessage = accepted ? "Your answer was submitted. Waiting to confirm its addition."
+                    : "Could not add this answer. Your writing is kept here; try again."
+            }
         }
     }
 
     func monitor() async {
         var failures = 0
-        while !Task.isCancelled {
+        while pendingID != nil && !Task.isCancelled {
             do {
                 try await Task.sleep(for: .seconds(min(30, 2 * (failures + 1))))
-                try await checkPending()
+                if !(try await checkPending()) { return }
                 failures = 0
             } catch is CancellationError { return }
             catch {
@@ -79,24 +84,31 @@ final class JournalReplyModel {
         }
     }
 
-    func checkPending() async throws {
-        guard let id = pendingID else { return }
+    @discardableResult
+    func checkPending() async throws -> Bool {
+        guard let id = pendingID else { return false }
         if entry.analysis?.pendingReplyId == nil {
-            if missing || replyStatus == .failed { return }
+            if missing || replyStatus == .failed { return false }
         }
         do {
             let reply = try await entry.store.service.reply(entryID: entry.id, replyID: id)
-            guard pendingID == id else { return }
-            replyStatus = reply.status
-            if !reply.status.isPending {
-                try await entry.refreshAnalysis()
-                reconcile()
-                errorMessage = reply.error
-            }
+            guard pendingID == id else { return false }
+            try await accept(reply)
+            return reply.status.isPending
         } catch APIClientError.rejected(status: 404, message: _) {
             missing = true
             replyStatus = nil
+            return false
         }
+    }
+
+    private func accept(_ reply: JournalReply) async throws {
+        errorMessage = nil
+        replyStatus = reply.status
+        guard !reply.status.isPending else { return }
+        try await entry.refreshAnalysis()
+        reconcile()
+        if let error = reply.error { errorMessage = error }
     }
 
     func reconcile() {
