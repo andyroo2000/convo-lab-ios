@@ -89,6 +89,12 @@ struct JournalService {
         return data
     }
 
+    func audioState(entryID: String, analysisID: String, revision: Int) async throws -> JournalAudioState {
+        let query = [URLQueryItem(name: "analysisId", value: analysisID), URLQueryItem(name: "expectedReplyRevision", value: String(revision))]
+        let value: JournalResource<JournalAudioState> = try await request(path(entryID) + "/audio", query: query)
+        return value.data
+    }
+
     private func request<Value: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: (any Encodable)? = nil) async throws -> Value {
         try checkSession()
         let result: Value = try await api.request(path, method: method, query: query, body: body, authorizationToken: token)

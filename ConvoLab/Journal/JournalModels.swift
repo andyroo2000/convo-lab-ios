@@ -85,3 +85,8 @@ nonisolated struct JournalVoice: Codable, Identifiable, Sendable {
     let id: String
     let name: String
 }
+
+nonisolated struct JournalAudioState: Codable, Sendable {
+    let voiceId: String
+    let hasAudio: Bool
+}
