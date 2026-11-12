@@ -106,6 +106,28 @@ final class ModeNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalKeepsDraftAndBackNavigationAcrossModeSwitches() {
+        let app = launchShell()
+        let journal = app.buttons["StudyJournalLink"]
+        XCTAssertTrue(journal.waitForExistence(timeout: 8))
+        journal.tap()
+        XCTAssertTrue(app.navigationBars["Journal"].waitForExistence(timeout: 5))
+        app.buttons["JournalNewEntry"].tap()
+        let body = app.textViews["Journal entry"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        body.tap()
+        body.typeText("A journal draft kept on this device.")
+        selectMode("cards", app: app)
+        selectMode("study", app: app)
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        XCTAssertEqual(body.value as? String, "A journal draft kept on this device.")
+        attachScreenshot(app, name: "Journal draft retained across modes")
+        app.navigationBars.buttons["Journal"].tap()
+        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Untitled entry"].firstMatch.exists)
+    }
+
+    @MainActor
     private func launchShell() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [

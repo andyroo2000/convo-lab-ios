@@ -5,6 +5,7 @@ struct StudyHomeView: View {
     let player: StudyAudioPlayer
     let timeStore: StudyTimeStore?
     var automaticSynchronization: (() async -> Void)? = nil
+    var journalDestination: JournalDestination? = nil
     @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @State private var showingFailedChanges = false
     @State private var isRootVisible = false
@@ -14,6 +15,16 @@ struct StudyHomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     todayPlan
+                    if let journalDestination {
+                        NavigationLink { journalDestination } label: {
+                            HStack {
+                                Label("Journal", systemImage: "book.closed")
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
+                            }
+                            .padding(18).background(.white.opacity(0.82), in: .rect(cornerRadius: 16))
+                        }.buttonStyle(.plain).accessibilityIdentifier("StudyJournalLink")
+                    }
                     StudyPileShelf(store: store, player: player, timeStore: timeStore)
                     masterySpread
                     readiness

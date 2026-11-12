@@ -43,6 +43,9 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
     }
 
     private static let responses: [String: String] = [
+        "/api/journal/entries": "{\"data\":[\(journalEntry)],\"nextCursor\":null}",
+        "/api/journal/entries/01k9abcdefghjkmnpqrstvwxyz0": "{\"data\":\(journalEntry)}",
+        "/api/journal/entries/01k9abcdefghjkmnpqrstvwxyz0/analysis": "{\"data\":null,\"entry\":\(journalEntry)}",
         "/api/me": #"{"data":{"id":-205,"name":"Navigation fixture","email":"navigation@ui-tests.invalid","email_verified_at":null}}"#,
         "/api/study/new-queue": queue,
         "/api/study/new-queue/reorder": queue,
@@ -54,6 +57,8 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
         "/api/reading-progress/navigation-reading": #"{"position":null}"#,
         "/api/convolab/readings/navigation-reading": document,
     ]
+
+    private static let journalEntry = #"{"id":"01k9abcdefghjkmnpqrstvwxyz0","title":"A movie night","body":"映画を見た。","entryDate":"2026-11-12","version":1,"createdAt":"now","updatedAt":"now"}"#
 
     private static let queue = #"""
     {"items":[

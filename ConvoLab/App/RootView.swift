@@ -164,7 +164,8 @@ struct MainModeView: View {
                     store: model.study,
                     player: model.studyAudioPlayer,
                     timeStore: model.studyTime,
-                    automaticSynchronization: model.refreshStudyIfNeeded
+                    automaticSynchronization: model.refreshStudyIfNeeded,
+                    journalDestination: JournalDestination(api: model.api, userID: user.id, knownKanji: model.study.knownKanji)
                 )
                 .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
