@@ -29,7 +29,7 @@ final class JournalCleanupTests: XCTestCase {
         api.setAccessToken("token")
         let store = JournalStore(api: api, userID: 1, storageRoot: root)
         let draft = try store.create()
-        let answers = try JournalAnswerStorage(directory: store.storage.directory, entryID: draft.id,
+        let answers = try JournalAnswerStorage(directory: store.storage.directory, entryID: draft.id.uppercased(),
                                                analysisID: "01arz3ndektsv4rrffq69g5fav")
         try answers.save(JournalAnswerDraft(answer: "private"))
         try await store.delete(id: draft.id)
