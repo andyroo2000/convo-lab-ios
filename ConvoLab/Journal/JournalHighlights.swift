@@ -28,7 +28,7 @@ struct JournalHighlights: UIViewRepresentable {
         var ranges: [NSRange] = []
         for segment in segments {
             let text = NSMutableAttributedString(attributedString: StudyRubyDocument.parse(segment.reading, knownKanji: knownKanji)
-                .attributedString(pointSize: 20, weight: .regular, color: .label, alignment: .left))
+                .attributedString(pointSize: 20, weight: .regular, color: .label, alignment: .left, extraLineSpacing: 10))
             let range = NSRange(location: output.length, length: text.length)
             ranges.append(range)
             if segment.kind.isHighlighted {
