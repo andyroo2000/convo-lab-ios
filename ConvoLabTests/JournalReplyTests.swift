@@ -103,6 +103,23 @@ final class JournalReplyTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testMissingServerPendingReplyRefreshesAnalysisAndReleasesTheForm() async throws {
+        var response = try XCTUnwrap(entry.analysis)
+        response.pendingReplyId = nil
+        entry.analysis?.pendingReplyId = "01arz3ndektsv4rrffq69g5fax"
+        let saved = JournalEntry(id: entry.id, title: nil, body: "", entryDate: "2026-11-12", version: 1, createdAt: "now", updatedAt: "now")
+        let data = try JSONEncoder().encode(JournalAnalysisResponse(data: response, entry: saved))
+        MockURLProtocol.handler = { request in
+            let isReply = request.url!.path.contains("/replies/")
+            return (HTTPURLResponse(url: request.url!, statusCode: isReply ? 404 : 200, httpVersion: nil, headerFields: nil)!, isReply ? Data("{}".utf8) : data)
+        }
+        let model = JournalReplyModel(entry: entry, storage: storage)
+        XCTAssertTrue(model.processing)
+        try await model.checkPending()
+        XCTAssertFalse(model.processing)
+        XCTAssertFalse(model.waiting)
+    }
+
     func testUndoSendsDisplayedRevisionAndRefreshesTheModel() async throws {
         entry.analysis?.replyRevision = 4
         var response = try XCTUnwrap(entry.analysis)

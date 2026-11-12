@@ -96,6 +96,10 @@ final class JournalReplyModel {
             try await accept(reply)
             return reply.status.isPending
         } catch APIClientError.rejected(status: 404, message: _) {
+            if entry.analysis?.pendingReplyId == id {
+                try await entry.refreshAnalysis()
+                return entry.analysis?.pendingReplyId != nil
+            }
             missing = true
             replyStatus = nil
             return false
