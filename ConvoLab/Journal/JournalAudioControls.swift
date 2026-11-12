@@ -30,12 +30,13 @@ struct JournalAudioControls: View {
                         .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
                     Menu {
                         Picker("Narration voice", selection: $voice.selected) {
-                        if voice.selected.isEmpty { Text("Select voice").tag("") }
-                        ForEach(voice.voices) { Text($0.name).tag($0.id) }
+                            if voice.selected.isEmpty { Text("Select voice").tag("") }
+                            ForEach(voice.voices) { Text($0.name).tag($0.id) }
                         }
                     } label: { Image(systemName: "person.wave.2").frame(minWidth: 44, minHeight: 44) }
                         .disabled(voice.isLoading || voice.errorMessage != nil)
                         .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
+                        .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
                 }
             }
             if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }

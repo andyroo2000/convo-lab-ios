@@ -21,8 +21,9 @@ struct JournalFeedbackView: View {
                 HStack {
                     Text("Corrected Version").font(.headline)
                     Spacer()
-                    Button { UIPasteboard.general.string = analysis.correctedText } label: { Image(systemName: "doc.on.doc") }
-                        .frame(minWidth: 44, minHeight: 44).accessibilityLabel("Copy corrected version")
+                    Button { UIPasteboard.general.string = analysis.correctedText } label: {
+                        Image(systemName: "doc.on.doc").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("Copy corrected version")
                 }
                 JournalAudioControls(entryID: model.id, analysis: analysis, service: model.store.service)
                     .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
