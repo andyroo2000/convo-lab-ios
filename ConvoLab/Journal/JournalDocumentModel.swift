@@ -45,10 +45,13 @@ final class JournalDocumentModel {
             errorMessage = "The entry changed. Reopen the editor to review its latest version."
             return false
         }
-        if (updated.replyRevision ?? -1) >= (current.replyRevision ?? 0) {
-            entry.analysis = updated
+        guard let receivedRevision = updated.replyRevision,
+              let currentRevision = current.replyRevision,
+              receivedRevision >= currentRevision else {
+            errorMessage = "A newer version arrived while saving. Your edits are still here; copy them before reopening the editor."
+            return false
         }
+        entry.analysis = updated
         return true
     }
-
 }

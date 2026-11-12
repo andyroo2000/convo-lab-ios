@@ -53,26 +53,31 @@ final class JournalDocumentModelTests: XCTestCase {
     }
 
     func testOlderResponseCannotReplaceNewerRefreshAndBusyPreventsDuplicateSave() async throws {
-        let started = delayedResponse(try XCTUnwrap(entry.analysis))
+        let response = try Self.response(URLRequest(url: URL(string: "https://journal.test")!), analysis: XCTUnwrap(entry.analysis))
+        let deferred = delayedResponse()
         let model = JournalDocumentModel(entry: entry)
         let input = payload()
         let task = Task { await model.save(input) }
-        await fulfillment(of: [started], timeout: 2)
+        await deferred.waitUntilPending()
         let duplicate = await model.save(input)
         XCTAssertFalse(duplicate)
         entry.analysis?.replyRevision = 9
+        deferred.succeed(with: response)
         let saved = await task.value
-        XCTAssertTrue(saved)
+        XCTAssertFalse(saved)
+        XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(entry.analysis?.replyRevision, 9)
     }
 
     func testAccountSwitchRejectsLateResponseWithoutChangingTheEntry() async throws {
-        let started = delayedResponse(try XCTUnwrap(entry.analysis))
+        let response = try Self.response(URLRequest(url: URL(string: "https://journal.test")!), analysis: XCTUnwrap(entry.analysis))
+        let deferred = delayedResponse()
         let model = JournalDocumentModel(entry: entry)
         let input = payload()
         let task = Task { await model.save(input) }
-        await fulfillment(of: [started], timeout: 2)
+        await deferred.waitUntilPending()
         api.setAccessToken("another-account")
+        deferred.succeed(with: response)
         let saved = await task.value
         XCTAssertFalse(saved)
         XCTAssertEqual(entry.analysis?.replyRevision, 2)
@@ -92,16 +97,10 @@ final class JournalDocumentModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
-    private func delayedResponse(_ analysis: JournalAnalysis) -> XCTestExpectation {
-        let started = expectation(description: "Save started")
-        MockURLProtocol.deferredHandler = { request, completion in
-            started.fulfill()
-            Task {
-                try? await Task.sleep(for: .milliseconds(150))
-                completion(Result { try Self.response(request, analysis: analysis) })
-            }
-        }
-        return started
+    private func delayedResponse() -> LockedDeferredResponse {
+        let deferred = LockedDeferredResponse()
+        MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }
+        return deferred
     }
 
     private func payload() -> JournalCorrectedPayload {
