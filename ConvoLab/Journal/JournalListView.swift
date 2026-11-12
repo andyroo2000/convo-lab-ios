@@ -63,7 +63,10 @@ struct JournalListView: View {
                 }
             }
         }
-        .task { store.refreshDrafts(); await store.loadMore(refresh: true) }
+        .task {
+            store.refreshDrafts()
+            if store.entries.isEmpty { await store.loadMore(refresh: true) }
+        }
         .refreshable { await store.loadMore(refresh: true) }
     }
 }

@@ -4,7 +4,7 @@ struct JournalEntryForm: View {
     let model: JournalEntryModel
 
     private var exceedsLimit: Bool {
-        (model.draft?.body.count ?? 0) > 20_000 || (model.draft?.title?.count ?? 0) > 255
+        (model.draft?.body.unicodeScalars.count ?? 0) > 20_000 || (model.draft?.title?.unicodeScalars.count ?? 0) > 255
     }
 
     var body: some View {
