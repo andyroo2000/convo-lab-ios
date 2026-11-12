@@ -25,7 +25,15 @@ struct JournalFeedbackView: View {
                 }
                 JournalAudioControls(entryID: model.id, analysis: analysis, service: model.store.service)
                     .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
-                StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                if let addition = analysis.currentReply?.result {
+                    StudyRubyText(addition.previousReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                    StudyRubyText(addition.correctedReading, knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                        .padding(8).background(.green.opacity(0.1), in: .rect(cornerRadius: 8))
+                        .accessibilityHint("Added from your answer")
+                } else {
+                    StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left)
+                }
+                JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id)
             }
         }
     }
