@@ -11,7 +11,10 @@ nonisolated struct JournalEntry: Codable, Identifiable, Sendable, Equatable {
 }
 
 nonisolated struct JournalSegment: Codable, Sendable, Equatable {
-    enum Kind: String, Codable, Sendable { case plain, correction, optional, keep }
+    enum Kind: String, Codable, Sendable {
+        case plain, correction, optional, keep
+        var isHighlighted: Bool { self == .correction || self == .optional }
+    }
     let text: String
     let reading: String
     let kind: Kind

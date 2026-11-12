@@ -41,7 +41,6 @@ struct JournalFeedbackView: View {
         Group {
             Text("Correction").underline(pattern: .solid, color: .red)
             Text("Optional change").underline(pattern: .dash, color: .orange)
-            Text("Worth keeping").underline(pattern: .dot, color: .green)
         }
     }
 }
