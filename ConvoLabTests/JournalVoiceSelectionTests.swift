@@ -104,6 +104,39 @@ final class JournalVoiceSelectionTests: XCTestCase {
         response(request, body: #"{"data":[{"id":"haru","name":"Haru (M)"},{"id":"yua","name":"Yua (F)"}]}"#)
     }
 
+    func testCancelledLoadDoesNotShowAnErrorOrEnablePlayback() async {
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/voices") == true { return Self.catalog(request) }
+            return Self.response(request, body: #"{"data":{"voiceId":"yua","hasAudio":true}}"#)
+        }
+        let selection = JournalVoiceSelection()
+        let service = JournalService(api: api)
+        let task = Task { await selection.load(entryID: entryID, analysis: analysis, service: service) }
+        task.cancel()
+        await task.value
+        XCTAssertNil(selection.errorMessage)
+        XCTAssertFalse(selection.isReady)
+        XCTAssertEqual(selection.selected, "")
+    }
+
+    func testNewRevisionReplacesThePreviousRevisionsVoice() async {
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/voices") == true { return Self.catalog(request) }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            let revision = query?.first(where: { $0.name == "expectedReplyRevision" })?.value
+            let voice = revision == "3" ? "yua" : "haru"
+            return Self.response(request, body: "{\"data\":{\"voiceId\":\"\(voice)\",\"hasAudio\":false}}")
+        }
+        let selection = JournalVoiceSelection()
+        let service = JournalService(api: api)
+        await selection.load(entryID: entryID, analysis: analysis, service: service)
+        XCTAssertEqual(selection.selected, "yua")
+        let revised = JournalAnalysis(id: analysis.id, sourceVersion: 1, status: .ready, result: nil, error: nil, updatedAt: "now", replyRevision: 4)
+        await selection.load(entryID: entryID, analysis: revised, service: service)
+        XCTAssertEqual(selection.selected, "haru")
+        XCTAssertTrue(selection.isReady)
+    }
+
     nonisolated private static func response(_ request: URLRequest, body: String) -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "no-store"])!, Data(body.utf8))
     }

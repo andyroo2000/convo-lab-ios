@@ -43,7 +43,7 @@ struct JournalAudioControls: View {
             if let error = player.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
         }
         .padding(12).background(.white.opacity(0.8), in: .rect(cornerRadius: 12))
-        .task { await loadVoices() }
+        .task(id: "\(entryID):\(analysis.id):\(analysis.replyRevision ?? 0)") { await loadVoices() }
         .onChange(of: voice.selected) { player.stop() }
         .onChange(of: analysis.replyRevision) { player.stop() }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }

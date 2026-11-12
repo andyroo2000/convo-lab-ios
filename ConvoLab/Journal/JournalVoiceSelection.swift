@@ -28,7 +28,7 @@ final class JournalVoiceSelection {
             selected = available.first(where: { $0.id == state.voiceId })?.id ?? ""
             if available.isEmpty { errorMessage = "No narration voices are available. Try again." }
         } catch {
-            guard request == generation else { return }
+            guard request == generation, !Task.isCancelled else { return }
             errorMessage = "Could not load your saved voice. Try again."
         }
     }
