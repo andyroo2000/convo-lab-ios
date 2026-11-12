@@ -58,14 +58,14 @@ final class JournalEntryModel {
             draft = JournalDraft(entry: entry)
             isSavedOnDevice = false
             hasConflict = false
-            if submit { try await submitSaved(entry) }
+            if submit { await submitSaved(entry) }
         } catch {
             hasConflict = Self.isConflict(error)
             errorMessage = error.localizedDescription
         }
     }
 
-    private func submitSaved(_ entry: JournalEntry) async throws {
+    private func submitSaved(_ entry: JournalEntry) async {
         do {
             analysis = try await store.service.submit(entry)
             isEditing = false
@@ -77,6 +77,11 @@ final class JournalEntryModel {
 
     func refreshAnalysis() async throws {
         let response = try await store.service.analysis(id)
+        let local = try store.storage.load(id: id)
+        if local != nil && response.entry.body != draft?.body {
+            analysis = nil
+            return
+        }
         guard response.entry.body == draft?.body else {
             analysis = nil
             hasConflict = true
@@ -84,20 +89,33 @@ final class JournalEntryModel {
         }
         analysis = response.data
         // A generated title must never overwrite an unacknowledged edit.
-        if try store.storage.load(id: id) == nil {
+        if local == nil {
             draft = JournalDraft(entry: response.entry)
             store.accept(response.entry)
         }
     }
 
     func poll() async {
-        do {
-            while analysis?.status.isPending == true || analysis?.pendingReplyId != nil {
-                try await Task.sleep(for: .seconds(2))
+        var failures = 0
+        while analysis?.status.isPending == true || analysis?.pendingReplyId != nil {
+            do {
+                try await Task.sleep(for: .seconds(2 * (failures + 1)))
                 try await refreshAnalysis()
+                failures = 0
+            } catch is CancellationError { return }
+            catch {
+                failures += 1
+                if Self.endsPolling(error) || failures >= 3 {
+                    errorMessage = error.localizedDescription
+                    return
+                }
             }
-        } catch is CancellationError { }
-        catch { errorMessage = "Could not check feedback. Reopen the entry when connected." }
+        }
+    }
+
+    private static func endsPolling(_ error: Error) -> Bool {
+        if case APIClientError.rejected(let status, _) = error { return status == 401 || status == 409 }
+        return false
     }
 
     func copyAsNew() throws -> String {
