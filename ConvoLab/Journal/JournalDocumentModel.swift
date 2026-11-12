@@ -12,9 +12,10 @@ final class JournalDocumentModel {
     var disabled: Bool { isBusy || entry.analysis?.pendingReplyId != nil }
 
     func toggle(_ suggestion: JournalCorrectedDocument.Suggestion) async -> Bool {
-        guard let analysis = entry.analysis else { return false }
-        let payload = JournalSuggestionPayload(analysisId: analysis.id, expectedRevision: analysis.replyRevision ?? 0,
-                                               suggestionId: suggestion.id, applied: !suggestion.applied)
+        guard let analysis = entry.analysis, let revision = analysis.replyRevision,
+              let current = analysis.correctedDocument?.suggestions.first(where: { $0.id == suggestion.id }) else { return false }
+        let payload = JournalSuggestionPayload(analysisId: analysis.id, expectedRevision: revision,
+                                               suggestionId: current.id, applied: !current.applied)
         return await change { try await self.entry.store.service.suggestion(entryID: self.entry.id, body: payload) }
     }
 
@@ -29,13 +30,25 @@ final class JournalDocumentModel {
         defer { isBusy = false }
         do {
             let updated = try await request()
-            guard entry.analysis?.id == updated.id else { return false }
-            entry.analysis = updated
-            return true
+            return await accept(updated)
+        } catch is CancellationError {
+            return false
         } catch {
             try? await entry.refreshAnalysis()
             errorMessage = error.localizedDescription
             return false
         }
     }
+    private func accept(_ updated: JournalAnalysis) async -> Bool {
+        guard let current = entry.analysis, current.id == updated.id else {
+            try? await entry.refreshAnalysis()
+            errorMessage = "The entry changed. Reopen the editor to review its latest version."
+            return false
+        }
+        if (updated.replyRevision ?? -1) >= (current.replyRevision ?? 0) {
+            entry.analysis = updated
+        }
+        return true
+    }
+
 }
