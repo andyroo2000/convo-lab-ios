@@ -169,6 +169,7 @@ final class AppModel {
                 .study: { userID in
                     do {
                         try ReadingLocalStorage.remove(userID: userID)
+                        try JournalDraftStorage.remove(userID: userID)
                     } catch {
                         return false
                     }
