@@ -168,6 +168,10 @@ struct MainModeView: View {
                     journalDestination: JournalDestination(api: model.api, userID: user.id, knownKanji: model.study.knownKanji)
                 )
                 .id(user.id)
+                .environment(\.journalBeforeAudio, {
+                    model.audioPlayer.stop()
+                    model.studyAudioPlayer.stop()
+                })
                 .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
