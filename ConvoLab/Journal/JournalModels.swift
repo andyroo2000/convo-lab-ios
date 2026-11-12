@@ -51,6 +51,16 @@ nonisolated struct JournalReply: Codable, Identifiable, Sendable, Equatable {
     let error: String?
 }
 
+nonisolated struct JournalCorrectedDocument: Codable, Sendable, Equatable {
+    struct Suggestion: Codable, Sendable, Equatable {
+        let id: String
+        let applied: Bool
+    }
+    let text: String
+    let reading: String
+    let suggestions: [Suggestion]
+}
+
 nonisolated struct JournalAnalysis: Codable, Identifiable, Sendable, Equatable {
     let id: String
     let sourceVersion: Int
@@ -61,10 +71,11 @@ nonisolated struct JournalAnalysis: Codable, Identifiable, Sendable, Equatable {
     var replyRevision: Int?
     var currentReply: JournalReply?
     var pendingReplyId: String?
+    var correctedDocument: JournalCorrectedDocument?
 
     var currentFeedback: JournalFeedback? { currentReply?.result ?? result }
-    var correctedText: String? { currentReply?.result?.entryText ?? result?.correctedText }
-    var correctedReading: String? { currentReply?.result?.entryReading ?? result?.correctedReading }
+    var correctedText: String? { correctedDocument?.text ?? currentReply?.result?.entryText ?? result?.correctedText }
+    var correctedReading: String? { correctedDocument?.reading ?? currentReply?.result?.entryReading ?? result?.correctedReading }
 }
 
 nonisolated struct JournalResource<Value: Codable & Sendable>: Codable, Sendable {
