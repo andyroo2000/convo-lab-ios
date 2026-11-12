@@ -17,7 +17,7 @@ struct JournalAnswerStorage {
     let url: URL
     init(directory: URL, entryID: String, analysisID: String) throws {
         guard ClientIdentifier.isULID(entryID), ClientIdentifier.isULID(analysisID) else { throw CocoaError(.fileReadInvalidFileName) }
-        url = directory.appending(path: "answers/\(entryID)/\(analysisID).json")
+        url = directory.appending(path: "answers/\(entryID.lowercased())/\(analysisID.lowercased()).json")
     }
     func load() throws -> JournalAnswerDraft {
         guard FileManager.default.fileExists(atPath: url.path) else { return JournalAnswerDraft() }
@@ -30,7 +30,7 @@ struct JournalAnswerStorage {
     }
     private func valid(_ request: JournalAnswerRequest, draft: JournalAnswerDraft) -> Bool {
         ClientIdentifier.isULID(request.id) && request.payload.expectedRevision >= 0
-            && request.payload.analysisId == url.deletingPathExtension().lastPathComponent
+            && request.payload.analysisId.lowercased() == url.deletingPathExtension().lastPathComponent
             && request.payload.answer == draft.answer && request.payload.replace == draft.replace
     }
     func save(_ draft: JournalAnswerDraft) throws {

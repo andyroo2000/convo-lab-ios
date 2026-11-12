@@ -15,6 +15,17 @@ struct JournalDraftStorage {
         directory = root.appending(path: String(userID), directoryHint: .isDirectory)
     }
 
+    static func remove(userID: Int, root: URL = URL.applicationSupportDirectory.appending(path: "Journal")) throws {
+        let directory = JournalDraftStorage(userID: userID, root: root).directory
+        if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+    }
+
+    func discardAnswers(id: String) throws {
+        guard ClientIdentifier.isULID(id) else { throw CocoaError(.fileReadInvalidFileName) }
+        let answers = directory.appending(path: "answers/" + id.lowercased())
+        if FileManager.default.fileExists(atPath: answers.path) { try FileManager.default.removeItem(at: answers) }
+    }
+
     func list() throws -> JournalDraftListing {
         var result = JournalDraftListing()
         guard FileManager.default.fileExists(atPath: directory.path) else { return result }

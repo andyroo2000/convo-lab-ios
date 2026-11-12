@@ -72,6 +72,7 @@ final class JournalStore {
         }
         entries.removeAll { $0.id == id }
         do {
+            try storage.discardAnswers(id: id)
             if let draft = try storage.load(id: id) { try storage.discard(draft) }
         } catch {
             throw APIClientError.rejected(status: 503, message: "Online deletion succeeded, but the device copy could not be removed. Retry to clear it.")
