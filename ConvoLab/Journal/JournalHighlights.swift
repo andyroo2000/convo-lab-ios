@@ -11,8 +11,11 @@ struct JournalHighlights: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView(usingTextLayoutManager: true)
+    func makeUIView(context: Context) -> JournalHighlightTextView {
+        let view = JournalHighlightTextView()
+        view.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: JournalHighlightTextView, _: UITraitCollection) in
+            view.setNeedsLayout()
+        }
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
@@ -25,7 +28,7 @@ struct JournalHighlights: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UITextView, context: Context) {
+    func updateUIView(_ view: JournalHighlightTextView, context: Context) {
         context.coordinator.document = document
         context.coordinator.sourceID = sourceID
         context.coordinator.segments = segments
@@ -40,6 +43,7 @@ struct JournalHighlights: UIViewRepresentable {
         }
         context.coordinator.ranges = ranges
         view.attributedText = output
+        view.highlights = zip(ranges, segments).map { (range: $0.0, kind: $0.1.kind) }
         let size = typography.size * textScale
         view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
         view.accessibilityLabel = segments.map(JournalEditText.accessibilityLabel).joined()
@@ -52,7 +56,7 @@ struct JournalHighlights: UIViewRepresentable {
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: JournalHighlightTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
         return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
     }

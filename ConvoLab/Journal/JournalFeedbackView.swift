@@ -18,11 +18,14 @@ struct JournalFeedbackView: View {
                     Spacer()
                     Button("Edit entry") { model.isEditing = true }
                 }
-                Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(ConvoLabTheme.navy)
+                Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
                 if let reply = analysis.currentReply, let feedback = reply.result {
                     Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
                     JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
+                }
+                if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
+                    JournalHighlightLegend()
                 }
                 Divider()
                 JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji)
