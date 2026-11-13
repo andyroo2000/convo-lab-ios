@@ -43,6 +43,22 @@ struct JournalService {
         try Task.checkCancellation()
     }
 
+    func conversation(_ rootID: String) async throws -> [JournalConversationNode] {
+        let value: JournalResource<[JournalConversationNode]> = try await request(path(rootID) + "/conversation")
+        return value.data
+    }
+
+    func createAnswer(parentID: String, input: JournalConversationInput) async throws -> JournalEntry {
+        let value: JournalResource<JournalEntry> = try await request(path(parentID) + "/conversation", method: "POST", body: input)
+        return value.data
+    }
+
+    func retryQuestion(entryID: String, questionID: String) async throws -> JournalTutorQuestion {
+        guard ClientIdentifier.isULID(questionID) else { throw APIClientError.invalidResponse }
+        let value: JournalResource<JournalTutorQuestion> = try await request(path(entryID) + "/questions/" + questionID.lowercased() + "/retry", method: "POST")
+        return value.data
+    }
+
     func archive(cursor: String? = nil) async throws -> JournalArchivePage {
         let query = cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
         return try await request("/api/journal/entries", query: query)

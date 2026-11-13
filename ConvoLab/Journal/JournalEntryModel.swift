@@ -6,6 +6,7 @@ final class JournalEntryModel {
     nonisolated deinit {}
     let id: String
     let store: JournalStore
+    private var initial: JournalConversationNode?
     var draft: JournalDraft?
     var analysis: JournalAnalysis?
     var isEditing = false
@@ -14,15 +15,25 @@ final class JournalEntryModel {
     var hasConflict = false
     var isSavedOnDevice = false
 
-    init(id: String, store: JournalStore) { self.id = id; self.store = store }
+    init(id: String, store: JournalStore, initial: JournalConversationNode? = nil) {
+        self.id = id; self.store = store; self.initial = initial
+    }
 
-    func load() async {
+    func load(snapshot: JournalConversationNode? = nil) async {
+        guard snapshot == nil || (!isBusy && !isEditing) else { return }
         do {
             try store.service.checkSession()
+            let seed = snapshot ?? initial
+            initial = nil
             if let local = try store.storage.load(id: id) {
                 draft = local
                 isSavedOnDevice = true
                 isEditing = true
+                return
+            }
+            if let seed {
+                draft = JournalDraft(entry: seed.entry)
+                analysis = seed.analysis
                 return
             }
             draft = JournalDraft(entry: try await store.service.entry(id))

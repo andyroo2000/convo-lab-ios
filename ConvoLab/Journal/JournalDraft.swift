@@ -7,6 +7,7 @@ struct JournalDraft: Codable, Identifiable, Equatable {
     var entryDate: String
     var expectedVersion: Int
     var editID: String
+    var rootEntryId: String? = nil
 
     static func new(date: Date = .now) -> JournalDraft {
         let formatter = DateFormatter()
@@ -20,6 +21,7 @@ struct JournalDraft: Codable, Identifiable, Equatable {
 
     init(entry: JournalEntry) {
         id = entry.id
+        rootEntryId = entry.rootEntryId
         title = entry.title
         body = entry.body
         entryDate = entry.entryDate

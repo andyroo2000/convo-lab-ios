@@ -4,6 +4,7 @@ import Foundation
 nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
     static let shared = JournalReplyNavigationFixture()
     private let lock = NSLock()
+    private var conversation = JournalConversationNavigationFixture()
     private var tutor = JournalTutorNavigationFixture()
     private var analysis: [String: Any]?
     private var replies: [String: [String: Any]] = [:]
@@ -13,6 +14,7 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let original = JournalDocumentNavigationFixture.initial(object(initial))
         if analysis == nil { analysis = original }
+        if let response = conversation.response(path: path, method: method, body: object(body), root: object(entry), analysis: analysis!, tutor: &tutor) { return encode(response) }
         if let result = tutor.response(path: path, method: method, body: object(body), analysis: analysis!) { return encode(["data": result]) }
         if JournalDocumentNavigationFixture.change(path: path, body: object(body), analysis: &analysis) {
             return encode(["data": analysis!])

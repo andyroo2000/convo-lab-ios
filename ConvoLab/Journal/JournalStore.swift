@@ -21,7 +21,7 @@ final class JournalStore {
     func refreshDrafts() {
         do {
             let listing = try storage.list()
-            drafts = listing.drafts
+            drafts = listing.drafts.filter { $0.rootEntryId == nil }
             if listing.unreadableCount > 0 {
                 errorMessage = "Some device drafts could not be opened. Their original files have been retained."
             }
@@ -57,6 +57,7 @@ final class JournalStore {
     }
 
     func accept(_ entry: JournalEntry) {
+        guard entry.rootEntryId == nil else { return }
         if let current = entries.first(where: { $0.id == entry.id }), current.version > entry.version { return }
         entries.removeAll { $0.id == entry.id }
         entries.append(entry)
@@ -73,6 +74,7 @@ final class JournalStore {
         entries.removeAll { $0.id == id }
         do {
             try storage.discardAnswers(id: id)
+            for child in try storage.list().drafts where child.rootEntryId == id { try storage.discard(child) }
             if let draft = try storage.load(id: id) { try storage.discard(draft) }
         } catch {
             throw APIClientError.rejected(status: 503, message: "Online deletion succeeded, but the device copy could not be removed. Retry to clear it.")
