@@ -99,6 +99,21 @@ struct JournalService {
         return value.data
     }
 
+    func tutorPreferences() async throws -> JournalTutorPreferences {
+        let value: JournalResource<JournalTutorPreferences> = try await request("/api/journal/tutor")
+        return value.data
+    }
+
+    func chooseTutor(_ id: String) async throws -> JournalTutorPreferences {
+        let value: JournalResource<JournalTutorPreferences> = try await request("/api/journal/tutor", method: "PUT", body: JournalTutorChoice(tutorId: id))
+        return value.data
+    }
+
+    func prepareQuestion(entryID: String, input: JournalQuestionInput) async throws -> JournalTutorQuestion {
+        let value: JournalResource<JournalTutorQuestion> = try await request(path(entryID) + "/question", method: "POST", body: input)
+        return value.data
+    }
+
     func voices() async throws -> [JournalVoice] {
         let value: JournalResource<[JournalVoice]> = try await request("/api/journal/voices")
         return value.data

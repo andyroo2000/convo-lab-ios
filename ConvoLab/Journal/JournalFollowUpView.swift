@@ -25,7 +25,6 @@ private struct JournalAnswerView: View {
     let model: JournalReplyModel
     let knownKanji: Set<Character>
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showEnglish = false
     @FocusState private var answerFocused: Bool
     private var analysis: JournalAnalysis? { model.entry.analysis }
     private var disabled: Bool { model.isBusy || model.waiting }
@@ -33,10 +32,9 @@ private struct JournalAnswerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Divider()
-            if !model.draft.replace, let feedback = analysis?.currentFeedback {
-                StudyRubyText(feedback.questionReading, knownKanji: knownKanji, pointSize: 20, alignment: .left)
-                Button(showEnglish ? "Hide English" : "Show English") { showEnglish.toggle() }.font(.footnote)
-                if showEnglish { Text(feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
+            if !model.draft.replace, let analysis, let feedback = analysis.currentFeedback {
+                JournalTeacherView(entry: model.entry, analysis: analysis, feedback: feedback, knownKanji: knownKanji)
+                    .id(analysis.currentReply?.id ?? analysis.id)
             }
             if model.draft.replace { Text("Edit last answer").font(.headline) }
             TextEditor(text: Binding(get: { model.draft.answer }, set: { model.change($0) }))
@@ -72,6 +70,6 @@ private struct JournalAnswerView: View {
         .task(id: "\(model.pendingID ?? ""):\(model.isBusy):\(scenePhase)") {
             if scenePhase == .active && !model.isBusy { await model.monitor() }
         }
-        .onChange(of: analysis?.replyRevision) { model.reconcile(); showEnglish = false }
+        .onChange(of: analysis?.replyRevision) { model.reconcile() }
     }
 }
