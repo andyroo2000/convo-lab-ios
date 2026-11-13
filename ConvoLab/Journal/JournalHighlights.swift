@@ -33,25 +33,19 @@ struct JournalHighlights: UIViewRepresentable {
         let output = NSMutableAttributedString()
         var ranges: [NSRange] = []
         for segment in segments {
-            let text = NSMutableAttributedString(attributedString: StudyRubyDocument.parse(segment.reading, knownKanji: knownKanji)
-                .attributedString(pointSize: typography.size, weight: .regular, color: .label, alignment: .left, extraLineSpacing: 10, font: typography.unscaledFont.withSize(typography.size * textScale)))
-            let range = NSRange(location: output.length, length: text.length)
-            ranges.append(range)
-            if segment.kind.isHighlighted {
-                let tint = Self.tint(segment.kind)
-                text.addAttributes([.backgroundColor: tint.withAlphaComponent(0.12), .underlineColor: tint,
-                                    .underlineStyle: Self.underline(segment.kind)], range: NSRange(location: 0, length: text.length))
-            }
+            let text = JournalEditText.attributed(segment, knownKanji: knownKanji,
+                font: typography.unscaledFont.withSize(typography.size * textScale))
+            ranges.append(NSRange(location: output.length, length: text.length))
             output.append(text)
         }
         context.coordinator.ranges = ranges
         view.attributedText = output
         let size = typography.size * textScale
         view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
-        view.accessibilityLabel = segments.map(\.text).joined()
+        view.accessibilityLabel = segments.map(JournalEditText.accessibilityLabel).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in
             guard segment.kind.isHighlighted else { return nil }
-            return UIAccessibilityCustomAction(name: "\(segment.kind.rawValue): \(segment.text)") { [weak coordinator = context.coordinator] _ in
+            return UIAccessibilityCustomAction(name: JournalEditText.accessibilityLabel(segment)) { [weak coordinator = context.coordinator] _ in
                 coordinator?.show(index)
                 return true
             }
@@ -61,16 +55,6 @@ struct JournalHighlights: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
         return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-    }
-
-    private static func tint(_ kind: JournalSegment.Kind) -> UIColor {
-        switch kind { case .correction: .systemRed; case .optional: .systemOrange; case .keep, .plain: .label }
-    }
-    private static func underline(_ kind: JournalSegment.Kind) -> Int {
-        switch kind {
-        case .optional: NSUnderlineStyle.single.union(.patternDash).rawValue
-        default: NSUnderlineStyle.single.rawValue
-        }
     }
 
     final class Coordinator: NSObject, UIPopoverPresentationControllerDelegate {

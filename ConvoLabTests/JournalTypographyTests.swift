@@ -19,6 +19,20 @@ final class JournalTypographyTests: XCTestCase {
         XCTAssertEqual(sans.pointSize, serif.pointSize)
     }
 
+    func testVisibleEditsUseChosenFontForBothVersions() {
+        let segment = JournalSegment(text: "映画", reading: "映画[えいが]", kind: .correction,
+            suggestion: "本", suggestionReading: "本[ほん]", explanation: nil, explanationReading: nil)
+        let font = JournalTypography(font: "serif", size: 28).uiFont
+        let text = JournalEditText.attributed(segment, knownKanji: [], font: font)
+        XCTAssertEqual(text.string, "映画本")
+        for index in [0, 2] {
+            XCTAssertEqual(text.attribute(.font, at: index, effectiveRange: nil) as? UIFont, font)
+            XCTAssertNotNil(text.attribute(NSAttributedString.Key(kCTRubyAnnotationAttributeName as String), at: index, effectiveRange: nil))
+        }
+        XCTAssertNotNil(text.attribute(.strikethroughStyle, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(text.attribute(.underlineStyle, at: 2, effectiveRange: nil))
+    }
+
     func testCustomFontPreservesFurigana() {
         let document = StudyRubyDocument.parse("今日[きょう]は晴れです。", knownKanji: [])
         let font = JournalTypography(font: "serif", size: 28).uiFont
