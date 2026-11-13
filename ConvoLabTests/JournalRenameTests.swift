@@ -114,6 +114,46 @@ final class JournalRenameTests: XCTestCase {
         XCTAssertTrue(store.busyEntryIDs.isEmpty)
     }
 
+    func testOlderLocalBodyRetainsConflictAfterRenamingNewerSavedEntry() async throws {
+        let draft = try savedDraft()
+        var snapshot = draft
+        snapshot.expectedVersion = 4
+        respond(id: draft.id, version: 4)
+        try await store.rename(snapshot, title: "New title")
+        let local = try XCTUnwrap(store.storage.load(id: draft.id))
+        XCTAssertEqual(local.expectedVersion, 3)
+        XCTAssertEqual(local.body, draft.body)
+        XCTAssertEqual(store.entries.first?.version, 5)
+    }
+
+    func testMissingDeviceDraftFailsWithoutNetwork() async throws {
+        MockURLProtocol.handler = { _ in XCTFail("No network expected"); throw URLError(.notConnectedToInternet) }
+        do { try await store.rename(JournalDraft.new(), title: "New title"); XCTFail("Expected missing draft") }
+        catch APIClientError.rejected(let status, let message) {
+            XCTAssertEqual(status, 404)
+            XCTAssertTrue(message.contains("no longer available"))
+        }
+    }
+
+    func testEditorCannotSaveOrChangeWhileRenameIsRunning() async throws {
+        let draft = try savedDraft()
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        let deferred = LockedDeferredResponse()
+        MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }
+        let renaming = Task { try await store.rename(draft, title: "New title") }
+        await deferred.waitUntilPending()
+        model.change { $0.body = "Should be disabled" }
+        XCTAssertEqual(model.draft?.body, draft.body)
+        await model.save(submit: false)
+        XCTAssertTrue(model.errorMessage?.contains("still saving") == true)
+        MockURLProtocol.deferredHandler = nil
+        respond(id: draft.id, version: 3)
+        deferred.succeed(with: try Self.response(id: draft.id, title: "Original", version: 3))
+        try await renaming.value
+        XCTAssertTrue(store.busyEntryIDs.isEmpty)
+    }
+
     private func savedDraft() throws -> JournalDraft {
         var draft = try store.create()
         draft.title = "Original"

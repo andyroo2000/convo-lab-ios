@@ -4,11 +4,8 @@ extension JournalStore {
     func rename(_ entry: JournalDraft, title input: String) async throws {
         try beginMutation(id: entry.id)
         defer { endMutation(id: entry.id) }
-        let title = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, title.unicodeScalars.count <= 255 else {
-            throw APIClientError.rejected(status: 422, message: "Enter a title of 1–255 characters.")
-        }
-        let local = try storage.load(id: entry.id)
+        let title = try validatedRenameTitle(input)
+        let local = try localDraftForRename(entry)
         if entry.expectedVersion == 0, var draft = local, draft.expectedVersion == 0 {
             draft.title = title
             draft.editID = UUID().uuidString
@@ -30,6 +27,22 @@ extension JournalStore {
             throw APIClientError.rejected(status: 503, message: "The title was saved online, but the device draft could not be updated. Try Save again.")
         }
         refreshDrafts()
+    }
+
+    private func localDraftForRename(_ entry: JournalDraft) throws -> JournalDraft? {
+        let local = try storage.load(id: entry.id)
+        if entry.expectedVersion == 0 && local == nil {
+            throw APIClientError.rejected(status: 404, message: "This device draft is no longer available. Refresh the journal.")
+        }
+        return local
+    }
+
+    private func validatedRenameTitle(_ input: String) throws -> String {
+        let title = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.unicodeScalars.count <= 255 else {
+            throw APIClientError.rejected(status: 422, message: "Enter a title of 1–255 characters.")
+        }
+        return title
     }
 
     private func reconcileTitle(_ entry: JournalDraft, previousTitle: String?, saved: JournalEntry) throws {

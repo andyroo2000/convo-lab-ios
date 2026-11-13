@@ -32,7 +32,7 @@ struct JournalEntryForm: View {
                     .disabled(model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             }.disabled(exceedsLimit)
         }
-        .disabled(model.isBusy || model.analysis?.status.isPending == true)
+        .disabled(model.isBusy || model.store.busyEntryIDs.contains(model.id) || model.analysis?.status.isPending == true)
     }
 
     private var bodyText: Binding<String> {
