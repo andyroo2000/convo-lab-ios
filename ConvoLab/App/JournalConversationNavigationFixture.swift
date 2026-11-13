@@ -9,6 +9,9 @@ nonisolated struct JournalConversationNavigationFixture {
             if method == "POST" { return create(body: body, root: root, analysis: analysis, tutor: &tutor) }
             return ["data": nodes]
         }
+        if path.hasSuffix("/retry"), let question = nodes.compactMap({ $0["question"] as? [String: Any] }).first(where: { path.contains($0["id"] as? String ?? "missing") }) {
+            return ["data": question]
+        }
         guard let node = nodes.first(where: { path.contains(($0["entry"] as? [String: Any])?["id"] as? String ?? "missing") }),
               let entry = node["entry"] as? [String: Any], let feedback = node["analysis"] as? [String: Any] else { return nil }
         if path.hasSuffix("/analysis") { return ["data": feedback, "entry": entry] }

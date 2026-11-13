@@ -5,7 +5,7 @@ import Foundation
 final class JournalTutorModel {
     let service: JournalService
     let entryID: String
-    let input: JournalQuestionInput
+    let input: JournalQuestionInput?
     private let savedQuestionID: String?
     private(set) var question: JournalTutorQuestion?
     private(set) var preferences: JournalTutorPreferences?
@@ -19,6 +19,11 @@ final class JournalTutorModel {
         service = entry.store.service
         entryID = entry.id
         input = JournalQuestionInput(analysisId: analysis.id, replyId: analysis.currentReply?.id)
+    }
+
+    init(entryID: String, service: JournalService, savedQuestion: JournalTutorQuestion) {
+        self.entryID = entryID; self.service = service
+        question = savedQuestion; savedQuestionID = savedQuestion.id; input = nil
     }
 
     func load() async {
@@ -53,6 +58,7 @@ final class JournalTutorModel {
 
     private func prepare() async throws -> JournalTutorQuestion {
         if let savedQuestionID { return try await service.retryQuestion(entryID: entryID, questionID: savedQuestionID) }
+        guard let input else { throw APIClientError.invalidResponse }
         return try await service.prepareQuestion(entryID: entryID, input: input)
     }
 

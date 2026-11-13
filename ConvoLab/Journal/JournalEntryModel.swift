@@ -19,7 +19,8 @@ final class JournalEntryModel {
         self.id = id; self.store = store; self.initial = initial
     }
 
-    func load() async {
+    func load(snapshot: JournalConversationNode? = nil) async {
+        guard snapshot == nil || (!isBusy && !isEditing) else { return }
         do {
             try store.service.checkSession()
             if let local = try store.storage.load(id: id) {
@@ -28,7 +29,7 @@ final class JournalEntryModel {
                 isEditing = true
                 return
             }
-            if let initial {
+            if let initial = snapshot ?? initial {
                 draft = JournalDraft(entry: initial.entry)
                 analysis = initial.analysis
                 return

@@ -154,6 +154,10 @@ final class ModeNavigationUITests: XCTestCase {
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
+        let hana = app.buttons["Hana"]
+        for _ in 0..<3 where !hana.isHittable { app.swipeUp() }
+        XCTAssertTrue(hana.waitForExistence(timeout: 5))
+        hana.tap()
         XCTAssertTrue(app.buttons["Show English"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Who did you watch it with?"].exists)
         app.swipeUp()
@@ -170,6 +174,7 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "Draft").count, 2)
         XCTAssertEqual(app.buttons.matching(identifier: "Final").count, 2)
         XCTAssertFalse(app.buttons["Undo last addition"].exists)
+        XCTAssertFalse(app.staticTexts["Your tutor could not be loaded or saved. Please try again."].exists)
         XCTAssertFalse(app.staticTexts["Where did you watch it?"].exists)
         attachScreenshot(app, name: "Independent journal answer with its own Draft Final pill")
 

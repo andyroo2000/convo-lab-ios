@@ -4,11 +4,11 @@ struct JournalConversationComposer: View {
     let entry: JournalEntryModel
     let analysis: JournalAnalysis
     let knownKanji: Set<Character>
-    let refresh: () async -> Void
+    let refresh: () async -> Bool
     @State private var answer: JournalConversationAnswer
     @FocusState private var writing: Bool
 
-    init(entry: JournalEntryModel, rootID: String, analysis: JournalAnalysis, knownKanji: Set<Character>, refresh: @escaping () async -> Void) {
+    init(entry: JournalEntryModel, rootID: String, analysis: JournalAnalysis, knownKanji: Set<Character>, refresh: @escaping () async -> Bool) {
         self.entry = entry; self.analysis = analysis; self.knownKanji = knownKanji; self.refresh = refresh
         _answer = State(initialValue: JournalConversationAnswer(entry: entry, rootID: rootID, analysisID: analysis.id))
     }
@@ -39,6 +39,7 @@ struct JournalConversationComposer: View {
                 return
             }
             let current = try await entry.store.service.prepareQuestion(entryID: entry.id, input: JournalQuestionInput(analysisId: analysis.id, replyId: analysis.currentReply?.id))
+            guard current.tutor != nil else { answer.errorMessage = "Choose your tutor before sending an answer."; return }
             await answer.submit(questionID: current.id, refresh: refresh)
         } catch { answer.errorMessage = error.localizedDescription }
     }
