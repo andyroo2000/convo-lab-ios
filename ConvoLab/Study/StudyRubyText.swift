@@ -275,7 +275,10 @@ extension StudyRubyDocument {
         )
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
+        // Native word wrapping allows Japanese character breaks while honoring kinsoku.
+        // Avoid label-oriented phrase balancing and unrestricted character wrapping.
         paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineBreakStrategy = []
         if hasRuby {
             paragraph.lineSpacing = font.lineHeight * 0.4
         }
@@ -285,6 +288,7 @@ extension StudyRubyDocument {
             .font: font,
             .foregroundColor: color,
             .paragraphStyle: paragraph,
+            NSAttributedString.Key(kCTLanguageAttributeName as String): "ja-u-lb-strict",
         ]
 
         for segment in segments {
