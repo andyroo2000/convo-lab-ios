@@ -6,13 +6,16 @@ final class JournalTutorModel {
     let service: JournalService
     let entryID: String
     let input: JournalQuestionInput
+    private let savedQuestionID: String?
     private(set) var question: JournalTutorQuestion?
     private(set) var preferences: JournalTutorPreferences?
     private(set) var isBusy = false
     private(set) var errorMessage: String?
     var choosing = false
 
-    init(entry: JournalEntryModel, analysis: JournalAnalysis) {
+    init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil) {
+        savedQuestionID = savedQuestion?.id
+        question = savedQuestion
         service = entry.store.service
         entryID = entry.id
         input = JournalQuestionInput(analysisId: analysis.id, replyId: analysis.currentReply?.id)
@@ -20,7 +23,7 @@ final class JournalTutorModel {
 
     func load() async {
         await perform {
-            self.question = try await self.service.prepareQuestion(entryID: self.entryID, input: self.input)
+            self.question = try await self.prepare()
             if self.question?.tutor == nil { try await self.openPicker() }
         }
     }
@@ -30,7 +33,7 @@ final class JournalTutorModel {
     func choose(_ tutor: JournalTutor) async {
         await perform {
             self.preferences = try await self.service.chooseTutor(tutor.id)
-            self.question = try await self.service.prepareQuestion(entryID: self.entryID, input: self.input)
+            self.question = try await self.prepare()
             self.choosing = false
         }
     }
@@ -46,6 +49,11 @@ final class JournalTutorModel {
             }
         } catch is CancellationError { }
         catch { if !Task.isCancelled { errorMessage = "Question audio status is unavailable. Please retry." } }
+    }
+
+    private func prepare() async throws -> JournalTutorQuestion {
+        if let savedQuestionID { return try await service.retryQuestion(entryID: entryID, questionID: savedQuestionID) }
+        return try await service.prepareQuestion(entryID: entryID, input: input)
     }
 
     private func openPicker() async throws {

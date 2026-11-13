@@ -7,10 +7,10 @@ struct JournalTeacherView: View {
     @State private var showEnglish = false
     @Environment(\.scenePhase) private var scenePhase
 
-    init(entry: JournalEntryModel, analysis: JournalAnalysis, feedback: JournalFeedback, knownKanji: Set<Character>) {
+    init(entry: JournalEntryModel, analysis: JournalAnalysis, feedback: JournalFeedback, knownKanji: Set<Character>, savedQuestion: JournalTutorQuestion? = nil) {
         self.feedback = feedback
         self.knownKanji = knownKanji
-        _model = State(initialValue: JournalTutorModel(entry: entry, analysis: analysis))
+        _model = State(initialValue: JournalTutorModel(entry: entry, analysis: analysis, savedQuestion: savedQuestion))
     }
 
     var body: some View {

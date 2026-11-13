@@ -8,6 +8,7 @@ nonisolated struct JournalEntry: Codable, Identifiable, Sendable, Equatable {
     var version: Int
     let createdAt: String
     let updatedAt: String
+    var rootEntryId: String? = nil
 }
 
 nonisolated struct JournalSegment: Codable, Sendable, Equatable {

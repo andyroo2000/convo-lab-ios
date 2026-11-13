@@ -6,6 +6,7 @@ final class JournalEntryModel {
     nonisolated deinit {}
     let id: String
     let store: JournalStore
+    private let initial: JournalConversationNode?
     var draft: JournalDraft?
     var analysis: JournalAnalysis?
     var isEditing = false
@@ -14,7 +15,9 @@ final class JournalEntryModel {
     var hasConflict = false
     var isSavedOnDevice = false
 
-    init(id: String, store: JournalStore) { self.id = id; self.store = store }
+    init(id: String, store: JournalStore, initial: JournalConversationNode? = nil) {
+        self.id = id; self.store = store; self.initial = initial
+    }
 
     func load() async {
         do {
@@ -23,6 +26,11 @@ final class JournalEntryModel {
                 draft = local
                 isSavedOnDevice = true
                 isEditing = true
+                return
+            }
+            if let initial {
+                draft = JournalDraft(entry: initial.entry)
+                analysis = initial.analysis
                 return
             }
             draft = JournalDraft(entry: try await store.service.entry(id))

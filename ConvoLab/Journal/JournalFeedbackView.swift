@@ -3,10 +3,14 @@ import SwiftUI
 struct JournalFeedbackView: View {
     let model: JournalEntryModel
     let knownKanji: Set<Character>
+    let followUp: Bool
+    let nested: Bool
     @State private var version = JournalVersion.draft
     @State private var document: JournalDocumentModel
 
-    init(model: JournalEntryModel, knownKanji: Set<Character>) {
+    init(model: JournalEntryModel, knownKanji: Set<Character>, followUp: Bool = true, nested: Bool = false) {
+        self.followUp = followUp
+        self.nested = nested
         self.model = model
         self.knownKanji = knownKanji
         _document = State(initialValue: JournalDocumentModel(entry: model))
@@ -21,7 +25,7 @@ struct JournalFeedbackView: View {
                         Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
                     }.accessibilityLabel("Edit entry")
                 }
-                Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
+                Text(nested ? "Your reply" : model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 JournalVersionPicker(selection: $version)
                 if version == .draft {
                     JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
@@ -35,7 +39,7 @@ struct JournalFeedbackView: View {
                 } else {
                     JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, compact: true)
                 }
-                JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id)
+                if followUp { JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id) }
             }.onChange(of: analysis.id) { version = .draft }
         }
     }
