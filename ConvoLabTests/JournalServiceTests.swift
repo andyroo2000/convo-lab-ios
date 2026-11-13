@@ -111,6 +111,42 @@ final class JournalServiceTests: XCTestCase {
         XCTAssertEqual(try store.storage.load(id: copyID)?.expectedVersion, 0)
     }
 
+    func testCorrectedEditPreservesExactTextAndUsesCapturedRevision() async throws {
+        let service = JournalService(api: api)
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "PUT")
+            XCTAssertTrue(request.url!.path.hasSuffix("/corrected"))
+            let input = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.requestBody(request)) as? [String: Any])
+            XCTAssertEqual(input["text"] as? String, "  私の編集。\n")
+            XCTAssertEqual(input["expectedRevision"] as? Int, 7)
+            return Self.documentResponse(request)
+        }
+        let result = try await service.corrected(entryID: "01arz3ndektsv4rrffq69g5fav",
+            body: JournalCorrectedPayload(analysisId: "01arz3ndektsv4rrffq69g5faw", expectedRevision: 7, text: "  私の編集。\n"))
+        XCTAssertEqual(result.correctedText, "私の編集。")
+        XCTAssertEqual(result.correctedReading, "私[わたし]の編集[へんしゅう]。")
+        XCTAssertEqual(result.replyRevision, 8)
+    }
+
+    func testSuggestionSendsExplicitAppliedStateAndDecodesAvailability() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertTrue(request.url!.path.hasSuffix("/suggestion"))
+            let input = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.requestBody(request)) as? [String: Any])
+            XCTAssertEqual(input["applied"] as? Bool, false)
+            XCTAssertEqual(input["suggestionId"] as? String, "01arz3ndektsv4rrffq69g5faw:0")
+            return Self.documentResponse(request)
+        }
+        let result = try await JournalService(api: api).suggestion(entryID: "01arz3ndektsv4rrffq69g5fav",
+            body: JournalSuggestionPayload(analysisId: "01arz3ndektsv4rrffq69g5faw", expectedRevision: 7,
+                                           suggestionId: "01arz3ndektsv4rrffq69g5faw:0", applied: false))
+        XCTAssertEqual(result.correctedDocument?.suggestions.first?.applied, false)
+    }
+
+    nonisolated private static func documentResponse(_ request: URLRequest) -> (HTTPURLResponse, Data) {
+        let json = #"{"data":{"id":"01arz3ndektsv4rrffq69g5faw","sourceVersion":1,"status":"ready","result":null,"error":null,"updatedAt":"now","replyRevision":8,"correctedDocument":{"text":"私の編集。","reading":"私[わたし]の編集[へんしゅう]。","suggestions":[{"id":"01arz3ndektsv4rrffq69g5faw:0","applied":false}]}}}"#
+        return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(json.utf8))
+    }
+
     private func respondWithAnalysisEntry(id: String, body: String) {
         MockURLProtocol.handler = { request in
             let entry: [String: Any] = ["id": id, "title": "Generated title", "body": body,

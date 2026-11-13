@@ -17,6 +17,18 @@ nonisolated struct JournalAudioPayload: Encodable, Sendable {
     let expectedReplyRevision: Int
 }
 
+nonisolated struct JournalSuggestionPayload: Encodable, Sendable {
+    let analysisId: String
+    let expectedRevision: Int
+    let suggestionId: String
+    let applied: Bool
+}
+nonisolated struct JournalCorrectedPayload: Encodable, Sendable {
+    let analysisId: String
+    let expectedRevision: Int
+    let text: String
+}
+
 @MainActor
 struct JournalService {
     private let api: APIClient
@@ -74,6 +86,16 @@ struct JournalService {
 
     func undo(entryID: String, body: JournalRevisionPayload) async throws -> JournalAnalysis {
         let value: JournalResource<JournalAnalysis> = try await request(path(entryID) + "/undo", method: "POST", body: body)
+        return value.data
+    }
+
+    func suggestion(entryID: String, body: JournalSuggestionPayload) async throws -> JournalAnalysis {
+        let value: JournalResource<JournalAnalysis> = try await request(path(entryID) + "/suggestion", method: "PUT", body: body)
+        return value.data
+    }
+
+    func corrected(entryID: String, body: JournalCorrectedPayload) async throws -> JournalAnalysis {
+        let value: JournalResource<JournalAnalysis> = try await request(path(entryID) + "/corrected", method: "PUT", body: body)
         return value.data
     }
 
