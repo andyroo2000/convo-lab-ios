@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct JournalHighlights: UIViewRepresentable {
+    @Environment(\.journalTypography) private var typography
+    @ScaledMetric(relativeTo: .body) private var textScale = 1.0
     let segments: [JournalSegment]
     let knownKanji: Set<Character>
     var document: JournalDocumentModel?
@@ -31,13 +33,14 @@ struct JournalHighlights: UIViewRepresentable {
         let output = NSMutableAttributedString()
         var ranges: [NSRange] = []
         for segment in segments {
-            let text = JournalEditText.attributed(segment, knownKanji: knownKanji)
+            let text = JournalEditText.attributed(segment, knownKanji: knownKanji,
+                font: typography.unscaledFont.withSize(typography.size * textScale))
             ranges.append(NSRange(location: output.length, length: text.length))
             output.append(text)
         }
         context.coordinator.ranges = ranges
         view.attributedText = output
-        let size = UIFontMetrics.default.scaledValue(for: 20)
+        let size = typography.size * textScale
         view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
         view.accessibilityLabel = segments.map(JournalEditText.accessibilityLabel).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in

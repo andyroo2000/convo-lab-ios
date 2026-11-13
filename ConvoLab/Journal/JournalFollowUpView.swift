@@ -38,7 +38,7 @@ private struct JournalAnswerView: View {
             }
             if model.draft.replace { Text("Edit last answer").font(.headline) }
             TextEditor(text: Binding(get: { model.draft.answer }, set: { model.change($0) }))
-                .font(.title3).frame(minHeight: 120).scrollContentBackground(.hidden)
+                .modifier(JournalBodyFont()).frame(minHeight: 120).scrollContentBackground(.hidden)
                 .padding(8).background(.white, in: .rect(cornerRadius: 12))
                 .accessibilityLabel("Your answer (optional)").disabled(disabled).focused($answerFocused)
             if model.draft.answer.count > 5000 {

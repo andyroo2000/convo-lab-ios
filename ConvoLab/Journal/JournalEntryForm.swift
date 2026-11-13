@@ -13,7 +13,7 @@ struct JournalEntryForm: View {
                 .font(.title.bold()).accessibilityLabel("Title (optional)")
             DatePicker("Entry date", selection: date, displayedComponents: .date)
             TextEditor(text: bodyText)
-                .font(.title3).frame(minHeight: 260)
+                .modifier(JournalBodyFont()).frame(minHeight: 260)
                 .scrollContentBackground(.hidden)
                 .padding(8).background(.white, in: .rect(cornerRadius: 12))
                 .accessibilityLabel("Journal entry")

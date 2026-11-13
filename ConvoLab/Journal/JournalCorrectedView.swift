@@ -23,7 +23,7 @@ struct JournalCorrectedView: View {
             }
             JournalAudioControls(entryID: document.entry.id, analysis: analysis, service: document.entry.store.service)
                 .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
-            StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 10)
+            JournalRubyText(text: analysis.correctedReading ?? "", knownKanji: knownKanji)
         }.sheet(item: $edit, onDismiss: { document.errorMessage = nil }) { draft in JournalCorrectedEditor(document: document, draft: draft) }
     }
 }
@@ -55,7 +55,7 @@ private struct JournalCorrectedEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                TextEditor(text: $text).font(.title3).lineSpacing(8)
+                TextEditor(text: $text).modifier(JournalBodyFont()).lineSpacing(8)
                     .accessibilityLabel("Corrected entry text").disabled(document.isBusy)
                 if let error = document.errorMessage {
                     Text(error).font(.footnote).foregroundStyle(.red)
