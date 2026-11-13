@@ -4,14 +4,16 @@ import Foundation
 nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
     static let shared = JournalReplyNavigationFixture()
     private let lock = NSLock()
+    private var tutor = JournalTutorNavigationFixture()
     private var analysis: [String: Any]?
     private var replies: [String: [String: Any]] = [:]
 
     func response(path: String, method: String?, body: String, initial: String, entry: String) -> String? {
-        guard path.hasPrefix("/api/journal/entries/") else { return nil }
+        guard path.hasPrefix("/api/journal/") else { return nil }
         lock.lock(); defer { lock.unlock() }
         let original = JournalDocumentNavigationFixture.initial(object(initial))
         if analysis == nil { analysis = original }
+        if let result = tutor.response(path: path, method: method, body: object(body), analysis: analysis!) { return encode(["data": result]) }
         if JournalDocumentNavigationFixture.change(path: path, body: object(body), analysis: &analysis) {
             return encode(["data": analysis!])
         }
