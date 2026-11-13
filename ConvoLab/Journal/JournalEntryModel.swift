@@ -42,7 +42,7 @@ final class JournalEntryModel {
     }
 
     func change(_ edit: (inout JournalDraft) -> Void) {
-        guard var updated = draft, !isBusy else { return }
+        guard var updated = draft, !isBusy, !store.busyEntryIDs.contains(id) else { return }
         edit(&updated)
         updated.editID = UUID().uuidString
         draft = updated
@@ -62,6 +62,8 @@ final class JournalEntryModel {
         errorMessage = nil
         defer { isBusy = false }
         do {
+            try store.beginMutation(id: id)
+            defer { store.endMutation(id: id) }
             let entry = try await store.service.save(sent)
             try store.storage.acknowledge(sent, version: entry.version)
             store.accept(entry)

@@ -18,7 +18,10 @@ struct JournalListView: View {
                 Text(message).foregroundStyle(.red).font(.footnote)
             }
             ForEach(rows) { row in
-                entryLink(row)
+                HStack {
+                    entryLink(row)
+                    JournalRowActions(row: row, store: store)
+                }
             }
             if store.nextCursor != nil {
                 Button("Load more") { Task { await store.loadMore() } }.disabled(store.isLoading)

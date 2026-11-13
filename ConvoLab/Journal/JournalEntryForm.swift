@@ -2,7 +2,6 @@ import SwiftUI
 
 struct JournalEntryForm: View {
     let model: JournalEntryModel
-    var onDelete: (() -> Void)? = nil
 
     private var exceedsLimit: Bool {
         (model.draft?.body.unicodeScalars.count ?? 0) > 20_000 || (model.draft?.title?.unicodeScalars.count ?? 0) > 255
@@ -25,9 +24,6 @@ struct JournalEntryForm: View {
                 Text("Keep the entry within 20,000 characters and its title within 255. Your full text is saved on this device.")
                     .font(.footnote).foregroundStyle(.red)
             }
-            if let onDelete {
-                JournalDeleteButton(action: onDelete)
-            }
             HStack {
                 Button("Save draft") { Task { await model.save(submit: false) } }.buttonStyle(.bordered)
                 Spacer()
@@ -36,7 +32,7 @@ struct JournalEntryForm: View {
                     .disabled(model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             }.disabled(exceedsLimit)
         }
-        .disabled(model.isBusy || model.analysis?.status.isPending == true)
+        .disabled(model.isBusy || model.store.busyEntryIDs.contains(model.id) || model.analysis?.status.isPending == true)
     }
 
     private var bodyText: Binding<String> {
