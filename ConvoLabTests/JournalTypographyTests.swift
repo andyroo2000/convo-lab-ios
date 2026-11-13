@@ -21,7 +21,8 @@ final class JournalTypographyTests: XCTestCase {
 
     func testVisibleEditsUseChosenFontForBothVersions() {
         let segment = JournalSegment(text: "映画", reading: "映画[えいが]", kind: .correction,
-            suggestion: "本", suggestionReading: "本[ほん]", explanation: nil, explanationReading: nil)
+            suggestion: "本", suggestionReading: "本[ほん]", explanation: nil, explanationReading: nil,
+            replacement: "本", replacementReading: "本[ほん]")
         let font = JournalTypography(font: "serif", size: 28).uiFont
         let text = JournalEditText.attributed(segment, knownKanji: [], font: font)
         XCTAssertEqual(text.string, "映画本")
