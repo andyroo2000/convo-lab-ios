@@ -3,6 +3,9 @@ import SwiftUI
 struct JournalEntryView: View {
     @State private var model: JournalEntryModel
     let knownKanji: Set<Character>
+    @AppStorage(JournalTypography.fontKey) private var journalFont = "sans"
+    @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
+    @State private var showingAppearance = false
     @State private var copiedID: String?
 
     init(id: String, store: JournalStore, knownKanji: Set<Character>) {
@@ -34,6 +37,14 @@ struct JournalEntryView: View {
                 }
             }.padding(20)
         }
+        .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingAppearance = true } label: { Text("Aa").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel("Journal appearance")
+            }
+        }
+        .sheet(isPresented: $showingAppearance) { JournalAppearance() }
         .paperBackground()
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)

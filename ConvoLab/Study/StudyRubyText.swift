@@ -187,6 +187,7 @@ struct StudyRubyText: UIViewRepresentable {
     let color: UIColor
     let alignment: NSTextAlignment
     let extraLineSpacing: CGFloat
+    var font: UIFont?
 
     init(
         _ text: String,
@@ -195,7 +196,8 @@ struct StudyRubyText: UIViewRepresentable {
         weight: UIFont.Weight = .regular,
         color: UIColor = .label,
         alignment: NSTextAlignment = .center,
-        extraLineSpacing: CGFloat = 0
+        extraLineSpacing: CGFloat = 0,
+        font: UIFont? = nil
     ) {
         self.text = text
         self.knownKanji = knownKanji
@@ -204,6 +206,7 @@ struct StudyRubyText: UIViewRepresentable {
         self.color = color
         self.alignment = alignment
         self.extraLineSpacing = extraLineSpacing
+        self.font = font
     }
 
     func makeCoordinator() -> StudyRubyLineBreakDelegate {
@@ -238,7 +241,8 @@ struct StudyRubyText: UIViewRepresentable {
             weight: weight,
             color: color,
             alignment: alignment,
-            extraLineSpacing: extraLineSpacing
+            extraLineSpacing: extraLineSpacing,
+            font: font
         )
         context.coordinator.updateRubyRanges(in: attributedText)
         view.attributedText = attributedText
@@ -265,12 +269,13 @@ extension StudyRubyDocument {
         weight: UIFont.Weight,
         color: UIColor,
         alignment: NSTextAlignment,
-        extraLineSpacing: CGFloat = 0
+        extraLineSpacing: CGFloat = 0,
+        font: UIFont? = nil
     ) -> NSAttributedString {
         let baseFont = UIFont.systemFont(ofSize: pointSize, weight: weight)
         let roundedDescriptor = baseFont.fontDescriptor.withDesign(.rounded)
             ?? baseFont.fontDescriptor
-        let font = UIFontMetrics.default.scaledFont(
+        let font = font ?? UIFontMetrics.default.scaledFont(
             for: UIFont(descriptor: roundedDescriptor, size: pointSize)
         )
         let paragraph = NSMutableParagraphStyle()

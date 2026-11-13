@@ -29,7 +29,7 @@ struct JournalTeacherView: View {
                             Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
                         }.accessibilityLabel("Choose tutor").disabled(model.isBusy)
                     }
-                    StudyRubyText(model.question?.reading ?? feedback.questionReading, knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 8)
+                    JournalRubyText(text: model.question?.reading ?? feedback.questionReading, knownKanji: knownKanji)
                     if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question).id(question.id) }
                     Button(showEnglish ? "Hide English" : "Show English") { showEnglish.toggle() }.font(.footnote)
                     if showEnglish { Text(model.question?.translation ?? feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
