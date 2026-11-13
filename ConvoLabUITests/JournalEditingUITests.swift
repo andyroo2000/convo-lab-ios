@@ -24,10 +24,18 @@ final class JournalEditingUITests: XCTestCase {
         highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
         let apply = app.buttons["Apply suggestion"]
         XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Original kept"].exists)
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Quiet footer — optional change"
+        preview.lifetime = .keepAlways
+        add(preview)
         apply.tap()
-        XCTAssertTrue(apply.waitForNonExistence(timeout: 5))
-        highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
-        XCTAssertTrue(app.buttons["Undo suggestion"].waitForExistence(timeout: 5))
+        let undo = app.buttons["Undo suggestion"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Applied"].exists)
+        undo.tap()
+        XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Original kept"].exists)
     }
 
     @MainActor

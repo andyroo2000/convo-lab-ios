@@ -100,12 +100,17 @@ struct JournalHighlights: UIViewRepresentable {
             guard let controller, controller.presentedViewController == nil else { return }
             document?.errorMessage = nil
             // IDs retain the original segment index, including plain segments.
-            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(320, (view.window?.bounds.width ?? 368) - 32), dismiss: { [weak controller] in controller?.dismiss(animated: true) }))
+            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(360, (view.window?.bounds.width ?? 368) - 32)))
             popup.overrideUserInterfaceStyle = view.traitCollection.userInterfaceStyle
+            popup.view.backgroundColor = JournalPopoverStyle.surface
+            popup.view.layer.cornerRadius = 14
+            popup.view.clipsToBounds = true
             popup.modalPresentationStyle = .popover
             popup.sizingOptions = .preferredContentSize
             if let presentation = popup.popoverPresentationController {
                 presentation.delegate = self
+                presentation.popoverBackgroundViewClass = JournalPopoverBackground.self
+                presentation.backgroundColor = JournalPopoverStyle.surface
                 presentation.sourceView = view
                 presentation.sourceRect = sourceRect(index, view: view)
                 presentation.permittedArrowDirections = [.up, .down]
