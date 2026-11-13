@@ -4,37 +4,43 @@ final class JournalEditingUITests: XCTestCase {
     @MainActor
     func testDraftAndFinalShowOnlyOneVersionAtATime() {
         let app = openEntry()
+        XCTAssertTrue(app.buttons["Final"].isSelected)
+        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        app.buttons["Draft"].tap()
         let edited = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         XCTAssertTrue(edited.label.contains("Replace 映画を見た。 with 映画を見ました。"))
         let preview = XCTAttachment(screenshot: app.screenshot())
         preview.name = "Soft highlights and corrected version"
         preview.lifetime = .keepAlways
         add(preview)
-        XCTAssertTrue(app.staticTexts["Correction"].exists)
-        XCTAssertTrue(app.staticTexts["Optional change"].exists)
+        XCTAssertFalse(app.staticTexts["Correction"].exists)
+        XCTAssertFalse(app.staticTexts["Optional change"].exists)
         XCTAssertFalse(app.buttons["Play corrected version"].exists)
         app.buttons["Final"].tap()
         XCTAssertTrue(app.buttons["Play corrected version"].exists)
         XCTAssertFalse(edited.exists)
         app.buttons["Draft"].tap()
         XCTAssertTrue(edited.exists)
+        app.terminate()
+        let reopened = openEntry()
+        XCTAssertTrue(reopened.buttons["Final"].isSelected)
+        XCTAssertTrue(reopened.buttons["Play corrected version"].exists)
     }
 
     @MainActor
-    func testManualCorrectedEditCanBeSavedAndReopened() {
+    func testCopyFollowsTheSelectedVersionWithoutEditButtons() {
         let app = openEntry()
+        XCTAssertFalse(app.buttons["Edit entry"].exists)
+        app.buttons["Draft"].tap()
+        app.buttons["Copy draft text"].tap()
+        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
         app.buttons["Final"].tap()
-        app.buttons["Edit corrected version"].tap()
-        let editor = app.textViews["Corrected entry text"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.tap()
-        editor.typeText(" Added detail.")
-        app.buttons["Save"].tap()
-        XCTAssertTrue(app.buttons["Edit corrected version"].waitForExistence(timeout: 5))
-        app.buttons["Edit corrected version"].tap()
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        XCTAssertTrue((editor.value as? String ?? "").contains("Added detail."))
-        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Copy final text"].exists)
+        XCTAssertFalse(app.buttons["Edit corrected version"].exists)
+        app.buttons["Copy final text"].tap()
+        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        app.buttons["Draft"].tap()
+        XCTAssertTrue(app.buttons["Copy draft text"].exists)
     }
 
     @MainActor
@@ -51,6 +57,7 @@ final class JournalEditingUITests: XCTestCase {
 
     @MainActor
     private func exerciseOptionalChange(_ app: XCUIApplication) {
+        app.buttons["Draft"].tap()
         let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.25)).tap()
         let apply = app.buttons["Apply suggestion"]

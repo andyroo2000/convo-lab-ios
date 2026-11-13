@@ -47,8 +47,10 @@ struct JournalListView: View {
                     do { newEntryID = try store.create().id }
                     catch { store.errorMessage = "Could not create a device draft. Try again." }
                 }
+                .labelStyle(.iconOnly)
+                .buttonStyle(JournalToolbarButtonStyle(outlined: false))
                 .accessibilityIdentifier("JournalNewEntry")
-            }
+            }.sharedBackgroundVisibility(.hidden)
         }
         .navigationDestination(item: $newEntryID) { id in
             JournalEntryView(id: id, store: store, knownKanji: knownKanji)
