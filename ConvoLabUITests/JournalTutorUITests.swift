@@ -12,7 +12,7 @@ final class JournalTutorUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
         for _ in 0..<3 { app.swipeUp() }
-        let hana = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Hana (F)")).firstMatch
+        let hana = app.buttons["Hana"]
         XCTAssertTrue(hana.waitForExistence(timeout: 5))
         hana.tap()
         let portrait = app.images["Hana, your tutor"]
@@ -21,12 +21,14 @@ final class JournalTutorUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Play question"].exists)
         XCTAssertFalse(app.buttons["Pause question"].exists)
         app.buttons["Choose tutor"].tap()
-        let ren = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Ren (M)")).firstMatch
+        let ren = app.buttons["Ren"]
         XCTAssertTrue(ren.waitForExistence(timeout: 5))
         ren.tap()
         XCTAssertTrue(portrait.waitForExistence(timeout: 5))
         app.buttons["Choose tutor"].tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Ren (M)", "Current default")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(ren.waitForExistence(timeout: 5))
+        XCTAssertTrue(ren.isSelected)
+        XCTAssertFalse(app.staticTexts["Ren (M)"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Journal tutor picker keeps the existing question with Hana"
         attachment.lifetime = .keepAlways
