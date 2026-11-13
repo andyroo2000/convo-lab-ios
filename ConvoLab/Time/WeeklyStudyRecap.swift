@@ -14,17 +14,16 @@ struct WeeklyStudyRecapCategories: nonisolated Codable, Equatable, Sendable {
     let create: Int
     let immerse: Int
     let conversation: Int
+    var writing: Int? = nil
     let wanikani: Int
 
     func duration(for category: StudyActivityCategory) -> Int {
-        switch category {
-        case .review: review
-        case .listen: listen
-        case .create: create
-        case .immerse: immerse
-        case .conversation: conversation
-        case .wanikani: wanikani
-        }
+        let durations: [StudyActivityCategory: Int] = [
+            .review: review, .listen: listen, .create: create,
+            .immerse: immerse, .conversation: conversation,
+            .writing: writing ?? 0, .wanikani: wanikani,
+        ]
+        return durations[category, default: 0]
     }
 
     var total: Int { StudyActivityCategory.allCases.reduce(0) { $0 + duration(for: $1) } }
@@ -301,6 +300,7 @@ private extension StudyActivityCategory {
         case .create: .orange
         case .immerse: .green
         case .conversation: .purple
+        case .writing: .teal
         case .wanikani: .pink
         }
     }

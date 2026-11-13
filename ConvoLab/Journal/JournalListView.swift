@@ -37,6 +37,7 @@ struct JournalListView: View {
         }
         .overlay { if rows.isEmpty && !store.isLoading && store.errorMessage == nil { ContentUnavailableView("No journal entries yet", systemImage: "book.closed") } }
         .scrollContentBackground(.hidden)
+        .modifier(JournalTimeTracking(service: store.service))
         .paperBackground()
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)

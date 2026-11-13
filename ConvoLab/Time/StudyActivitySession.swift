@@ -4,6 +4,7 @@ enum StudyActivityCategory: String, nonisolated Codable, CaseIterable, Identifia
     case review
     case listen
     case create
+    case writing
     case immerse
     case conversation
     case wanikani
@@ -14,6 +15,7 @@ enum StudyActivityCategory: String, nonisolated Codable, CaseIterable, Identifia
         case .review: "Card review"
         case .listen: "Listen"
         case .create: "Create"
+        case .writing: "Writing"
         case .immerse: "Immerse"
         case .conversation: "Conversation"
         case .wanikani: "WaniKani"
@@ -28,6 +30,7 @@ enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable,
     case tv
     case podcast
     case reading
+    case journal
     case conversation
     case wanikaniReview = "wanikani_review"
     case other
@@ -42,6 +45,7 @@ enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable,
         case .tv: "TV or film"
         case .podcast: "Podcast"
         case .reading: "Reading"
+        case .journal: "Journal"
         case .conversation: "Conversation"
         case .wanikaniReview: "WaniKani reviews"
         case .other: "Other study"
@@ -55,6 +59,7 @@ enum StudyActivityKind: String, nonisolated Codable, CaseIterable, Identifiable,
         case .cardReview: .review
         case .dailyAudio: .listen
         case .cardCreation: .create
+        case .journal: .writing
         case .tv, .podcast, .reading, .other: .immerse
         case .conversation: .conversation
         case .wanikaniReview: .wanikani
