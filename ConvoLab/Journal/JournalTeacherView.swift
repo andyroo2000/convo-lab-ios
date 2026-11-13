@@ -62,11 +62,13 @@ private struct JournalTutorPicker: View {
                     Button { Task { await model.choose(tutor) } } label: {
                         VStack(spacing: 8) {
                             JournalTutorPortrait(tutor: tutor).frame(width: 80, height: 80).clipShape(Circle()).accessibilityHidden(true)
-                            Text("\(tutor.name) (\(tutor.gender))").font(.subheadline.bold())
                             if model.preferences?.selectedId == tutor.id { Image(systemName: "checkmark").accessibilityLabel("Current default") }
                         }.frame(maxWidth: .infinity).padding(12)
                             .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
                     }.buttonStyle(.plain).disabled(model.isBusy)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(tutor.name)
+                        .accessibilityAddTraits(model.preferences?.selectedId == tutor.id ? .isSelected : [])
                 }
             }
             if model.isBusy { ProgressView("Saving tutor…") }

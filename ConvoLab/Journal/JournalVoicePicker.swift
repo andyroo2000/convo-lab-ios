@@ -18,12 +18,12 @@ struct JournalVoicePicker: View {
                         VStack(spacing: 8) {
                             JournalAvatar(url: option.avatarUrl).frame(width: 80, height: 80)
                                 .clipShape(Circle()).accessibilityHidden(true)
-                            Text(option.name).font(.subheadline.bold())
                             if voice.selected == option.id { Image(systemName: "checkmark").accessibilityHidden(true) }
                         }.frame(maxWidth: .infinity).padding(12)
                             .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
                     }.buttonStyle(.plain).disabled(voice.isLoading || voice.errorMessage != nil)
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(option.name)
                         .accessibilityAddTraits(voice.selected == option.id ? .isSelected : [])
                 }
             }
