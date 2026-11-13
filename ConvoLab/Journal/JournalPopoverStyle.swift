@@ -22,10 +22,11 @@ enum JournalPopoverStyle {
 struct JournalSuggestionButtonStyle: ButtonStyle {
     let applied: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @ScaledMetric(relativeTo: .subheadline) private var pointSize: CGFloat = 14
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: pointSize, weight: .medium))
             .foregroundStyle(Color(uiColor: applied ? JournalPopoverStyle.ink : JournalPopoverStyle.onAccent))
             .padding(.horizontal, 12).padding(.vertical, 10).frame(minHeight: 44)
             .background(Color(uiColor: applied ? JournalPopoverStyle.surface : JournalPopoverStyle.accent))

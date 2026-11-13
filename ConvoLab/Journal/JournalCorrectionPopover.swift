@@ -6,6 +6,7 @@ struct JournalCorrectionPopover: View {
     let document: JournalDocumentModel?
     let suggestionID: String
     let width: CGFloat
+    @ScaledMetric(relativeTo: .footnote) private var statusPointSize: CGFloat = 12
 
     private var suggestion: JournalCorrectedDocument.Suggestion? {
         document?.entry.analysis?.correctedDocument?.suggestions.first { $0.id == suggestionID }
@@ -39,14 +40,20 @@ struct JournalCorrectionPopover: View {
 
     private func status(_ applied: Bool) -> some View {
         Label(applied ? "Applied" : "Original kept", systemImage: applied ? "checkmark" : "arrow.uturn.backward")
-            .font(.system(size: 12)).foregroundStyle(Color(uiColor: JournalPopoverStyle.muted))
+            .font(.system(size: statusPointSize)).foregroundStyle(Color(uiColor: JournalPopoverStyle.muted))
             .fixedSize(horizontal: true, vertical: false)
             .accessibilityIdentifier("JournalSuggestionStatus")
     }
 
     private func action(_ suggestion: JournalCorrectedDocument.Suggestion, document: JournalDocumentModel) -> some View {
         Button(label(suggestion.applied)) {
-            Task { _ = await document.toggle(suggestion) }
+            Task {
+                if await document.toggle(suggestion) {
+                    UIAccessibility.post(notification: .announcement, argument: suggestion.applied ? "Original kept" : "Applied")
+                } else if let error = document.errorMessage {
+                    UIAccessibility.post(notification: .announcement, argument: error)
+                }
+            }
         }.buttonStyle(JournalSuggestionButtonStyle(applied: suggestion.applied)).disabled(document.disabled)
     }
 

@@ -19,11 +19,23 @@ final class JournalEditingUITests: XCTestCase {
 
     @MainActor
     func testOptionalSuggestionHasApplyThenUndoControls() {
-        let app = openEntry()
+        exerciseOptionalChange(openEntry())
+    }
+
+    @MainActor
+    func testLargeTextSuggestionControlsStackAndRemainUsable() {
+        let app = openEntry(contentSize: "UICTContentSizeCategoryAccessibilityL")
+        exerciseOptionalChange(app)
+        XCTAssertLessThanOrEqual(app.staticTexts["Original kept"].frame.maxY, app.buttons["Apply suggestion"].frame.minY)
+    }
+
+    @MainActor
+    private func exerciseOptionalChange(_ app: XCUIApplication) {
         let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
         let apply = app.buttons["Apply suggestion"]
         XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        XCTAssertTrue(apply.isHittable)
         XCTAssertTrue(app.staticTexts["Original kept"].exists)
         let preview = XCTAttachment(screenshot: app.screenshot())
         preview.name = "Quiet footer — optional change"
@@ -39,9 +51,10 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
-    private func openEntry() -> XCUIApplication {
+    private func openEntry(contentSize: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Dark", "-reading-theme", "system", "-reading-format", "Phone reader"]
+        if let contentSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize] }
         app.launch()
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         app.buttons["StudyJournalLink"].tap()
