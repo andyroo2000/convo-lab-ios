@@ -29,7 +29,7 @@ struct JournalAppearance: View {
                         .accessibilityLabel("Font size")
                         .accessibilityValue("\(Int(typography.size)) points")
                 }
-                Text("For all Journal entries on this device. Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
+                Text("Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
         }
         .presentationDetents([.medium, .large])

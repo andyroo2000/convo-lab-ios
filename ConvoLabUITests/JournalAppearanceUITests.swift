@@ -30,7 +30,6 @@ final class JournalAppearanceUITests: XCTestCase {
         app.buttons["StudyJournalLink"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
         let appearance = app.buttons["Journal appearance"]
         XCTAssertTrue(appearance.waitForExistence(timeout: 5))
         appearance.tap()

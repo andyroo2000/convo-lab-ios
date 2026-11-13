@@ -4,7 +4,7 @@ struct JournalListView: View {
     let store: JournalStore
     let knownKanji: Set<Character>
     @State private var newEntryID: String?
-    @State private var deletingID: String?
+    @State private var showingAppearance = false
 
     private var rows: [JournalDraft] {
         var merged = Dictionary(store.entries.map { ($0.id, JournalDraft(entry: $0)) }, uniquingKeysWith: { _, newer in newer })
@@ -18,17 +18,7 @@ struct JournalListView: View {
                 Text(message).foregroundStyle(.red).font(.footnote)
             }
             ForEach(rows) { row in
-                NavigationLink {
-                    JournalEntryView(id: row.id, store: store, knownKanji: knownKanji)
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(row.title ?? "Untitled entry").font(.headline)
-                        Text(JournalDates.display(row.entryDate)).font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 6).accessibilityElement(children: .combine)
-                }
-                .swipeActions {
-                    Button("Delete", role: .destructive) { deletingID = row.id }
-                }
+                entryLink(row)
             }
             if store.nextCursor != nil {
                 Button("Load more") { Task { await store.loadMore() } }.disabled(store.isLoading)
@@ -42,7 +32,13 @@ struct JournalListView: View {
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .sheet(isPresented: $showingAppearance) { JournalAppearance() }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Aa") { showingAppearance = true }
+                    .buttonStyle(JournalToolbarButtonStyle(outlined: true))
+                    .accessibilityLabel("Journal appearance")
+            }.sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 Button("New entry", systemImage: "square.and.pencil") {
                     do { newEntryID = try store.create().id }
@@ -56,20 +52,20 @@ struct JournalListView: View {
         .navigationDestination(item: $newEntryID) { id in
             JournalEntryView(id: id, store: store, knownKanji: knownKanji)
         }
-        .confirmationDialog("Delete this entry?", isPresented: Binding(get: { deletingID != nil }, set: { if !$0 { deletingID = nil } }), titleVisibility: .visible) {
-            Button("Delete entry", role: .destructive) {
-                guard let id = deletingID else { return }
-                deletingID = nil
-                Task {
-                    do { try await store.delete(id: id) }
-                    catch { store.errorMessage = error.localizedDescription }
-                }
-            }
-        }
         .task {
             store.refreshDrafts()
             if store.entries.isEmpty { await store.loadMore(refresh: true) }
         }
         .refreshable { await store.loadMore(refresh: true) }
+    }
+    private func entryLink(_ row: JournalDraft) -> some View {
+        NavigationLink {
+            JournalEntryView(id: row.id, store: store, knownKanji: knownKanji)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(row.title ?? "Untitled entry").font(.headline)
+                Text(JournalDates.display(row.entryDate)).font(.caption).foregroundStyle(.secondary)
+            }.padding(.vertical, 6).accessibilityElement(children: .combine)
+        }
     }
 }
