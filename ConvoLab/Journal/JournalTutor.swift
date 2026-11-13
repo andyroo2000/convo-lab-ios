@@ -5,13 +5,7 @@ nonisolated struct JournalTutor: Codable, Identifiable, Equatable, Sendable {
     let name: String
     let gender: String
     let avatar: String
-    var imageName: String? {
-        switch avatar {
-        case "hana-v1": "JournalTutorHana"
-        case "ren-v1": "JournalTutorRen"
-        default: nil
-        }
-    }
+    var avatarUrl: String? = nil
 }
 nonisolated struct JournalTutorPreferences: Codable, Sendable {
     let selectedId: String?
