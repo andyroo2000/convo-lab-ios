@@ -6,25 +6,55 @@ struct JournalCorrectionPopover: View {
     let document: JournalDocumentModel?
     let suggestionID: String
     let width: CGFloat
-    let dismiss: () -> Void
+    @ScaledMetric(relativeTo: .footnote) private var statusPointSize: CGFloat = 12
 
     private var suggestion: JournalCorrectedDocument.Suggestion? {
         document?.entry.analysis?.correctedDocument?.suggestions.first { $0.id == suggestionID }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             StudyRubyText(segment.explanationReading ?? segment.explanation ?? "", knownKanji: knownKanji,
-                          pointSize: 14, color: .secondaryLabel, alignment: .left)
+                          pointSize: 14, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4)
             if let suggestion, let document {
-                Button(label(suggestion.applied)) {
-                    Task { if await document.toggle(suggestion) { dismiss() } }
-                }.buttonStyle(.bordered).disabled(document.disabled)
+                Rectangle().fill(Color(uiColor: JournalPopoverStyle.line)).frame(height: 1).accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        status(suggestion.applied)
+                        Spacer(minLength: 4)
+                        action(suggestion, document: document)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        status(suggestion.applied)
+                        action(suggestion, document: document)
+                    }
+                }
                 if let error = document.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
             } else {
                 Text("To change this passage, edit the corrected version.").font(.caption).foregroundStyle(.secondary)
             }
-        }.padding(12).frame(width: width).accessibilityIdentifier("JournalCorrectionPopover")
+        }.padding(14).frame(width: width)
+            .background(Color(uiColor: JournalPopoverStyle.surface))
+            .accessibilityIdentifier("JournalCorrectionPopover")
+    }
+
+    private func status(_ applied: Bool) -> some View {
+        Label(applied ? "Applied" : "Original kept", systemImage: applied ? "checkmark" : "arrow.uturn.backward")
+            .font(.system(size: statusPointSize)).foregroundStyle(Color(uiColor: JournalPopoverStyle.muted))
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityIdentifier("JournalSuggestionStatus")
+    }
+
+    private func action(_ suggestion: JournalCorrectedDocument.Suggestion, document: JournalDocumentModel) -> some View {
+        Button(label(suggestion.applied)) {
+            Task {
+                if await document.toggle(suggestion) {
+                    UIAccessibility.post(notification: .announcement, argument: suggestion.applied ? "Original kept" : "Applied")
+                } else if let error = document.errorMessage {
+                    UIAccessibility.post(notification: .announcement, argument: error)
+                }
+            }
+        }.buttonStyle(JournalSuggestionButtonStyle(applied: suggestion.applied)).disabled(document.disabled)
     }
 
     private func label(_ applied: Bool) -> String {
