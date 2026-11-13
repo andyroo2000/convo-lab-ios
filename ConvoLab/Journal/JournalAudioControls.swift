@@ -35,6 +35,7 @@ struct JournalAudioControls: View {
                     }
                         .disabled(voice.isLoading || voice.errorMessage != nil)
                         .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
+                        .accessibilityHint(choosingVoice ? "Voice choices expanded" : "Opens voice choices")
                         .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
                 }
             }
@@ -47,6 +48,9 @@ struct JournalAudioControls: View {
         }
         .padding(12).background(.white.opacity(0.8), in: .rect(cornerRadius: 12))
         .task(id: "\(entryID):\(analysis.id):\(analysis.replyRevision ?? 0)") { await loadVoices() }
+        .onChange(of: voice.isLoading) { if voice.isLoading { choosingVoice = false } }
+        .onChange(of: voice.errorMessage) { if voice.errorMessage != nil { choosingVoice = false } }
+        .onChange(of: voice.voices.count) { if voice.voices.isEmpty { choosingVoice = false } }
         .onChange(of: voice.selected) { player.stop() }
         .onChange(of: analysis.replyRevision) { player.stop() }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }

@@ -21,5 +21,11 @@ final class JournalVoicePickerUITests: XCTestCase {
         app.buttons["Cancel"].firstMatch.tap()
         XCTAssertFalse(title.exists)
         XCTAssertEqual(picker.value as? String, selected)
+        picker.tap()
+        let haru = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Haru (M)")).firstMatch
+        XCTAssertTrue(haru.waitForExistence(timeout: 5))
+        haru.tap()
+        XCTAssertFalse(title.exists)
+        XCTAssertEqual(picker.value as? String, "Haru (M)")
     }
 }

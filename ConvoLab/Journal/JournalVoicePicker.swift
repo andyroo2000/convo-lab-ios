@@ -19,10 +19,11 @@ struct JournalVoicePicker: View {
                             JournalAvatar(url: option.avatarUrl).frame(width: 80, height: 80)
                                 .clipShape(Circle()).accessibilityHidden(true)
                             Text(option.name).font(.subheadline.bold())
-                            if voice.selected == option.id { Image(systemName: "checkmark").accessibilityLabel("Selected voice") }
+                            if voice.selected == option.id { Image(systemName: "checkmark").accessibilityHidden(true) }
                         }.frame(maxWidth: .infinity).padding(12)
                             .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
                     }.buttonStyle(.plain).disabled(voice.isLoading || voice.errorMessage != nil)
+                        .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(voice.selected == option.id ? .isSelected : [])
                 }
             }
