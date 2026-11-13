@@ -11,6 +11,8 @@ final class JournalVoicePickerUITests: XCTestCase {
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
+        XCTAssertTrue(app.buttons["Final"].waitForExistence(timeout: 5))
+        app.buttons["Final"].tap()
         let picker = app.buttons["JournalVoicePicker"]
         for _ in 0..<3 where !picker.isHittable { app.swipeUp() }
         XCTAssertTrue(picker.waitForExistence(timeout: 5))

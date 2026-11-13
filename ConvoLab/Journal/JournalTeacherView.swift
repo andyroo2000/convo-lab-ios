@@ -23,7 +23,6 @@ struct JournalTeacherView: View {
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text(model.question?.tutor?.name ?? "Tutor").font(.subheadline.bold())
                         Spacer()
                         Button { Task { await model.showPicker() } } label: {
                             Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
@@ -31,9 +30,12 @@ struct JournalTeacherView: View {
                     }
                     JournalRubyText(text: model.question?.reading ?? feedback.questionReading, knownKanji: knownKanji)
                     if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question).id(question.id) }
-                    Button(showEnglish ? "Hide English" : "Show English") { showEnglish.toggle() }.font(.footnote)
+                    Button("EN") { showEnglish.toggle() }.font(.caption.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(showEnglish ? "Hide English" : "Show English")
+                        .accessibilityValue(showEnglish ? "Expanded" : "Collapsed")
                     if showEnglish { Text(model.question?.translation ?? feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
-                }.padding(14).background(Color.blue.opacity(0.07), in: .rect(cornerRadius: 16))
+                }.padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
             }
             if let error = model.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)

@@ -2,7 +2,7 @@ import XCTest
 
 final class JournalEditingUITests: XCTestCase {
     @MainActor
-    func testOriginalHighlightsPrecedeCleanCorrectedVersionAndAudio() {
+    func testDraftAndFinalShowOnlyOneVersionAtATime() {
         let app = openEntry()
         let edited = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         XCTAssertTrue(edited.label.contains("Replace 映画を見た。 with 映画を見ました。"))
@@ -12,13 +12,18 @@ final class JournalEditingUITests: XCTestCase {
         add(preview)
         XCTAssertTrue(app.staticTexts["Correction"].exists)
         XCTAssertTrue(app.staticTexts["Optional change"].exists)
+        XCTAssertFalse(app.buttons["Play corrected version"].exists)
+        app.buttons["Final"].tap()
         XCTAssertTrue(app.buttons["Play corrected version"].exists)
-        XCTAssertLessThan(edited.frame.minY, app.buttons["Play corrected version"].frame.minY)
+        XCTAssertFalse(edited.exists)
+        app.buttons["Draft"].tap()
+        XCTAssertTrue(edited.exists)
     }
 
     @MainActor
     func testManualCorrectedEditCanBeSavedAndReopened() {
         let app = openEntry()
+        app.buttons["Final"].tap()
         app.buttons["Edit corrected version"].tap()
         let editor = app.textViews["Corrected entry text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
@@ -76,7 +81,7 @@ final class JournalEditingUITests: XCTestCase {
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
-        XCTAssertTrue(app.buttons["Edit corrected version"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Draft"].waitForExistence(timeout: 5))
         return app
     }
 }
