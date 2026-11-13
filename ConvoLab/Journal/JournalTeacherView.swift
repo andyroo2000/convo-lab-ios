@@ -77,7 +77,6 @@ private struct JournalTutorPicker: View {
 private struct JournalTutorPortrait: View {
     let tutor: JournalTutor
     var body: some View {
-        if let image = tutor.imageName { Image(image).resizable().scaledToFit() }
-        else { Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundStyle(.secondary) }
+        JournalAvatar(url: tutor.avatarUrl)
     }
 }

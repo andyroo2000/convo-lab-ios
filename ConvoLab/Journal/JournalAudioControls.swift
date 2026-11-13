@@ -11,11 +11,13 @@ struct JournalAudioControls: View {
     let service: JournalService
     @State private var player = JournalAudioPlayer()
     @State private var voice = JournalVoiceSelection()
+    @State private var choosingVoice = false
     @Environment(\.journalBeforeAudio) private var beforeAudio
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
             TimelineView(.animation(minimumInterval: 0.25, paused: !player.isPlaying)) { _ in
                 HStack(spacing: 12) {
                     Button {
@@ -28,12 +30,9 @@ struct JournalAudioControls: View {
                     Text(clock(player.position)).font(.caption.monospacedDigit())
                     Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
                         .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
-                    Menu {
-                        Picker("Narration voice", selection: $voice.selected) {
-                            if voice.selected.isEmpty { Text("Select voice").tag("") }
-                            ForEach(voice.voices) { Text($0.name).tag($0.id) }
-                        }
-                    } label: { Image(systemName: "person.wave.2").frame(minWidth: 44, minHeight: 44) }
+                    Button { choosingVoice.toggle() } label: {
+                        Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
+                    }
                         .disabled(voice.isLoading || voice.errorMessage != nil)
                         .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
                         .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
