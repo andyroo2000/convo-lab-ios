@@ -45,6 +45,7 @@ struct JournalEntryView: View {
             }
         }
         .sheet(isPresented: $showingAppearance) { JournalAppearance() }
+        .modifier(JournalTimeTracking(service: model.store.service))
         .paperBackground()
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
