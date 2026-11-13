@@ -5,6 +5,7 @@ struct JournalTeacherView: View {
     let knownKanji: Set<Character>
     @State private var model: JournalTutorModel
     @State private var showEnglish = false
+    @Environment(\.scenePhase) private var scenePhase
 
     init(entry: JournalEntryModel, analysis: JournalAnalysis, feedback: JournalFeedback, knownKanji: Set<Character>) {
         self.feedback = feedback
@@ -17,7 +18,7 @@ struct JournalTeacherView: View {
             if model.choosing { JournalTutorPicker(model: model) }
             HStack(alignment: .top, spacing: 12) {
                 if let tutor = model.question?.tutor {
-                    Image(tutor.imageName).resizable().scaledToFit().frame(width: 56, height: 56)
+                    JournalTutorPortrait(tutor: tutor).frame(width: 56, height: 56)
                         .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
                 }
                 VStack(alignment: .leading, spacing: 12) {
@@ -28,9 +29,10 @@ struct JournalTeacherView: View {
                             Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
                         }.accessibilityLabel("Choose tutor").disabled(model.isBusy)
                     }
-                    StudyRubyText(feedback.questionReading, knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 8)
+                    StudyRubyText(model.question?.reading ?? feedback.questionReading, knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 8)
+                    if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question).id(question.id) }
                     Button(showEnglish ? "Hide English" : "Show English") { showEnglish.toggle() }.font(.footnote)
-                    if showEnglish { Text(feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
+                    if showEnglish { Text(model.question?.translation ?? feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
                 }.padding(14).background(Color.blue.opacity(0.07), in: .rect(cornerRadius: 16))
             }
             if let error = model.errorMessage {
@@ -38,6 +40,9 @@ struct JournalTeacherView: View {
                 Button("Retry tutor") { Task { await model.load() } }.font(.footnote)
             }
         }.task { await model.load() }
+            .task(id: "\(model.question?.id ?? ""):\(model.question?.audio?.status ?? ""):\(scenePhase)") {
+                if scenePhase == .active { await model.monitorAudio() }
+            }
     }
 }
 
@@ -56,7 +61,7 @@ private struct JournalTutorPicker: View {
                 ForEach(model.preferences?.tutors ?? []) { tutor in
                     Button { Task { await model.choose(tutor) } } label: {
                         VStack(spacing: 8) {
-                            Image(tutor.imageName).resizable().scaledToFit().frame(width: 80, height: 80).clipShape(Circle()).accessibilityHidden(true)
+                            JournalTutorPortrait(tutor: tutor).frame(width: 80, height: 80).clipShape(Circle()).accessibilityHidden(true)
                             Text("\(tutor.name) (\(tutor.gender))").font(.subheadline.bold())
                             if model.preferences?.selectedId == tutor.id { Image(systemName: "checkmark").accessibilityLabel("Current default") }
                         }.frame(maxWidth: .infinity).padding(12)
@@ -66,5 +71,13 @@ private struct JournalTutorPicker: View {
             }
             if model.isBusy { ProgressView("Saving tutor…") }
         }.padding(14).background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16))
+    }
+}
+
+private struct JournalTutorPortrait: View {
+    let tutor: JournalTutor
+    var body: some View {
+        if let image = tutor.imageName { Image(image).resizable().scaledToFit() }
+        else { Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundStyle(.secondary) }
     }
 }

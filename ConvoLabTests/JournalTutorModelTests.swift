@@ -60,6 +60,37 @@ final class JournalTutorModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
+    func testPreparationFailureAfterSavedPreferenceKeepsChooserOpen() async throws {
+        let preferences = JournalTutorPreferences(selectedId: "ren", tutors: [hana, ren])
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/question") == true { throw URLError(.notConnectedToInternet) }
+            return try Self.response(request.url!, preferences)
+        }
+        await model.choose(ren)
+        XCTAssertTrue(model.choosing)
+        XCTAssertEqual(model.preferences?.selectedId, "ren")
+        XCTAssertEqual(model.question?.tutor?.id, "hana")
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    func testMonitorLoadsReadyAudioAndRetainsTutor() async throws {
+        var queued = try XCTUnwrap(model.question)
+        queued.audio = JournalQuestionAudioState(status: "queued", error: nil)
+        let initial = queued
+        MockURLProtocol.handler = { request in try Self.response(request.url!, initial) }
+        await model.load()
+        queued.audio = JournalQuestionAudioState(status: "ready", error: nil)
+        let ready = queued
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertTrue(request.url!.path.hasSuffix("/questions/" + ready.id))
+            return try Self.response(request.url!, ready)
+        }
+        await model.monitorAudio()
+        XCTAssertEqual(model.question?.audio?.status, "ready")
+        XCTAssertEqual(model.question?.tutor?.id, "hana")
+    }
+
     func testAccountSwitchRejectsLateTutorPreferenceResponse() async throws {
         let deferred = LockedDeferredResponse()
         let preferences = JournalTutorPreferences(selectedId: "ren", tutors: [hana, ren])

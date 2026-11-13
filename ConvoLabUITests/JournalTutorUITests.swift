@@ -18,6 +18,8 @@ final class JournalTutorUITests: XCTestCase {
         let portrait = app.images["Hana, your tutor"]
         XCTAssertTrue(portrait.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["What kind of movie was it?"].exists)
+        XCTAssertTrue(app.buttons["Play question"].exists)
+        XCTAssertFalse(app.buttons["Pause question"].exists)
         app.buttons["Choose tutor"].tap()
         let ren = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Ren (M)")).firstMatch
         XCTAssertTrue(ren.waitForExistence(timeout: 5))

@@ -5,7 +5,13 @@ nonisolated struct JournalTutor: Codable, Identifiable, Equatable, Sendable {
     let name: String
     let gender: String
     let avatar: String
-    var imageName: String { avatar == "hana-v1" ? "JournalTutorHana" : "JournalTutorRen" }
+    var imageName: String? {
+        switch avatar {
+        case "hana-v1": "JournalTutorHana"
+        case "ren-v1": "JournalTutorRen"
+        default: nil
+        }
+    }
 }
 nonisolated struct JournalTutorPreferences: Codable, Sendable {
     let selectedId: String?
@@ -22,4 +28,11 @@ nonisolated struct JournalTutorQuestion: Codable, Identifiable, Sendable {
     let reading: String
     let translation: String
     let tutor: JournalTutor?
+    var audio: JournalQuestionAudioState? = nil
+}
+
+nonisolated struct JournalQuestionAudioState: Codable, Sendable {
+    let status: String
+    let error: String?
+    var waiting: Bool { status == "queued" || status == "processing" }
 }

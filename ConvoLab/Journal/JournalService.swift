@@ -114,6 +114,19 @@ struct JournalService {
         return value.data
     }
 
+    func question(entryID: String, questionID: String) async throws -> JournalTutorQuestion {
+        guard ClientIdentifier.isULID(questionID) else { throw APIClientError.invalidResponse }
+        let value: JournalResource<JournalTutorQuestion> = try await request(path(entryID) + "/questions/" + questionID.lowercased())
+        return value.data
+    }
+
+    func questionAudio(entryID: String, questionID: String) async throws -> Data {
+        try checkSession()
+        let data = try await api.journalQuestionAudio(entryID: entryID, questionID: questionID, authorizationToken: token)
+        try checkSession()
+        return data
+    }
+
     func voices() async throws -> [JournalVoice] {
         let value: JournalResource<[JournalVoice]> = try await request("/api/journal/voices")
         return value.data
