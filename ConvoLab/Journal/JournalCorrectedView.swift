@@ -24,8 +24,7 @@ struct JournalCorrectedView: View {
             JournalAudioControls(entryID: document.entry.id, analysis: analysis, service: document.entry.store.service)
                 .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
             StudyRubyText(analysis.correctedReading ?? "", knownKanji: knownKanji, pointSize: 20, alignment: .left, extraLineSpacing: 10)
-            if let error = document.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
-        }.sheet(item: $edit) { draft in JournalCorrectedEditor(document: document, draft: draft) }
+        }.sheet(item: $edit, onDismiss: { document.errorMessage = nil }) { draft in JournalCorrectedEditor(document: document, draft: draft) }
     }
 }
 
@@ -70,7 +69,7 @@ private struct JournalCorrectedEditor: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") { Task { await save() } }
-                            .disabled(document.disabled || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.count > 30000)
+                            .disabled(document.disabled || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.unicodeScalars.count > 30000)
                     }
                 }
         }.interactiveDismissDisabled(document.isBusy || text != draft.text)

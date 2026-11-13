@@ -98,7 +98,9 @@ struct JournalHighlights: UIViewRepresentable {
             guard let view, segments.indices.contains(index), segments[index].kind.isHighlighted else { return }
             let controller = sequence(first: view.next, next: { $0?.next }).compactMap { $0 as? UIViewController }.first
             guard let controller, controller.presentedViewController == nil else { return }
-            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(320, (view.window?.bounds.width ?? 368) - 32)))
+            document?.errorMessage = nil
+            // IDs retain the original segment index, including plain segments.
+            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(320, (view.window?.bounds.width ?? 368) - 32), dismiss: { [weak controller] in controller?.dismiss(animated: true) }))
             popup.overrideUserInterfaceStyle = view.traitCollection.userInterfaceStyle
             popup.modalPresentationStyle = .popover
             popup.sizingOptions = .preferredContentSize

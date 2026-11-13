@@ -6,7 +6,7 @@ struct JournalCorrectionPopover: View {
     let document: JournalDocumentModel?
     let suggestionID: String
     let width: CGFloat
-    @Environment(\.dismiss) private var dismiss
+    let dismiss: () -> Void
 
     private var suggestion: JournalCorrectedDocument.Suggestion? {
         document?.entry.analysis?.correctedDocument?.suggestions.first { $0.id == suggestionID }
