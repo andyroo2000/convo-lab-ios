@@ -26,7 +26,7 @@ struct JournalListView: View {
                         Text(JournalDates.display(row.entryDate)).font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 6).accessibilityElement(children: .combine)
                 }
-                .swipeActions {
+                .swipeActions(allowsFullSwipe: false) {
                     Button("Delete", role: .destructive) { deletingID = row.id }
                 }
             }
@@ -61,6 +61,11 @@ struct JournalListView: View {
                     do { try await store.delete(id: id) }
                     catch { store.errorMessage = error.localizedDescription }
                 }
+            }
+            Button("Keep entry", role: .cancel) { deletingID = nil }
+        } message: {
+            if let row = rows.first(where: { $0.id == deletingID }) {
+                Text("“\(row.title ?? "Untitled entry")” will be permanently deleted. You can’t undo this action.")
             }
         }
         .task {
