@@ -2,6 +2,21 @@ import XCTest
 
 final class JournalEditingUITests: XCTestCase {
     @MainActor
+    func testEditorMarkupPrecedesCleanCorrectedVersionAndAudio() {
+        let app = openEntry()
+        let edited = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
+        XCTAssertTrue(edited.label.contains("Replace 映画を見た。 with 映画を見ました。"))
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Editor corrections and clean version"
+        preview.lifetime = .keepAlways
+        add(preview)
+        XCTAssertFalse(app.staticTexts["Correction"].exists)
+        XCTAssertFalse(app.staticTexts["Optional change"].exists)
+        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        XCTAssertLessThan(edited.frame.minY, app.buttons["Play corrected version"].frame.minY)
+    }
+
+    @MainActor
     func testManualCorrectedEditCanBeSavedAndReopened() {
         let app = openEntry()
         app.buttons["Edit corrected version"].tap()
@@ -32,7 +47,7 @@ final class JournalEditingUITests: XCTestCase {
     @MainActor
     private func exerciseOptionalChange(_ app: XCUIApplication) {
         let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
-        highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.25)).tap()
         let apply = app.buttons["Apply suggestion"]
         XCTAssertTrue(apply.waitForExistence(timeout: 5))
         XCTAssertTrue(apply.isHittable)
