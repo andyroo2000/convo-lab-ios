@@ -18,6 +18,7 @@ struct JournalConversationComposer: View {
                 JournalTeacherView(entry: entry, analysis: analysis, feedback: feedback, knownKanji: knownKanji)
             }
             TextEditor(text: $answer.body).modifier(JournalBodyFont()).frame(minHeight: 120)
+                .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink)).environment(\.colorScheme, .light)
                 .padding(10).background(.white, in: .rect(cornerRadius: 12))
                 .focused($writing).accessibilityLabel("Your answer").disabled(answer.busy || answer.request != nil)
                 .onChange(of: answer.body) { answer.save() }

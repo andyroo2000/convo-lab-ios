@@ -109,6 +109,26 @@ final class JournalConversationTests: XCTestCase {
         XCTAssertEqual(tutor.question?.tutor?.id, "hana")
         XCTAssertNil(tutor.errorMessage)
     }
+    func testPermanentRejectionUnlocksSavedAnswer() async {
+        for status in [404, 409, 422] {
+            MockURLProtocol.handler = { request in
+                (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+            }
+            let answer = JournalConversationAnswer(entry: JournalEntryModel(id: rootID, store: store), rootID: rootID, analysisID: childID)
+            answer.body = "友達と見た。"
+            await answer.submit(questionID: questionID, refresh: { false })
+            XCTAssertNil(answer.request)
+            XCTAssertEqual(answer.body, "友達と見た。")
+        }
+    }
+    func testPlainReloadDoesNotReuseInitialSnapshot() async {
+        let node = JournalConversationNode(entry: child(), analysis: nil, question: nil, parentEntryId: rootID)
+        let model = JournalEntryModel(id: childID, store: store, initial: node)
+        await model.load()
+        XCTAssertNil(model.errorMessage)
+        await model.load()
+        XCTAssertNotNil(model.errorMessage, "Reload must fetch, and the test server is offline")
+    }
     nonisolated private static func response<Value: Codable & Sendable>(_ url: URL, _ value: Value) throws -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, try JSONEncoder().encode(JournalResource(data: value)))
     }
