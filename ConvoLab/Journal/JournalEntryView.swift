@@ -25,7 +25,7 @@ struct JournalEntryView: View {
                         catch { model.errorMessage = "Could not preserve a separate copy. Keep this entry open." }
                     }
                 }
-                if isReviewing { JournalFeedbackView(model: model, knownKanji: knownKanji) } else { JournalEntryForm(model: model) }
+                if isReviewing { JournalFeedbackView(model: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
                 if let analysis = model.analysis, analysis.status.isPending {
                     JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt).id(analysis.id)
                 }

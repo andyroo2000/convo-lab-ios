@@ -4,6 +4,8 @@ import UIKit
 struct JournalHighlights: UIViewRepresentable {
     let segments: [JournalSegment]
     let knownKanji: Set<Character>
+    var document: JournalDocumentModel?
+    var sourceID = ""
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -14,7 +16,7 @@ struct JournalHighlights: UIViewRepresentable {
         view.isScrollEnabled = false
         view.isSelectable = false
         view.accessibilityIdentifier = "JournalHighlightedEntry"
-        view.accessibilityHint = "Tap a highlighted phrase for its suggestion and explanation."
+        view.accessibilityHint = "Tap a highlighted phrase for its explanation and editing options."
         view.textContainer.lineFragmentPadding = 0
         view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:))))
         context.coordinator.view = view
@@ -22,6 +24,8 @@ struct JournalHighlights: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.document = document
+        context.coordinator.sourceID = sourceID
         context.coordinator.segments = segments
         context.coordinator.knownKanji = knownKanji
         let output = NSMutableAttributedString()
@@ -69,6 +73,8 @@ struct JournalHighlights: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIPopoverPresentationControllerDelegate {
         weak var view: UITextView?
+        var document: JournalDocumentModel?
+        var sourceID = ""
         var segments: [JournalSegment] = []
         var ranges: [NSRange] = []
         var knownKanji: Set<Character> = []
@@ -92,7 +98,9 @@ struct JournalHighlights: UIViewRepresentable {
             guard let view, segments.indices.contains(index), segments[index].kind.isHighlighted else { return }
             let controller = sequence(first: view.next, next: { $0?.next }).compactMap { $0 as? UIViewController }.first
             guard let controller, controller.presentedViewController == nil else { return }
-            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, width: min(320, (view.window?.bounds.width ?? 368) - 32)))
+            document?.errorMessage = nil
+            // IDs retain the original segment index, including plain segments.
+            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(320, (view.window?.bounds.width ?? 368) - 32), dismiss: { [weak controller] in controller?.dismiss(animated: true) }))
             popup.overrideUserInterfaceStyle = view.traitCollection.userInterfaceStyle
             popup.modalPresentationStyle = .popover
             popup.sizingOptions = .preferredContentSize
@@ -112,17 +120,5 @@ struct JournalHighlights: UIViewRepresentable {
         }
 
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
-    }
-}
-
-private struct JournalCorrectionPopover: View {
-    let segment: JournalSegment
-    let knownKanji: Set<Character>
-    let width: CGFloat
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            StudyRubyText(segment.suggestionReading ?? segment.reading, knownKanji: knownKanji, pointSize: 20, alignment: .left)
-            StudyRubyText(segment.explanationReading ?? segment.explanation ?? "", knownKanji: knownKanji, pointSize: 14, color: .secondaryLabel, alignment: .left)
-        }.padding(12).frame(width: width).accessibilityIdentifier("JournalCorrectionPopover")
     }
 }
