@@ -27,6 +27,7 @@ struct JournalListView: View {
         }
         .overlay { if rows.isEmpty && !store.isLoading && store.errorMessage == nil { ContentUnavailableView("No journal entries yet", systemImage: "book.closed") } }
         .scrollContentBackground(.hidden)
+        .modifier(JournalTimeTracking(service: store.service))
         .paperBackground()
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
@@ -35,16 +36,18 @@ struct JournalListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Aa") { showingAppearance = true }
-                    .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(JournalToolbarButtonStyle(outlined: true))
                     .accessibilityLabel("Journal appearance")
-            }
+            }.sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 Button("New entry", systemImage: "square.and.pencil") {
                     do { newEntryID = try store.create().id }
                     catch { store.errorMessage = "Could not create a device draft. Try again." }
                 }
+                .labelStyle(.iconOnly)
+                .buttonStyle(JournalToolbarButtonStyle(outlined: false))
                 .accessibilityIdentifier("JournalNewEntry")
-            }
+            }.sharedBackgroundVisibility(.hidden)
         }
         .navigationDestination(item: $newEntryID) { id in
             JournalEntryView(id: id, store: store, knownKanji: knownKanji)

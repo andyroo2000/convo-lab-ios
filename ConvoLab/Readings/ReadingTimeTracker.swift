@@ -4,6 +4,10 @@ import Foundation
 /// and manual sessions can replace it without being stopped by stale cleanup.
 @MainActor
 final class ReadingTimeTracker {
+    private let activity: StudyActivityKind
+
+    init(activity: StudyActivityKind = .reading) { self.activity = activity }
+
     private var store: StudyTimeStore?
     private var sessionID: String?
 
@@ -25,12 +29,12 @@ final class ReadingTimeTracker {
     private func start(title: String, in store: StudyTimeStore, at date: Date) {
         // Same-title readings still need distinct ownership. Do not adopt an
         // existing reading interval that another reader may later tear down.
-        if store.active?.activity == .reading, store.active?.source == .automatic {
-            guard store.stop(activity: .reading, source: .automatic, at: date) else { return }
+        if store.active?.activity == activity, store.active?.source == .automatic {
+            guard store.stop(activity: activity, source: .automatic, at: date) else { return }
         }
         let name = String(title.unicodeScalars.prefix(120))
-        guard store.start(activity: .reading, source: .automatic, name: name, at: date),
-              let active = store.active, active.activity == .reading, active.source == .automatic
+        guard store.start(activity: activity, source: .automatic, name: name, at: date),
+              let active = store.active, active.activity == activity, active.source == .automatic
         else { return }
         sessionID = active.clientSessionID
     }
@@ -38,7 +42,7 @@ final class ReadingTimeTracker {
     @discardableResult
     private func stop(at date: Date) -> Bool {
         if let sessionID, store?.active?.clientSessionID == sessionID {
-            guard store?.stop(activity: .reading, source: .automatic, at: date) == true else { return false }
+            guard store?.stop(activity: activity, source: .automatic, at: date) == true else { return false }
         }
         sessionID = nil
         return true

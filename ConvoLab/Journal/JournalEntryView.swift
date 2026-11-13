@@ -51,6 +51,7 @@ struct JournalEntryView: View {
             Text("“\(model.draft?.title ?? "Untitled entry")” will be permanently deleted. You can’t undo this action.")
         }
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
+        .modifier(JournalTimeTracking(service: model.store.service))
         .paperBackground()
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
