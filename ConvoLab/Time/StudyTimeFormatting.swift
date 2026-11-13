@@ -8,7 +8,7 @@ extension StudyActivityCategory {
         case .create: .orange
         case .immerse: .green
         case .conversation: .purple
-        case .writing: .orange
+        case .writing: .teal
         case .wanikani: .pink
         }
     }

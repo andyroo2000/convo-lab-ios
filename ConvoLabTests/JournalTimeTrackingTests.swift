@@ -21,4 +21,18 @@ extension StudyActivitySessionTests {
         XCTAssertEqual(try fixture.records().filter { $0.activity == "journal" }.map(\.durationMs), [60_000, 60_000])
         await fixture.store.deactivate()
     }
+    func testJournalEntryCanAppearBeforeListDisappears() async throws {
+        let fixture = try makeReadingTimeFixture()
+        let list = ReadingTimeTracker(activity: .journal)
+        let entry = ReadingTimeTracker(activity: .journal)
+        list.update(title: "Journal", store: fixture.store, at: fixture.startedAt)
+        entry.update(title: "Journal", store: fixture.store, at: fixture.startedAt.addingTimeInterval(30))
+        let entryID = fixture.store.active?.clientSessionID
+        list.update(title: nil, store: fixture.store, at: fixture.startedAt.addingTimeInterval(31))
+        XCTAssertEqual(fixture.store.active?.clientSessionID, entryID)
+        entry.update(title: nil, store: fixture.store, at: fixture.startedAt.addingTimeInterval(90))
+        XCTAssertEqual(try fixture.records().map(\.durationMs), [30_000, 60_000])
+        await fixture.store.deactivate()
+    }
+
 }
