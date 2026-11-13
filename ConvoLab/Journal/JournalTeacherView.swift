@@ -4,7 +4,6 @@ struct JournalTeacherView: View {
     let feedback: JournalFeedback?
     let knownKanji: Set<Character>
     @State private var model: JournalTutorModel
-    @State private var showEnglish = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(entry: JournalEntryModel, analysis: JournalAnalysis, feedback: JournalFeedback, knownKanji: Set<Character>, savedQuestion: JournalTutorQuestion? = nil) {
@@ -26,21 +25,11 @@ struct JournalTeacherView: View {
                     JournalTutorPortrait(tutor: tutor).frame(width: 56, height: 56)
                         .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
                 }
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Spacer()
-                        Button { Task { await model.showPicker() } } label: {
-                            Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
-                        }.accessibilityLabel("Choose tutor").disabled(model.isBusy)
+                VStack(alignment: .leading, spacing: 10) {
+                    JournalQuestionBubbleContent(reading: model.question?.reading ?? feedback?.questionReading ?? "", translation: model.question?.translation ?? feedback?.questionTranslation ?? "", knownKanji: knownKanji, busy: model.isBusy) {
+                        Task { await model.showPicker() }
                     }
-                    JournalRubyText(text: model.question?.reading ?? feedback?.questionReading ?? "", knownKanji: knownKanji)
                     if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question).id(question.id) }
-                    Button("EN") { showEnglish.toggle() }.font(.caption.weight(.semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityLabel(showEnglish ? "Hide English" : "Show English")
-                        .accessibilityInputLabels(["EN", "English"])
-                        .accessibilityValue(showEnglish ? "Expanded" : "Collapsed")
-                    if showEnglish { Text(model.question?.translation ?? feedback?.questionTranslation ?? "").font(.subheadline).foregroundStyle(.secondary) }
                 }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                     .environment(\.colorScheme, .light)
                     .padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
