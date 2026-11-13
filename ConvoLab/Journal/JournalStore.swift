@@ -10,6 +10,7 @@ final class JournalStore {
     private(set) var drafts: [JournalDraft] = []
     private(set) var nextCursor: String?
     private(set) var isLoading = false
+    private(set) var busyEntryIDs: Set<String> = []
     var errorMessage: String?
 
     init(api: APIClient, userID: Int, storageRoot: URL? = nil) {
@@ -64,8 +65,18 @@ final class JournalStore {
         entries.sort { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }
     }
 
-    func delete(id: String) async throws {
+    func beginMutation(id: String) throws {
         try service.checkSession()
+        guard busyEntryIDs.insert(id).inserted else {
+            throw APIClientError.rejected(status: 409, message: "This entry is still saving. Please try again when it finishes.")
+        }
+    }
+
+    func endMutation(id: String) { busyEntryIDs.remove(id) }
+
+    func delete(id: String) async throws {
+        try beginMutation(id: id)
+        defer { endMutation(id: id) }
         if let entry = entries.first(where: { $0.id == id }) {
             try await service.delete(id: id, version: entry.version)
         } else if let draft = try storage.load(id: id), draft.expectedVersion > 0 {

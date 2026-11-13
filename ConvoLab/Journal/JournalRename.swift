@@ -2,7 +2,8 @@ import Foundation
 
 extension JournalStore {
     func rename(_ entry: JournalDraft, title input: String) async throws {
-        try service.checkSession()
+        try beginMutation(id: entry.id)
+        defer { endMutation(id: entry.id) }
         let title = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, title.unicodeScalars.count <= 255 else {
             throw APIClientError.rejected(status: 422, message: "Enter a title of 1–255 characters.")
@@ -24,7 +25,7 @@ extension JournalStore {
         let saved = server.title == title ? server : try await service.save(request)
         accept(saved)
         do {
-            try reconcileTitle(entry, previousTitle: local?.title, saved: saved)
+            try reconcileTitle(JournalDraft(entry: server), previousTitle: local?.title, saved: saved)
         } catch {
             throw APIClientError.rejected(status: 503, message: "The title was saved online, but the device draft could not be updated. Try Save again.")
         }
@@ -34,7 +35,7 @@ extension JournalStore {
     private func reconcileTitle(_ entry: JournalDraft, previousTitle: String?, saved: JournalEntry) throws {
         guard var current = try storage.load(id: entry.id) else { return }
         if current.title == previousTitle { current.title = saved.title }
-        if current.expectedVersion == entry.expectedVersion && saved.version <= entry.expectedVersion + 1 {
+        if current.expectedVersion == entry.expectedVersion {
             current.expectedVersion = saved.version
         }
         current.editID = UUID().uuidString

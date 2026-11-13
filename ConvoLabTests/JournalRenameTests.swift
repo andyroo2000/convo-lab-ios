@@ -33,6 +33,7 @@ final class JournalRenameTests: XCTestCase {
         XCTAssertEqual(saved.title, "Movie night")
         XCTAssertEqual(saved.body, draft.body)
         XCTAssertEqual(saved.expectedVersion, 0)
+        XCTAssertNotEqual(saved.editID, draft.editID)
     }
 
     func testSavedRenameDoesNotPublishUnsavedWriting() async throws {
@@ -63,6 +64,56 @@ final class JournalRenameTests: XCTestCase {
         XCTAssertEqual(try store.storage.load(id: draft.id), draft)
     }
 
+    func testSameTitleWithNewerRemoteBodyDoesNotAdvanceLocalVersion() async throws {
+        let draft = try savedDraft()
+        respond(id: draft.id, version: 4, title: "New title")
+        try await store.rename(draft, title: "New title")
+        let local = try XCTUnwrap(store.storage.load(id: draft.id))
+        XCTAssertEqual(local.title, "New title")
+        XCTAssertEqual(local.expectedVersion, 3)
+        XCTAssertEqual(local.body, "Private writing")
+    }
+
+    func testRenamePreservesEditsMadeWhileReadingTheSavedEntry() async throws {
+        let draft = try savedDraft()
+        let deferred = LockedDeferredResponse()
+        MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }
+        let renaming = Task { try await store.rename(draft, title: "New title") }
+        await deferred.waitUntilPending()
+        var newer = draft
+        newer.title = "New local title"
+        newer.body = "More private writing"
+        newer.editID = UUID().uuidString
+        try store.write(newer)
+        MockURLProtocol.deferredHandler = nil
+        respond(id: draft.id, version: 3)
+        deferred.succeed(with: try Self.response(id: draft.id, title: "Original", version: 3))
+        try await renaming.value
+        let saved = try XCTUnwrap(store.storage.load(id: draft.id))
+        XCTAssertEqual(saved.title, newer.title)
+        XCTAssertEqual(saved.body, newer.body)
+        XCTAssertEqual(saved.expectedVersion, 4)
+        XCTAssertNotEqual(saved.editID, newer.editID)
+    }
+
+    func testRowMutationsWaitForAnEditorSaveToFinish() async throws {
+        let draft = try savedDraft()
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        let deferred = LockedDeferredResponse()
+        MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }
+        let saving = Task { await model.save(submit: false) }
+        await deferred.waitUntilPending()
+        do { try await store.rename(draft, title: "New title"); XCTFail("Expected busy rejection") }
+        catch APIClientError.rejected(let status, _) { XCTAssertEqual(status, 409) }
+        do { try await store.delete(id: draft.id); XCTFail("Expected busy rejection") }
+        catch APIClientError.rejected(let status, _) { XCTAssertEqual(status, 409) }
+        XCTAssertTrue(store.busyEntryIDs.contains(draft.id))
+        deferred.succeed(with: try Self.response(id: draft.id, title: "Original", version: 4))
+        await saving.value
+        XCTAssertTrue(store.busyEntryIDs.isEmpty)
+    }
+
     private func savedDraft() throws -> JournalDraft {
         var draft = try store.create()
         draft.title = "Original"
@@ -72,21 +123,25 @@ final class JournalRenameTests: XCTestCase {
         return draft
     }
 
-    private func respond(id: String, version: Int) {
+    private func respond(id: String, version: Int, title: String = "Original") {
         MockURLProtocol.handler = { request in
             let saving = request.httpMethod == "PUT"
             if saving {
-                XCTAssertEqual(version, 3, "A stale rename must never save")
                 let data = try Self.body(request)
                 let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
                 XCTAssertEqual(payload["body"] as? String, "Saved writing")
                 XCTAssertEqual(payload["title"] as? String, "New title")
                 XCTAssertEqual(payload["expectedVersion"] as? Int, version)
             }
-            let entry: [String: Any] = ["id": id, "title": saving ? "New title" : "Original", "body": "Saved writing",
-                                        "entryDate": "2026-11-13", "version": saving ? version + 1 : version, "createdAt": "now", "updatedAt": "now"]
-            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, try JSONSerialization.data(withJSONObject: ["data": entry]))
+            return try Self.response(id: id, title: saving ? "New title" : title, version: saving ? version + 1 : version)
         }
+    }
+
+    nonisolated private static func response(id: String, title: String, version: Int) throws -> (HTTPURLResponse, Data) {
+        let entry: [String: Any] = ["id": id, "title": title, "body": "Saved writing",
+                                    "entryDate": "2026-11-13", "version": version, "createdAt": "now", "updatedAt": "now"]
+        let response = HTTPURLResponse(url: URL(string: "https://journal.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        return (response, try JSONSerialization.data(withJSONObject: ["data": entry]))
     }
 
     nonisolated private static func body(_ request: URLRequest) throws -> Data {
