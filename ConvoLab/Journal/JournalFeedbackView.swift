@@ -5,7 +5,7 @@ struct JournalFeedbackView: View {
     let knownKanji: Set<Character>
     let followUp: Bool
     let nested: Bool
-    @State private var version = JournalVersion.draft
+    @State private var version = JournalVersion.final
     @State private var document: JournalDocumentModel
 
     init(model: JournalEntryModel, knownKanji: Set<Character>, followUp: Bool = true, nested: Bool = false) {
@@ -30,14 +30,11 @@ struct JournalFeedbackView: View {
                         Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
                         JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
                     }
-                    if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
-                        JournalHighlightLegend()
-                    }
                 } else {
                     JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, compact: true)
                 }
                 if followUp { JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id) }
-            }.onChange(of: analysis.id) { version = .draft }
+            }.onChange(of: analysis.id) { version = .final }
         }
     }
 }

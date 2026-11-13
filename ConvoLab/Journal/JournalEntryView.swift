@@ -40,7 +40,8 @@ struct JournalEntryView: View {
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showingAppearance = true } label: { Text("Aa").frame(minWidth: 44, minHeight: 44) }
+                Button { showingAppearance = true } label: { Text("Aa") }
+                    .buttonStyle(JournalToolbarButtonStyle(outlined: true))
                     .accessibilityLabel("Journal appearance")
             }
         }
