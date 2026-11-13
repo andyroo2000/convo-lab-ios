@@ -134,9 +134,11 @@ final class ModeNavigationUITests: XCTestCase {
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
-        XCTAssertTrue(app.staticTexts["Corrected Version"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Final"].waitForExistence(timeout: 5))
+        app.buttons["Final"].tap()
         XCTAssertTrue(app.buttons["Play corrected version"].exists)
         XCTAssertTrue(app.buttons["JournalVoicePicker"].waitForExistence(timeout: 5))
+        app.buttons["Draft"].tap()
         let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         XCTAssertTrue(highlighted.exists)
         highlighted.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()

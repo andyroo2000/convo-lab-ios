@@ -4,12 +4,13 @@ struct JournalCorrectedView: View {
     let document: JournalDocumentModel
     let analysis: JournalAnalysis
     let knownKanji: Set<Character>
+    var compact = false
     @State private var edit: CorrectedEdit?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Corrected Version").font(.headline)
+                if !compact { Text("Corrected Version").font(.headline) }
                 Spacer()
                 Button {
                     document.errorMessage = nil

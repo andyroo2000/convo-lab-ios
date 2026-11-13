@@ -3,6 +3,7 @@ import SwiftUI
 struct JournalFeedbackView: View {
     let model: JournalEntryModel
     let knownKanji: Set<Character>
+    @State private var version = JournalVersion.draft
     @State private var document: JournalDocumentModel
 
     init(model: JournalEntryModel, knownKanji: Set<Character>) {
@@ -16,21 +17,26 @@ struct JournalFeedbackView: View {
                 HStack {
                     Text(JournalDates.display(model.draft?.entryDate ?? "")).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Edit entry") { model.isEditing = true }
+                    Button { model.isEditing = true } label: {
+                        Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
+                    }.accessibilityLabel("Edit entry")
                 }
                 Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
-                JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
-                if let reply = analysis.currentReply, let feedback = reply.result {
-                    Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
-                    JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
+                JournalVersionPicker(selection: $version)
+                if version == .draft {
+                    JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
+                    if let reply = analysis.currentReply, let feedback = reply.result {
+                        Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
+                        JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
+                    }
+                    if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
+                        JournalHighlightLegend()
+                    }
+                } else {
+                    JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, compact: true)
                 }
-                if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
-                    JournalHighlightLegend()
-                }
-                Divider()
-                JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji)
                 JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id)
-            }
+            }.onChange(of: analysis.id) { version = .draft }
         }
     }
 }
