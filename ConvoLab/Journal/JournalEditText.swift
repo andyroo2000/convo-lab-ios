@@ -3,13 +3,13 @@ import UIKit
 enum JournalEditText {
     static func attributed(_ segment: JournalSegment, knownKanji: Set<Character>, font: UIFont? = nil) -> NSAttributedString {
         let original = text(segment.reading, knownKanji: knownKanji, font: font)
-        guard segment.kind.isHighlighted, let replacement = segment.suggestion else { return original }
+        guard segment.kind.isHighlighted, let replacement = segment.replacement else { return original }
         original.addAttributes([
             .foregroundColor: UIColor.secondaryLabel,
             .strikethroughStyle: NSUnderlineStyle.single.rawValue,
             .strikethroughColor: UIColor.secondaryLabel
         ], range: NSRange(location: 0, length: original.length))
-        let inserted = text(segment.suggestionReading ?? replacement, knownKanji: knownKanji, font: font)
+        let inserted = text(segment.replacementReading ?? replacement, knownKanji: knownKanji, font: font)
         inserted.addAttributes([
             .backgroundColor: UIColor.systemGreen.withAlphaComponent(0.16),
             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -20,7 +20,7 @@ enum JournalEditText {
     }
 
     static func accessibilityLabel(_ segment: JournalSegment) -> String {
-        guard segment.kind.isHighlighted, let replacement = segment.suggestion else { return segment.text }
+        guard segment.kind.isHighlighted, let replacement = segment.replacement else { return segment.text }
         if replacement.isEmpty { return "Remove \(segment.text). " }
         if segment.text.isEmpty { return "Insert \(replacement). " }
         return "Replace \(segment.text) with \(replacement). "

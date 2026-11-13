@@ -68,6 +68,7 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
       "question":"誰と見ましたか。","questionReading":"誰[だれ]と見[み]ましたか。","questionTranslation":"Who did you watch it with?",
       "segments":[{"text":"映画を見た。","reading":"映画[えいが]を見[み]た。","kind":"optional",
         "suggestion":"映画を見ました。","suggestionReading":"映画[えいが]を見[み]ました。",
+        "replacement":"映画を見ました。","replacementReading":"映画[えいが]を見[み]ました。",
         "explanation":"見ました is the polite past form.","explanationReading":"見[み]ました is the polite past form."}]}}
     """#
 

@@ -22,6 +22,9 @@ nonisolated struct JournalSegment: Codable, Sendable, Equatable {
     let suggestionReading: String?
     let explanation: String?
     let explanationReading: String?
+    // Exact inline edit; suggestion may contain a complete sentence. Missing on legacy feedback.
+    var replacement: String? = nil
+    var replacementReading: String? = nil
 }
 
 nonisolated struct JournalFeedback: Codable, Sendable, Equatable {
