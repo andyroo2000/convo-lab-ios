@@ -2,16 +2,16 @@ import XCTest
 
 final class JournalEditingUITests: XCTestCase {
     @MainActor
-    func testEditorMarkupPrecedesCleanCorrectedVersionAndAudio() {
+    func testOriginalHighlightsPrecedeCleanCorrectedVersionAndAudio() {
         let app = openEntry()
         let edited = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         XCTAssertTrue(edited.label.contains("Replace 映画を見た。 with 映画を見ました。"))
         let preview = XCTAttachment(screenshot: app.screenshot())
-        preview.name = "Editor corrections and clean version"
+        preview.name = "Soft highlights and corrected version"
         preview.lifetime = .keepAlways
         add(preview)
-        XCTAssertFalse(app.staticTexts["Correction"].exists)
-        XCTAssertFalse(app.staticTexts["Optional change"].exists)
+        XCTAssertTrue(app.staticTexts["Correction"].exists)
+        XCTAssertTrue(app.staticTexts["Optional change"].exists)
         XCTAssertTrue(app.buttons["Play corrected version"].exists)
         XCTAssertLessThan(edited.frame.minY, app.buttons["Play corrected version"].frame.minY)
     }

@@ -2,12 +2,16 @@ import SwiftUI
 import UIKit
 
 enum JournalPopoverStyle {
-    static let surface = adaptive(light: 0xfffefa, dark: 0x2a3338)
-    static let ink = adaptive(light: 0x173b56, dark: 0xe2e9ee)
+    static let surface = adaptive(light: 0xffffff, dark: 0x2a3338)
+    static let ink = adaptive(light: 0x4b1800, dark: 0xe2e9ee)
     static let muted = adaptive(light: 0x65727b, dark: 0xabb8c0)
     static let line = adaptive(light: 0xe5e7e5, dark: 0x455055)
     static let accent = adaptive(light: 0x347b9b, dark: 0x80c0dd)
     static let onAccent = adaptive(light: 0xffffff, dark: 0x172d3d)
+    static let correctionFill = adaptive(light: 0xfbe9e9, dark: 0x482c31)
+    static let correctionLine = adaptive(light: 0xc76870, dark: 0xd28c94)
+    static let optionalFill = adaptive(light: 0xfff2c5, dark: 0x443b25)
+    static let optionalLine = adaptive(light: 0xcaa33e, dark: 0xcfad55)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> UIColor {
         UIColor { traits in

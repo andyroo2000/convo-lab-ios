@@ -2,21 +2,9 @@ import UIKit
 
 enum JournalEditText {
     static func attributed(_ segment: JournalSegment, knownKanji: Set<Character>, font: UIFont? = nil) -> NSAttributedString {
-        let original = text(segment.reading, knownKanji: knownKanji, font: font)
-        guard segment.kind.isHighlighted, let replacement = segment.replacement else { return original }
-        original.addAttributes([
-            .foregroundColor: UIColor.secondaryLabel,
-            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-            .strikethroughColor: UIColor.secondaryLabel
-        ], range: NSRange(location: 0, length: original.length))
-        let inserted = text(segment.replacementReading ?? replacement, knownKanji: knownKanji, font: font)
-        inserted.addAttributes([
-            .backgroundColor: UIColor.systemGreen.withAlphaComponent(0.16),
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-            .underlineColor: UIColor.systemGreen
-        ], range: NSRange(location: 0, length: inserted.length))
-        original.append(inserted)
-        return original
+        // Insertions need a tappable anchor, but never add replacement words to the original.
+        let insertion = segment.kind.isHighlighted && segment.text.isEmpty && !(segment.replacement ?? "").isEmpty
+        return text(insertion ? "＋" : segment.reading, knownKanji: knownKanji, font: font)
     }
 
     static func accessibilityLabel(_ segment: JournalSegment) -> String {
@@ -28,6 +16,6 @@ enum JournalEditText {
 
     private static func text(_ reading: String, knownKanji: Set<Character>, font: UIFont?) -> NSMutableAttributedString {
         NSMutableAttributedString(attributedString: StudyRubyDocument.parse(reading, knownKanji: knownKanji)
-            .attributedString(pointSize: 20, weight: .regular, color: .label, alignment: .left, extraLineSpacing: 10, font: font))
+            .attributedString(pointSize: 20, weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 12, font: font))
     }
 }
