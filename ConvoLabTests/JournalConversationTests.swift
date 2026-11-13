@@ -65,6 +65,23 @@ final class JournalConversationTests: XCTestCase {
         XCTAssertNil(answer.request)
         XCTAssertNotNil(answer.errorMessage)
     }
+    func testFailedLocalSavePreventsSubmissionAndPreservesRetryIdentity() async throws {
+        let parent = JournalEntryModel(id: rootID, store: store)
+        let answer = JournalConversationAnswer(entry: parent, rootID: rootID, analysisID: childID)
+        answer.body = "友達と見た。"
+        try FileManager.default.createDirectory(at: store.storage.directory, withIntermediateDirectories: true)
+        let obstruction = store.storage.directory.appending(path: "answers")
+        try Data("not a directory".utf8).write(to: obstruction)
+        MockURLProtocol.handler = { _ in XCTFail("Do not submit without persisting the retry ID"); throw URLError(.notConnectedToInternet) }
+        await answer.submit(questionID: questionID, refresh: { XCTFail("Nothing was submitted"); return false })
+        let id = try XCTUnwrap(answer.request?.id)
+        XCTAssertEqual(answer.errorMessage, "Could not save this answer on your device. Keep it open.")
+        XCTAssertFalse(answer.busy)
+        try FileManager.default.removeItem(at: obstruction)
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        await answer.submit(questionID: questionID, refresh: { false })
+        XCTAssertEqual(JournalConversationAnswer(entry: parent, rootID: rootID, analysisID: childID).request?.id, id)
+    }
     func testRefreshedSnapshotUpdatesSavedReplyButPreservesEditing() async {
         let entry = child()
         let first = JournalConversationNode(entry: entry, analysis: nil, question: nil, parentEntryId: rootID)

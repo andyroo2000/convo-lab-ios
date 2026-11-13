@@ -23,7 +23,8 @@ final class JournalConversationAnswer {
     }
 
     private struct Saved: Codable { let body: String; let request: JournalConversationInput? }
-    func save() {
+    @discardableResult
+    func save() -> Bool {
         do {
             try entry.store.service.checkSession()
             if unreadableFile {
@@ -32,7 +33,11 @@ final class JournalConversationAnswer {
             }
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(Saved(body: body, request: request)).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } catch { errorMessage = "Could not save this answer on your device. Keep it open." }
+            return true
+        } catch {
+            errorMessage = "Could not save this answer on your device. Keep it open."
+            return false
+        }
     }
 
     func submit(questionID: String, refresh: () async -> Bool) async {
@@ -43,7 +48,7 @@ final class JournalConversationAnswer {
         defer { busy = false }
         let input = request ?? JournalConversationInput(id: ClientIdentifier.ulid().lowercased(), questionId: questionID, body: body)
         request = input
-        save()
+        guard save() else { return }
         do {
             let child = try await entry.store.service.createAnswer(parentID: entry.id, input: input)
             // The child remains saved and editable if requesting feedback fails.
