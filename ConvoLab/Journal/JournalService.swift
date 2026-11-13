@@ -155,15 +155,26 @@ struct JournalService {
         return data
     }
 
+    func timedAudio(entryID: String, body: JournalAudioPayload) async throws -> JournalTimedRecording {
+        let result: JournalResource<JournalTimedRecording> = try await request(path(entryID) + "/audio/timed", method: "POST", body: body, timeout: 120)
+        return result.data
+    }
+
+    func timedQuestionAudio(entryID: String, questionID: String) async throws -> JournalTimedRecording {
+        guard ClientIdentifier.isULID(questionID) else { throw APIClientError.invalidResponse }
+        let result: JournalResource<JournalTimedRecording> = try await request(path(entryID) + "/questions/" + questionID.lowercased() + "/audio/timed", method: "POST", timeout: 120)
+        return result.data
+    }
+
     func audioState(entryID: String, analysisID: String, revision: Int) async throws -> JournalAudioState {
         let query = [URLQueryItem(name: "analysisId", value: analysisID), URLQueryItem(name: "expectedReplyRevision", value: String(revision))]
         let value: JournalResource<JournalAudioState> = try await request(path(entryID) + "/audio", query: query)
         return value.data
     }
 
-    private func request<Value: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: (any Encodable)? = nil) async throws -> Value {
+    private func request<Value: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: (any Encodable)? = nil, timeout: TimeInterval = 45) async throws -> Value {
         try checkSession()
-        let result: Value = try await api.request(path, method: method, query: query, body: body, authorizationToken: token)
+        let result: Value = try await api.request(path, method: method, query: query, body: body, timeout: timeout, authorizationToken: token)
         try checkSession()
         return result
     }

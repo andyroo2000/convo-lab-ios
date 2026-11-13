@@ -3,6 +3,7 @@ import SwiftUI
 struct JournalTeacherView: View {
     let feedback: JournalFeedback?
     let knownKanji: Set<Character>
+    @State private var player = JournalAudioPlayer()
     @State private var model: JournalTutorModel
     @Environment(\.scenePhase) private var scenePhase
 
@@ -26,10 +27,10 @@ struct JournalTeacherView: View {
                         .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    JournalQuestionBubbleContent(reading: model.question?.reading ?? feedback?.questionReading ?? "", translation: model.question?.translation ?? feedback?.questionTranslation ?? "", knownKanji: knownKanji, busy: model.isBusy) {
+                    JournalQuestionBubbleContent(reading: model.question?.reading ?? feedback?.questionReading ?? "", translation: model.question?.translation ?? feedback?.questionTranslation ?? "", knownKanji: knownKanji, busy: model.isBusy, player: player) {
                         Task { await model.showPicker() }
                     }
-                    if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question).id(question.id) }
+                    if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question, player: player).id(question.id) }
                 }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                     .environment(\.colorScheme, .light)
                     .padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
@@ -39,6 +40,7 @@ struct JournalTeacherView: View {
                 Button("Retry tutor") { Task { await model.load() } }.font(.footnote)
             }
         }.task { await model.load() }
+            .onChange(of: model.question?.id) { player.stop() }
             .task(id: "\(model.question?.id ?? ""):\(model.question?.audio?.status ?? ""):\(scenePhase)") {
                 if scenePhase == .active { await model.monitorAudio() }
             }
