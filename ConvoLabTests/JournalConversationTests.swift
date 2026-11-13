@@ -129,6 +129,21 @@ final class JournalConversationTests: XCTestCase {
         await model.load()
         XCTAssertNotNil(model.errorMessage, "Reload must fetch, and the test server is offline")
     }
+    func testAuthenticationFailureAfterCreationPreservesRequestID() async throws {
+        let entry = child()
+        MockURLProtocol.handler = { request in
+            if request.url!.path.hasSuffix("/submit") {
+                return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+            }
+            return try Self.response(request.url!, entry)
+        }
+        let answer = JournalConversationAnswer(entry: JournalEntryModel(id: rootID, store: store), rootID: rootID, analysisID: childID)
+        answer.body = entry.body
+        await answer.submit(questionID: questionID, refresh: { false })
+        let id = try XCTUnwrap(answer.request?.id)
+        await answer.submit(questionID: questionID, refresh: { false })
+        XCTAssertEqual(answer.request?.id, id)
+    }
     nonisolated private static func response<Value: Codable & Sendable>(_ url: URL, _ value: Value) throws -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, try JSONEncoder().encode(JournalResource(data: value)))
     }

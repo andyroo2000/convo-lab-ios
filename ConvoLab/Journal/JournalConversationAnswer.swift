@@ -55,7 +55,7 @@ final class JournalConversationAnswer {
             if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
         } catch is CancellationError { }
         catch {
-            if case APIClientError.rejected(let status, _) = error, (400..<500).contains(status), ![408, 429].contains(status) { request = nil; save() }
+            if case APIClientError.rejected(let status, _) = error, (400..<500).contains(status), ![401, 408, 429].contains(status) { request = nil; save() }
             errorMessage = error.localizedDescription
         }
     }
