@@ -314,15 +314,17 @@ final class StudyRubyTextTests: XCTestCase {
         delegate.updateRubyRanges(in: attributed)
         view.textLayoutManager?.delegate = delegate
         view.attributedText = attributed
-        let manager = view.textLayoutManager!
-        manager.ensureLayout(for: manager.documentRange)
-        var lines: [String] = []
-        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
-            for line in fragment.textLineFragments where line.characterRange.length > 0 {
-                lines.append(line.attributedString.attributedSubstring(from: line.characterRange).string)
+        return withExtendedLifetime(delegate) {
+            let manager = view.textLayoutManager!
+            manager.ensureLayout(for: manager.documentRange)
+            var lines: [String] = []
+            manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+                for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                    lines.append(line.attributedString.attributedSubstring(from: line.characterRange).string)
+                }
+                return true
             }
-            return true
+            return lines
         }
-        return lines
     }
 }
