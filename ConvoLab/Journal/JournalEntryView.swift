@@ -43,7 +43,7 @@ struct JournalEntryView: View {
                 Button { showingAppearance = true } label: { Text("Aa") }
                     .buttonStyle(JournalToolbarButtonStyle(outlined: true))
                     .accessibilityLabel("Journal appearance")
-            }
+            }.sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAppearance) { JournalAppearance() }
         .paperBackground()

@@ -50,7 +50,7 @@ struct JournalListView: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(JournalToolbarButtonStyle(outlined: false))
                 .accessibilityIdentifier("JournalNewEntry")
-            }
+            }.sharedBackgroundVisibility(.hidden)
         }
         .navigationDestination(item: $newEntryID) { id in
             JournalEntryView(id: id, store: store, knownKanji: knownKanji)
