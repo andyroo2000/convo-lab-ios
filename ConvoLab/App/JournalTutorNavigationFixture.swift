@@ -22,6 +22,7 @@ nonisolated struct JournalTutorNavigationFixture {
         var question = questions[key] ?? ["id": "01arz3ndektsv4rrffq69g5fax", "text": feedback["question"] ?? "",
             "reading": feedback["questionReading"] ?? "", "translation": feedback["questionTranslation"] ?? "", "tutor": NSNull()]
         if question["tutor"] is NSNull { question["tutor"] = tutors.first { $0["id"] == selected } as Any? ?? NSNull() }
+        question["audio"] = ["status": "ready", "error": NSNull()]
         questions[key] = question
         return question
     }

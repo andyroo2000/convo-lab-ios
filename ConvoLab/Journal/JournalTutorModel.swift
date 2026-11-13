@@ -30,9 +30,22 @@ final class JournalTutorModel {
     func choose(_ tutor: JournalTutor) async {
         await perform {
             self.preferences = try await self.service.chooseTutor(tutor.id)
-            self.choosing = false
             self.question = try await self.service.prepareQuestion(entryID: self.entryID, input: self.input)
+            self.choosing = false
         }
+    }
+
+    func monitorAudio() async {
+        guard let questionID = question?.id else { return }
+        do {
+            while question?.audio?.waiting == true {
+                try await Task.sleep(for: .seconds(2))
+                let updated = try await service.question(entryID: entryID, questionID: questionID)
+                guard question?.id == questionID else { return }
+                question = updated
+            }
+        } catch is CancellationError { }
+        catch { if !Task.isCancelled { errorMessage = "Question audio status is unavailable. Please retry." } }
     }
 
     private func openPicker() async throws {
@@ -47,6 +60,6 @@ final class JournalTutorModel {
         defer { isBusy = false }
         do { try await operation() }
         catch is CancellationError { }
-        catch { errorMessage = "Your tutor could not be loaded or saved. Please try again." }
+        catch { if !Task.isCancelled { errorMessage = "Your tutor could not be loaded or saved. Please try again." } }
     }
 }
