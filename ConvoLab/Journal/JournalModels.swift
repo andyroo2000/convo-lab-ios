@@ -95,6 +95,7 @@ nonisolated struct JournalAnalysisResponse: Codable, Sendable {
 nonisolated struct JournalVoice: Codable, Identifiable, Sendable {
     let id: String
     let name: String
+    var avatarUrl: String? = nil
 }
 
 nonisolated struct JournalAudioState: Codable, Sendable {
