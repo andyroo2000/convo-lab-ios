@@ -22,7 +22,7 @@ struct JournalVoicePicker: View {
                         }.frame(maxWidth: .infinity).padding(12)
                             .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
                     }.buttonStyle(.plain).disabled(voice.isLoading || voice.errorMessage != nil)
-                        .accessibilityElement(children: .ignore)
+                        .accessibilityElement(children: .combine)
                         .accessibilityLabel(option.name)
                         .accessibilityAddTraits(voice.selected == option.id ? .isSelected : [])
                 }
