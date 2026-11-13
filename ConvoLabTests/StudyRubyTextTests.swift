@@ -1,5 +1,6 @@
-import XCTest
+import CoreText
 import UIKit
+import XCTest
 @testable import ConvoLab
 
 @MainActor
@@ -228,5 +229,100 @@ final class StudyRubyTextTests: XCTestCase {
         return UIGraphicsImageRenderer(bounds: view.bounds).image { context in
             view.layer.render(in: context.cgContext)
         }
+    }
+
+    func testJapaneseWrapsInsideCompoundWithoutRuby() {
+        XCTAssertEqual(renderedLines("あいう映画です", columns: 4).first, "あいう映")
+    }
+
+    func testKnownKanjiWrapsInsideCompoundAfterHidingRuby() {
+        XCTAssertEqual(
+            renderedLines("あいう映画[あいうえいが]です", columns: 4, knownKanji: ["映", "画"]).first,
+            "あいう映"
+        )
+    }
+
+    func testJapanesePunctuationStaysOnAllowedSideOfLine() {
+        for text in ["あいうえ、かきくけ。さしすせ", "あいう「えおかき」くけこ", "あいう（えおかき）くけこ"] {
+            for columns in 3...7 {
+                let lines = renderedLines(text, columns: columns)
+                XCTAssertGreaterThan(lines.count, 1)
+                XCTAssertEqual(lines.joined(), text)
+                for line in lines {
+                    XCTAssertFalse("、。）」".contains(line.first!), line)
+                    XCTAssertFalse("（「".contains(line.last!), line)
+                }
+            }
+        }
+    }
+
+    func testJapaneseSmallKanaAndProlongedSoundMarkDoNotStartLines() {
+        for text in ["あいうきゃくです", "あいうきゅうです", "あいうちょっとです", "あいうコーヒーです"] {
+            for columns in 3...6 {
+                let lines = renderedLines(text, columns: columns)
+                XCTAssertEqual(lines.joined(), text)
+                for line in lines {
+                    XCTAssertFalse("ゃゅょっー".contains(line.first!), line)
+                }
+            }
+        }
+    }
+
+    func testVisibleRubyPreservesAnnotationAndPunctuationRules() {
+        let document = StudyRubyDocument(segments: [
+            .text("あいう"), .ruby(base: "映画", reading: "えいが"), .text("。かきくけこ"),
+        ])
+        let attributed = attributedText(document)
+        let ruby = attributed.attribute(
+            NSAttributedString.Key(kCTRubyAnnotationAttributeName as String),
+            at: 3,
+            effectiveRange: nil
+        )
+        XCTAssertNotNil(ruby)
+        for columns in 4...8 {
+            let lines = renderedLines(attributed, columns: columns)
+            XCTAssertEqual(lines.joined(), document.plainText)
+            XCTAssertFalse(lines.contains { $0.hasPrefix("。") })
+        }
+    }
+
+    func testMixedEnglishWordsKeepNormalWordBoundaries() {
+        let lines = renderedLines("映画を watching today", columns: 8)
+        XCTAssertTrue(lines.contains { $0.contains("watching") })
+        XCTAssertEqual(lines.joined(), "映画を watching today")
+    }
+
+    private func attributedText(_ document: StudyRubyDocument) -> NSAttributedString {
+        document.attributedString(pointSize: 24, weight: .regular, color: .label, alignment: .left)
+    }
+
+    private func renderedLines(
+        _ text: String,
+        columns: Int,
+        knownKanji: Set<Character> = []
+    ) -> [String] {
+        renderedLines(attributedText(StudyRubyDocument.parse(text, knownKanji: knownKanji)), columns: columns)
+    }
+
+    private func renderedLines(_ attributed: NSAttributedString, columns: Int) -> [String] {
+        let font = attributed.attribute(.font, at: 0, effectiveRange: nil) as! UIFont
+        let characterWidth = ("あ" as NSString).size(withAttributes: [.font: font]).width
+        let view = UITextView(frame: CGRect(x: 0, y: 0, width: characterWidth * CGFloat(columns) + 0.1, height: 1000))
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        let delegate = StudyRubyLineBreakDelegate()
+        delegate.updateRubyRanges(in: attributed)
+        view.textLayoutManager?.delegate = delegate
+        view.attributedText = attributed
+        let manager = view.textLayoutManager!
+        manager.ensureLayout(for: manager.documentRange)
+        var lines: [String] = []
+        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+            for line in fragment.textLineFragments where line.characterRange.length > 0 {
+                lines.append(line.attributedString.attributedSubstring(from: line.characterRange).string)
+            }
+            return true
+        }
+        return lines
     }
 }
