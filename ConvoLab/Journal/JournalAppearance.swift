@@ -21,7 +21,7 @@ struct JournalAppearance: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Font size")
+                        Text("Base font size")
                         Spacer()
                         Text("\(Int(typography.size)) pt").monospacedDigit()
                     }.font(.subheadline)
@@ -29,7 +29,7 @@ struct JournalAppearance: View {
                         .accessibilityLabel("Font size")
                         .accessibilityValue("\(Int(typography.size)) points")
                 }
-                Text("For all Journal entries on this device.").font(.footnote).foregroundStyle(.secondary)
+                Text("For all Journal entries on this device. Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
         }
         .presentationDetents([.medium, .large])
@@ -62,11 +62,12 @@ struct JournalBodyFont: ViewModifier {
 }
 
 struct JournalRubyText: View {
+    @ScaledMetric(relativeTo: .body) private var textScale = 1.0
     let text: String
     let knownKanji: Set<Character>
     @Environment(\.journalTypography) private var typography
 
     var body: some View {
-        StudyRubyText(text, knownKanji: knownKanji, pointSize: typography.size, alignment: .left, extraLineSpacing: 10, font: typography.uiFont)
+        StudyRubyText(text, knownKanji: knownKanji, pointSize: typography.size, alignment: .left, extraLineSpacing: 10, font: typography.unscaledFont.withSize(typography.size * textScale))
     }
 }

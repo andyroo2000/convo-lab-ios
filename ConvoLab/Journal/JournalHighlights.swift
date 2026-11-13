@@ -3,6 +3,7 @@ import UIKit
 
 struct JournalHighlights: UIViewRepresentable {
     @Environment(\.journalTypography) private var typography
+    @ScaledMetric(relativeTo: .body) private var textScale = 1.0
     let segments: [JournalSegment]
     let knownKanji: Set<Character>
     var document: JournalDocumentModel?
@@ -33,7 +34,7 @@ struct JournalHighlights: UIViewRepresentable {
         var ranges: [NSRange] = []
         for segment in segments {
             let text = NSMutableAttributedString(attributedString: StudyRubyDocument.parse(segment.reading, knownKanji: knownKanji)
-                .attributedString(pointSize: typography.size, weight: .regular, color: .label, alignment: .left, extraLineSpacing: 10, font: typography.uiFont))
+                .attributedString(pointSize: typography.size, weight: .regular, color: .label, alignment: .left, extraLineSpacing: 10, font: typography.unscaledFont.withSize(typography.size * textScale)))
             let range = NSRange(location: output.length, length: text.length)
             ranges.append(range)
             if segment.kind.isHighlighted {
@@ -45,7 +46,7 @@ struct JournalHighlights: UIViewRepresentable {
         }
         context.coordinator.ranges = ranges
         view.attributedText = output
-        let size = UIFontMetrics.default.scaledValue(for: typography.size)
+        let size = typography.size * textScale
         view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
         view.accessibilityLabel = segments.map(\.text).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in
