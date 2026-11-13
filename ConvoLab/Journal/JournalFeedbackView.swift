@@ -24,19 +24,19 @@ struct JournalFeedbackView: View {
                 Text(model.draft?.title ?? "Untitled entry").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 JournalVersionPicker(selection: $version)
                 if version == .draft {
-                JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
-                if let reply = analysis.currentReply, let feedback = reply.result {
-                    Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
-                    JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
-                }
-                if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
-                    JournalHighlightLegend()
-                }
+                    JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
+                    if let reply = analysis.currentReply, let feedback = reply.result {
+                        Text("Your last answer").font(.subheadline).foregroundStyle(.secondary)
+                        JournalHighlights(segments: feedback.segments, knownKanji: knownKanji, document: document, sourceID: reply.id)
+                    }
+                    if (result.segments + (analysis.currentReply?.result?.segments ?? [])).contains(where: { $0.kind.isHighlighted }) {
+                        JournalHighlightLegend()
+                    }
                 } else {
                     JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, compact: true)
                 }
                 JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id)
-            }
+            }.onChange(of: analysis.id) { version = .draft }
         }
     }
 }

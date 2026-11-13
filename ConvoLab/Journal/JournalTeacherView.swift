@@ -33,9 +33,12 @@ struct JournalTeacherView: View {
                     Button("EN") { showEnglish.toggle() }.font(.caption.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44)
                         .accessibilityLabel(showEnglish ? "Hide English" : "Show English")
+                        .accessibilityInputLabels(["EN", "English"])
                         .accessibilityValue(showEnglish ? "Expanded" : "Collapsed")
                     if showEnglish { Text(model.question?.translation ?? feedback.questionTranslation).font(.subheadline).foregroundStyle(.secondary) }
-                }.padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
+                }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
+                    .environment(\.colorScheme, .light)
+                    .padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
             }
             if let error = model.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
