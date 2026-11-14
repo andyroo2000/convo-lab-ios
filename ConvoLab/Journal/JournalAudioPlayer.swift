@@ -87,8 +87,14 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         do { try AVAudioSession.sharedInstance().setActive(true) }
         catch { errorMessage = "Audio could not be resumed. Try again."; return }
         if position >= audio.duration { audio.currentTime = 0; position = 0 }
-        isPlaying = audio.play()
-        engaged = isPlaying
+        guard audio.play() else {
+            releaseSession()
+            errorMessage = "Audio could not be resumed. Try again."
+            return
+        }
+        errorMessage = nil
+        isPlaying = true
+        engaged = true
         trackProgress()
     }
 
