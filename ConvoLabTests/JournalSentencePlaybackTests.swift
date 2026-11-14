@@ -71,6 +71,25 @@ final class JournalSentencePlaybackTests: XCTestCase {
         catch { XCTAssertNotNil(error as? APIClientError) }
     }
 
+    func testLeavingWhileTimedAudioLoadsCannotRestoreStaleSentenceLinks() async {
+        let requested = expectation(description: "Timed audio requested")
+        var continuation: CheckedContinuation<JournalTimedRecording, Never>?
+        let player = JournalAudioPlayer()
+        let task = Task {
+            await player.toggleTimed {
+                await withCheckedContinuation { continuation = $0; requested.fulfill() }
+            }
+        }
+        await fulfillment(of: [requested], timeout: 2)
+        player.stop()
+        continuation?.resume(returning: JournalTimedRecording(audioBase64: silentWave().base64EncodedString(), sentences: sentences))
+        await task.value
+        XCTAssertTrue(player.sentences.isEmpty)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertFalse(player.preparing)
+        XCTAssertNil(player.errorMessage)
+    }
+
     private func silentWave() -> Data {
         let count = 4 * 8000 * 2
         var data = Data("RIFF".utf8)

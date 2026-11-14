@@ -35,6 +35,10 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SentenceTextView, context: Context) {
+        let current = player.engaged ? JournalSentenceTimeline.current(player.sentences, at: player.position) : nil
+        let key = RenderKey(text: text, knownKanji: knownKanji, font: font, sentences: player.sentences, current: current)
+        guard context.coordinator.rendered != key else { return }
+        context.coordinator.rendered = key
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let attributed = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
             weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 8, font: font))
@@ -42,10 +46,12 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         for (index, range) in ranges.enumerated() {
             attributed.addAttribute(.link, value: "journal-sentence://\(index)", range: range)
         }
-        if player.engaged, let current = JournalSentenceTimeline.current(player.sentences, at: player.position), ranges.indices.contains(current) {
+        if let current, ranges.indices.contains(current) {
             attributed.addAttribute(.backgroundColor, value: UIColor.systemBlue.withAlphaComponent(0.12), range: ranges[current])
         }
         context.coordinator.ruby.updateRubyRanges(in: attributed)
+        view.accessibilityLabel = document.plainText
+        view.accessibilityHint = "Tap a sentence to seek. Left and right arrows move by sentence."
         view.linkTextAttributes = [.foregroundColor: JournalPopoverStyle.ink, .underlineStyle: 0]
         if view.attributedText != attributed { view.attributedText = attributed }
         view.textContainerInset = UIEdgeInsets(top: document.hasRuby ? font.pointSize * 0.52 : 0, left: 0, bottom: 0, right: 0)
@@ -59,7 +65,16 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         return CGSize(width: width, height: ceil(size.height))
     }
 
+    struct RenderKey: Equatable {
+        let text: String
+        let knownKanji: Set<Character>
+        let font: UIFont
+        let sentences: [JournalSentenceTiming]
+        let current: Int?
+    }
+
     final class Coordinator: NSObject, UITextViewDelegate {
+        var rendered: RenderKey?
         let ruby = StudyRubyLineBreakDelegate()
         let player: JournalAudioPlayer
         init(player: JournalAudioPlayer) { self.player = player }

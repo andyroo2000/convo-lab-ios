@@ -7,6 +7,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private static weak var activePlayer: JournalAudioPlayer?
     private var player: AVAudioPlayer?
     private var generation = 0
+    private var seeking = false
     private var progressTask: Task<Void, Never>?
     private(set) var sentences: [JournalSentenceTiming] = []
     private(set) var position: Double = 0
@@ -26,8 +27,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func toggleTimed(load: () async throws -> JournalTimedRecording) async {
-        let expectedGeneration = generation + 1
-        await toggle {
+        await toggleRecording { expectedGeneration in
             let recording = try await load()
             try Task.checkCancellation()
             guard Self.activePlayer === self, self.generation == expectedGeneration else { throw CancellationError() }
@@ -37,6 +37,10 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func toggle(load: () async throws -> Data) async {
+        await toggleRecording { _ in try await load() }
+    }
+
+    private func toggleRecording(load: (Int) async throws -> Data) async {
         if let player { togglePlayback(player); return }
         guard !preparing else { return }
         Self.activePlayer?.stop()
@@ -47,7 +51,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         let request = generation
         defer { if request == generation { preparing = false } }
         do {
-            let data = try await load()
+            let data = try await load(request)
             guard request == generation else { return }
             try Task.checkCancellation()
             let audio = try AVAudioPlayer(data: data)
@@ -92,6 +96,8 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         engaged = true
     }
 
+    func setSeeking(_ value: Bool) { seeking = value }
+
     func moveSentence(_ direction: Int) {
         if let time = JournalSentenceTimeline.adjacent(sentences, at: position, direction: direction) { seek(time) }
     }
@@ -103,7 +109,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         progressTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard self != nil else { return }
-                self?.position = self?.player?.currentTime ?? 0
+                if self?.seeking == false { self?.position = self?.player?.currentTime ?? 0 }
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
         }
@@ -113,6 +119,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         generation += 1
         progressTask?.cancel()
         progressTask = nil
+        seeking = false
         sentences = []
         position = 0
         engaged = false

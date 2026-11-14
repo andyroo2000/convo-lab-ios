@@ -27,6 +27,7 @@ struct JournalAudioControls: View {
                 Button { choosingVoice.toggle() } label: { Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44) }
                     .disabled(voice.isLoading || voice.errorMessage != nil)
                     .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
+                    .accessibilityHint(choosingVoice ? "Voice choices expanded" : "Opens voice choices")
                     .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
             }
             if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }

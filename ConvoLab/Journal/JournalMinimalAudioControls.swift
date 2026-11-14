@@ -16,7 +16,7 @@ struct JournalMinimalAudioControls: View {
                     .frame(width: 44, height: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(disabled || player.preparing)
                 .accessibilityLabel("\(player.isPlaying ? "Pause" : "Play") \(label)")
-            Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
+            Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1), onEditingChanged: { player.setSeeking($0) })
                 .disabled(player.duration == 0).accessibilityLabel("\(label) audio position")
                 .accessibilityValue(clock(player.position))
             Text(clock(player.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 30)
