@@ -53,7 +53,6 @@ private struct JournalTutorPicker: View {
                 Spacer()
                 if model.question?.tutor != nil { Button("Cancel") { model.choosing = false }.disabled(model.isBusy) }
             }
-            Text("Used for new questions on all your devices. Earlier questions keep their tutor.").font(.footnote).foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 ForEach(model.preferences?.tutors ?? []) { tutor in
                     Button { Task { await model.choose(tutor) } } label: {
