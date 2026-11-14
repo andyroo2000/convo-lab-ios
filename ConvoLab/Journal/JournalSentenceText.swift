@@ -30,6 +30,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.textLayoutManager?.delegate = context.coordinator.ruby
         view.delegate = context.coordinator
+        view.pauseAudio = { [weak player] in player?.pause() }
         view.moveSentence = { [weak player] in player?.moveSentence($0) }
         return view
     }
@@ -51,7 +52,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         }
         context.coordinator.ruby.updateRubyRanges(in: attributed)
         view.accessibilityLabel = document.plainText
-        view.accessibilityHint = "Tap a sentence to seek. Left and right arrows move by sentence."
+        view.accessibilityHint = "Tap a sentence to seek. Left and right arrows move by sentence. Space pauses audio."
         view.linkTextAttributes = [.foregroundColor: JournalPopoverStyle.ink, .underlineStyle: 0]
         if view.attributedText != attributed { view.attributedText = attributed }
         view.textContainerInset = UIEdgeInsets(top: document.hasRuby ? font.pointSize * 0.52 : 0, left: 0, bottom: 0, right: 0)
@@ -90,12 +91,15 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
 
 private final class SentenceTextView: UITextView {
     var moveSentence: ((Int) -> Void)?
+    var pauseAudio: (() -> Void)?
     override var keyCommands: [UIKeyCommand]? {
         let commands = [UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(previousSentence)),
-                        UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(nextSentence))]
+                        UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(nextSentence)),
+                        UIKeyCommand(input: " ", modifierFlags: [], action: #selector(pausePlayback))]
         commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
         return commands
     }
+    @objc private func pausePlayback() { pauseAudio?() }
     @objc private func previousSentence() { moveSentence?(-1) }
     @objc private func nextSentence() { moveSentence?(1) }
 }

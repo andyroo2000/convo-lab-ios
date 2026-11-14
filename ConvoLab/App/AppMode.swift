@@ -3,6 +3,7 @@ import SwiftUI
 enum AppMode: String, CaseIterable, Hashable, Identifiable {
     case study = "Study"
     case dailyAudio = "Daily Audio"
+    case journal = "Journal"
     case readings = "Readings"
     case cards = "Cards"
     case time = "Time"
@@ -13,6 +14,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .study: "rectangle.stack.fill"
         case .dailyAudio: "headphones"
+        case .journal: "book.pages"
         case .readings: "book.closed"
         case .cards: "square.and.pencil"
         case .time: "clock.fill"
@@ -20,7 +22,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
         }
     }
 
-    static let practice: [Self] = [.study, .dailyAudio, .readings]
+    static let practice: [Self] = [.study, .dailyAudio, .journal, .readings]
     static let manage: [Self] = [.cards, .time, .settings]
 }
 

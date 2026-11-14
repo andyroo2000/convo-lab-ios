@@ -27,7 +27,7 @@ struct StudyPileToggleRow: View {
             if saving { ProgressView() }
             if let error { Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red) }
         }
-        .sheet(isPresented: $editing) {
+        .outsideDismissibleSheet(isPresented: $editing) {
             StudyPileEditView(store: store, item: item, pileID: pileID)
         }
     }

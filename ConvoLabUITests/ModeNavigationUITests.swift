@@ -106,11 +106,24 @@ final class ModeNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalHasItsOwnMenuPosition() {
+        let app = launchShell()
+        XCTAssertFalse(app.buttons["StudyJournalLink"].exists)
+        app.buttons["app-mode-picker"].tap()
+        let journal = app.buttons["app-mode-journal"]
+        XCTAssertTrue(journal.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(journal.frame.minY, app.buttons["app-mode-dailyAudio"].frame.maxY)
+        XCTAssertLessThan(journal.frame.maxY, app.buttons["app-mode-readings"].frame.minY)
+        journal.tap()
+        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars.buttons["Study"].exists)
+    }
+
+    @MainActor
     func testJournalKeepsDraftAndBackNavigationAcrossModeSwitches() {
         let app = launchShell()
-        let journal = app.buttons["StudyJournalLink"]
-        XCTAssertTrue(journal.waitForExistence(timeout: 8))
-        journal.tap()
+        XCTAssertFalse(app.buttons["StudyJournalLink"].exists)
+        selectMode("journal", app: app)
         XCTAssertTrue(app.navigationBars["Journal"].waitForExistence(timeout: 5))
         app.buttons["JournalNewEntry"].tap()
         let body = app.textViews["Journal entry"]
@@ -118,7 +131,7 @@ final class ModeNavigationUITests: XCTestCase {
         body.tap()
         body.typeText("A journal draft kept on this device.")
         selectMode("cards", app: app)
-        selectMode("study", app: app)
+        selectMode("journal", app: app)
         XCTAssertTrue(body.waitForExistence(timeout: 5))
         XCTAssertEqual(body.value as? String, "A journal draft kept on this device.")
         attachScreenshot(app, name: "Journal draft retained across modes")
@@ -130,7 +143,8 @@ final class ModeNavigationUITests: XCTestCase {
     @MainActor
     func testJournalShowsCompactCorrectionAndVoicePicker() {
         let app = launchShell()
-        app.buttons["StudyJournalLink"].tap()
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
@@ -155,7 +169,8 @@ final class ModeNavigationUITests: XCTestCase {
     @MainActor
     func testJournalAnswerBecomesAnIndependentUnlistedEntry() {
         let app = launchShell()
-        app.buttons["StudyJournalLink"].tap()
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()

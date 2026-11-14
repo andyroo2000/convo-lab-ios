@@ -31,7 +31,7 @@ struct ManageStudyPilesView: View {
         .navigationTitle("Manage piles")
         .refreshable { await store.refreshPiles() }
         .task { await store.refreshPiles() }
-        .sheet(isPresented: $addingBook) {
+        .outsideDismissibleSheet(isPresented: $addingBook) {
             StudyPileEditView(store: store, position: nextBookPosition)
         }
     }
@@ -66,7 +66,7 @@ struct StudyPileBookRow: View {
             }
         }
         .padding(.vertical, 6)
-        .sheet(isPresented: $addingChapter) {
+        .outsideDismissibleSheet(isPresented: $addingChapter) {
             StudyPileEditView(store: store, pileID: pile.id, position: (pile.chapters.map(\.position).max() ?? -1) + 1)
         }
     }

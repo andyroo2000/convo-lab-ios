@@ -84,7 +84,8 @@ final class JournalEditingUITests: XCTestCase {
         if let contentSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize] }
         app.launch()
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
-        app.buttons["StudyJournalLink"].tap()
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()

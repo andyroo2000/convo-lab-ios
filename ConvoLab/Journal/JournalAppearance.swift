@@ -10,11 +10,9 @@ struct JournalAppearance: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
-                    Text("Journal appearance").font(.headline)
                     Spacer()
                     Button("Done") { dismiss() }.frame(minHeight: 44)
                 }
-                Text("Font").font(.subheadline).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     fontCard("Sans-serif", value: "sans")
                     fontCard("Serif", value: "serif")
@@ -32,6 +30,7 @@ struct JournalAppearance: View {
                 Text("Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
         }
+        .tint(JournalToolbarButtonStyle.blue)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -50,8 +49,8 @@ struct JournalAppearance: View {
                     if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
                 }
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                .background(selected ? Color.accentColor.opacity(0.08) : Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.accentColor : Color(.separator)))
+                .background(selected ? JournalToolbarButtonStyle.blue.opacity(0.08) : Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? JournalToolbarButtonStyle.blue : Color(.separator)))
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

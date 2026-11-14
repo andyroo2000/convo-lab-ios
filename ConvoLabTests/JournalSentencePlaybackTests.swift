@@ -48,6 +48,23 @@ final class JournalSentencePlaybackTests: XCTestCase {
         XCTAssertLessThan(player.position, 0.5)
     }
 
+    func testPauseDoesNotResumeOrDiscardTheRecording() async {
+        let player = JournalAudioPlayer()
+        let recording = JournalTimedRecording(audioBase64: silentWave().base64EncodedString(), sentences: sentences)
+        await player.toggleTimed { recording }
+        defer { player.stop() }
+        player.seek(2)
+        player.pause()
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.position, 2, accuracy: 0.1)
+        XCTAssertEqual(player.sentences, sentences)
+        player.pause()
+        XCTAssertFalse(player.isPlaying)
+        await player.toggleTimed { XCTFail("Pause must keep the recording"); return recording }
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.position, 2, accuracy: 0.1)
+    }
+
     func testTextRangesUseUTF16AndRejectMismatchedText() {
         let emoji = [JournalSentenceTiming(text: "映画🎬。", start: 0, end: 1), JournalSentenceTiming(text: "好き。", start: 1, end: 2)]
         XCTAssertEqual(JournalSentenceTimeline.ranges(emoji, text: "映画🎬。好き。"), [NSRange(location: 0, length: 5), NSRange(location: 5, length: 3)])

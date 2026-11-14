@@ -55,16 +55,7 @@ enum WaniKaniURLPolicy {
         // telemetry host is safe to keep invisible. Other script windows stay in-app but
         // are presented so interactive sign-in and verification challenges remain usable.
         if targetIsMainFrame == nil {
-            guard isWebContent else {
-                return isUserActivated ? .openExternally : .cancel
-            }
-            if isUserActivated {
-                return isWaniKaniPage(url) ? .loadInMainFrame : .openExternally
-            }
-            if scheme == "about" || isSilentBackgroundPage(url) {
-                return .openBackgroundWindow
-            }
-            return isWaniKaniPage(url) ? .loadInMainFrame : .openInteractiveWindow
+            return newWindowDisposition(url, scheme: scheme, isWebContent: isWebContent, isUserActivated: isUserActivated)
         }
 
         // Third-party authentication and fraud-detection content commonly lives in an
@@ -81,6 +72,21 @@ enum WaniKaniURLPolicy {
             return .allow
         }
         return .openExternally
+    }
+
+    nonisolated private static func newWindowDisposition(
+        _ url: URL?, scheme: String?, isWebContent: Bool, isUserActivated: Bool
+    ) -> NavigationDisposition {
+        guard isWebContent else {
+            return isUserActivated ? .openExternally : .cancel
+        }
+        if isUserActivated {
+            return isWaniKaniPage(url) ? .loadInMainFrame : .openExternally
+        }
+        if scheme == "about" || isSilentBackgroundPage(url) {
+            return .openBackgroundWindow
+        }
+        return isWaniKaniPage(url) ? .loadInMainFrame : .openInteractiveWindow
     }
 
     nonisolated static func isUserActivated(_ navigationType: WKNavigationType) -> Bool {
@@ -661,7 +667,7 @@ struct WaniKaniBrowserView: View {
                 }
             }
         }
-        .sheet(
+        .outsideDismissibleSheet(
             isPresented: Binding(
                 get: { browser.interactiveWebView != nil },
                 set: { isPresented in

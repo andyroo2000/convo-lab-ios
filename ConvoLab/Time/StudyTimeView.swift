@@ -149,10 +149,10 @@ struct StudyTimeView: View {
                     store.stopAnalyticsPrefetching()
                 }
             }
-            .sheet(isPresented: $showingEntry) {
+            .outsideDismissibleSheet(isPresented: $showingEntry) {
                 StudyTimeEntryView(store: store)
             }
-            .sheet(item: $editingSession) { session in
+            .outsideDismissibleSheet(item: $editingSession) { session in
                 StudyTimeEntryView(store: store, session: session)
             }
             .refreshable {

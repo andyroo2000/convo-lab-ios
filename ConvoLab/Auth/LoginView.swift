@@ -73,10 +73,10 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
             }
             .paperBackground()
-            .sheet(isPresented: $showingReset) {
+            .outsideDismissibleSheet(isPresented: $showingReset) {
                 PasswordResetView(auth: auth, initialEmail: email)
             }
-            .sheet(isPresented: $showingRegistration) {
+            .outsideDismissibleSheet(isPresented: $showingRegistration) {
                 AccountRegistrationView(
                     auth: auth,
                     initialEmail: email,

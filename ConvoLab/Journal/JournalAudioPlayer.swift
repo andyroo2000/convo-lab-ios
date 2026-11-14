@@ -81,7 +81,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     private func togglePlayback(_ audio: AVAudioPlayer) {
-        if audio.isPlaying { audio.pause(); isPlaying = false; progressTask?.cancel(); releaseSession(); return }
+        if audio.isPlaying { pause(); return }
         Self.activePlayer?.stopOther(than: self)
         Self.activePlayer = self
         do { try AVAudioSession.sharedInstance().setActive(true) }
@@ -96,6 +96,15 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         isPlaying = true
         engaged = true
         trackProgress()
+    }
+
+    func pause() {
+        guard isPlaying, let player else { return }
+        player.pause()
+        position = player.currentTime
+        isPlaying = false
+        progressTask?.cancel()
+        releaseSession()
     }
 
     func seek(_ value: Double) {

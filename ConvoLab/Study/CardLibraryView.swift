@@ -74,10 +74,10 @@ struct CardLibraryView: View {
                     }
                 }
             }
-            .sheet(item: $placementSelection) { selection in
+            .outsideDismissibleSheet(item: $placementSelection) { selection in
                 StudyCardPlacementView(store: store, cardID: selection.id)
             }
-            .sheet(isPresented: $showingCreate) {
+            .outsideDismissibleSheet(isPresented: $showingCreate) {
                 CardEditorView(
                     store: store,
                     player: player,
@@ -86,7 +86,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedCard) { card in
+            .outsideDismissibleSheet(item: $selectedCard) { card in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -95,7 +95,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedDraft) { draft in
+            .outsideDismissibleSheet(item: $selectedDraft) { draft in
                 CardEditorView(
                     store: store,
                     player: player,
@@ -104,7 +104,7 @@ struct CardLibraryView: View {
                     timeStore: timeStore
                 )
             }
-            .sheet(item: $selectedPendingCreate) { selection in
+            .outsideDismissibleSheet(item: $selectedPendingCreate) { selection in
                 let request = selection.request
                 CardEditorView(
                     store: store,
