@@ -23,6 +23,31 @@ final class JournalSentencePlaybackTests: XCTestCase {
         XCTAssertNil(JournalSentenceTimeline.adjacent([], at: 0, direction: 1))
     }
 
+    func testSentenceBoundariesTolerateAudioSampleRounding() {
+        let three = sentences + [JournalSentenceTiming(text: "また見たい。", start: 4, end: 6)]
+        XCTAssertEqual(JournalSentenceTimeline.current(three, at: 1.9999), 1)
+        XCTAssertEqual(JournalSentenceTimeline.adjacent(three, at: 1.9999, direction: 1), 4)
+        XCTAssertEqual(JournalSentenceTimeline.adjacent(three, at: 1.9999, direction: -1), 0)
+    }
+
+    func testFinishedRecordingCanReplayWithoutDownloading() async throws {
+        let player = JournalAudioPlayer()
+        let recording = JournalTimedRecording(audioBase64: silentWave().base64EncodedString(), sentences: sentences)
+        await player.toggleTimed { recording }
+        defer { player.stop() }
+        player.seek(player.duration - 0.05)
+        for _ in 0..<30 {
+            if !player.isPlaying { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.position, player.duration)
+        XCTAssertEqual(player.sentences, sentences)
+        await player.toggleTimed { XCTFail("Finished recording must be reused"); return recording }
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertLessThan(player.position, 0.5)
+    }
+
     func testTextRangesUseUTF16AndRejectMismatchedText() {
         let emoji = [JournalSentenceTiming(text: "映画🎬。", start: 0, end: 1), JournalSentenceTiming(text: "好き。", start: 1, end: 2)]
         XCTAssertEqual(JournalSentenceTimeline.ranges(emoji, text: "映画🎬。好き。"), [NSRange(location: 0, length: 5), NSRange(location: 5, length: 3)])
@@ -41,6 +66,7 @@ final class JournalSentencePlaybackTests: XCTestCase {
         XCTAssertTrue(player.isPlaying)
         await player.toggleTimed { XCTFail("Loaded audio must not download again"); return recording }
         XCTAssertFalse(player.isPlaying)
+        XCTAssertTrue(player.engaged)
         player.moveSentence(-1)
         XCTAssertEqual(player.position, 0)
         XCTAssertFalse(player.isPlaying)

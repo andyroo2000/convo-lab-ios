@@ -42,6 +42,7 @@ struct JournalAudioControls: View {
         .onChange(of: voice.errorMessage) { if voice.errorMessage != nil { choosingVoice = false } }
         .onChange(of: voice.voices.count) { if voice.voices.isEmpty { choosingVoice = false } }
         .onChange(of: voice.selected) { player.stop() }
+        .onChange(of: analysis.id) { player.stop() }
         .onChange(of: analysis.replyRevision) { player.stop() }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { _ in player.stop() }

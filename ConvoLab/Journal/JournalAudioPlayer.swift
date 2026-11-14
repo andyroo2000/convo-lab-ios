@@ -76,14 +76,17 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
             engaged = false
             position = duration
             progressTask?.cancel()
+            releaseSession()
         }
     }
 
     private func togglePlayback(_ audio: AVAudioPlayer) {
-        if audio.isPlaying { audio.pause(); isPlaying = false; engaged = false; progressTask?.cancel(); return }
+        if audio.isPlaying { audio.pause(); isPlaying = false; progressTask?.cancel(); releaseSession(); return }
         Self.activePlayer?.stopOther(than: self)
         Self.activePlayer = self
-        if audio.currentTime >= audio.duration { audio.currentTime = 0 }
+        do { try AVAudioSession.sharedInstance().setActive(true) }
+        catch { errorMessage = "Audio could not be resumed. Try again."; return }
+        if position >= audio.duration { audio.currentTime = 0; position = 0 }
         isPlaying = audio.play()
         engaged = isPlaying
         trackProgress()
@@ -114,8 +117,14 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
             }
         }
     }
+    private func releaseSession() {
+        guard Self.activePlayer === self else { return }
+        Self.activePlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
     func stop() {
-        if Self.activePlayer === self { Self.activePlayer = nil }
+        releaseSession()
         generation += 1
         progressTask?.cancel()
         progressTask = nil
@@ -123,10 +132,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
         sentences = []
         position = 0
         engaged = false
-        if player != nil {
-            player?.stop()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
+        player?.stop()
         player = nil
         preparing = false
         isPlaying = false

@@ -19,6 +19,8 @@ struct JournalMinimalAudioControls: View {
             Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1), onEditingChanged: { player.setSeeking($0) })
                 .disabled(player.duration == 0).accessibilityLabel("\(label) audio position")
                 .accessibilityValue(clock(player.position))
+                .accessibilityAction(named: "Previous sentence") { player.moveSentence(-1) }
+                .accessibilityAction(named: "Next sentence") { player.moveSentence(1) }
             Text(clock(player.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 30)
         }.focusable()
             .onKeyPress(.leftArrow) { move(-1) }

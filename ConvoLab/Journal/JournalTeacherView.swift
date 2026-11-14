@@ -5,7 +5,6 @@ struct JournalTeacherView: View {
     let knownKanji: Set<Character>
     @State private var player = JournalAudioPlayer()
     @State private var model: JournalTutorModel
-    @Environment(\.scenePhase) private var scenePhase
 
     init(entry: JournalEntryModel, analysis: JournalAnalysis, feedback: JournalFeedback, knownKanji: Set<Character>, savedQuestion: JournalTutorQuestion? = nil) {
         self.feedback = feedback
@@ -41,9 +40,6 @@ struct JournalTeacherView: View {
             }
         }.task { await model.load() }
             .onChange(of: model.question?.id) { player.stop() }
-            .task(id: "\(model.question?.id ?? ""):\(model.question?.audio?.status ?? ""):\(scenePhase)") {
-                if scenePhase == .active { await model.monitorAudio() }
-            }
     }
 }
 

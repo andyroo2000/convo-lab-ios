@@ -18,12 +18,12 @@ nonisolated struct JournalTimedRecording: Codable, Sendable {
 
 nonisolated enum JournalSentenceTimeline {
     static func current(_ sentences: [JournalSentenceTiming], at position: Double) -> Int? {
-        sentences.firstIndex { position >= $0.start && position < $0.end }
+        sentences.lastIndex { position + 0.001 >= $0.start && position < $0.end }
     }
 
     static func adjacent(_ sentences: [JournalSentenceTiming], at position: Double, direction: Int) -> Double? {
         guard !sentences.isEmpty else { return nil }
-        let current = sentences.lastIndex { position >= $0.start } ?? 0
+        let current = sentences.lastIndex { position + 0.001 >= $0.start } ?? 0
         return sentences[min(max(current + direction, 0), sentences.count - 1)].start
     }
 
