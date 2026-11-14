@@ -9,7 +9,7 @@ struct JournalAudioControls: View {
     let entryID: String
     let analysis: JournalAnalysis
     let service: JournalService
-    @State private var player = JournalAudioPlayer()
+    let player: JournalAudioPlayer
     @State private var voice = JournalVoiceSelection()
     @State private var choosingVoice = false
     @Environment(\.journalBeforeAudio) private var beforeAudio
@@ -18,26 +18,17 @@ struct JournalAudioControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
-            TimelineView(.animation(minimumInterval: 0.25, paused: !player.isPlaying)) { _ in
-                HStack(spacing: 12) {
-                    Button {
-                        if !player.isPlaying { beforeAudio() }
-                        Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
-                    } label: {
-                        if player.preparing { ProgressView() }
-                        else { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill") }
-                    }.disabled(!voice.isReady || player.preparing).accessibilityLabel(player.isPlaying ? "Pause corrected version" : "Play corrected version")
-                    Text(clock(player.position)).font(.caption.monospacedDigit())
-                    Slider(value: Binding(get: { player.position }, set: { player.seek($0) }), in: 0...max(player.duration, 1))
-                        .disabled(player.duration == 0).accessibilityLabel("Audio position").accessibilityValue(clock(player.position))
-                    Button { choosingVoice.toggle() } label: {
-                        Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
-                    }
-                        .disabled(voice.isLoading || voice.errorMessage != nil)
-                        .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
-                        .accessibilityHint(choosingVoice ? "Voice choices expanded" : "Opens voice choices")
-                        .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
-                }
+            JournalMinimalAudioControls(player: player, label: "corrected version", disabled: !voice.isReady) {
+                if !player.isPlaying { beforeAudio() }
+                Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
+            }
+            HStack {
+                Spacer()
+                Button { choosingVoice.toggle() } label: { Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44) }
+                    .disabled(voice.isLoading || voice.errorMessage != nil)
+                    .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
+                    .accessibilityHint(choosingVoice ? "Voice choices expanded" : "Opens voice choices")
+                    .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
             }
             if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }
             if let message = voice.errorMessage {
@@ -46,12 +37,12 @@ struct JournalAudioControls: View {
             }
             if let error = player.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
         }
-        .padding(12).background(.white.opacity(0.8), in: .rect(cornerRadius: 12))
         .task(id: "\(entryID):\(analysis.id):\(analysis.replyRevision ?? 0)") { await loadVoices() }
         .onChange(of: voice.isLoading) { if voice.isLoading { choosingVoice = false } }
         .onChange(of: voice.errorMessage) { if voice.errorMessage != nil { choosingVoice = false } }
         .onChange(of: voice.voices.count) { if voice.voices.isEmpty { choosingVoice = false } }
         .onChange(of: voice.selected) { player.stop() }
+        .onChange(of: analysis.id) { player.stop() }
         .onChange(of: analysis.replyRevision) { player.stop() }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { _ in player.stop() }
@@ -65,8 +56,5 @@ struct JournalAudioControls: View {
 
     private func loadVoices() async {
         await voice.load(entryID: entryID, analysis: analysis, service: service)
-    }
-    private func clock(_ seconds: Double) -> String {
-        String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
     }
 }
