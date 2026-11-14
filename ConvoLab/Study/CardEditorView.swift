@@ -352,7 +352,7 @@ struct CardEditorView: View {
                     player.stop()
                 }
             }
-            .sheet(isPresented: $showingCamera) {
+            .outsideDismissibleSheet(isPresented: $showingCamera) {
                 CameraImagePicker { image in
                     stagePhoto(image)
                 }

@@ -264,48 +264,7 @@ final class GoogleCalendarSettingsModel: Identifiable {
         do {
             let freshStatus = try await service.status()
             guard freshStatus.connected else { throw GoogleCalendarConnectionError.notConnected }
-            let initialSettings = settings
-            guard initialSettings == nil || freshStatus.settings != nil else {
-                throw GoogleCalendarConnectionError.invalidSettings
-            }
-            let freshSettings = freshStatus.settings
-            let baseSyncEnabled = initialSettings?.syncEnabled ?? false
-            let mergedSyncEnabled = automaticTrackingEnabled != baseSyncEnabled
-                ? automaticTrackingEnabled
-                : freshSettings?.syncEnabled ?? false
-            let initialIDs = Set(initialSettings?.calendarIds ?? [])
-            let removedIDs = initialIDs.subtracting(selectedCalendarIDs)
-            let addedIDs = selectedCalendarIDs.subtracting(initialIDs)
-            var mergedIDs = (freshSettings?.calendarIds ?? []).filter { !removedIDs.contains($0) }
-            var seenIDs = Set(mergedIDs)
-            for id in calendars.map(\.id)
-                where addedIDs.contains(id) && seenIDs.insert(id).inserted
-            {
-                mergedIDs.append(id)
-            }
-            let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(mergedIDs)
-
-            let initialTerms = initialSettings?.titleMatchTerms ?? []
-            let localTerms = try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
-            let initialKeys = Set(initialTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
-            let localKeys = Set(localTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
-            let removedTermKeys = initialKeys.subtracting(localKeys)
-            let addedTermKeys = localKeys.subtracting(initialKeys)
-            var mergedTerms = (freshSettings?.titleMatchTerms ?? []).filter {
-                !removedTermKeys.contains(GoogleCalendarSettingsDraft.termComparisonKey($0))
-            }
-            var seenTermKeys = Set(mergedTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
-            for term in localTerms {
-                let key = GoogleCalendarSettingsDraft.termComparisonKey(term)
-                if addedTermKeys.contains(key), seenTermKeys.insert(key).inserted {
-                    mergedTerms.append(term)
-                }
-            }
-            let request = GoogleCalendarSettings(
-                calendarIds: calendarIds,
-                titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(mergedTerms),
-                syncEnabled: mergedSyncEnabled
-            )
+            let request = try mergedSettings(with: freshStatus.settings)
             let savedSettings = try await service.updateSettings(request)
             self.settings = savedSettings
             automaticTrackingEnabled = savedSettings.syncEnabled
@@ -315,6 +274,50 @@ final class GoogleCalendarSettingsModel: Identifiable {
             saveErrorMessage = Self.safeMessage(for: error)
             return false
         }
+    }
+
+    private func mergedSettings(with freshSettings: GoogleCalendarSettings?) throws -> GoogleCalendarSettings {
+        let initialSettings = settings
+        guard initialSettings == nil || freshSettings != nil else {
+            throw GoogleCalendarConnectionError.invalidSettings
+        }
+        let baseSyncEnabled = initialSettings?.syncEnabled ?? false
+        let mergedSyncEnabled = automaticTrackingEnabled != baseSyncEnabled
+            ? automaticTrackingEnabled
+            : freshSettings?.syncEnabled ?? false
+        let initialIDs = Set(initialSettings?.calendarIds ?? [])
+        let removedIDs = initialIDs.subtracting(selectedCalendarIDs)
+        let addedIDs = selectedCalendarIDs.subtracting(initialIDs)
+        var mergedIDs = (freshSettings?.calendarIds ?? []).filter { !removedIDs.contains($0) }
+        var seenIDs = Set(mergedIDs)
+        for id in calendars.map(\.id)
+            where addedIDs.contains(id) && seenIDs.insert(id).inserted
+        {
+            mergedIDs.append(id)
+        }
+        let calendarIds = try GoogleCalendarSettingsDraft.canonicalizedCalendarIDs(mergedIDs)
+
+        let initialTerms = initialSettings?.titleMatchTerms ?? []
+        let localTerms = try GoogleCalendarSettingsDraft.canonicalizedTerms(titleMatchTerms)
+        let initialKeys = Set(initialTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+        let localKeys = Set(localTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+        let removedTermKeys = initialKeys.subtracting(localKeys)
+        let addedTermKeys = localKeys.subtracting(initialKeys)
+        var mergedTerms = (freshSettings?.titleMatchTerms ?? []).filter {
+            !removedTermKeys.contains(GoogleCalendarSettingsDraft.termComparisonKey($0))
+        }
+        var seenTermKeys = Set(mergedTerms.map(GoogleCalendarSettingsDraft.termComparisonKey))
+        for term in localTerms {
+            let key = GoogleCalendarSettingsDraft.termComparisonKey(term)
+            if addedTermKeys.contains(key), seenTermKeys.insert(key).inserted {
+                mergedTerms.append(term)
+            }
+        }
+        return GoogleCalendarSettings(
+            calendarIds: calendarIds,
+            titleMatchTerms: try GoogleCalendarSettingsDraft.canonicalizedTerms(mergedTerms),
+            syncEnabled: mergedSyncEnabled
+        )
     }
 
     func startManualSync() async {
@@ -481,7 +484,7 @@ struct GoogleCalendarSettingsView: View {
                 guard scenePhase == .active else { return }
                 await model.pollUntilSettled()
             }
-            .sheet(item: $previewModel) { GoogleCalendarPreviewView(model: $0) }
+            .outsideDismissibleSheet(item: $previewModel) { GoogleCalendarPreviewView(model: $0) }
         }
     }
 

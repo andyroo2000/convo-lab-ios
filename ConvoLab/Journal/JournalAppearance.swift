@@ -10,11 +10,9 @@ struct JournalAppearance: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
-                    Text("Journal appearance").font(.headline)
                     Spacer()
                     Button("Done") { dismiss() }.frame(minHeight: 44)
                 }
-                Text("Font").font(.subheadline).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     fontCard("Sans-serif", value: "sans")
                     fontCard("Serif", value: "serif")

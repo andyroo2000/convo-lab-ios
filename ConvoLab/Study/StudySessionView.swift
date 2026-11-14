@@ -364,7 +364,7 @@ struct StudySessionView: View {
                 store.endLessonSessionPresentation(presentationID: lessonPresentationID)
             }
         }
-        .sheet(item: $editingCard, onDismiss: {
+        .outsideDismissibleSheet(item: $editingCard, onDismiss: {
             startTimeTracking()
         }) { card in
             CardEditorView(
@@ -375,7 +375,7 @@ struct StudySessionView: View {
                 timeStore: timeStore
             )
         }
-        .sheet(item: $cardPendingSetDue) { card in
+        .outsideDismissibleSheet(item: $cardPendingSetDue) { card in
             StudySetDueView { mode, dueAt in
                 cardPendingSetDue = nil
                 submitCardAction(.setDue, card: card, mode: mode, dueAt: dueAt)

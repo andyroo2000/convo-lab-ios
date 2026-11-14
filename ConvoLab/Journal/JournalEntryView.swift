@@ -38,7 +38,8 @@ struct JournalEntryView: View {
         }
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
         .modifier(JournalTimeTracking(service: model.store.service))
-        .paperBackground()
+        .background(.white)
+        .tint(JournalToolbarButtonStyle.blue)
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)

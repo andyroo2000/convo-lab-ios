@@ -421,20 +421,20 @@ struct SettingsView: View {
             } message: {
                 Text("Cards remain available. Audio and images will download again when needed.")
             }
-            .sheet(isPresented: $showingProfileEditor) {
+            .outsideDismissibleSheet(isPresented: $showingProfileEditor) {
                 ProfileEditorView(auth: model.auth, user: user)
             }
-            .sheet(isPresented: $showingPasswordEditor) {
+            .outsideDismissibleSheet(isPresented: $showingPasswordEditor) {
                 PasswordEditorView(auth: model.auth)
             }
-            .sheet(isPresented: $showingAccountDeletion) {
+            .outsideDismissibleSheet(isPresented: $showingAccountDeletion) {
                 AccountDeletionView(model: model)
             }
-            .sheet(item: $calendarSettingsModel) { calendarModel in
+            .outsideDismissibleSheet(item: $calendarSettingsModel) { calendarModel in
                 GoogleCalendarSettingsView(model: calendarModel)
             }
         }
-        .sheet(isPresented: $showingFailedStudyChanges) {
+        .outsideDismissibleSheet(isPresented: $showingFailedStudyChanges) {
             FailedStudyChangesView(store: model.study)
         }
         .onAppear(perform: refreshSatoriReaderStatus)

@@ -10,6 +10,10 @@ enum JournalDates {
         return formatter
     }()
 
+    static func heading(_ value: String) -> String {
+        value.replacingOccurrences(of: "-", with: ".")
+    }
+
     static func display(_ value: String) -> String {
         guard let date = storage.date(from: value) else { return value }
         return date.formatted(date: .abbreviated, time: .omitted)

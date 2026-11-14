@@ -10,8 +10,8 @@ struct JournalAudioControls: View {
     let analysis: JournalAnalysis
     let service: JournalService
     let player: JournalAudioPlayer
-    @State private var voice = JournalVoiceSelection()
-    @State private var choosingVoice = false
+    let voice: JournalVoiceSelection
+    @Binding var choosingVoice: Bool
     @Environment(\.journalBeforeAudio) private var beforeAudio
     @Environment(\.scenePhase) private var scenePhase
 
@@ -21,14 +21,6 @@ struct JournalAudioControls: View {
             JournalMinimalAudioControls(player: player, label: "corrected version", disabled: !voice.isReady) {
                 if !player.isPlaying { beforeAudio() }
                 Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
-            }
-            HStack {
-                Spacer()
-                Button { choosingVoice.toggle() } label: { Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44) }
-                    .disabled(voice.isLoading || voice.errorMessage != nil)
-                    .accessibilityLabel("Narration voice").accessibilityIdentifier("JournalVoicePicker")
-                    .accessibilityHint(choosingVoice ? "Voice choices expanded" : "Opens voice choices")
-                    .accessibilityValue(voice.voices.first(where: { $0.id == voice.selected })?.name ?? "Not selected")
             }
             if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }
             if let message = voice.errorMessage {

@@ -5,14 +5,15 @@ struct JournalMinimalAudioControls: View {
     let label: String
     var disabled = false
     let toggle: () -> Void
+    @FocusState private var keyboardFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: toggle) {
+            Button { toggle(); keyboardFocused = true } label: {
                 Group {
                     if player.preparing { ProgressView().tint(.white) }
                     else { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 13, weight: .semibold)) }
-                }.foregroundStyle(.white).frame(width: 34, height: 34).background(Color.accentColor, in: .circle)
+                }.foregroundStyle(.white).frame(width: 34, height: 34).background(JournalToolbarButtonStyle.blue, in: .circle)
                     .frame(width: 44, height: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(disabled || player.preparing)
                 .accessibilityLabel("\(player.isPlaying ? "Pause" : "Play") \(label)")
@@ -22,7 +23,12 @@ struct JournalMinimalAudioControls: View {
                 .accessibilityAction(named: "Previous sentence") { player.moveSentence(-1) }
                 .accessibilityAction(named: "Next sentence") { player.moveSentence(1) }
             Text(clock(player.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 30)
-        }.focusable()
+        }.focusable().focused($keyboardFocused).focusEffectDisabled()
+            .onKeyPress(.space) {
+                guard player.isPlaying else { return .ignored }
+                player.pause()
+                return .handled
+            }
             .onKeyPress(.leftArrow) { move(-1) }
             .onKeyPress(.rightArrow) { move(1) }
     }

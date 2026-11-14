@@ -18,7 +18,7 @@ struct JournalRowActions: View {
         .disabled(isDeleting || store.busyEntryIDs.contains(row.id))
         .accessibilityLabel("Actions for \(row.title ?? "Untitled entry")")
         .accessibilityIdentifier("JournalRowActions-\(row.id)")
-        .sheet(item: $renaming) { JournalRenameSheet(entry: $0, store: store) }
+        .outsideDismissibleSheet(item: $renaming) { JournalRenameSheet(entry: $0, store: store) }
         .alert("Delete this entry?", isPresented: $showingDelete) {
             Button("Delete entry", role: .destructive) { Task { await deleteEntry() } }
             Button("Keep entry", role: .cancel) {}

@@ -31,15 +31,16 @@ struct JournalListView: View {
         .overlay { if rows.isEmpty && !store.isLoading && store.errorMessage == nil { ContentUnavailableView("No journal entries yet", systemImage: "book.closed") } }
         .scrollContentBackground(.hidden)
         .modifier(JournalTimeTracking(service: store.service))
-        .paperBackground()
+        .background(.white)
+        .tint(JournalToolbarButtonStyle.blue)
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .sheet(isPresented: $showingAppearance) { JournalAppearance() }
+        .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Aa") { showingAppearance = true }
-                    .buttonStyle(JournalToolbarButtonStyle(outlined: true))
+                    .buttonStyle(JournalToolbarButtonStyle(outlined: false))
                     .accessibilityLabel("Journal appearance")
             }.sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
