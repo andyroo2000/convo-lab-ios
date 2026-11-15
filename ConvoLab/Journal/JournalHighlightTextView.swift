@@ -27,18 +27,36 @@ final class JournalHighlightTextView: UITextView {
     }
 
     private func drawHighlight(_ range: NSRange, optional: Bool) {
-        guard range.length > 0, NSMaxRange(range) <= attributedText.length,
-              let start = position(from: beginningOfDocument, offset: range.location),
+        guard range.location >= 0, range.length > 0,
+              NSMaxRange(range) <= attributedText.length,
+              let manager = textLayoutManager,
+              let content = manager.textContentManager else { return }
+        manager.enumerateTextLayoutFragments(from: content.documentRange.location, options: [.ensuresLayout]) { fragment in
+            let offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
+            for line in fragment.textLineFragments {
+                let lineRange = NSRange(location: offset + line.characterRange.location, length: line.characterRange.length)
+                let overlap = NSIntersectionRange(range, lineRange)
+                guard overlap.length > 0 else { continue }
+                let baseline = self.textContainerInset.top + fragment.layoutFragmentFrame.minY
+                    + line.typographicBounds.minY + line.glyphOrigin.y
+                self.drawHighlightLine(overlap, baseline: baseline, optional: optional)
+            }
+            return true
+        }
+    }
+
+    private func drawHighlightLine(_ range: NSRange, baseline: CGFloat, optional: Bool) {
+        guard let start = position(from: beginningOfDocument, offset: range.location),
               let end = position(from: start, offset: range.length),
               let textRange = textRange(from: start, to: end) else { return }
         let font = attributedText.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
-        let rowHeight = (font?.lineHeight ?? 24) + 4
+            ?? UIFont.systemFont(ofSize: 20)
         for selection in selectionRects(for: textRange) where selection.rect.width > 0 {
             var rect = selection.rect
-            let height = min(rect.height, rowHeight)
-            // Selection rectangles include the preceding interline space on wrapped rows.
-            rect.origin.y = rect.maxY - height
-            rect.size.height = height
+            // Selection bounds include line spacing. Anchor to the actual glyph baseline
+            // so the fill covers the base text without extending into the furigana row.
+            rect.origin.y = baseline - font.ascender - 2
+            rect.size.height = font.ascender - font.descender + 4
             rect = rect.insetBy(dx: -1, dy: 0).intersection(bounds)
             if !rect.isEmpty { addHighlight(rect, optional: optional) }
         }
