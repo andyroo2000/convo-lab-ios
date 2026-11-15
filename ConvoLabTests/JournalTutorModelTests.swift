@@ -49,6 +49,17 @@ final class JournalTutorModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testExpiredCatalogRefreshesTheBackendSelection() async throws {
+        let question = try XCTUnwrap(model.question)
+        let expiring = JournalTutorModel(entryID: "01arz3ndektsv4rrffq69g5fav", service: JournalService(api: api), savedQuestion: question, catalogLifetime: 0)
+        await expiring.showPicker()
+        let updated = JournalTutorPreferences(selectedId: "ren", tutors: [ren])
+        MockURLProtocol.handler = { request in try Self.response(request.url!, updated) }
+        await expiring.showPicker()
+        XCTAssertEqual(expiring.preferences?.selectedId, "ren")
+        XCTAssertEqual(expiring.preferences?.tutors.map(\.id), ["ren"])
+    }
+
     func testChangedDefaultKeepsTheExistingQuestionTutor() async throws {
         let question = try XCTUnwrap(model.question)
         let preferences = JournalTutorPreferences(selectedId: "ren", tutors: [hana, ren])

@@ -12,9 +12,12 @@ final class JournalTutorModel {
     private(set) var isBusy = false
     private(set) var errorMessage: String?
     var choosing = false
+    private var catalogLoadedAt: Date?
+    private let catalogLifetime: TimeInterval
     private var catalogTask: Task<JournalTutorPreferences, Error>?
 
-    init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil) {
+    init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil, catalogLifetime: TimeInterval = 60) {
+        self.catalogLifetime = catalogLifetime
         savedQuestionID = savedQuestion?.id
         question = savedQuestion
         service = entry.store.service
@@ -22,7 +25,8 @@ final class JournalTutorModel {
         input = JournalQuestionInput(analysisId: analysis.id, replyId: analysis.currentReply?.id)
     }
 
-    init(entryID: String, service: JournalService, savedQuestion: JournalTutorQuestion) {
+    init(entryID: String, service: JournalService, savedQuestion: JournalTutorQuestion, catalogLifetime: TimeInterval = 60) {
+        self.catalogLifetime = catalogLifetime
         self.entryID = entryID; self.service = service
         question = savedQuestion; savedQuestionID = savedQuestion.id; input = nil
     }
@@ -40,6 +44,7 @@ final class JournalTutorModel {
     func choose(_ tutor: JournalTutor) async {
         await perform {
             self.preferences = try await self.service.chooseTutor(tutor.id)
+            self.catalogLoadedAt = Date()
             self.question = try await self.prepare()
             self.choosing = false
         }
@@ -77,13 +82,15 @@ final class JournalTutorModel {
     }
 
     private func loadPreferences() async throws {
-        guard preferences == nil else { return }
+        if let catalogLoadedAt, Date().timeIntervalSince(catalogLoadedAt) >= 0,
+           Date().timeIntervalSince(catalogLoadedAt) < catalogLifetime { return }
         if catalogTask == nil { catalogTask = Task { try await service.tutorPreferences() } }
         defer { catalogTask = nil }
         let catalog = try await catalogTask?.value
         try Task.checkCancellation()
-        // The picker and preloader share one catalog fetch for this screen.
-        if preferences == nil { preferences = catalog }
+        // Reuse a recent backend snapshot; later openings refresh server-side changes.
+        preferences = catalog
+        catalogLoadedAt = Date()
     }
 
     private func perform(_ operation: () async throws -> Void) async {

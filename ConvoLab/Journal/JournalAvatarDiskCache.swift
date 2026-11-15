@@ -32,6 +32,7 @@ actor JournalAvatarDiskCache {
         return directory.appendingPathComponent(name)
     }
 
+    // Evict oldest-written entries; this small catalog cache is not an LRU.
     private func trim() {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         let dated = files.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
