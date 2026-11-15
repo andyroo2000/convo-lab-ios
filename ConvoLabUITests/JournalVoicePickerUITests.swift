@@ -41,9 +41,9 @@ final class JournalVoicePickerUITests: XCTestCase {
         XCTAssertGreaterThan(picker.frame.minX, copy.frame.minX)
         XCTAssertEqual(picker.frame.midY, copy.frame.midY, accuracy: 2)
         let date = app.staticTexts["JournalEntryDate"]
-        XCTAssertEqual(date.label, "2026.11.12")
-        XCTAssertGreaterThan(date.frame.minY, app.staticTexts["A movie night"].frame.maxY)
-        XCTAssertLessThan(date.frame.maxY, copy.frame.minY)
+        XCTAssertEqual(date.label, "2026年11月12日（木）")
+        XCTAssertLessThan(date.frame.maxY, app.staticTexts["A movie night"].frame.minY)
+        XCTAssertGreaterThan(date.frame.minY, copy.frame.maxY)
         let preview = XCTAttachment(screenshot: app.screenshot())
         preview.name = "Journal title date and aligned audio controls"
         preview.lifetime = .keepAlways

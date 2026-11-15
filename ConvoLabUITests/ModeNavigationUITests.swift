@@ -190,9 +190,10 @@ final class ModeNavigationUITests: XCTestCase {
         answer.typeText("With a friend.")
         app.buttons["Done"].tap()
         app.buttons["Submit"].tap()
-        let reply = app.staticTexts["Your reply"]
+        let reply = app.otherElements["Your reply"].firstMatch
         for _ in 0..<4 where !reply.isHittable { app.swipeUp() }
         XCTAssertTrue(reply.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.staticTexts["Your reply"].exists)
         XCTAssertEqual(app.buttons.matching(identifier: "Draft").count, 2)
         XCTAssertEqual(app.buttons.matching(identifier: "Final").count, 2)
         XCTAssertFalse(app.buttons["Undo last addition"].exists)
