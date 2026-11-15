@@ -8,8 +8,10 @@ final class JournalClarificationModel {
     private var completion: CheckedContinuation<String?, Never>?
     private var work: Task<Void, Never>?
     private var generation = UUID()
+    private var pendingAnswer: (state: JournalClarification, text: String)?
     private(set) var active = false
     private(set) var busy = false
+    private(set) var canRetry = true
     private(set) var state: JournalClarification?
     private(set) var errorMessage: String?
 
@@ -30,13 +32,16 @@ final class JournalClarificationModel {
     }
 
     func retry() {
-        guard let entry else { return }
-        request { try await self.service.startClarification(entry) }
+        guard let entry, canRetry else { return }
+        if let pendingAnswer {
+            request { try await self.service.answerClarification(entry, state: pendingAnswer.state, answer: pendingAnswer.text) }
+        } else { request { try await self.service.startClarification(entry) } }
     }
 
     func answer(_ text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let entry, let state, state.question != nil, !value.isEmpty else { return }
+        guard let entry, let state, state.question != nil, !value.isEmpty, !busy, canRetry else { return }
+        pendingAnswer = (state, value)
         request { try await self.service.answerClarification(entry, state: state, answer: value) }
     }
 
@@ -50,9 +55,11 @@ final class JournalClarificationModel {
     private func finish(_ id: String?) {
         let pending = completion
         completion = nil
+        pendingAnswer = nil
         entry = nil
         active = false
         busy = false
+        canRetry = true
         state = nil
         errorMessage = nil
         pending?.resume(returning: id)
@@ -67,12 +74,21 @@ final class JournalClarificationModel {
             defer { if generation == epoch { busy = false } }
             do {
                 let first = try await operation()
+                guard generation == epoch else { return }
+                pendingAnswer = nil
                 try await receive(first, epoch: epoch)
             } catch is CancellationError { }
             catch {
-                if generation == epoch { errorMessage = error.localizedDescription }
+                if generation == epoch { report(error) }
             }
         }
+    }
+
+    private func report(_ error: Error) {
+        if case APIClientError.rejected(status: 401, message: _) = error {
+            canRetry = false
+            errorMessage = "Your session changed or expired. Go back and sign in again to continue."
+        } else { errorMessage = error.localizedDescription }
     }
 
     private func receive(_ first: JournalClarification, epoch: UUID) async throws {

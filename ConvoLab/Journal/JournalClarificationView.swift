@@ -9,13 +9,13 @@ struct JournalClarificationView: View {
         HStack(alignment: .top, spacing: 12) {
             JournalAvatar(url: avatar).frame(width: 40, height: 40).accessibilityLabel("Your tutor")
             VStack(alignment: .leading, spacing: 16) {
-                if let question = model.state?.question, model.errorMessage == nil {
+                if let question = model.state?.question {
                     JournalClarificationChoices(question: question, model: model).id(question.id)
                 }
                 if model.busy { ProgressView("Checking…") }
                 if let error = model.errorMessage {
                     Text(error).font(.footnote).foregroundStyle(.red)
-                    Button("Retry") { model.retry() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                    if model.canRetry { Button("Retry") { model.retry() }.buttonStyle(.borderedProminent).disabled(model.busy) }
                 }
                 Button("Back to draft") { model.cancel() }.frame(minHeight: 44).font(.footnote)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
@@ -58,7 +58,7 @@ private struct JournalClarificationChoices: View {
             Button("Answer") { writing = false; model.answer(answer) }
                 .buttonStyle(.borderedProminent)
                 .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }.disabled(model.busy)
+        }.disabled(model.busy || !model.canRetry)
             .onAppear { questionFocused = true }
     }
 
