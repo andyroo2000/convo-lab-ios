@@ -5,6 +5,7 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
     static let shared = JournalReplyNavigationFixture()
     private let lock = NSLock()
     private var conversation = JournalConversationNavigationFixture()
+    private var clarification = JournalClarificationNavigationFixture()
     private var tutor = JournalTutorNavigationFixture()
     private var analysis: [String: Any]?
     private var replies: [String: [String: Any]] = [:]
@@ -12,6 +13,7 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
     func response(path: String, method: String?, body: String, initial: String, entry: String) -> String? {
         guard path.hasPrefix("/api/journal/") else { return nil }
         lock.lock(); defer { lock.unlock() }
+        if let result = clarification.response(path: path, body: object(body)) { return encode(result) }
         let original = JournalDocumentNavigationFixture.initial(object(initial))
         if analysis == nil { analysis = original }
         if let response = conversation.response(path: path, method: method, body: object(body), root: object(entry), analysis: analysis!, tutor: &tutor) { return encode(response) }
@@ -20,15 +22,21 @@ nonisolated final class JournalReplyNavigationFixture: @unchecked Sendable {
             return encode(["data": analysis!])
         }
         if path.hasSuffix("/analysis") { return encode(["data": analysis!, "entry": object(entry)]) }
-        if path.hasSuffix("/undo") {
-            let revision = (analysis?["replyRevision"] as? Int ?? 0) + 1
-            analysis = original
-            analysis?["replyRevision"] = revision
-            return encode(["data": analysis!])
-        }
+        if path.hasSuffix("/undo") { return undo(original) }
+        return reply(path: path, method: method, body: body, original: original)
+    }
+
+    private func reply(path: String, method: String?, body: String, original: [String: Any]) -> String? {
         guard path.contains("/replies/"), let id = path.split(separator: "/").last.map(String.init) else { return nil }
         if method == "PUT" { append(id: id, body: object(body), original: original) }
         return replies[id].map { encode(["data": $0]) }
+    }
+
+    private func undo(_ original: [String: Any]) -> String {
+        let revision = (analysis?["replyRevision"] as? Int ?? 0) + 1
+        analysis = original
+        analysis?["replyRevision"] = revision
+        return encode(["data": analysis!])
     }
 
     private func append(id: String, body: [String: Any], original: [String: Any]) {

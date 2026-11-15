@@ -52,6 +52,26 @@ final class JournalClarificationTests: XCTestCase {
         XCTAssertEqual(result, sessionID)
     }
 
+    func testRetryResendsTheSameAnswerAfterNetworkFailure() async throws {
+        respond("waiting", question: "Who was driving?")
+        let model = JournalClarificationModel(service: JournalService(api: api))
+        let completion = Task { await model.begin(entry) }
+        try await waitUntil { model.state != nil && !model.busy }
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        model.answer("Molly searched while I drove")
+        try await waitUntil { model.errorMessage != nil && !model.busy }
+        MockURLProtocol.handler = { request in
+            XCTAssertTrue(request.url!.path.hasSuffix("/answer"))
+            let body = try Self.body(request)
+            XCTAssertEqual(body["answer"] as? String, "Molly searched while I drove")
+            XCTAssertEqual(body["questionId"] as? String, "01arz3ndektsv4rrffq69g5fax")
+            return Self.response(request, json: #"{"data":{"id":"01arz3ndektsv4rrffq69g5faw","sourceVersion":3,"revision":1,"status":"resolved","question":null,"error":null,"updatedAt":"now"}}"#)
+        }
+        model.retry()
+        let result = await completion.value
+        XCTAssertEqual(result, sessionID)
+    }
+
     func testCancelPreservesNoPendingContinuation() async throws {
         respond("waiting", question: "Who was driving?")
         let model = JournalClarificationModel(service: JournalService(api: api))
@@ -75,6 +95,22 @@ final class JournalClarificationTests: XCTestCase {
         api.setAccessToken("someone-else")
         model.retry()
         try await waitUntil { model.errorMessage?.contains("session changed") == true && !model.busy }
+        model.cancel()
+        let result = await completion.value
+        XCTAssertNil(result)
+    }
+
+    func testExpiredSessionOffersRecoveryWithoutRepeatingRequests() async throws {
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        let model = JournalClarificationModel(service: JournalService(api: api))
+        let completion = Task { await model.begin(entry) }
+        try await waitUntil { model.errorMessage != nil && !model.busy }
+        XCTAssertFalse(model.canRetry)
+        XCTAssertTrue(model.errorMessage?.contains("sign in again") == true)
+        MockURLProtocol.handler = { _ in XCTFail("Do not repeat an expired-session request"); throw URLError(.cancelled) }
+        model.retry()
         model.cancel()
         let result = await completion.value
         XCTAssertNil(result)
