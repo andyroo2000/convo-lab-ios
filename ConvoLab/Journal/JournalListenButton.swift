@@ -46,7 +46,6 @@ struct JournalListenButton: View {
             .accessibilityAction(named: "Previous sentence") { player.moveSentence(-1) }
             .accessibilityAction(named: "Next sentence") { player.moveSentence(1) }
             .focusable().focused($keyboardFocused).focusEffectDisabled()
-            .onKeyPress(.space) { toggle(); return .handled }
             .onKeyPress(.leftArrow) { move(-1) }
             .onKeyPress(.rightArrow) { move(1) }
     }
@@ -73,6 +72,8 @@ struct JournalRibbonProgress: View {
                     }
             }.frame(height: 3).allowsHitTesting(false)
                 .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.updatesFrequently)
                 .accessibilityLabel("Playback progress")
                 .accessibilityValue("\(Int(progress * 100)) percent")
         }

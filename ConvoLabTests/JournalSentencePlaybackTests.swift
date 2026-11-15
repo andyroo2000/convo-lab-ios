@@ -48,6 +48,19 @@ final class JournalSentencePlaybackTests: XCTestCase {
         XCTAssertLessThan(player.position, 0.5)
     }
 
+    func testListenRetriesFailedTimedAudioAndClearsItsError() async {
+        let player = JournalAudioPlayer()
+        await player.toggleTimed { throw URLError(.notConnectedToInternet) }
+        XCTAssertNotNil(player.errorMessage)
+        XCTAssertFalse(player.preparing)
+        let recording = JournalTimedRecording(audioBase64: silentWave().base64EncodedString(), sentences: sentences)
+        await player.toggleTimed { recording }
+        defer { player.stop() }
+        XCTAssertNil(player.errorMessage)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.sentences, sentences)
+    }
+
     func testPauseDoesNotResumeOrDiscardTheRecording() async {
         let player = JournalAudioPlayer()
         let recording = JournalTimedRecording(audioBase64: silentWave().base64EncodedString(), sentences: sentences)
