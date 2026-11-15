@@ -155,7 +155,7 @@ final class ModeNavigationUITests: XCTestCase {
         app.buttons["Final"].tap()
         XCTAssertTrue(app.buttons["Copy final text"].exists)
         XCTAssertFalse(app.buttons["Edit corrected version"].exists)
-        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        XCTAssertTrue(app.buttons["Listen corrected version"].exists)
         XCTAssertTrue(app.buttons["JournalVoicePicker"].waitForExistence(timeout: 5))
         app.buttons["Draft"].tap()
         let highlighted = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch

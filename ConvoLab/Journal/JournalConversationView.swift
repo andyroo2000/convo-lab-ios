@@ -18,12 +18,10 @@ struct JournalConversationView: View {
             }
             if !conversation.loaded { ProgressView("Loading conversation…") }
             ForEach(conversation.nodes) { node in
-                Divider()
                 JournalConversationReply(node: node, root: root, knownKanji: knownKanji,
                                          last: node.id == conversation.nodes.last?.id, refresh: { await conversation.load() })
             }
             if conversation.loaded, conversation.nodes.isEmpty, let analysis = root.analysis {
-                Divider()
                 JournalConversationComposer(entry: root, rootID: root.id, analysis: analysis, knownKanji: knownKanji) { await conversation.load() }.id(analysis.id)
             }
         }.task { await conversation.load() }
@@ -43,23 +41,33 @@ private struct JournalConversationReply: View {
         _model = State(initialValue: JournalEntryModel(id: node.id, store: root.store, initial: node))
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if let question = node.question, let parentID = node.parentEntryId {
-                JournalTeacherView(question: question, parentID: parentID, service: root.store.service, knownKanji: knownKanji)
-            }
-            if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
-            if model.analysis?.status == .ready, !model.isEditing {
-                JournalFeedbackView(model: model, knownKanji: knownKanji, followUp: false, nested: true)
-                if last, let analysis = model.analysis {
-                    JournalConversationComposer(entry: model, rootID: root.id, analysis: analysis, knownKanji: knownKanji, refresh: refresh).id(analysis.id)
+        VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 24) {
+                if let question = node.question, let parentID = node.parentEntryId {
+                    JournalTeacherView(question: question, parentID: parentID, service: root.store.service, knownKanji: knownKanji)
                 }
-            } else {
-                if model.analysis == nil { Text("Saved. Submit to get feedback.").font(.footnote).foregroundStyle(.secondary) }
-                JournalEntryForm(model: model)
-                if let analysis = model.analysis, analysis.status.isPending { JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt) }
-                if model.analysis?.status == .failed { Text(model.analysis?.error ?? "Try Submit again.").foregroundStyle(.red) }
+                Divider()
+                replyContent
+            }.padding(12)
+                .background(Color(red: 0.98, green: 0.99, blue: 1), in: .rect(cornerRadius: 16))
+                .overlay { RoundedRectangle(cornerRadius: 16).stroke(Color.blue.opacity(0.12)) }
+                .accessibilityElement(children: .contain).accessibilityLabel("Conversation reply")
+            if last, model.analysis?.status == .ready, !model.isEditing, let analysis = model.analysis {
+                JournalConversationComposer(entry: model, rootID: root.id, analysis: analysis, knownKanji: knownKanji, refresh: refresh).id(analysis.id)
             }
         }.task(id: node.revision) { await model.load(snapshot: node) }
             .task(id: "\(model.analysis?.id ?? ""):\(model.analysis?.status.rawValue ?? "")") { await model.poll() }
+    }
+
+    @ViewBuilder private var replyContent: some View {
+        if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
+        if model.analysis?.status == .ready, !model.isEditing {
+            JournalFeedbackView(model: model, knownKanji: knownKanji, followUp: false, nested: true)
+        } else {
+            if model.analysis == nil { Text("Saved. Submit to get feedback.").font(.footnote).foregroundStyle(.secondary) }
+            JournalEntryForm(model: model)
+            if let analysis = model.analysis, analysis.status.isPending { JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt) }
+            if model.analysis?.status == .failed { Text(model.analysis?.error ?? "Try Submit again.").foregroundStyle(.red) }
+        }
     }
 }

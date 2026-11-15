@@ -20,12 +20,8 @@ struct JournalFeedbackView: View {
     var body: some View {
         if let analysis = model.analysis, let result = analysis.result {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 8) {
-                    JournalVersionPicker(selection: $version)
-                    JournalVersionCopy(version: version, analysis: analysis)
-                    if version == .final { JournalVoiceButton(voice: voice, choosing: $choosingVoice) }
-                }
                 if version == .draft {
+                    JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice)
                     JournalPaper(draft: model.draft, reply: nested) {
                         JournalHighlights(segments: result.segments, knownKanji: knownKanji, document: document, sourceID: analysis.id)
                     }
@@ -35,7 +31,7 @@ struct JournalFeedbackView: View {
                         }
                     }
                 } else {
-                    JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, voice: voice, choosingVoice: $choosingVoice, compact: true, paperReply: nested)
+                    JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, voice: voice, choosingVoice: $choosingVoice, version: $version, paperReply: nested)
                 }
                 if followUp { JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id) }
             }.onChange(of: analysis.id) { version = .final }

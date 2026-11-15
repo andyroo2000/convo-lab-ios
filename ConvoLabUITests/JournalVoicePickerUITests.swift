@@ -23,7 +23,7 @@ final class JournalVoicePickerUITests: XCTestCase {
         let title = app.staticTexts["Choose your narration voice"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(title.frame.minY, picker.frame.maxY)
-        XCTAssertGreaterThan(app.buttons["Play corrected version"].frame.minY, title.frame.maxY)
+        XCTAssertLessThan(app.buttons["Listen corrected version"].frame.maxY, title.frame.minY)
         app.buttons["Cancel"].firstMatch.tap()
         XCTAssertFalse(title.exists)
         XCTAssertEqual(picker.value as? String, selected)
@@ -38,6 +38,10 @@ final class JournalVoicePickerUITests: XCTestCase {
     @MainActor
     private func verifyEntryLayout(_ app: XCUIApplication, picker: XCUIElement) {
         let copy = app.buttons["Copy final text"]
+        let listen = app.buttons["Listen corrected version"]
+        XCTAssertEqual(listen.frame.midY, copy.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(listen.frame.maxX, copy.frame.minX)
+        XCTAssertFalse(app.sliders["corrected version position"].exists)
         XCTAssertGreaterThan(picker.frame.minX, copy.frame.minX)
         XCTAssertEqual(picker.frame.midY, copy.frame.midY, accuracy: 2)
         let date = app.staticTexts["JournalEntryDate"]
