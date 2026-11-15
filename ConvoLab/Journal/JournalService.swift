@@ -75,8 +75,8 @@ struct JournalService {
         return value.data
     }
 
-    func submit(_ entry: JournalEntry) async throws -> JournalAnalysis {
-        let value: JournalResource<JournalAnalysis> = try await request(path(entry.id) + "/submit", method: "POST", body: JournalVersionPayload(expectedVersion: entry.version))
+    func submit(_ entry: JournalEntry, clarificationID: String? = nil) async throws -> JournalAnalysis {
+        let value: JournalResource<JournalAnalysis> = try await request(path(entry.id) + "/submit", method: "POST", body: JournalSubmissionPayload(expectedVersion: entry.version, clarificationId: clarificationID))
         return value.data
     }
 
@@ -172,14 +172,14 @@ struct JournalService {
         return value.data
     }
 
-    private func request<Value: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: (any Encodable)? = nil, timeout: TimeInterval = 45) async throws -> Value {
+    func request<Value: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: (any Encodable)? = nil, timeout: TimeInterval = 45) async throws -> Value {
         try checkSession()
         let result: Value = try await api.request(path, method: method, query: query, body: body, timeout: timeout, authorizationToken: token)
         try checkSession()
         return result
     }
 
-    private func path(_ id: String) throws -> String {
+    func path(_ id: String) throws -> String {
         guard ClientIdentifier.isULID(id) else { throw APIClientError.invalidResponse }
         return "/api/journal/entries/" + id.lowercased()
     }
