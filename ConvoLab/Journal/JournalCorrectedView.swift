@@ -7,6 +7,7 @@ struct JournalCorrectedView: View {
     let voice: JournalVoiceSelection
     @Binding var choosingVoice: Bool
     var compact = false
+    var paperReply = false
     @State private var player = JournalAudioPlayer()
 
     var body: some View {
@@ -14,7 +15,9 @@ struct JournalCorrectedView: View {
             if !compact { Text("Corrected Version").font(.headline) }
             JournalAudioControls(entryID: document.entry.id, analysis: analysis, service: document.entry.store.service, player: player, voice: voice, choosingVoice: $choosingVoice)
                 .id("\(analysis.id):\(analysis.replyRevision ?? 0)")
-            JournalSentenceText(text: analysis.correctedReading ?? "", knownKanji: knownKanji, player: player)
+            JournalPaper(draft: document.entry.draft, reply: paperReply) {
+                JournalSentenceText(text: analysis.correctedReading ?? "", knownKanji: knownKanji, player: player)
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ import UIKit
 
 struct JournalHighlights: UIViewRepresentable {
     @Environment(\.journalTypography) private var typography
+    @Environment(\.journalOnPaper) private var onPaper
     @ScaledMetric(relativeTo: .body) private var textScale = 1.0
     let segments: [JournalSegment]
     let knownKanji: Set<Character>
@@ -42,10 +43,11 @@ struct JournalHighlights: UIViewRepresentable {
             output.append(text)
         }
         context.coordinator.ranges = ranges
+        if onPaper { JournalPaperText.align(output, font: typography.unscaledFont.withSize(typography.size * textScale)) }
         view.attributedText = output
         view.highlights = zip(ranges, segments).map { (range: $0.0, kind: $0.1.kind) }
         let size = typography.size * textScale
-        view.textContainerInset = UIEdgeInsets(top: size * 0.52, left: 0, bottom: size * 0.08, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: onPaper ? 0 : size * 0.52, left: 0, bottom: size * 0.08, right: 0)
         view.accessibilityLabel = segments.map(JournalEditText.accessibilityLabel).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in
             guard segment.kind.isHighlighted else { return nil }
