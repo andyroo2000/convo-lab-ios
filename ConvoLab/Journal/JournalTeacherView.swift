@@ -20,26 +20,39 @@ struct JournalTeacherView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if model.choosing { JournalTutorPicker(model: model) }
-            HStack(alignment: .top, spacing: 12) {
-                if let tutor = model.question?.tutor {
-                    JournalTutorPortrait(tutor: tutor).frame(width: 56, height: 56)
-                        .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    JournalQuestionBubbleContent(reading: model.question?.reading ?? feedback?.questionReading ?? "", translation: model.question?.translation ?? feedback?.questionTranslation ?? "", knownKanji: knownKanji, busy: model.isBusy, player: player) {
-                        Task { await model.showPicker() }
-                    }
-                    if let question = model.question, question.tutor != nil { JournalQuestionAudioView(model: model, question: question, player: player).id(question.id) }
-                }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
-                    .environment(\.colorScheme, .light)
-                    .padding(14).background(JournalSpeechBubble().fill(Color(red: 237 / 255, green: 245 / 255, blue: 1)))
-            }
+            questionRibbon
+            if let error = player.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
             if let error = model.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
                 Button("Retry tutor") { Task { await model.load() } }.font(.footnote)
             }
         }.task { await model.load() }
             .onChange(of: model.question?.id) { player.stop() }
+    }
+
+    private var questionRibbon: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                if let tutor = model.question?.tutor {
+                    JournalTutorPortrait(tutor: tutor).frame(width: 32, height: 32)
+                        .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
+                }
+                if let question = model.question, question.tutor != nil {
+                    JournalQuestionAudioView(model: model, question: question, player: player).id(question.id)
+                }
+                Spacer(minLength: 0)
+                JournalQuestionControls(translation: model.question?.translation ?? feedback?.questionTranslation ?? "", busy: model.isBusy) {
+                    Task { await model.showPicker() }
+                }
+            }.padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color(red: 0.894, green: 0.937, blue: 0.988))
+                .overlay(alignment: .bottom) { JournalRibbonProgress(player: player) }
+            JournalSentenceText(text: model.question?.reading ?? feedback?.questionReading ?? "", knownKanji: knownKanji, player: player)
+                .padding(14)
+        }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
+            .background(.white).clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(red: 0.85, green: 0.90, blue: 0.95)))
+            .environment(\.colorScheme, .light)
     }
 }
 

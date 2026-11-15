@@ -9,15 +9,9 @@ struct JournalQuestionAudioView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            JournalMinimalAudioControls(player: player, label: "question") {
-                if !player.isPlaying { beforeAudio() }
-                Task { await player.toggleTimed { try await model.service.timedQuestionAudio(entryID: model.entryID, questionID: question.id) } }
-            }
-            if let error = player.errorMessage {
-                Text(error).font(.footnote).foregroundStyle(.red)
-                Button("Retry question audio") { Task { player.stop(); player.errorMessage = nil; await model.load() } }.font(.footnote).disabled(model.isBusy)
-            }
+        JournalListenButton(player: player, label: "question") {
+            if !player.isPlaying { beforeAudio() }
+            Task { await player.toggleTimed { try await model.service.timedQuestionAudio(entryID: model.entryID, questionID: question.id) } }
         }
         .onChange(of: scenePhase) { if scenePhase != .active { player.stop() } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { _ in player.stop() }
