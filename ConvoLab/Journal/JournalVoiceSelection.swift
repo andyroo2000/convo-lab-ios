@@ -25,6 +25,7 @@ final class JournalVoiceSelection {
             guard request == generation else { return }
             try Task.checkCancellation()
             voices = available
+            JournalAvatarCache.shared.preload(available.map(\.avatarUrl))
             selected = available.first(where: { $0.id == state.voiceId })?.id ?? ""
             if available.isEmpty { errorMessage = "No narration voices are available. Try again." }
         } catch {

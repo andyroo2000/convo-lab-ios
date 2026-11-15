@@ -30,7 +30,9 @@ final class JournalTutorModel {
         await perform {
             self.question = try await self.prepare()
             if self.question?.tutor == nil { try await self.openPicker() }
+
         }
+        if question?.tutor != nil { await preloadAvatars() }
     }
 
     func showPicker() async { await perform { try await self.openPicker() } }
@@ -64,7 +66,14 @@ final class JournalTutorModel {
 
     private func openPicker() async throws {
         preferences = try await service.tutorPreferences()
+        JournalAvatarCache.shared.preload(preferences?.tutors.map(\.avatarUrl) ?? [])
         choosing = true
+    }
+
+    private func preloadAvatars() async {
+        // An optional artwork fetch must never turn a usable question into an error.
+        guard let catalog = try? await service.tutorPreferences() else { return }
+        JournalAvatarCache.shared.preload(catalog.tutors.map(\.avatarUrl))
     }
 
     private func perform(_ operation: () async throws -> Void) async {
