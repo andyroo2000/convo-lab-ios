@@ -137,6 +137,29 @@ final class JournalVoiceSelectionTests: XCTestCase {
         XCTAssertTrue(selection.isReady)
     }
 
+    func testVersionSwitchRetainsChosenVoiceWithoutReloading() async {
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/voices") == true { return Self.catalog(request) }
+            return Self.response(request, body: #"{"data":{"voiceId":"haru","hasAudio":false}}"#)
+        }
+        let selection = JournalVoiceSelection()
+        let service = JournalService(api: api)
+        await selection.load(entryID: entryID, analysis: analysis, service: service)
+        selection.selected = "yua"
+        MockURLProtocol.handler = { request in
+            XCTFail("Version switching must not reload voice settings")
+            throw URLError(.notConnectedToInternet)
+        }
+        for _ in 0..<3 {
+            selection.cancel()
+            XCTAssertTrue(selection.isReady)
+            await selection.load(entryID: entryID, analysis: analysis, service: service)
+            XCTAssertEqual(selection.selected, "yua")
+            XCTAssertFalse(selection.isLoading)
+            XCTAssertTrue(selection.isReady)
+        }
+    }
+
     nonisolated private static func response(_ request: URLRequest, body: String) -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Cache-Control": "no-store"])!, Data(body.utf8))
     }
