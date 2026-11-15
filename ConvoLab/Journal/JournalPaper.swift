@@ -12,7 +12,7 @@ struct JournalPaper<Content: View>: View {
             if !reply, let draft { JournalPaperHeading(draft: draft) }
             content().environment(\.journalOnPaper, true)
                 .background(alignment: .topLeading) {
-                    JournalPaperRules(spacing: typography.size * scale * 2.7)
+                    JournalPaperRules(spacing: typography.size * scale * JournalPaperText.linePitch)
                         .stroke(Color(red: 0.77, green: 0.81, blue: 0.81), lineWidth: 0.5)
                         .accessibilityHidden(true)
                 }
@@ -32,6 +32,8 @@ struct JournalPaper<Content: View>: View {
                 .accessibilityHidden(true)
         }
         .environment(\.colorScheme, .light)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(reply ? "Your reply" : "Journal entry")
     }
 }
 
