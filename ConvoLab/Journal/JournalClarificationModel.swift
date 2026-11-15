@@ -19,6 +19,8 @@ final class JournalClarificationModel {
 
     func begin(_ entry: JournalEntry) async -> String? {
         guard !active else { return nil }
+        generation = UUID()
+        let epoch = generation
         self.entry = entry
         active = true
         return await withTaskCancellationHandler {
@@ -27,7 +29,9 @@ final class JournalClarificationModel {
                 retry()
             }
         } onCancel: {
-            Task { @MainActor in self.cancel() }
+            Task { @MainActor in
+                if self.generation == epoch { self.cancel() }
+            }
         }
     }
 
