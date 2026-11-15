@@ -30,8 +30,9 @@ final class JournalHighlightTextView: UITextView {
         guard range.location >= 0, range.length > 0,
               NSMaxRange(range) <= attributedText.length,
               let manager = textLayoutManager,
-              let content = manager.textContentManager else { return }
-        manager.enumerateTextLayoutFragments(from: content.documentRange.location, options: [.ensuresLayout]) { fragment in
+              let content = manager.textContentManager,
+              let startLocation = content.location(content.documentRange.location, offsetBy: range.location) else { return }
+        manager.enumerateTextLayoutFragments(from: startLocation, options: [.ensuresLayout]) { fragment in
             let offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
             for line in fragment.textLineFragments {
                 let lineRange = NSRange(location: offset + line.characterRange.location, length: line.characterRange.length)
@@ -41,7 +42,8 @@ final class JournalHighlightTextView: UITextView {
                     + line.typographicBounds.minY + line.glyphOrigin.y
                 self.drawHighlightLine(overlap, baseline: baseline, optional: optional)
             }
-            return true
+            let fragmentEnd = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.endLocation)
+            return fragmentEnd < NSMaxRange(range)
         }
     }
 
@@ -55,6 +57,7 @@ final class JournalHighlightTextView: UITextView {
             var rect = selection.rect
             // Selection bounds include line spacing. Anchor to the actual glyph baseline
             // so the fill covers the base text without extending into the furigana row.
+            // Two points of padding above and below soften the highlight edges.
             rect.origin.y = baseline - font.ascender - 2
             rect.size.height = font.ascender - font.descender + 4
             rect = rect.insetBy(dx: -1, dy: 0).intersection(bounds)

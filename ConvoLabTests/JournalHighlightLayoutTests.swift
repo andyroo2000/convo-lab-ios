@@ -44,6 +44,7 @@ final class JournalHighlightLayoutTests: XCTestCase {
         view.highlights = [(NSRange(location: 0, length: view.attributedText.length), .correction)]
         view.layoutIfNeeded()
         let rectangles = backgroundRects(view)
+        XCTAssertTrue(rectangles.allSatisfy { $0.height <= font.ascender - font.descender + 4.5 })
         let manager = try XCTUnwrap(view.textLayoutManager)
         var rowCount = 0
         manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
