@@ -117,6 +117,10 @@ final class JournalConversationTests: XCTestCase {
         let question = JournalTutorQuestion(id: questionID, text: "何を話した？", reading: "何[なに]を話[はな]した？", translation: "What did you talk about?", tutor: JournalTutor(id: "hana", name: "Hana", gender: "F", avatar: "hana-v1"))
         let parentID = childID
         MockURLProtocol.handler = { request in
+            if request.url!.path == "/api/journal/tutor" {
+                XCTAssertEqual(request.httpMethod, "GET")
+                return try Self.response(request.url!, JournalTutorPreferences(selectedId: "hana", tutors: [question.tutor!]))
+            }
             XCTAssertEqual(request.url!.path, "/api/journal/entries/" + parentID + "/questions/" + question.id + "/retry")
             return try Self.response(request.url!, question)
         }
