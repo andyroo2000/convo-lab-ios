@@ -12,6 +12,7 @@ final class JournalTutorModel {
     private(set) var isBusy = false
     private(set) var errorMessage: String?
     var choosing = false
+    private var catalogTask: Task<JournalTutorPreferences, Error>?
 
     init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil) {
         savedQuestionID = savedQuestion?.id
@@ -30,7 +31,6 @@ final class JournalTutorModel {
         await perform {
             self.question = try await self.prepare()
             if self.question?.tutor == nil { try await self.openPicker() }
-
         }
         if question?.tutor != nil { await preloadAvatars() }
     }
@@ -65,15 +65,25 @@ final class JournalTutorModel {
     }
 
     private func openPicker() async throws {
-        preferences = try await service.tutorPreferences()
+        try await loadPreferences()
         JournalAvatarCache.shared.preload(preferences?.tutors.map(\.avatarUrl) ?? [])
         choosing = true
     }
 
     private func preloadAvatars() async {
         // An optional artwork fetch must never turn a usable question into an error.
-        guard let catalog = try? await service.tutorPreferences() else { return }
-        JournalAvatarCache.shared.preload(catalog.tutors.map(\.avatarUrl))
+        try? await loadPreferences()
+        JournalAvatarCache.shared.preload(preferences?.tutors.map(\.avatarUrl) ?? [])
+    }
+
+    private func loadPreferences() async throws {
+        guard preferences == nil else { return }
+        if catalogTask == nil { catalogTask = Task { try await service.tutorPreferences() } }
+        defer { catalogTask = nil }
+        let catalog = try await catalogTask?.value
+        try Task.checkCancellation()
+        // The picker and preloader share one catalog fetch for this screen.
+        if preferences == nil { preferences = catalog }
     }
 
     private func perform(_ operation: () async throws -> Void) async {

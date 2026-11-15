@@ -37,6 +37,18 @@ final class JournalTutorModelTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testPickerReusesTheCatalogPreloadedWithTheQuestion() async {
+        model.choosing = false
+        MockURLProtocol.handler = { _ in
+            XCTFail("The picker should reuse the backend catalog loaded with the question")
+            throw URLError(.unknown)
+        }
+        await model.showPicker()
+        XCTAssertTrue(model.choosing)
+        XCTAssertEqual(model.preferences?.tutors.map(\.id), ["hana", "ren"])
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testChangedDefaultKeepsTheExistingQuestionTutor() async throws {
         let question = try XCTUnwrap(model.question)
         let preferences = JournalTutorPreferences(selectedId: "ren", tutors: [hana, ren])

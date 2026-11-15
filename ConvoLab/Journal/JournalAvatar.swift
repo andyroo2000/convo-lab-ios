@@ -21,7 +21,7 @@ struct JournalAvatar: View {
             let result = await cache.image(for: resolved)
             guard !Task.isCancelled else { return }
             loadedURL = resolved
-            loaded = result
+            loaded = result ?? stored
         }
     }
 }

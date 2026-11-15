@@ -88,6 +88,20 @@ final class JournalAvatarCacheTests: XCTestCase {
         XCTAssertFalse(stored === refreshed)
     }
 
+    func testFutureDiskTimestampDoesNotPreventBackendRefresh() async {
+        let disk = JournalAvatarDiskCache(directory: directory)
+        await disk.write(.init(data: png(), savedAt: Date().addingTimeInterval(86_400)), for: url)
+        let refreshed = expectation(description: "Clock skew requires refresh")
+        let data = png()
+        MockURLProtocol.handler = { request in
+            refreshed.fulfill()
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let image = await makeCache().image(for: url)
+        XCTAssertNotNil(image)
+        await fulfillment(of: [refreshed], timeout: 2)
+    }
+
     func testInvalidResponsesAreNotCachedAndCanRetry() async {
         let cache = makeCache()
         for status in [200, 404] {

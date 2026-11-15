@@ -89,5 +89,8 @@ final class JournalAvatarCache {
         images.setObject(CachedImage(image, savedAt: savedAt), forKey: url as NSURL, cost: cost)
     }
 
-    private func isFresh(_ date: Date) -> Bool { Date().timeIntervalSince(date) < lifetime }
+    private func isFresh(_ date: Date) -> Bool {
+        let age = Date().timeIntervalSince(date)
+        return age >= 0 && age < lifetime
+    }
 }
