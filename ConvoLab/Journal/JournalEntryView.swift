@@ -3,7 +3,7 @@ import SwiftUI
 struct JournalEntryView: View {
     @State private var model: JournalEntryModel
     let knownKanji: Set<Character>
-    @AppStorage(JournalTypography.fontKey) private var journalFont = "sans"
+    @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
     @State private var copiedID: String?
 
