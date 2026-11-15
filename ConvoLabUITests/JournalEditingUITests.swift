@@ -5,7 +5,7 @@ final class JournalEditingUITests: XCTestCase {
     func testDraftAndFinalShowOnlyOneVersionAtATime() {
         let app = openEntry()
         XCTAssertTrue(app.buttons["Final"].isSelected)
-        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        XCTAssertTrue(app.buttons["Listen corrected version"].exists)
         app.buttons["Draft"].tap()
         let edited = app.descendants(matching: .any)["JournalHighlightedEntry"].firstMatch
         XCTAssertTrue(edited.label.contains("Replace 映画を見た。 with 映画を見ました。"))
@@ -15,16 +15,16 @@ final class JournalEditingUITests: XCTestCase {
         add(preview)
         XCTAssertFalse(app.staticTexts["Correction"].exists)
         XCTAssertFalse(app.staticTexts["Optional change"].exists)
-        XCTAssertFalse(app.buttons["Play corrected version"].exists)
+        XCTAssertFalse(app.buttons["Listen corrected version"].exists)
         app.buttons["Final"].tap()
-        XCTAssertTrue(app.buttons["Play corrected version"].exists)
+        XCTAssertTrue(app.buttons["Listen corrected version"].exists)
         XCTAssertFalse(edited.exists)
         app.buttons["Draft"].tap()
         XCTAssertTrue(edited.exists)
         app.terminate()
         let reopened = openEntry()
         XCTAssertTrue(reopened.buttons["Final"].isSelected)
-        XCTAssertTrue(reopened.buttons["Play corrected version"].exists)
+        XCTAssertTrue(reopened.buttons["Listen corrected version"].exists)
     }
 
     @MainActor

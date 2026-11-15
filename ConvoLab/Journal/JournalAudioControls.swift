@@ -12,16 +12,17 @@ struct JournalAudioControls: View {
     let player: JournalAudioPlayer
     let voice: JournalVoiceSelection
     @Binding var choosingVoice: Bool
+    @Binding var version: JournalVersion
     @Environment(\.journalBeforeAudio) private var beforeAudio
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
-            JournalMinimalAudioControls(player: player, label: "corrected version", disabled: !voice.isReady) {
+            JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice, player: player) {
                 if !player.isPlaying { beforeAudio() }
                 Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
             }
+            if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
             if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }
             if let message = voice.errorMessage {
                 Text(message).font(.footnote).foregroundStyle(.red)

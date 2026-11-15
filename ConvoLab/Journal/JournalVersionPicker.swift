@@ -7,6 +7,7 @@ enum JournalVersion: String, CaseIterable {
 
 struct JournalVersionPicker: View {
     @Binding var selection: JournalVersion
+    var compact = false
 
     var body: some View {
         HStack(spacing: 2) {
@@ -14,7 +15,7 @@ struct JournalVersionPicker: View {
                 Button { selection = version } label: {
                     Text(version.rawValue).font(.subheadline.weight(.medium))
                         .foregroundStyle(selection == version ? Color(uiColor: JournalPopoverStyle.ink) : .secondary)
-                        .frame(minWidth: 80, minHeight: 44)
+                        .frame(minWidth: compact ? 52 : 80, minHeight: 44)
                         .background(selection == version ? Color(.systemBackground) : .clear, in: Capsule())
                 }.buttonStyle(.plain)
                     .accessibilityAddTraits(selection == version ? .isSelected : [])
