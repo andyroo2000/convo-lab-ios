@@ -19,7 +19,10 @@ final class JournalTutorUITests: XCTestCase {
         let portrait = app.images["Hana, your tutor"]
         XCTAssertTrue(portrait.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["What kind of movie was it?"].exists)
-        XCTAssertTrue(app.buttons["Play question"].exists)
+        let listen = app.buttons["Listen question"]
+        XCTAssertTrue(listen.exists)
+        XCTAssertEqual(listen.frame.midY, app.buttons["Show English"].frame.midY, accuracy: 2)
+        XCTAssertFalse(app.sliders["question audio position"].exists)
         XCTAssertFalse(app.buttons["Pause question"].exists)
         app.buttons["Choose tutor"].tap()
         let ren = app.buttons["Ren"]
