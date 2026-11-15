@@ -12,8 +12,12 @@ final class JournalTutorModel {
     private(set) var isBusy = false
     private(set) var errorMessage: String?
     var choosing = false
+    private var catalogLoadedAt: Date?
+    private let catalogLifetime: TimeInterval
+    private var catalogTask: Task<JournalTutorPreferences, Error>?
 
-    init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil) {
+    init(entry: JournalEntryModel, analysis: JournalAnalysis, savedQuestion: JournalTutorQuestion? = nil, catalogLifetime: TimeInterval = 60) {
+        self.catalogLifetime = catalogLifetime
         savedQuestionID = savedQuestion?.id
         question = savedQuestion
         service = entry.store.service
@@ -21,7 +25,8 @@ final class JournalTutorModel {
         input = JournalQuestionInput(analysisId: analysis.id, replyId: analysis.currentReply?.id)
     }
 
-    init(entryID: String, service: JournalService, savedQuestion: JournalTutorQuestion) {
+    init(entryID: String, service: JournalService, savedQuestion: JournalTutorQuestion, catalogLifetime: TimeInterval = 60) {
+        self.catalogLifetime = catalogLifetime
         self.entryID = entryID; self.service = service
         question = savedQuestion; savedQuestionID = savedQuestion.id; input = nil
     }
@@ -31,6 +36,7 @@ final class JournalTutorModel {
             self.question = try await self.prepare()
             if self.question?.tutor == nil { try await self.openPicker() }
         }
+        if question?.tutor != nil { await preloadAvatars() }
     }
 
     func showPicker() async { await perform { try await self.openPicker() } }
@@ -38,6 +44,7 @@ final class JournalTutorModel {
     func choose(_ tutor: JournalTutor) async {
         await perform {
             self.preferences = try await self.service.chooseTutor(tutor.id)
+            self.catalogLoadedAt = Date()
             self.question = try await self.prepare()
             self.choosing = false
         }
@@ -63,8 +70,27 @@ final class JournalTutorModel {
     }
 
     private func openPicker() async throws {
-        preferences = try await service.tutorPreferences()
+        try await loadPreferences()
+        JournalAvatarCache.shared.preload(preferences?.tutors.map(\.avatarUrl) ?? [])
         choosing = true
+    }
+
+    private func preloadAvatars() async {
+        // An optional artwork fetch must never turn a usable question into an error.
+        try? await loadPreferences()
+        JournalAvatarCache.shared.preload(preferences?.tutors.map(\.avatarUrl) ?? [])
+    }
+
+    private func loadPreferences() async throws {
+        if let catalogLoadedAt, Date().timeIntervalSince(catalogLoadedAt) >= 0,
+           Date().timeIntervalSince(catalogLoadedAt) < catalogLifetime { return }
+        if catalogTask == nil { catalogTask = Task { try await service.tutorPreferences() } }
+        defer { catalogTask = nil }
+        let catalog = try await catalogTask?.value
+        try Task.checkCancellation()
+        // Reuse a recent backend snapshot; later openings refresh server-side changes.
+        preferences = catalog
+        catalogLoadedAt = Date()
     }
 
     private func perform(_ operation: () async throws -> Void) async {
