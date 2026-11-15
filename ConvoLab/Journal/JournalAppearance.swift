@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct JournalAppearance: View {
-    @AppStorage(JournalTypography.fontKey) private var font = "sans"
+    @AppStorage(JournalTypography.fontKey) private var font = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var size = 20.0
     @Environment(\.dismiss) private var dismiss
     private var typography: JournalTypography { JournalTypography(font: font, size: size) }
@@ -13,7 +13,8 @@ struct JournalAppearance: View {
                     Spacer()
                     Button("Done") { dismiss() }.frame(minHeight: 44)
                 }
-                HStack(spacing: 12) {
+                VStack(spacing: 12) {
+                    fontCard("Klee One", value: "klee")
                     fontCard("Sans-serif", value: "sans")
                     fontCard("Serif", value: "serif")
                 }
@@ -36,18 +37,13 @@ struct JournalAppearance: View {
     }
 
     private func fontCard(_ title: String, value: String) -> some View {
-        let selected = (typography.serif ? "serif" : "sans") == value
+        let selected = typography.selection == value
         return Button { font = value } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Aa あ").font(JournalTypography(font: value, size: 28).font)
-                    Spacer(minLength: 0)
-                }.accessibilityHidden(true)
-                HStack {
-                    Text(title).font(.subheadline)
-                    Spacer(minLength: 0)
-                    if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
-                }
+            HStack(spacing: 16) {
+                Text("Aa あ").font(JournalTypography(font: value, size: 28).font).accessibilityHidden(true)
+                Text(title).font(.subheadline)
+                Spacer(minLength: 0)
+                if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 .background(selected ? JournalToolbarButtonStyle.blue.opacity(0.08) : Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? JournalToolbarButtonStyle.blue : Color(.separator)))

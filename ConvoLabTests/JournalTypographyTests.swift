@@ -19,6 +19,19 @@ final class JournalTypographyTests: XCTestCase {
         XCTAssertEqual(sans.pointSize, serif.pointSize)
     }
 
+    func testDefaultUsesBundledKleeSemibold() {
+        let typography = JournalTypography()
+        XCTAssertEqual(typography.selection, "klee")
+        XCTAssertEqual(typography.unscaledFont.fontName, "KleeOne-SemiBold")
+        XCTAssertEqual(typography.size, 20)
+        XCTAssertEqual(JournalTypography(font: "invalid").selection, "klee")
+    }
+
+    func testExistingFontPreferencesRemainAvailable() {
+        XCTAssertEqual(JournalTypography(font: "sans").selection, "sans")
+        XCTAssertEqual(JournalTypography(font: "serif").selection, "serif")
+    }
+
     func testHighlightedOriginalUsesChosenFontAndFurigana() {
         let segment = JournalSegment(text: "映画", reading: "映画[えいが]", kind: .correction,
             suggestion: "本", suggestionReading: "本[ほん]", explanation: nil, explanationReading: nil,
