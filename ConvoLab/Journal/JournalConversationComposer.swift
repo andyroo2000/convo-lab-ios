@@ -17,6 +17,15 @@ struct JournalConversationComposer: View {
             if let feedback = analysis.currentFeedback {
                 JournalTeacherView(entry: entry, analysis: analysis, feedback: feedback, knownKanji: knownKanji)
             }
+            if answer.clarification.active {
+                JournalClarificationView(model: answer.clarification, service: entry.store.service)
+            } else { answerForm }
+        }.onDisappear { answer.clarification.cancel() }.toolbar {
+            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { writing = false } }
+        }
+    }
+    private var answerForm: some View {
+        VStack(alignment: .leading, spacing: 16) {
             TextEditor(text: $answer.body).modifier(JournalBodyFont()).frame(minHeight: 120)
                 .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink)).environment(\.colorScheme, .light)
                 .padding(10).background(.white, in: .rect(cornerRadius: 12))
@@ -29,11 +38,10 @@ struct JournalConversationComposer: View {
             Button(answer.busy ? "Submitting…" : "Submit") {
                 Task { await submit() }
             }.buttonStyle(.borderedProminent).disabled(answer.busy || answer.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }.toolbar {
-            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { writing = false } }
         }
     }
     private func submit() async {
+        writing = false
         do {
             if let request = answer.request {
                 await answer.submit(questionID: request.questionId, refresh: refresh)

@@ -27,7 +27,9 @@ struct JournalEntryView: View {
                         catch { model.errorMessage = "Could not preserve a separate copy. Keep this entry open." }
                     }
                 }
-                if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
+                if model.clarification.active {
+                    JournalClarificationView(model: model.clarification, service: model.store.service)
+                } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
                 if let analysis = model.analysis, analysis.status.isPending {
                     JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt).id(analysis.id)
                 }
@@ -43,6 +45,7 @@ struct JournalEntryView: View {
         .navigationTitle("Entry")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .onDisappear { model.clarification.cancel() }
         .task { await model.load() }
         .task(id: pollingKey) { await model.poll() }
         .navigationDestination(item: $copiedID) { id in

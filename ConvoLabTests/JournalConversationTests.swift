@@ -99,6 +99,9 @@ final class JournalConversationTests: XCTestCase {
     func testSavedAnswerKeepsRecoveryUntilConversationRefreshSucceeds() async throws {
         let entry = child()
         MockURLProtocol.handler = { request in
+            if request.url!.path.hasSuffix("/clarification") {
+                return try Self.response(request.url!, JournalClarification(id: "01arz3ndektsv4rrffq69g5faz", sourceVersion: entry.version, revision: 0, status: .resolved, question: nil, error: nil, updatedAt: "now"))
+            }
             if request.url!.path.hasSuffix("/submit") { throw URLError(.notConnectedToInternet) }
             return try Self.response(request.url!, entry)
         }
@@ -153,6 +156,9 @@ final class JournalConversationTests: XCTestCase {
     func testAuthenticationFailureAfterCreationPreservesRequestID() async throws {
         let entry = child()
         MockURLProtocol.handler = { request in
+            if request.url!.path.hasSuffix("/clarification") {
+                return try Self.response(request.url!, JournalClarification(id: "01arz3ndektsv4rrffq69g5faz", sourceVersion: entry.version, revision: 0, status: .resolved, question: nil, error: nil, updatedAt: "now"))
+            }
             if request.url!.path.hasSuffix("/submit") {
                 return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
             }

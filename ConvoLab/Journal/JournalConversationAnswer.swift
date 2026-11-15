@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 @Observable
 final class JournalConversationAnswer {
+    let clarification: JournalClarificationModel
     let entry: JournalEntryModel
     private let file: URL
     private var unreadableFile = false
@@ -12,6 +13,7 @@ final class JournalConversationAnswer {
     var errorMessage: String?
 
     init(entry: JournalEntryModel, rootID: String, analysisID: String) {
+        clarification = JournalClarificationModel(service: entry.store.service)
         self.entry = entry
         file = entry.store.storage.directory.appending(path: "answers/\(rootID)/\(analysisID)-conversation.json")
         do {
@@ -65,7 +67,8 @@ final class JournalConversationAnswer {
         }
     }
     private func requestFeedback(_ child: JournalEntry) async throws {
-        do { _ = try await entry.store.service.submit(child) }
+        guard let clarificationID = await clarification.begin(child) else { throw CancellationError() }
+        do { _ = try await entry.store.service.submit(child, clarificationID: clarificationID) }
         catch is CancellationError { throw CancellationError() }
         catch APIClientError.rejected(status: 401, message: let message) { throw APIClientError.rejected(status: 401, message: message) }
         catch { /* The child form explicitly offers Submit when feedback is absent. */ }

@@ -55,13 +55,15 @@ private struct JournalConversationReply: View {
             if last, model.analysis?.status == .ready, !model.isEditing, let analysis = model.analysis {
                 JournalConversationComposer(entry: model, rootID: root.id, analysis: analysis, knownKanji: knownKanji, refresh: refresh).id(analysis.id)
             }
-        }.task(id: node.revision) { await model.load(snapshot: node) }
+        }.onDisappear { model.clarification.cancel() }.task(id: node.revision) { await model.load(snapshot: node) }
             .task(id: "\(model.analysis?.id ?? ""):\(model.analysis?.status.rawValue ?? "")") { await model.poll() }
     }
 
     @ViewBuilder private var replyContent: some View {
         if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
-        if model.analysis?.status == .ready, !model.isEditing {
+        if model.clarification.active {
+            JournalClarificationView(model: model.clarification, service: model.store.service)
+        } else if model.analysis?.status == .ready, !model.isEditing {
             JournalFeedbackView(model: model, knownKanji: knownKanji, followUp: false, nested: true)
         } else {
             if model.analysis == nil { Text("Saved. Submit to get feedback.").font(.footnote).foregroundStyle(.secondary) }

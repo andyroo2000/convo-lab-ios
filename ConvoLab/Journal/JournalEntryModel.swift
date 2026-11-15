@@ -5,6 +5,7 @@ import Foundation
 final class JournalEntryModel {
     nonisolated deinit {}
     let id: String
+    let clarification: JournalClarificationModel
     let store: JournalStore
     private var initial: JournalConversationNode?
     var draft: JournalDraft?
@@ -16,6 +17,7 @@ final class JournalEntryModel {
     var isSavedOnDevice = false
 
     init(id: String, store: JournalStore, initial: JournalConversationNode? = nil) {
+        clarification = JournalClarificationModel(service: store.service)
         self.id = id; self.store = store; self.initial = initial
     }
 
@@ -80,7 +82,8 @@ final class JournalEntryModel {
 
     private func submitSaved(_ entry: JournalEntry) async {
         do {
-            analysis = try await store.service.submit(entry)
+            guard let clarificationID = await clarification.begin(entry) else { return }
+            analysis = try await store.service.submit(entry, clarificationID: clarificationID)
             isEditing = false
         } catch {
             hasConflict = Self.isConflict(error)
