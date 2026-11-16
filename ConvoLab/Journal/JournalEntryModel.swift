@@ -58,8 +58,9 @@ final class JournalEntryModel {
         }
     }
 
-    func save(submit: Bool) async {
-        guard let sent = draft, !isBusy else { return }
+    @discardableResult
+    func save(submit: Bool) async -> Bool {
+        guard let sent = draft, !isBusy else { return false }
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
@@ -74,9 +75,11 @@ final class JournalEntryModel {
             isSavedOnDevice = false
             hasConflict = false
             if submit { await submitSaved(entry) }
+            return true
         } catch {
             hasConflict = Self.isConflict(error)
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

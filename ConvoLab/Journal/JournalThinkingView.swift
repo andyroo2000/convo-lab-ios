@@ -12,7 +12,7 @@ struct JournalThinkingView: View {
             Button(english ? "Hide English" : "Show English") { english.toggle() }
                 .font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
             JournalAvatar(url: avatar).frame(width: 80, height: 80).clipShape(Circle()).accessibilityLabel("Your tutor")
-            Text("少し待ってくださいね。").font(.system(size: 21))
+            Text("少し待ってくださいね。").font(.title3)
             if english { Text("I'm preparing your feedback. Your writing is saved.").font(.custom("Georgia", size: 16, relativeTo: .body)) }
             ProgressView().accessibilityLabel("Your tutor is thinking")
             TimelineView(.periodic(from: openedAt, by: 1)) { context in
@@ -23,6 +23,8 @@ struct JournalThinkingView: View {
             }
         }.padding(24).frame(maxWidth: .infinity)
             .background(Color(red: 1, green: 0.992, blue: 0.965), in: .rect(cornerRadius: 16))
+            .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
+            .environment(\.colorScheme, .light)
             .accessibilityIdentifier("JournalFeedbackProgress")
             .task { await loadTutor() }
     }

@@ -7,7 +7,7 @@ struct JournalDraftCloseSheet: View {
     @State private var avatar: String?
     @State private var busy = false
     @State private var error: String?
-    @State private var operation: Task<Void, Never>?
+    @State private var visible = true
 
     var body: some View {
         VStack(spacing: 20) {
@@ -20,7 +20,8 @@ struct JournalDraftCloseSheet: View {
             if let error { Text(error).foregroundStyle(.red).font(.footnote) }
         }.padding(24).disabled(busy).interactiveDismissDisabled(busy)
             .presentationDetents([.medium, .large])
-            .onDisappear { operation?.cancel() }
+            .onAppear { visible = true }
+            .onDisappear { visible = false }
             .task {
                 guard let preferences = try? await model.store.service.tutorPreferences() else { return }
                 avatar = preferences.tutors.first(where: { $0.id == preferences.selectedId })?.avatarUrl
@@ -31,18 +32,17 @@ struct JournalDraftCloseSheet: View {
         guard !busy else { return }
         busy = true
         error = nil
-        operation = Task { @MainActor in
+        Task { @MainActor in
             defer { busy = false }
             do {
                 if delete { try await model.store.delete(id: model.id) }
                 else {
-                    await model.save(submit: false)
-                    if let message = model.errorMessage {
-                        error = message
+                    guard await model.save(submit: false) else {
+                        error = model.errorMessage ?? "The draft could not be saved. Keep writing and try again."
                         return
                     }
                 }
-                try Task.checkCancellation()
+                guard visible else { return }
                 dismiss()
                 closeEntry()
             } catch is CancellationError { }
