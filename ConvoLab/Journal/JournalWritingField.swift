@@ -20,7 +20,7 @@ struct JournalWritingField: UIViewRepresentable {
     func updateUIView(_ view: JournalWritingTextView, context: Context) {
         context.coordinator.text = $text
         view.accessibilityLabel = label
-        view.isEditable = enabled
+        view.setEditingEnabled(enabled)
         view.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
     }
 
@@ -47,6 +47,7 @@ struct JournalWritingField: UIViewRepresentable {
 }
 
 final class JournalWritingTextView: UITextView {
+    private var requestedEditingEnabled = true
     private var needsCaretReveal = false
     private let placeholder = UILabel()
     private let notebookStorage: NSTextStorage
@@ -79,6 +80,16 @@ final class JournalWritingTextView: UITextView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func setEditingEnabled(_ enabled: Bool) {
+        requestedEditingEnabled = enabled
+        guard isEditable != enabled else { return }
+        // Resigning first responder inside updateUIView reenters SwiftUI's responder graph.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isEditable = self.requestedEditingEnabled
+        }
+    }
 
     func configure(text: String, font: UIFont) {
         // Never replace marked text or reset the selection during Japanese composition.

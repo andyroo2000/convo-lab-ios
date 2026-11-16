@@ -100,6 +100,20 @@ final class JournalWritingFieldTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, 0, "Unrelated layout must not undo manual scrolling")
     }
 
+    func testDisablingWaitsForTheViewUpdateAndHonorsTheLatestState() async {
+        let view = JournalWritingTextView()
+        view.setEditingEnabled(false)
+        XCTAssertTrue(view.isEditable, "Do not change the responder graph during updateUIView")
+        await Task.yield()
+        await Task.yield()
+        XCTAssertFalse(view.isEditable)
+        view.setEditingEnabled(true)
+        view.setEditingEnabled(false)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertFalse(view.isEditable)
+    }
+
     func testMarkedJapaneseTextIsNotReplacedByAnUpdate() {
         let view = JournalWritingTextView()
         let font = JournalTypography().unscaledFont
