@@ -37,7 +37,7 @@ struct JournalConversationComposer: View {
             }
             Button(answer.busy ? "Submitting…" : "Submit") {
                 Task { await submit() }
-            }.buttonStyle(.borderedProminent).disabled(answer.busy || answer.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }.buttonStyle(JournalDraftButtonStyle()).disabled(answer.busy || answer.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
     private func submit() async {

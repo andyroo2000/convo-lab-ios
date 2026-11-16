@@ -63,12 +63,13 @@ private struct JournalConversationReply: View {
         if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
         if model.clarification.active {
             JournalClarificationView(model: model.clarification, service: model.store.service)
+        } else if model.analysis?.status.isPending == true {
+            JournalThinkingView(service: model.store.service)
         } else if model.analysis?.status == .ready, !model.isEditing {
             JournalFeedbackView(model: model, knownKanji: knownKanji, followUp: false, nested: true)
         } else {
             if model.analysis == nil { Text("Saved. Submit to get feedback.").font(.footnote).foregroundStyle(.secondary) }
             JournalEntryForm(model: model)
-            if let analysis = model.analysis, analysis.status.isPending { JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt) }
             if model.analysis?.status == .failed { Text(model.analysis?.error ?? "Try Submit again.").foregroundStyle(.red) }
         }
     }
