@@ -15,7 +15,7 @@ struct JournalEntryForm: View {
                 JournalWritingField(text: writingBinding(), label: "Journal entry")
             }
             if exceedsLimit {
-                Text("Keep the entry within 20,000 characters and its title within 255. Your full text is saved on this device.")
+                Text("Keep the entry within 20,000 characters. Your full text is saved on this device.")
                     .font(.footnote).foregroundStyle(.red)
             }
             HStack {

@@ -94,6 +94,10 @@ final class JournalWritingFieldTests: XCTestCase {
         let caret = view.convert(view.caretRect(for: view.selectedTextRange!.end), to: scroll)
         XCTAssertGreaterThan(scroll.contentOffset.y, 0)
         XCTAssertLessThanOrEqual(caret.maxY, scroll.bounds.maxY)
+        scroll.contentOffset = .zero
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        XCTAssertEqual(scroll.contentOffset.y, 0, "Unrelated layout must not undo manual scrolling")
     }
 
     func testMarkedJapaneseTextIsNotReplacedByAnUpdate() {

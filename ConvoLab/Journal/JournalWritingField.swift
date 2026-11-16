@@ -33,9 +33,12 @@ struct JournalWritingField: UIViewRepresentable {
         var text: Binding<String>
         init(text: Binding<String>) { self.text = text }
 
-        func textViewDidChangeSelection(_ textView: UITextView) { textView.setNeedsLayout() }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            (textView as? JournalWritingTextView)?.requestCaretReveal()
+        }
 
         func textViewDidChange(_ textView: UITextView) {
+            (textView as? JournalWritingTextView)?.requestCaretReveal()
             text.wrappedValue = textView.text
             textView.invalidateIntrinsicContentSize()
             (textView as? JournalWritingTextView)?.updatePlaceholder()
@@ -44,6 +47,7 @@ struct JournalWritingField: UIViewRepresentable {
 }
 
 final class JournalWritingTextView: UITextView {
+    private var needsCaretReveal = false
     private let placeholder = UILabel()
     private let notebookStorage: NSTextStorage
     private var writingFont = UIFont.systemFont(ofSize: 20)
@@ -108,7 +112,14 @@ final class JournalWritingTextView: UITextView {
         setNeedsLayout()
     }
 
+    func requestCaretReveal() {
+        needsCaretReveal = true
+        setNeedsLayout()
+    }
+
     private func revealCaret() {
+        guard needsCaretReveal else { return }
+        needsCaretReveal = false
         guard isFirstResponder, let selection = selectedTextRange else { return }
         var ancestor = superview
         while let view = ancestor {
