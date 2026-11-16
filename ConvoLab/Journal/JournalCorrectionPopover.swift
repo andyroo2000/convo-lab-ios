@@ -16,7 +16,7 @@ struct JournalCorrectionPopover: View {
         VStack(alignment: .leading, spacing: 12) {
             if let replacement = segment.replacement {
                 VStack(alignment: .leading, spacing: 8) {
-                    JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : segment.reading,
+                    JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : (segment.reading.isEmpty ? segment.text : segment.reading),
                                              original: !segment.text.isEmpty, knownKanji: knownKanji)
                     HStack(alignment: .top) {
                         Text("→").accessibilityHidden(true)
@@ -25,7 +25,7 @@ struct JournalCorrectionPopover: View {
                     }
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(red: 0.94, green: 0.92, blue: 0.98), in: .rect(cornerRadius: 8))
-                    .accessibilityElement(children: .combine).accessibilityLabel("Suggested edit")
+                    .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
             JournalExplanationText(segment: segment, knownKanji: knownKanji)
             if let suggestion, let document {
@@ -48,6 +48,12 @@ struct JournalCorrectionPopover: View {
         }.padding(14).frame(width: width)
             .background(Color(uiColor: JournalPopoverStyle.surface))
             .accessibilityIdentifier("JournalCorrectionPopover")
+    }
+
+    private func editDescription(_ replacement: String) -> String {
+        if segment.text.isEmpty { return "Insert \(replacement)" }
+        if replacement.isEmpty { return "Remove \(segment.text)" }
+        return "Replace \(segment.text) with \(replacement)"
     }
 
     private func status(_ applied: Bool) -> some View {

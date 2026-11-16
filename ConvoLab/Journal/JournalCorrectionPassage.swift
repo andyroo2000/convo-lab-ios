@@ -10,6 +10,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
+        view.adjustsFontForContentSizeCategory = true
         view.isEditable = false
         view.isScrollEnabled = false
         view.backgroundColor = .clear
