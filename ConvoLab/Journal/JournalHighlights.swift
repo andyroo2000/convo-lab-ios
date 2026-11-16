@@ -22,7 +22,7 @@ struct JournalHighlights: UIViewRepresentable {
         view.isScrollEnabled = false
         view.isSelectable = false
         view.accessibilityIdentifier = "JournalHighlightedEntry"
-        view.accessibilityHint = "Tap a highlighted phrase for its explanation and editing options."
+        view.accessibilityHint = "Tap a highlighted phrase for its explanation."
         view.textContainer.lineFragmentPadding = 0
         view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:))))
         context.coordinator.view = view
@@ -91,14 +91,20 @@ struct JournalHighlights: UIViewRepresentable {
             let controller = sequence(first: view.next, next: { $0?.next }).compactMap { $0 as? UIViewController }.first
             guard let controller, controller.presentedViewController == nil else { return }
             document?.errorMessage = nil
-            // IDs retain the original segment index, including plain segments.
-            let popup = UIHostingController(rootView: JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, document: document, suggestionID: "\(sourceID):\(index)", width: min(360, (view.window?.bounds.width ?? 368) - 32)))
-            popup.overrideUserInterfaceStyle = view.traitCollection.userInterfaceStyle
+            let width = min(360, (view.window?.bounds.width ?? 368) - 32)
+            let content = JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, width: width)
+            let measured = UIHostingController(rootView: content).sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
+            let bounds = view.window?.safeAreaLayoutGuide.layoutFrame ?? controller.view.bounds
+            let height = min(measured.height, max(120, bounds.height - 48))
+            let popup = UIHostingController(rootView: ScrollView { content }.accessibilityLabel("Correction explanation").accessibilityIdentifier("JournalCorrectionScroll"))
+            popup.overrideUserInterfaceStyle = .light
             popup.view.backgroundColor = JournalPopoverStyle.surface
             popup.view.layer.cornerRadius = 14
             popup.view.clipsToBounds = true
             popup.modalPresentationStyle = .popover
-            popup.sizingOptions = .preferredContentSize
+            // UIKit may shorten this preferred size around the anchor. Let the scroll view
+            // fill the actual presentation bounds rather than fixing its SwiftUI height.
+            popup.preferredContentSize = CGSize(width: width, height: height)
             if let presentation = popup.popoverPresentationController {
                 presentation.delegate = self
                 presentation.popoverBackgroundViewClass = JournalPopoverBackground.self
