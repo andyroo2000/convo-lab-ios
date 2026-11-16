@@ -25,7 +25,7 @@ struct JournalEntriesSheet: View {
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
                         }.buttonStyle(.plain)
                         if row.id == selectedID { Image(systemName: "checkmark").foregroundStyle(JournalDeskStyle.green) }
-                        JournalRowActions(row: row, store: store)
+                        if row.id != selectedID { JournalRowActions(row: row, store: store) }
                     }
                 }
                 if store.nextCursor != nil {

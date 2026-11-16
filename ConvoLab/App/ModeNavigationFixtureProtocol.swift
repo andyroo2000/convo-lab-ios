@@ -21,6 +21,7 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
     }
 
     private func responseBody(path: String) -> String? {
+        if path.hasSuffix("/audio/timed") { return JournalAudioNavigationFixture.response }
         if let journal = JournalReplyNavigationFixture.shared.response(path: path, method: request.httpMethod,
             body: requestBody(), initial: Self.journalAnalysis, entry: Self.journalEntry) { return journal }
         if request.httpMethod == "PUT", path.hasPrefix("/api/reading-progress/") {

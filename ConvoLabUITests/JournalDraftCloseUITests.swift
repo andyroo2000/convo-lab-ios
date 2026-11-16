@@ -29,6 +29,11 @@ final class JournalDraftCloseUITests: XCTestCase {
         app.buttons["My entries"].tap()
         let draft = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Untitled entry")).firstMatch
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
+        let other = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
+        other.tap()
+        XCTAssertTrue(app.buttons["Final"].waitForExistence(timeout: 5))
+        app.buttons["My entries"].tap()
+        XCTAssertTrue(draft.waitForExistence(timeout: 5))
         draft.tap()
         XCTAssertTrue(body.waitForExistence(timeout: 5))
         XCTAssertEqual(body.value as? String, text)

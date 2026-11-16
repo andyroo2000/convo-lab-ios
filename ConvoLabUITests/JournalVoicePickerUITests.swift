@@ -17,6 +17,7 @@ final class JournalVoicePickerUITests: XCTestCase {
         let listen = app.buttons["Listen corrected version"]
         XCTAssertTrue(listen.waitForExistence(timeout: 5))
         XCTAssertLessThan(listen.frame.maxY, app.staticTexts["JournalEntryDate"].frame.minY)
+        checkSeeking(app)
         attach(app, "Final notebook with compact audio header")
         app.buttons["More journal options"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Copy text"].waitForExistence(timeout: 3))
@@ -26,14 +27,31 @@ final class JournalVoicePickerUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         attach(app, "Narration voice modal")
         app.buttons["Cancel"].firstMatch.tap()
-        XCTAssertTrue(listen.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Resume corrected version"].waitForExistence(timeout: 5))
         app.buttons["My entries"].tap()
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["JournalRowActions-01arz3ndektsv4rrffq69g5fav"].exists)
         attach(app, "My entries drawer")
         app.buttons["JournalNewEntry"].tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["Title"].exists)
         attach(app, "New draft notebook")
+    }
+
+    @MainActor
+    private func checkSeeking(_ app: XCUIApplication) {
+        app.buttons["Listen corrected version"].tap()
+        let pause = app.buttons["Pause corrected version"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        pause.tap()
+        let ribbon = app.descendants(matching: .any).matching(identifier: "Corrected version audio position").firstMatch
+        XCTAssertTrue(ribbon.exists)
+        ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.85)).tap()
+        XCTAssertEqual(ribbon.value as? String, "75 percent")
+        let from = ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.85))
+        let to = ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.85))
+        from.press(forDuration: 0.1, thenDragTo: to)
+        XCTAssertEqual(ribbon.value as? String, "25 percent")
     }
 
     @MainActor
