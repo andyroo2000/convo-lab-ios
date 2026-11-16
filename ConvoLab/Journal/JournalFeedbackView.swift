@@ -7,10 +7,11 @@ struct JournalFeedbackView: View {
     let nested: Bool
     @State private var voice = JournalVoiceSelection()
     @State private var choosingVoice = false
-    @State private var version = JournalVersion.final
+    @AppStorage private var version: JournalVersion
     @State private var document: JournalDocumentModel
 
     init(model: JournalEntryModel, knownKanji: Set<Character>, followUp: Bool = true, nested: Bool = false) {
+        _version = AppStorage(wrappedValue: .final, JournalVersion.preferenceKey(owner: model.store.storage.directory.lastPathComponent, entry: model.id))
         self.followUp = followUp
         self.nested = nested
         self.model = model
@@ -34,7 +35,7 @@ struct JournalFeedbackView: View {
                     JournalCorrectedView(document: document, analysis: analysis, knownKanji: knownKanji, voice: voice, choosingVoice: $choosingVoice, version: $version, paperReply: nested)
                 }
                 if followUp { JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id) }
-            }.onChange(of: analysis.id) { version = .final }
+            }
                 .onChange(of: version) { choosingVoice = false }
         }
     }

@@ -128,7 +128,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
             while !Task.isCancelled {
                 guard self != nil else { return }
                 if self?.seeking == false { self?.position = self?.player?.currentTime ?? 0 }
-                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
             }
         }
     }

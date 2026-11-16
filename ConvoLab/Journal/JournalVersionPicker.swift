@@ -3,6 +3,12 @@ import SwiftUI
 enum JournalVersion: String, CaseIterable {
     case draft = "Draft"
     case final = "Final"
+
+    static func preferenceKey(owner: String, entry: String) -> String {
+        "journal.version.\(owner).\(entry.lowercased())"
+    }
+
+    var chapter: String { self == .draft ? "1" : "2" }
 }
 
 struct JournalVersionPicker: View {
@@ -13,14 +19,19 @@ struct JournalVersionPicker: View {
         HStack(spacing: 2) {
             ForEach(JournalVersion.allCases, id: \.self) { version in
                 Button { selection = version } label: {
-                    Text(version.rawValue).font(.subheadline.weight(.medium))
+                    HStack(spacing: 6) {
+                        Text(version.chapter).font(.custom("KleeOne-SemiBold", size: 24)).accessibilityHidden(true)
+                        Text(version.rawValue).font(.custom("KleeOne-SemiBold", size: 17))
+                    }
                         .foregroundStyle(selection == version ? Color(uiColor: JournalPopoverStyle.ink) : .secondary)
                         .frame(minWidth: compact ? 52 : 80, minHeight: 44)
-                        .background(selection == version ? Color(.systemBackground) : .clear, in: Capsule())
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(selection == version ? JournalToolbarButtonStyle.blue : .clear).frame(height: 2)
+                        }
                 }.buttonStyle(.plain)
                     .accessibilityAddTraits(selection == version ? .isSelected : [])
             }
-        }.padding(4).background(Color(.secondarySystemBackground), in: Capsule())
+        }.padding(4)
             .accessibilityElement(children: .contain).accessibilityLabel("Entry version")
     }
 }
