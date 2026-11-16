@@ -32,6 +32,23 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
+    func testPickerFitsAtLargestTextSize() {
+        let app = openEntry(contentSize: "UICTContentSizeCategoryAccessibilityXXXL")
+        for label in ["Draft", "Final"] {
+            let button = app.buttons[label]
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(button.frame.maxX, app.frame.maxX)
+            button.tap()
+            XCTAssertTrue(button.isSelected)
+        }
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Picker at largest accessibility text size"
+        preview.lifetime = .keepAlways
+        add(preview)
+    }
+
+    @MainActor
     func testCopyFollowsTheSelectedVersionWithoutEditButtons() {
         let app = openEntry()
         XCTAssertFalse(app.buttons["Edit entry"].exists)

@@ -14,6 +14,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         view.isEditable = false
         view.isScrollEnabled = false
         view.backgroundColor = .clear
+        // Ruby readings extend above the first baseline; reserve space for their ascenders.
         view.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 2, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.textLayoutManager?.delegate = context.coordinator

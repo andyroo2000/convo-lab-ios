@@ -16,7 +16,7 @@ struct JournalEntryToolbar: View {
                 controls().fixedSize()
             }
             VStack(alignment: .leading, spacing: 8) {
-                JournalVersionPicker(selection: $version, compact: true).fixedSize()
+                JournalVersionPicker(selection: $version, compact: true)
                 controls()
             }
         }.padding(.bottom, 10)

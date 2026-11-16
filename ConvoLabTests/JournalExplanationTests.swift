@@ -32,7 +32,7 @@ final class JournalExplanationTests: XCTestCase {
             XCTAssertEqual(text.attribute(.foregroundColor, at: plain.range(of: term).location, effectiveRange: nil) as? UIColor, JournalPopoverStyle.ink)
         }
         XCTAssertEqual(text.attribute(.foregroundColor, at: plain.range(of: "見ました").location, effectiveRange: nil) as? UIColor, green)
-        segment.replacement = "映画を見ました"
+        segment.replacement = "映画を見ました。"
         let sentence = JournalExplanationContent.attributed(segment, knownKanji: [], font: .systemFont(ofSize: 16))
         XCTAssertEqual(sentence.attribute(.foregroundColor, at: plain.range(of: "見ました").location, effectiveRange: nil) as? UIColor, JournalPopoverStyle.ink)
     }
