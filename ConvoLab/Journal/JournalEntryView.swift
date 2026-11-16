@@ -1,6 +1,29 @@
 import SwiftUI
 
 struct JournalEntryView: View {
+    let store: JournalStore
+    let knownKanji: Set<Character>
+    @State private var selectedID: String
+    @State private var showingEntries = false
+
+    init(id: String, store: JournalStore, knownKanji: Set<Character>) {
+        self.store = store
+        self.knownKanji = knownKanji
+        _selectedID = State(initialValue: id)
+    }
+    var body: some View {
+        JournalEntryScreen(id: selectedID, store: store, knownKanji: knownKanji).id(selectedID)
+            .environment(\.journalShowEntries, { showingEntries = true })
+            .sheet(isPresented: $showingEntries) {
+                JournalEntriesSheet(store: store, selectedID: selectedID) { id in
+                    selectedID = id; showingEntries = false
+                }
+            }
+    }
+}
+
+
+private struct JournalEntryScreen: View {
     @State private var model: JournalEntryModel
     let knownKanji: Set<Character>
     @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
@@ -18,6 +41,9 @@ struct JournalEntryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if !isReviewing {
+                    HStack { JournalEntriesButton(); Spacer(); JournalAppearanceMenu() }.modifier(JournalDeskStyle())
+                }
                 if let message = model.errorMessage {
                     Text(message).font(.footnote).foregroundStyle(.red)
                 }
@@ -43,9 +69,9 @@ struct JournalEntryView: View {
         .modifier(JournalTimeTracking(service: model.store.service))
         .background(.white)
         .tint(JournalToolbarButtonStyle.blue)
-        .navigationTitle("Entry")
+        .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .onDisappear { model.clarification.cancel() }
         .task { await model.load() }
         .task(id: pollingKey) { await model.poll() }

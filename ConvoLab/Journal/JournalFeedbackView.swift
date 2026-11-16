@@ -5,6 +5,7 @@ struct JournalFeedbackView: View {
     let knownKanji: Set<Character>
     let followUp: Bool
     let nested: Bool
+    @Environment(\.journalShowEntries) private var showEntries
     @State private var voice = JournalVoiceSelection()
     @State private var choosingVoice = false
     @AppStorage private var version: JournalVersion
@@ -36,6 +37,7 @@ struct JournalFeedbackView: View {
                 }
                 if followUp { JournalFollowUpView(entry: model, knownKanji: knownKanji).id(analysis.id) }
             }
+                .environment(\.journalShowEntries, nested ? nil : showEntries)
                 .onChange(of: version) { choosingVoice = false }
         }
     }

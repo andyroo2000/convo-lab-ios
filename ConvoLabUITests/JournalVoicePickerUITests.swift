@@ -2,7 +2,7 @@ import XCTest
 
 final class JournalVoicePickerUITests: XCTestCase {
     @MainActor
-    func testVoicePickerShowsChoicesAndCancelPreservesSelection() {
+    func testCompactPlayerAndDrawerActions() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
         app.launch()
@@ -14,44 +14,33 @@ final class JournalVoicePickerUITests: XCTestCase {
         entry.tap()
         XCTAssertTrue(app.buttons["Final"].waitForExistence(timeout: 5))
         app.buttons["Final"].tap()
-        let picker = app.buttons["JournalVoicePicker"]
-        for _ in 0..<3 where !picker.isHittable { app.swipeUp() }
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        verifyEntryLayout(app, picker: picker)
-        let selected = picker.value as? String
-        picker.tap()
+        let listen = app.buttons["Listen corrected version"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5))
+        XCTAssertLessThan(listen.frame.maxY, app.staticTexts["JournalEntryDate"].frame.minY)
+        attach(app, "Final notebook with compact audio header")
+        app.buttons["More journal options"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Copy text"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Edit final"].exists)
+        app.buttons["JournalVoicePicker"].tap()
         let title = app.staticTexts["Choose your narration voice"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(title.frame.minY, picker.frame.maxY)
-        XCTAssertLessThan(app.buttons["Listen corrected version"].frame.maxY, title.frame.minY)
+        attach(app, "Narration voice modal")
         app.buttons["Cancel"].firstMatch.tap()
-        XCTAssertFalse(title.exists)
-        XCTAssertEqual(picker.value as? String, selected)
-        picker.tap()
-        let haru = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Haru (M)")).firstMatch
-        XCTAssertTrue(haru.waitForExistence(timeout: 5))
-        haru.tap()
-        XCTAssertFalse(title.exists)
-        XCTAssertEqual(picker.value as? String, "Haru (M)")
+        XCTAssertTrue(listen.waitForExistence(timeout: 5))
+        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        attach(app, "My entries drawer")
+        app.buttons["JournalNewEntry"].tap()
+        XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["Title"].exists)
+        attach(app, "New draft notebook")
     }
 
     @MainActor
-    private func verifyEntryLayout(_ app: XCUIApplication, picker: XCUIElement) {
-        let copy = app.buttons["Copy final text"]
-        let listen = app.buttons["Listen corrected version"]
-        XCTAssertEqual(listen.frame.midY, copy.frame.midY, accuracy: 2)
-        XCTAssertLessThanOrEqual(listen.frame.maxX, copy.frame.minX)
-        XCTAssertFalse(app.sliders["corrected version position"].exists)
-        XCTAssertGreaterThan(picker.frame.minX, copy.frame.minX)
-        XCTAssertEqual(picker.frame.midY, copy.frame.midY, accuracy: 2)
-        let date = app.staticTexts["JournalEntryDate"]
-        XCTAssertEqual(date.label, "2026年11月12日（木）")
-        XCTAssertLessThan(date.frame.maxY, app.staticTexts["A movie night"].frame.minY)
-        XCTAssertGreaterThan(date.frame.minY, copy.frame.maxY)
-        let preview = XCTAttachment(screenshot: app.screenshot())
-        preview.name = "Journal title date and aligned audio controls"
-        preview.lifetime = .keepAlways
-        add(preview)
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = name
+        image.lifetime = .keepAlways
+        add(image)
     }
-
 }

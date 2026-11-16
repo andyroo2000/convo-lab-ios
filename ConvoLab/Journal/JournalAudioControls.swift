@@ -19,17 +19,17 @@ struct JournalAudioControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice, edit: edit, player: player) {
+            JournalCompactAudioHeader(player: player, voice: voice) {
                 if !player.isPlaying { beforeAudio() }
                 Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
             }
-            if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
             if let message = voice.errorMessage {
                 Text(message).font(.footnote).foregroundStyle(.red)
                 Button("Retry loading voices") { Task { await loadVoices() } }.font(.footnote)
             }
             if let error = player.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
         }
+        .outsideDismissibleSheet(isPresented: $choosingVoice) { ScrollView { JournalVoicePicker(voice: voice, choosing: $choosingVoice).padding() }.presentationDetents([.medium, .large]).presentationBackground(.white).environment(\.colorScheme, .light) }
         .task(id: "\(entryID):\(analysis.id):\(analysis.replyRevision ?? 0)") { await loadVoices() }
         .onChange(of: voice.isLoading) { if voice.isLoading { choosingVoice = false } }
         .onChange(of: voice.errorMessage) { if voice.errorMessage != nil { choosingVoice = false } }

@@ -5,21 +5,16 @@ struct JournalCorrectionPopover: View {
     let knownKanji: Set<Character>
     let width: CGFloat
     private let inset: CGFloat = 14
-    private let arrowSpacing: CGFloat = 8
-    @ScaledMetric(relativeTo: .body) private var arrowWidth: CGFloat = 24
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let replacement = segment.replacement {
                 VStack(alignment: .leading, spacing: 8) {
                     JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : (segment.reading.isEmpty ? segment.text : segment.reading),
                                              original: !segment.text.isEmpty, knownKanji: knownKanji).frame(width: width - 2 * inset)
-                    HStack(alignment: .top, spacing: arrowSpacing) {
-                        Text("→").frame(width: arrowWidth).accessibilityHidden(true)
-                        JournalCorrectionPassage(text: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement,
-                                                 original: false, knownKanji: knownKanji).frame(width: width - 2 * inset - arrowWidth - arrowSpacing)
-                    }
-                }.padding(inset).frame(width: width, alignment: .leading)
-                    .background(Color(red: 0.94, green: 0.92, blue: 0.98))
+                    JournalCorrectionPassage(text: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement,
+                                             original: false, knownKanji: knownKanji).frame(width: width - 2 * inset)
+                }.padding(.horizontal, inset).padding(.top, 4).padding(.bottom, 12).frame(width: width, alignment: .leading)
+                    .background(Color(red: 0.937, green: 0.925, blue: 0.969))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
             JournalExplanationText(segment: segment, knownKanji: knownKanji).frame(width: width - 2 * inset).padding(inset)

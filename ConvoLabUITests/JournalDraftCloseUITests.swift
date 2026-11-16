@@ -24,7 +24,9 @@ final class JournalDraftCloseUITests: XCTestCase {
         XCTAssertGreaterThan(body.frame.height, emptyHeight)
         XCTAssertEqual(body.value as? String, text)
         capture(app, name: "Growing notebook draft")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+        for _ in 0..<5 where !app.buttons["My entries"].isHittable { app.swipeDown() }
+        app.buttons["My entries"].tap()
         let draft = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Untitled entry")).firstMatch
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         draft.tap()

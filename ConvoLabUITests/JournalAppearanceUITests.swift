@@ -32,7 +32,8 @@ final class JournalAppearanceUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Font"].exists)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         XCTAssertTrue(app.sliders["Font size"].waitForNonExistence(timeout: 5))
-        app.buttons["Journal appearance"].tap()
+        app.buttons["More journal options"].firstMatch.tap()
+        app.buttons["Appearance"].tap()
         XCTAssertTrue(app.sliders["Font size"].waitForExistence(timeout: 5))
     }
 
@@ -44,7 +45,9 @@ final class JournalAppearanceUITests: XCTestCase {
         app.buttons["app-mode-journal"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        let appearance = app.buttons["Journal appearance"]
+        entry.tap()
+        app.buttons["More journal options"].firstMatch.tap()
+        let appearance = app.buttons["Appearance"]
         XCTAssertTrue(appearance.waitForExistence(timeout: 5))
         appearance.tap()
         XCTAssertTrue(app.sliders["Font size"].waitForExistence(timeout: 5))

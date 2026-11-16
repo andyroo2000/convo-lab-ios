@@ -49,7 +49,7 @@ struct JournalTeacherView: View {
                 .background(Color(red: 0.894, green: 0.937, blue: 0.988))
                 .overlay(alignment: .bottom) { JournalRibbonProgress(player: player) }
             JournalSentenceText(text: model.question?.reading ?? feedback?.questionReading ?? "", knownKanji: knownKanji, player: player)
-                .environment(\.journalTypography, JournalTypography(font: "sans", size: 20))
+                .environment(\.journalTypography, JournalTypography(font: "serif", size: 20))
                 .padding(14)
             if showEnglish {
                 Text(model.question?.translation ?? feedback?.questionTranslation ?? "")

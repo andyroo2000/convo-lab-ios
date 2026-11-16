@@ -11,7 +11,9 @@ final class JournalDeletionUITests: XCTestCase {
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
         app.buttons["JournalNewEntry"].tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+        for _ in 0..<5 where !app.buttons["My entries"].isHittable { app.swipeDown() }
+        app.buttons["My entries"].tap()
         let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "JournalRowActions-")).firstMatch
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
         let actionID = actions.identifier

@@ -1,0 +1,58 @@
+import SwiftUI
+
+struct JournalEntriesSheet: View {
+    let store: JournalStore
+    let selectedID: String
+    let select: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var rows: [JournalDraft] {
+        var merged = Dictionary(store.entries.map { ($0.id, JournalDraft(entry: $0)) }, uniquingKeysWith: { _, newer in newer })
+        for draft in store.drafts { merged[draft.id] = draft }
+        return merged.values.sorted { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let error = store.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
+                ForEach(rows) { row in
+                    HStack {
+                        Button { select(row.id) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(row.title ?? "Untitled entry").font(.headline)
+                                Text(JournalDates.display(row.entryDate)).font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                        }.buttonStyle(.plain)
+                        if row.id == selectedID { Image(systemName: "checkmark").foregroundStyle(JournalDeskStyle.green) }
+                        JournalRowActions(row: row, store: store)
+                    }
+                }
+                if store.nextCursor != nil {
+                    Button("Load more") { Task { await store.loadMore() } }
+                        .disabled(store.isLoading)
+                        .onAppear { if store.errorMessage == nil { Task { await store.loadMore() } } }
+                }
+                if store.isLoading { ProgressView() }
+            }
+            .refreshable { await store.loadMore(refresh: true) }
+            .scrollContentBackground(.hidden)
+            .background(Color(red: 1, green: 0.992, blue: 0.961))
+            .navigationTitle("My entries").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("New entry", systemImage: "square.and.pencil", action: create).labelStyle(.iconOnly)
+                        .accessibilityIdentifier("JournalNewEntry")
+                }
+            }
+            .task { store.refreshDrafts(); if store.entries.isEmpty { await store.loadMore() } }
+        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .environment(\.colorScheme, .light).tint(JournalDeskStyle.green)
+    }
+
+    private func create() {
+        do { select(try store.create().id) }
+        catch { store.errorMessage = "Could not create a device draft. Try again." }
+    }
+}

@@ -13,14 +13,14 @@ struct JournalThinkingView: View {
             Button(english ? "Hide English" : "Show English") { english.toggle() }
                 .font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
             JournalAvatar(url: avatar).frame(width: 80, height: 80).clipShape(Circle()).accessibilityLabel("Your tutor")
-            Text("少し待ってくださいね。").font(.title3)
-            if english { Text("I'm preparing your feedback. Your writing is saved.").font(.custom("Georgia", size: 16, relativeTo: .body)) }
+            Text("少し読ませてくださいね。").font(.custom("HiraMinProN-W3", size: 20, relativeTo: .body))
+            if english { Text("Let me read through it for a moment.").font(.custom("CrimsonPro-Regular", size: 19, relativeTo: .body)) }
             ProgressView().accessibilityLabel("Your tutor is thinking")
             if let lastAnswer {
                 Divider().overlay(Color(red: 0.867, green: 0.847, blue: 0.788)).padding(.top, 18)
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "checkmark").accessibilityHidden(true).font(.system(size: 16)).foregroundStyle(Color(red: 0.416, green: 0.510, blue: 0.404))
-                    Text(lastAnswer).font(.custom("Georgia", size: 16, relativeTo: .body))
+                    Text(lastAnswer).font(.custom("CrimsonPro-Regular", size: 17, relativeTo: .body))
                         .foregroundStyle(Color(red: 0.349, green: 0.298, blue: 0.267))
                         .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                 }.accessibilityIdentifier("JournalLastClarificationAnswer")

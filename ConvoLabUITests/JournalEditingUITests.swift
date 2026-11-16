@@ -35,7 +35,7 @@ final class JournalEditingUITests: XCTestCase {
     func testFinalEditorCancelsAndSavesOnNotebookPaper() {
         let app = openEntry()
         let edit = app.buttons["Edit final"]
-        for _ in 0..<3 where !edit.isHittable { app.swipeUp() }
+        app.buttons["More journal options"].firstMatch.tap()
         edit.tap()
         let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
@@ -47,6 +47,7 @@ final class JournalEditingUITests: XCTestCase {
         field.typeText(" Discard this change.")
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Draft"].isEnabled)
+        app.buttons["More journal options"].firstMatch.tap()
         edit.tap()
         XCTAssertEqual(field.value as? String, original)
         let preview = XCTAttachment(screenshot: app.screenshot())
@@ -56,7 +57,8 @@ final class JournalEditingUITests: XCTestCase {
         field.tap()
         field.typeText(" A new final sentence.")
         app.buttons["Save changes"].tap()
-        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Listen corrected version"].waitForExistence(timeout: 5))
+        app.buttons["More journal options"].firstMatch.tap()
         edit.tap()
         XCTAssertTrue((field.value as? String)?.contains("A new final sentence.") == true)
         app.buttons["Cancel"].tap()
@@ -84,15 +86,17 @@ final class JournalEditingUITests: XCTestCase {
         let app = openEntry()
         XCTAssertFalse(app.buttons["Edit entry"].exists)
         app.buttons["Draft"].tap()
-        app.buttons["Copy draft text"].tap()
-        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        app.buttons["More journal options"].firstMatch.tap()
+        app.buttons["Copy text"].tap()
+        XCTAssertTrue(app.buttons["Final"].waitForExistence(timeout: 5))
         app.buttons["Final"].tap()
-        XCTAssertTrue(app.buttons["Copy final text"].exists)
-        XCTAssertFalse(app.buttons["Edit corrected version"].exists)
-        app.buttons["Copy final text"].tap()
-        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        app.buttons["More journal options"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Edit final"].exists)
+        app.buttons["Copy text"].tap()
         app.buttons["Draft"].tap()
-        XCTAssertTrue(app.buttons["Copy draft text"].exists)
+        app.buttons["More journal options"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Copy text"].exists)
+        XCTAssertFalse(app.buttons["Edit final"].exists)
     }
 
     @MainActor

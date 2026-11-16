@@ -3,73 +3,25 @@ import SwiftUI
 struct JournalListView: View {
     let store: JournalStore
     let knownKanji: Set<Character>
-    @State private var newEntryID: String?
-    @State private var showingAppearance = false
-
-    private var rows: [JournalDraft] {
-        var merged = Dictionary(store.entries.map { ($0.id, JournalDraft(entry: $0)) }, uniquingKeysWith: { _, newer in newer })
-        for draft in store.drafts { merged[draft.id] = draft }
-        return merged.values.sorted { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }
-    }
+    @State private var selectedID: String?
+    @State private var showingEntries = true
 
     var body: some View {
-        List {
-            if let message = store.errorMessage {
-                Text(message).foregroundStyle(.red).font(.footnote)
+        VStack(spacing: 24) {
+            HStack { JournalEntriesButton(); Spacer(); JournalAppearanceMenu() }.modifier(JournalDeskStyle())
+            Text("Select an entry or start a new one.").font(.custom("CrimsonPro-Regular", size: 20)).foregroundStyle(.secondary)
+            Spacer()
+        }.padding(20)
+            .environment(\.journalShowEntries, { showingEntries = true })
+            .modifier(JournalTimeTracking(service: store.service))
+            .background(.white)
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showingEntries) {
+                JournalEntriesSheet(store: store, selectedID: "") { id in selectedID = id; showingEntries = false }
             }
-            ForEach(rows) { row in
-                HStack {
-                    entryLink(row)
-                    JournalRowActions(row: row, store: store)
-                }
+            .onChange(of: selectedID) { if selectedID == nil { showingEntries = true } }
+            .navigationDestination(item: $selectedID) { id in
+                JournalEntryView(id: id, store: store, knownKanji: knownKanji)
             }
-            if store.nextCursor != nil {
-                Button("Load more") { Task { await store.loadMore() } }.disabled(store.isLoading)
-            }
-            if store.isLoading { ProgressView() }
-        }
-        .overlay { if rows.isEmpty && !store.isLoading && store.errorMessage == nil { ContentUnavailableView("No journal entries yet", systemImage: "book.closed") } }
-        .scrollContentBackground(.hidden)
-        .modifier(JournalTimeTracking(service: store.service))
-        .background(.white)
-        .tint(JournalToolbarButtonStyle.blue)
-        .navigationTitle("Journal")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Aa") { showingAppearance = true }
-                    .buttonStyle(JournalToolbarButtonStyle(outlined: false))
-                    .accessibilityLabel("Journal appearance")
-            }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New entry", systemImage: "square.and.pencil") {
-                    do { newEntryID = try store.create().id }
-                    catch { store.errorMessage = "Could not create a device draft. Try again." }
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(JournalToolbarButtonStyle(outlined: false))
-                .accessibilityIdentifier("JournalNewEntry")
-            }.sharedBackgroundVisibility(.hidden)
-        }
-        .navigationDestination(item: $newEntryID) { id in
-            JournalEntryView(id: id, store: store, knownKanji: knownKanji)
-        }
-        .task {
-            store.refreshDrafts()
-            if store.entries.isEmpty { await store.loadMore(refresh: true) }
-        }
-        .refreshable { await store.loadMore(refresh: true) }
-    }
-    private func entryLink(_ row: JournalDraft) -> some View {
-        NavigationLink {
-            JournalEntryView(id: row.id, store: store, knownKanji: knownKanji)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(row.title ?? "Untitled entry").font(.headline)
-                Text(JournalDates.display(row.entryDate)).font(.caption).foregroundStyle(.secondary)
-            }.padding(.vertical, 6).accessibilityElement(children: .combine)
-        }
     }
 }
