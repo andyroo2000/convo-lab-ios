@@ -1,0 +1,114 @@
+import SwiftUI
+import UIKit
+
+struct JournalWritingField: UIViewRepresentable {
+    @Binding var text: String
+    var label: String
+    var minimumLines = 4
+    @Environment(\.journalTypography) private var typography
+    @Environment(\.isEnabled) private var enabled
+    @ScaledMetric(relativeTo: .body) private var scale = 1.0
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeUIView(context: Context) -> JournalWritingTextView {
+        let view = JournalWritingTextView()
+        view.delegate = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: JournalWritingTextView, context: Context) {
+        context.coordinator.text = $text
+        view.accessibilityLabel = label
+        view.isEditable = enabled
+        view.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: JournalWritingTextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        return uiView.fittingSize(width: width, minimumLines: minimumLines)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+            textView.invalidateIntrinsicContentSize()
+            (textView as? JournalWritingTextView)?.updatePlaceholder()
+        }
+    }
+}
+
+final class JournalWritingTextView: UITextView {
+    private let placeholder = UILabel()
+    private let notebookStorage: NSTextStorage
+    private var writingFont = UIFont.systemFont(ofSize: 20)
+
+    init() {
+        let storage = NSTextStorage()
+        notebookStorage = storage
+        super.init(frame: .zero, textContainer: Self.notebookContainer(storage: storage))
+        isScrollEnabled = false
+        backgroundColor = .clear
+        textContainerInset = .zero
+        textContainer.lineFragmentPadding = 0
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        placeholder.text = "今日は…"
+        placeholder.textColor = .placeholderText
+        placeholder.isAccessibilityElement = false
+        placeholder.isUserInteractionEnabled = false
+        addSubview(placeholder)
+    }
+
+    private static func notebookContainer(storage: NSTextStorage) -> NSTextContainer {
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        let layout = NSLayoutManager()
+        // Hiragino fonts include leading beyond the paragraph height; the paper already supplies it.
+        layout.usesFontLeading = false
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        return container
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configure(text: String, font: UIFont) {
+        // Never replace marked text or reset the selection during Japanese composition.
+        guard markedTextRange == nil else { return }
+        let needsStyle = writingFont != font || attributedText.length == 0
+        writingFont = font
+        let styled = NSMutableAttributedString(string: text.isEmpty ? " " : text,
+            attributes: [.font: font, .foregroundColor: JournalPopoverStyle.ink])
+        JournalPaperText.align(styled, font: font)
+        if self.text != text || needsStyle {
+            let selection = selectedRange
+            attributedText = text.isEmpty ? NSAttributedString() : styled
+            let start = min(selection.location, (text as NSString).length)
+            selectedRange = NSRange(location: start, length: min(selection.length, (text as NSString).length - start))
+            invalidateIntrinsicContentSize()
+        }
+        typingAttributes = styled.attributes(at: 0, effectiveRange: nil)
+        placeholder.font = font
+        updatePlaceholder()
+    }
+
+    func fittingSize(width: CGFloat, minimumLines: Int) -> CGSize {
+        let measured = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let minimumHeight = writingFont.pointSize * JournalPaperText.linePitch * CGFloat(minimumLines)
+        return CGSize(width: width, height: max(minimumHeight, ceil(measured.height)))
+    }
+
+    func updatePlaceholder() {
+        placeholder.isHidden = !text.isEmpty
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let pitch = writingFont.pointSize * JournalPaperText.linePitch
+        placeholder.frame = CGRect(x: 0, y: (pitch - writingFont.lineHeight) / 2,
+                                   width: bounds.width, height: writingFont.lineHeight)
+    }
+}
