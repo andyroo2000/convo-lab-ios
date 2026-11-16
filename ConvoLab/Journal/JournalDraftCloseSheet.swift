@@ -38,7 +38,7 @@ struct JournalDraftCloseSheet: View {
                 if delete { try await model.store.delete(id: model.id) }
                 else {
                     guard await model.save(submit: false) else {
-                        error = model.errorMessage ?? "The draft could not be saved. Keep writing and try again."
+                        error = "Your writing remains on this device. " + (model.errorMessage ?? "The draft could not be saved online. Try again.")
                         return
                     }
                 }
@@ -52,11 +52,12 @@ struct JournalDraftCloseSheet: View {
 }
 
 struct JournalDraftButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.custom("KleeOne-SemiBold", size: 18, relativeTo: .body))
             .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.27))
             .padding(.horizontal, 18).padding(.vertical, 10).frame(minHeight: 44)
             .background(Color(red: 0.88, green: 0.92, blue: 0.86), in: .rect(cornerRadius: 8))
-            .opacity(configuration.isPressed ? 0.65 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }
