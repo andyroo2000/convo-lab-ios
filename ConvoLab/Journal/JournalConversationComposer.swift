@@ -19,6 +19,8 @@ struct JournalConversationComposer: View {
             }
             if answer.clarification.active {
                 JournalClarificationView(model: answer.clarification, service: entry.store.service)
+            } else if answer.busy {
+                JournalThinkingView(service: entry.store.service, lastAnswer: answer.clarification.lastAnswer)
             } else { answerForm }
         }.onDisappear { answer.clarification.cancel() }.toolbar {
             ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { writing = false } }

@@ -32,6 +32,34 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
+    func testFinalEditorCancelsAndSavesOnNotebookPaper() {
+        let app = openEntry()
+        let edit = app.buttons["Edit final"]
+        for _ in 0..<3 where !edit.isHittable { app.swipeUp() }
+        edit.tap()
+        let field = app.textViews["Final text"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let original = field.value as? String
+        XCTAssertFalse(app.buttons["Listen corrected version"].exists)
+        field.tap()
+        field.typeText(" Discard this change.")
+        app.buttons["Cancel"].tap()
+        edit.tap()
+        XCTAssertEqual(field.value as? String, original)
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Edit final on notebook paper"
+        preview.lifetime = .keepAlways
+        add(preview)
+        field.tap()
+        field.typeText(" A new final sentence.")
+        app.buttons["Save changes"].tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        XCTAssertTrue((field.value as? String)?.contains("A new final sentence.") == true)
+        app.buttons["Cancel"].tap()
+    }
+
+    @MainActor
     func testPickerFitsAtLargestTextSize() {
         let app = openEntry(contentSize: "UICTContentSizeCategoryAccessibilityXXXL")
         for label in ["Draft", "Final"] {

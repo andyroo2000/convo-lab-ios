@@ -11,6 +11,8 @@ final class JournalEntryModel {
     var draft: JournalDraft?
     var analysis: JournalAnalysis?
     var isEditing = false
+    private(set) var isSubmitting = false
+    private(set) var missingEntry = false
     private(set) var isBusy = false
     var errorMessage: String?
     var hasConflict = false
@@ -23,6 +25,7 @@ final class JournalEntryModel {
 
     func load(snapshot: JournalConversationNode? = nil) async {
         guard snapshot == nil || (!isBusy && !isEditing) else { return }
+        missingEntry = false
         do {
             try store.service.checkSession()
             let seed = snapshot ?? initial
@@ -40,7 +43,10 @@ final class JournalEntryModel {
             }
             draft = JournalDraft(entry: try await store.service.entry(id))
             try await refreshAnalysis()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            if draft == nil, case APIClientError.rejected(status: 404, message: _) = error { missingEntry = true }
+            else { errorMessage = error.localizedDescription }
+        }
     }
 
     func change(_ edit: (inout JournalDraft) -> Void) {
@@ -84,9 +90,12 @@ final class JournalEntryModel {
     }
 
     private func submitSaved(_ entry: JournalEntry) async {
+        isSubmitting = true
+        defer { isSubmitting = false }
         do {
             guard let clarificationID = await clarification.begin(entry) else { return }
             analysis = try await store.service.submit(entry, clarificationID: clarificationID)
+            UserDefaults.standard.set(JournalVersion.draft.rawValue, forKey: JournalVersion.preferenceKey(owner: store.storage.directory.lastPathComponent, entry: id))
             isEditing = false
         } catch {
             hasConflict = Self.isConflict(error)

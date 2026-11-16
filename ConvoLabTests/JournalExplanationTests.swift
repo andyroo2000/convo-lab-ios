@@ -51,6 +51,12 @@ final class JournalExplanationTests: XCTestCase {
         XCTAssertFalse(japanese?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
     }
 
+    @MainActor
+    func testMixedLanguageSentenceSpacingPreservesEnglishAndNewlines() {
+        let segment = example("Use 日本[にほん]. Next. **早め**. Another. 日本語.\nEnglish. English.")
+        XCTAssertEqual(JournalExplanationContent.text(segment), "Use 日本[にほん].\u{2002}Next.\u{2002}**早め**.\u{2002}Another.\u{2002}日本語.\nEnglish. English.")
+    }
+
     private func example(_ explanation: String) -> JournalSegment {
         JournalSegment(text: "", reading: "", kind: .correction, suggestion: nil,
                        suggestionReading: nil, explanation: explanation, explanationReading: nil)

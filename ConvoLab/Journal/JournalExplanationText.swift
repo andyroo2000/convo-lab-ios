@@ -37,13 +37,23 @@ struct JournalExplanationText: UIViewRepresentable {
 // Interpret only emphasis. Links and HTML remain inert text.
 enum JournalExplanationContent {
     static func text(_ segment: JournalSegment) -> String {
-        var result = segment.explanationReading ?? segment.explanation ?? ""
+        var result = sentenceSpacing(segment.explanationReading ?? segment.explanation ?? "")
         guard segment.replacement != nil else { return result }
         let shown = StudyRubyDocument.parse(segment.reading + " " + (segment.replacementReading ?? ""), knownKanji: [])
         for case let .ruby(base, reading) in shown.segments {
             result = result.replacingOccurrences(of: "\(base)[\(reading)]", with: base)
         }
         return result
+    }
+
+    private static func sentenceSpacing(_ text: String) -> String {
+        let patterns = [
+            #"((?:[\p{Han}\p{Hiragana}\p{Katakana}々〆ー]|\[[ぁ-ゖァ-ヺー]+\])\*{0,3}\.)[ \t]+(?=\S)"#,
+            #"(\.)[ \t]+(?=\*{0,3}[\p{Han}\p{Hiragana}\p{Katakana}])"#
+        ]
+        return patterns.reduce(text) { value, pattern in
+            value.replacingOccurrences(of: pattern, with: "$1\u{2002}", options: .regularExpression)
+        }
     }
 
     static func attributed(_ segment: JournalSegment, knownKanji: Set<Character>, font: UIFont) -> NSAttributedString {

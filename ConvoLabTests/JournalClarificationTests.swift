@@ -31,6 +31,7 @@ final class JournalClarificationTests: XCTestCase {
         XCTAssertTrue(model.active)
         respond("waiting", question: "Which scene was unclear?")
         model.answer("I was driving")
+        XCTAssertEqual(model.lastAnswer, "I was driving")
         try await waitUntil { model.state?.question?.prompt == "Which scene was unclear?" && !model.busy }
         respond("resolved")
         model.answer("The last scene")
@@ -38,6 +39,9 @@ final class JournalClarificationTests: XCTestCase {
         XCTAssertEqual(result, sessionID)
         XCTAssertFalse(model.active)
         XCTAssertNil(model.state)
+        XCTAssertEqual(model.lastAnswer, "The last scene")
+        model.cancel()
+        XCTAssertNil(model.lastAnswer)
     }
 
     func testFailureCanRetryWithoutCompletingSubmission() async throws {

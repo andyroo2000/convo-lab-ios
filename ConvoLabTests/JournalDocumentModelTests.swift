@@ -97,6 +97,47 @@ final class JournalDocumentModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
+    func testFinalEditKeepsTextAndOpeningRevisionAfterConflictingSave() async throws {
+        let edit = JournalFinalEdit(analysis: try XCTUnwrap(entry.analysis))
+        edit.text = "My writing"
+        let model = JournalDocumentModel(entry: entry)
+        MockURLProtocol.handler = { request in
+            if request.httpMethod != "GET" {
+                let body = try JSONSerialization.jsonObject(with: Self.body(request)) as! [String: Any]
+                XCTAssertEqual(body["text"] as? String, "My writing")
+                XCTAssertEqual(body["expectedRevision"] as? Int, 2)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 409, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        let first = await edit.save(model)
+        XCTAssertFalse(first)
+        XCTAssertEqual(edit.text, "My writing")
+        entry.analysis?.replyRevision = 9
+        let retried = await edit.save(model)
+        XCTAssertFalse(retried)
+        XCTAssertEqual(edit.text, "My writing")
+    }
+
+    func testFinalEditUsesReturnedDocumentAndSkipsUnchangedSave() async throws {
+        let edit = JournalFinalEdit(analysis: try XCTUnwrap(entry.analysis))
+        let model = JournalDocumentModel(entry: entry)
+        MockURLProtocol.handler = { _ in XCTFail("Unchanged text must not send a request"); throw URLError(.cancelled) }
+        let unchanged = await edit.save(model)
+        XCTAssertTrue(unchanged)
+        edit.text = "New final"
+        var response = try XCTUnwrap(entry.analysis)
+        response.replyRevision = 3
+        response.correctedDocument = .init(text: "New final", reading: "New final", suggestions: [])
+        let savedAnalysis = response
+        MockURLProtocol.handler = { request in try Self.response(request, analysis: savedAnalysis) }
+        let saved = await edit.save(model)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(entry.analysis?.correctedText, "New final")
+        XCTAssertEqual(entry.analysis?.replyRevision, 3)
+        edit.text = "  \n"
+        XCTAssertFalse(edit.canSave)
+    }
+
     private func delayedResponse() -> LockedDeferredResponse {
         let deferred = LockedDeferredResponse()
         MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }

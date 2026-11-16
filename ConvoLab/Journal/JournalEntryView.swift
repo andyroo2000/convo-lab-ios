@@ -27,10 +27,12 @@ struct JournalEntryView: View {
                         catch { model.errorMessage = "Could not preserve a separate copy. Keep this entry open." }
                     }
                 }
-                if model.clarification.active {
+                if model.missingEntry {
+                    JournalMissingEntryView()
+                } else if model.clarification.active {
                     JournalClarificationView(model: model.clarification, service: model.store.service)
-                } else if model.analysis?.status.isPending == true {
-                    JournalThinkingView(service: model.store.service)
+                } else if model.isSubmitting || model.analysis?.status.isPending == true {
+                    JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)

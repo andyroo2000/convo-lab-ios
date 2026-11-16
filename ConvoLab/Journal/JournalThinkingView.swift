@@ -2,6 +2,7 @@ import SwiftUI
 
 struct JournalThinkingView: View {
     let service: JournalService
+    var lastAnswer: String?
     @State private var avatar: String?
     @State private var english = true
     @State private var openedAt = Date()
@@ -15,6 +16,15 @@ struct JournalThinkingView: View {
             Text("少し待ってくださいね。").font(.title3)
             if english { Text("I'm preparing your feedback. Your writing is saved.").font(.custom("Georgia", size: 16, relativeTo: .body)) }
             ProgressView().accessibilityLabel("Your tutor is thinking")
+            if let lastAnswer {
+                Divider().overlay(Color(red: 0.867, green: 0.847, blue: 0.788)).padding(.top, 18)
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "checkmark").font(.system(size: 16)).foregroundStyle(Color(red: 0.416, green: 0.510, blue: 0.404))
+                    Text(lastAnswer).font(.custom("Georgia", size: 16, relativeTo: .body))
+                        .foregroundStyle(Color(red: 0.349, green: 0.298, blue: 0.267))
+                        .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }.accessibilityIdentifier("JournalLastClarificationAnswer")
+            }
             TimelineView(.periodic(from: openedAt, by: 1)) { context in
                 if context.date.timeIntervalSince(openedAt) >= 60 {
                     Text("This is taking longer than usual. Your writing is saved.").font(.footnote)
