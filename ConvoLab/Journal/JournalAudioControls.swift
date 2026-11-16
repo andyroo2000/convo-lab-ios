@@ -23,7 +23,6 @@ struct JournalAudioControls: View {
                 Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
             }
             if choosingVoice { JournalVoicePicker(voice: voice, choosing: $choosingVoice) }
-            if voice.isLoading { Text("Loading saved voice…").font(.footnote).foregroundStyle(.secondary) }
             if let message = voice.errorMessage {
                 Text(message).font(.footnote).foregroundStyle(.red)
                 Button("Retry loading voices") { Task { await loadVoices() } }.font(.footnote)
