@@ -30,7 +30,7 @@ final class JournalVoicePickerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Resume corrected version"].waitForExistence(timeout: 5))
         app.buttons["My entries"].tap()
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["JournalRowActions-01arz3ndektsv4rrffq69g5fav"].exists)
+        XCTAssertTrue(app.buttons["JournalRowActions-01arz3ndektsv4rrffq69g5fav"].exists)
         attach(app, "My entries drawer")
         app.buttons["JournalNewEntry"].tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))

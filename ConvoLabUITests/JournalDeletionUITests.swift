@@ -33,6 +33,14 @@ final class JournalDeletionUITests: XCTestCase {
         title.typeText("Movie night")
         app.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Movie night"].waitForExistence(timeout: 5))
+        app.buttons["Close"].firstMatch.tap()
+        let body = app.textViews["Journal entry"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        body.tap()
+        body.typeText("Keep the renamed title.")
+        if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.staticTexts["Movie night"].waitForExistence(timeout: 5))
         actions.tap()
         app.buttons["Delete"].tap()
         XCTAssertTrue(app.buttons["Keep entry"].waitForExistence(timeout: 5))
@@ -43,5 +51,6 @@ final class JournalDeletionUITests: XCTestCase {
         app.buttons["Delete entry"].tap()
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[actionID].exists)
+        XCTAssertTrue(app.textViews["Journal entry"].waitForNonExistence(timeout: 5))
     }
 }

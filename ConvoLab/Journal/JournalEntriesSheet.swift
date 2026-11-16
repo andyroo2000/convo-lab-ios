@@ -3,6 +3,8 @@ import SwiftUI
 struct JournalEntriesSheet: View {
     let store: JournalStore
     let selectedID: String
+    var deleted: (String) -> Void = { _ in }
+    var renamed: (String) -> Void = { _ in }
     let select: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -25,7 +27,7 @@ struct JournalEntriesSheet: View {
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
                         }.buttonStyle(.plain)
                         if row.id == selectedID { Image(systemName: "checkmark").foregroundStyle(JournalDeskStyle.green) }
-                        if row.id != selectedID { JournalRowActions(row: row, store: store) }
+                        JournalRowActions(row: row, store: store, onDeleted: { deleted(row.id) }, onRenamed: { renamed(row.id) })
                     }
                 }
                 if store.nextCursor != nil {

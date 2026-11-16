@@ -5,6 +5,8 @@ struct JournalEntryView: View {
     let knownKanji: Set<Character>
     @State private var selectedID: String
     @State private var showingEntries = false
+    @State private var renameRevision = 0
+    @Environment(\.dismiss) private var dismiss
 
     init(id: String, store: JournalStore, knownKanji: Set<Character>) {
         self.store = store
@@ -12,10 +14,14 @@ struct JournalEntryView: View {
         _selectedID = State(initialValue: id)
     }
     var body: some View {
-        JournalEntryScreen(id: selectedID, store: store, knownKanji: knownKanji).id(selectedID)
+        JournalEntryScreen(id: selectedID, store: store, knownKanji: knownKanji).id("\(selectedID):\(renameRevision)")
             .environment(\.journalShowEntries, { showingEntries = true })
             .sheet(isPresented: $showingEntries) {
-                JournalEntriesSheet(store: store, selectedID: selectedID) { id in
+                JournalEntriesSheet(store: store, selectedID: selectedID, deleted: { id in
+                    if id == selectedID { showingEntries = false; dismiss() }
+                }, renamed: { id in
+                    if id == selectedID { renameRevision += 1 }
+                }) { id in
                     selectedID = id; showingEntries = false
                 }
             }

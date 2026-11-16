@@ -3,15 +3,17 @@ import SwiftUI
 struct JournalRenameSheet: View {
     let entry: JournalDraft
     let store: JournalStore
+    let onSaved: () -> Void
     @State private var title: String
     @State private var isSaving = false
     @State private var errorMessage: String?
     @FocusState private var titleFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    init(entry: JournalDraft, store: JournalStore) {
+    init(entry: JournalDraft, store: JournalStore, onSaved: @escaping () -> Void = {}) {
         self.entry = entry
         self.store = store
+        self.onSaved = onSaved
         _title = State(initialValue: entry.title ?? "")
     }
 
@@ -56,6 +58,7 @@ struct JournalRenameSheet: View {
         errorMessage = nil
         do {
             try await store.rename(entry, title: title)
+            onSaved()
             dismiss()
         } catch { errorMessage = error.localizedDescription }
     }
