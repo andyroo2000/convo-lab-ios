@@ -14,7 +14,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         view.isEditable = false
         view.isScrollEnabled = false
         view.backgroundColor = .clear
-        view.textContainerInset = .zero
+        view.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 2, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.textLayoutManager?.delegate = context.coordinator
         return view
@@ -24,7 +24,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: 17) ?? .systemFont(ofSize: 17))
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let value = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
-            weight: .regular, color: original ? JournalPopoverStyle.ink : .systemGreen, alignment: .left, extraLineSpacing: 4, font: font))
+            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 4, font: font))
         if original {
             value.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: UIColor.systemRed],
                                 range: NSRange(location: 0, length: value.length))
@@ -35,6 +35,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
-        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: measured.height)
     }
 }

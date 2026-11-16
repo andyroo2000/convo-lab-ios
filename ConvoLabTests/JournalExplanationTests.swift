@@ -21,6 +21,36 @@ final class JournalExplanationTests: XCTestCase {
         XCTAssertEqual(JournalExplanationContent.text(segment), "日 and 日[にち]")
     }
 
+    @MainActor
+    func testOnlyExactReplacementTermsAreGreen() {
+        var segment = example("映画 and 見ました and 見ましたね. **見ました**")
+        segment.replacement = "見ました"
+        let text = JournalExplanationContent.attributed(segment, knownKanji: [], font: .systemFont(ofSize: 16))
+        let plain = text.string as NSString
+        let green = UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1)
+        for term in ["映画", "見ましたね"] {
+            XCTAssertEqual(text.attribute(.foregroundColor, at: plain.range(of: term).location, effectiveRange: nil) as? UIColor, JournalPopoverStyle.ink)
+        }
+        XCTAssertEqual(text.attribute(.foregroundColor, at: plain.range(of: "見ました").location, effectiveRange: nil) as? UIColor, green)
+        segment.replacement = "映画を見ました"
+        let sentence = JournalExplanationContent.attributed(segment, knownKanji: [], font: .systemFont(ofSize: 16))
+        XCTAssertEqual(sentence.attribute(.foregroundColor, at: plain.range(of: "見ました").location, effectiveRange: nil) as? UIColor, JournalPopoverStyle.ink)
+    }
+
+    @MainActor
+    func testEmphasisDoesNotJoinJapaneseTermsOrChangeTheirFont() {
+        var segment = example("見**ま**した and **見ました**")
+        segment.replacement = "見ました"
+        let text = JournalExplanationContent.attributed(segment, knownKanji: [], font: .systemFont(ofSize: 16))
+        XCTAssertEqual(text.string, "見ました and 見ました")
+        XCTAssertEqual(text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, JournalPopoverStyle.ink)
+        let finalTerm = (text.string as NSString).range(of: "見ました", options: .backwards)
+        XCTAssertEqual(text.attribute(.foregroundColor, at: finalTerm.location, effectiveRange: nil) as? UIColor,
+                       UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1))
+        let japanese = text.attribute(.font, at: finalTerm.location, effectiveRange: nil) as? UIFont
+        XCTAssertFalse(japanese?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+    }
+
     private func example(_ explanation: String) -> JournalSegment {
         JournalSegment(text: "", reading: "", kind: .correction, suggestion: nil,
                        suggestionReading: nil, explanation: explanation, explanationReading: nil)
