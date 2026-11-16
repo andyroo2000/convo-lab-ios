@@ -22,9 +22,9 @@ final class JournalEditingUITests: XCTestCase {
         app.buttons["Draft"].tap()
         XCTAssertTrue(edited.exists)
         app.terminate()
-        let reopened = openEntry()
-        XCTAssertTrue(reopened.buttons["Final"].isSelected)
-        XCTAssertTrue(reopened.buttons["Listen corrected version"].exists)
+        let reopened = openEntry(resetVersion: false)
+        XCTAssertTrue(reopened.buttons["Draft"].isSelected)
+        XCTAssertFalse(reopened.buttons["Listen corrected version"].exists)
     }
 
     @MainActor
@@ -78,7 +78,7 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
-    private func openEntry(contentSize: String? = nil) -> XCUIApplication {
+    private func openEntry(contentSize: String? = nil, resetVersion: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Dark", "-reading-theme", "system", "-reading-format", "Phone reader"]
         if let contentSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize] }
@@ -90,6 +90,7 @@ final class JournalEditingUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
         XCTAssertTrue(app.buttons["Draft"].waitForExistence(timeout: 5))
+        if resetVersion { app.buttons["Final"].tap() }
         return app
     }
 }

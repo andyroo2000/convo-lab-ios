@@ -59,10 +59,11 @@ struct JournalListenButton: View {
 
 struct JournalRibbonProgress: View {
     let player: JournalAudioPlayer
-    private var progress: Double { player.duration > 0 ? min(1, max(0, player.position / player.duration)) : 0 }
+    private var progress: Double { player.duration > 0 ? min(1, max(0, player.playbackPosition / player.duration)) : 0 }
 
     var body: some View {
         if player.duration > 0 {
+            TimelineView(.animation(paused: !player.isPlaying)) { _ in
             GeometryReader { geometry in
                 Rectangle().fill(Color(red: 0.81, green: 0.87, blue: 0.93))
                     .overlay(alignment: .leading) {
@@ -70,6 +71,7 @@ struct JournalRibbonProgress: View {
                             .frame(width: geometry.size.width * progress)
                     }
             }.frame(height: 3).allowsHitTesting(false)
+            }
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.updatesFrequently)
                 .accessibilityLabel("Playback progress")

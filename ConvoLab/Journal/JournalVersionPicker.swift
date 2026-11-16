@@ -20,8 +20,8 @@ struct JournalVersionPicker: View {
             ForEach(JournalVersion.allCases, id: \.self) { version in
                 Button { selection = version } label: {
                     HStack(spacing: 6) {
-                        Text(version.chapter).font(.custom("KleeOne-SemiBold", size: 24)).accessibilityHidden(true)
-                        Text(version.rawValue).font(.custom("KleeOne-SemiBold", size: 17))
+                        Text(version.chapter).font(.custom("KleeOne-SemiBold", size: 24, relativeTo: .title2)).accessibilityHidden(true)
+                        Text(version.rawValue).font(.custom("KleeOne-SemiBold", size: 17, relativeTo: .body))
                     }
                         .foregroundStyle(selection == version ? Color(uiColor: JournalPopoverStyle.ink) : .secondary)
                         .frame(minWidth: compact ? 52 : 80, minHeight: 44)

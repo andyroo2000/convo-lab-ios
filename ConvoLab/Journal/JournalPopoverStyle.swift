@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-enum JournalPopoverStyle {
+nonisolated enum JournalPopoverStyle {
     static let surface = adaptive(light: 0xffffff, dark: 0x2a3338)
     static let ink = adaptive(light: 0x4b1800, dark: 0xe2e9ee)
     static let muted = adaptive(light: 0x65727b, dark: 0xabb8c0)

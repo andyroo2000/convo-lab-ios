@@ -17,6 +17,8 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
     var errorMessage: String?
     nonisolated deinit {}
 
+    var playbackPosition: Double { isPlaying && !seeking ? player?.currentTime ?? position : position }
+
     var duration: Double { player?.duration ?? 0 }
 
     func toggle(entryID: String, analysis: JournalAnalysis, voice: String, service: JournalService) async {
@@ -128,7 +130,7 @@ final class JournalAudioPlayer: NSObject, AVAudioPlayerDelegate {
             while !Task.isCancelled {
                 guard self != nil else { return }
                 if self?.seeking == false { self?.position = self?.player?.currentTime ?? 0 }
-                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
         }
     }
