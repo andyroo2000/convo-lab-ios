@@ -17,14 +17,18 @@ struct JournalFinalEditor: View {
                 JournalWritingField(text: $edit.text, label: "Final text", minimumLines: 3)
                     .disabled(document.disabled)
             }
-            if let message = document.errorMessage { Text(message).font(.footnote).foregroundStyle(.red) }
+            if let message = document.errorMessage {
+                Text(message).font(.footnote).foregroundStyle(.red)
+                Text("Your edits are still here. If this entry changed elsewhere, copy your text before canceling and reopening it.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel", action: close).buttonStyle(JournalDraftButtonStyle(sage: false))
                 Button("Save changes") { Task { if await edit.save(document) { close() } } }
                     .buttonStyle(JournalDraftButtonStyle()).disabled(!edit.canSave)
             }.disabled(document.disabled)
-            if edit.text.unicodeScalars.count > 30_000 { Text("Keep your final text under 30,000 characters.").foregroundStyle(.red) }
+            if edit.text.utf16.count > 30_000 { Text("Keep your final text under 30,000 characters.").foregroundStyle(.red) }
         }
     }
 }
@@ -32,11 +36,12 @@ struct JournalFinalEditor: View {
 @MainActor
 @Observable
 final class JournalFinalEdit {
+    nonisolated deinit {}
     var text: String
     private let original: String
     private let analysisID: String
     private let revision: Int?
-    var canSave: Bool { revision != nil && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.unicodeScalars.count <= 30_000 }
+    var canSave: Bool { revision != nil && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.utf16.count <= 30_000 }
 
     init(analysis: JournalAnalysis) {
         original = analysis.correctedText ?? ""

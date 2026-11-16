@@ -138,6 +138,14 @@ final class JournalDocumentModelTests: XCTestCase {
         XCTAssertFalse(edit.canSave)
     }
 
+    func testFinalTextLimitMatchesWebForEmoji() throws {
+        let edit = JournalFinalEdit(analysis: try XCTUnwrap(entry.analysis))
+        edit.text = String(repeating: "😀", count: 15_000)
+        XCTAssertTrue(edit.canSave)
+        edit.text += "😀"
+        XCTAssertFalse(edit.canSave)
+    }
+
     private func delayedResponse() -> LockedDeferredResponse {
         let deferred = LockedDeferredResponse()
         MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }

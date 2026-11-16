@@ -19,7 +19,7 @@ struct JournalThinkingView: View {
             if let lastAnswer {
                 Divider().overlay(Color(red: 0.867, green: 0.847, blue: 0.788)).padding(.top, 18)
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "checkmark").font(.system(size: 16)).foregroundStyle(Color(red: 0.416, green: 0.510, blue: 0.404))
+                    Image(systemName: "checkmark").accessibilityHidden(true).font(.system(size: 16)).foregroundStyle(Color(red: 0.416, green: 0.510, blue: 0.404))
                     Text(lastAnswer).font(.custom("Georgia", size: 16, relativeTo: .body))
                         .foregroundStyle(Color(red: 0.349, green: 0.298, blue: 0.267))
                         .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
