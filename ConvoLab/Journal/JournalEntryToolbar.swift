@@ -13,12 +13,12 @@ struct JournalEntryToolbar: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 4) {
-                JournalVersionPicker(selection: $version, compact: true).fixedSize()
+                JournalVersionPicker(selection: $version, compact: true).disabled(editing).fixedSize()
                 Spacer(minLength: 0)
                 controls().fixedSize()
             }
             VStack(alignment: .leading, spacing: 8) {
-                JournalVersionPicker(selection: $version, compact: true)
+                JournalVersionPicker(selection: $version, compact: true).disabled(editing)
                 controls()
             }
         }.padding(.bottom, 10)

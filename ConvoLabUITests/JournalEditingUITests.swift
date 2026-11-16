@@ -39,11 +39,14 @@ final class JournalEditingUITests: XCTestCase {
         edit.tap()
         let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Draft"].isEnabled)
+        XCTAssertFalse(app.buttons["Final"].isEnabled)
         let original = field.value as? String
         XCTAssertFalse(app.buttons["Listen corrected version"].exists)
         field.tap()
         field.typeText(" Discard this change.")
         app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Draft"].isEnabled)
         edit.tap()
         XCTAssertEqual(field.value as? String, original)
         let preview = XCTAttachment(screenshot: app.screenshot())
