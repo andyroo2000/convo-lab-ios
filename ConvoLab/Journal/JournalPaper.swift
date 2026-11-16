@@ -3,13 +3,16 @@ import SwiftUI
 struct JournalPaper<Content: View>: View {
     var draft: JournalDraft?
     var reply = false
+    var writing = false
     @ViewBuilder let content: () -> Content
     @Environment(\.journalTypography) private var typography
     @ScaledMetric(relativeTo: .body) private var scale = 1.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            if !reply, let draft { JournalPaperHeading(draft: draft) }
+            if !reply, let draft, !writing || !(draft.title ?? "").isEmpty {
+                JournalPaperHeading(draft: draft, writing: writing)
+            }
             content().environment(\.journalOnPaper, true)
                 .background(alignment: .topLeading) {
                     JournalPaperRules(spacing: typography.size * scale * JournalPaperText.linePitch)
@@ -39,15 +42,18 @@ struct JournalPaper<Content: View>: View {
 
 private struct JournalPaperHeading: View {
     let draft: JournalDraft
+    let writing: Bool
     @Environment(\.journalTypography) private var typography
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(JournalDates.notebook(draft.entryDate))
+            if !writing {
+                Text(JournalDates.notebook(draft.entryDate))
                 .font(.custom("KleeOne-SemiBold", size: 17, relativeTo: .body))
                 .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityIdentifier("JournalEntryDate")
+            }
             Text(draft.title ?? "Untitled entry")
                 .font(JournalTypography(font: typography.selection, size: 27).font)
                 .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))

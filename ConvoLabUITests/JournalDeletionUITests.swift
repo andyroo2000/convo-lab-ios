@@ -10,7 +10,7 @@ final class JournalDeletionUITests: XCTestCase {
         app.buttons["app-mode-journal"].tap()
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
         app.buttons["JournalNewEntry"].tap()
-        XCTAssertTrue(app.textFields["Title (optional)"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "JournalRowActions-")).firstMatch
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
