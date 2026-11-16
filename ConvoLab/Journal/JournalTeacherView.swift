@@ -3,6 +3,7 @@ import SwiftUI
 struct JournalTeacherView: View {
     let feedback: JournalFeedback?
     let knownKanji: Set<Character>
+    @State private var showEnglish = false
     @State private var player = JournalAudioPlayer()
     @State private var model: JournalTutorModel
 
@@ -41,14 +42,20 @@ struct JournalTeacherView: View {
                     JournalQuestionAudioView(model: model, question: question, player: player).id(question.id)
                 }
                 Spacer(minLength: 0)
-                JournalQuestionControls(translation: model.question?.translation ?? feedback?.questionTranslation ?? "", busy: model.isBusy) {
+                JournalQuestionControls(busy: model.isBusy, showEnglish: $showEnglish) {
                     Task { await model.showPicker() }
                 }
             }.padding(.horizontal, 10).padding(.vertical, 6)
                 .background(Color(red: 0.894, green: 0.937, blue: 0.988))
                 .overlay(alignment: .bottom) { JournalRibbonProgress(player: player) }
             JournalSentenceText(text: model.question?.reading ?? feedback?.questionReading ?? "", knownKanji: knownKanji, player: player)
+                .environment(\.journalTypography, JournalTypography(font: "sans", size: 20))
                 .padding(14)
+            if showEnglish {
+                Text(model.question?.translation ?? feedback?.questionTranslation ?? "")
+                    .font(.custom("Georgia", size: 16, relativeTo: .body))
+                    .padding(.horizontal, 14).padding(.bottom, 14)
+            }
         }.foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
             .background(.white).clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(red: 0.85, green: 0.90, blue: 0.95)))
