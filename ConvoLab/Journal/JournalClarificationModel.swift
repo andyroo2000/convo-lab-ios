@@ -9,6 +9,7 @@ final class JournalClarificationModel {
     private var work: Task<Void, Never>?
     private var generation = UUID()
     private var pendingAnswer: (state: JournalClarification, text: String)?
+    private(set) var lastAnswer: String?
     private(set) var active = false
     private(set) var busy = false
     private(set) var canRetry = true
@@ -21,6 +22,7 @@ final class JournalClarificationModel {
         guard !active else { return nil }
         generation = UUID()
         let epoch = generation
+        lastAnswer = nil
         self.entry = entry
         active = true
         return await withTaskCancellationHandler {
@@ -45,11 +47,13 @@ final class JournalClarificationModel {
     func answer(_ text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let entry, let state, state.question != nil, !value.isEmpty, !busy, canRetry else { return }
+        lastAnswer = value
         pendingAnswer = (state, value)
         request { try await self.service.answerClarification(entry, state: state, answer: value) }
     }
 
     func cancel() {
+        lastAnswer = nil
         generation = UUID()
         work?.cancel()
         work = nil

@@ -6,20 +6,25 @@ struct JournalClarificationView: View {
     @State private var avatar: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            JournalAvatar(url: avatar).frame(width: 40, height: 40).accessibilityLabel("Your tutor")
-            VStack(alignment: .leading, spacing: 16) {
-                if model.busy { JournalThinkingView(service: service) }
-                else if let question = model.state?.question {
-                    JournalClarificationChoices(question: question, model: model).id(question.id)
+        Group {
+            if model.busy {
+                JournalThinkingView(service: service, lastAnswer: model.lastAnswer)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    JournalAvatar(url: avatar).frame(width: 40, height: 40).accessibilityLabel("Your tutor")
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let question = model.state?.question {
+                            JournalClarificationChoices(question: question, model: model).id(question.id)
+                        }
+                        if let error = model.errorMessage {
+                            Text(error).font(.footnote).foregroundStyle(.red)
+                            if model.canRetry { Button("Retry") { model.retry() }.buttonStyle(.borderedProminent).disabled(model.busy) }
+                        }
+                        Button("Back to draft") { model.cancel() }.frame(minHeight: 44).font(.footnote)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                        .background(Color(red: 0.93, green: 0.96, blue: 1), in: .rect(cornerRadius: 16))
                 }
-                if let error = model.errorMessage {
-                    Text(error).font(.footnote).foregroundStyle(.red)
-                    if model.canRetry { Button("Retry") { model.retry() }.buttonStyle(.borderedProminent).disabled(model.busy) }
-                }
-                Button("Back to draft") { model.cancel() }.frame(minHeight: 44).font(.footnote)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                .background(Color(red: 0.93, green: 0.96, blue: 1), in: .rect(cornerRadius: 16))
+            }
         }.environment(\.colorScheme, .light)
             .task {
                 guard let preferences = try? await service.tutorPreferences() else { return }

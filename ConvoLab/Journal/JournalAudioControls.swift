@@ -13,12 +13,13 @@ struct JournalAudioControls: View {
     let voice: JournalVoiceSelection
     @Binding var choosingVoice: Bool
     @Binding var version: JournalVersion
+    var edit: (() -> Void)?
     @Environment(\.journalBeforeAudio) private var beforeAudio
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice, player: player) {
+            JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice, edit: edit, player: player) {
                 if !player.isPlaying { beforeAudio() }
                 Task { await player.toggle(entryID: entryID, analysis: analysis, voice: voice.selected, service: service) }
             }

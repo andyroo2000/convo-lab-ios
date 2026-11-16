@@ -29,6 +29,7 @@ final class JournalClarificationSubmissionTests: XCTestCase {
         let pending = Task { await model.save(submit: true) }
         try await waitForQuestion(model.clarification)
         XCTAssertTrue(model.isBusy)
+        XCTAssertTrue(model.isSubmitting)
         XCTAssertNil(model.analysis)
         model.clarification.cancel()
         await pending.value
@@ -51,6 +52,54 @@ final class JournalClarificationSubmissionTests: XCTestCase {
         XCTAssertEqual(restored.request?.id, answer.request?.id)
         XCTAssertNotNil(restored.request)
     }
+    func testSuccessfulSubmissionResetsFinalPreferenceAndKeepsThinkingDuringRequest() async throws {
+        let draft = try store.create()
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        let key = JournalVersion.preferenceKey(owner: store.storage.directory.lastPathComponent, entry: draft.id)
+        UserDefaults.standard.set(JournalVersion.final.rawValue, forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let entry = JournalEntry(id: draft.id, body: draft.body, entryDate: draft.entryDate, version: 1, createdAt: "now", updatedAt: "now")
+        let submitted = expectation(description: "Feedback requested")
+        MockURLProtocol.handler = { request in
+            let data: Data
+            if request.url!.path.hasSuffix("/clarification") {
+                let state = JournalClarification(id: "01arz3ndektsv4rrffq69g5faz", sourceVersion: 1, revision: 0, status: .resolved, question: nil, error: nil, updatedAt: "now")
+                data = try JSONEncoder().encode(JournalResource(data: state))
+            } else if request.url!.path.hasSuffix("/submit") {
+                submitted.fulfill()
+                let analysis = JournalAnalysis(id: "analysis", sourceVersion: 1, status: .queued, result: nil, error: nil, updatedAt: "now")
+                data = try JSONEncoder().encode(JournalResource(data: analysis))
+            } else { data = try JSONEncoder().encode(JournalResource(data: entry)) }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let saved = await model.save(submit: true)
+        await fulfillment(of: [submitted], timeout: 2)
+        XCTAssertTrue(saved)
+        XCTAssertFalse(model.isSubmitting)
+        XCTAssertEqual(model.analysis?.status, .queued)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: key), JournalVersion.draft.rawValue)
+    }
+
+    func testMissingEntryIsFriendlyButLocalWritingSurvives404Save() async throws {
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        let missing = JournalEntryModel(id: "01arz3ndektsv4rrffq69g5fav", store: store)
+        await missing.load()
+        XCTAssertTrue(missing.missingEntry)
+        XCTAssertNil(missing.errorMessage)
+        let draft = try store.create()
+        let local = JournalEntryModel(id: draft.id, store: store)
+        await local.load()
+        local.change { $0.body = "Still on this device" }
+        let saved = await local.save(submit: false)
+        XCTAssertFalse(saved)
+        XCTAssertFalse(local.missingEntry)
+        XCTAssertEqual(local.draft?.body, "Still on this device")
+        XCTAssertNotNil(local.errorMessage)
+    }
+
     private func prepare(_ entry: JournalEntry) {
         MockURLProtocol.handler = { request in
             XCTAssertFalse(request.url!.path.hasSuffix("/submit"), "Feedback must wait for answers")

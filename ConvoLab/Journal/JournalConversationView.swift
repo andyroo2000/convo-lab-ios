@@ -63,8 +63,8 @@ private struct JournalConversationReply: View {
         if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
         if model.clarification.active {
             JournalClarificationView(model: model.clarification, service: model.store.service)
-        } else if model.analysis?.status.isPending == true {
-            JournalThinkingView(service: model.store.service)
+        } else if model.isSubmitting || model.analysis?.status.isPending == true {
+            JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
         } else if model.analysis?.status == .ready, !model.isEditing {
             JournalFeedbackView(model: model, knownKanji: knownKanji, followUp: false, nested: true)
         } else {

@@ -11,7 +11,7 @@ struct JournalFeedbackView: View {
     @State private var document: JournalDocumentModel
 
     init(model: JournalEntryModel, knownKanji: Set<Character>, followUp: Bool = true, nested: Bool = false) {
-        _version = AppStorage(wrappedValue: .final, JournalVersion.preferenceKey(owner: model.store.storage.directory.lastPathComponent, entry: model.id))
+        _version = AppStorage(wrappedValue: .draft, JournalVersion.preferenceKey(owner: model.store.storage.directory.lastPathComponent, entry: model.id))
         self.followUp = followUp
         self.nested = nested
         self.model = model

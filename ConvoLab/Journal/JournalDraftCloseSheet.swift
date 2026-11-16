@@ -52,12 +52,13 @@ struct JournalDraftCloseSheet: View {
 }
 
 struct JournalDraftButtonStyle: ButtonStyle {
+    var sage = true
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.custom("KleeOne-SemiBold", size: 18, relativeTo: .body))
             .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.27))
             .padding(.horizontal, 18).padding(.vertical, 10).frame(minHeight: 44)
-            .background(Color(red: 0.88, green: 0.92, blue: 0.86), in: .rect(cornerRadius: 8))
+            .background(sage ? Color(red: 0.88, green: 0.92, blue: 0.86) : Color(red: 0.98, green: 0.97, blue: 0.94), in: .rect(cornerRadius: 8))
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }
