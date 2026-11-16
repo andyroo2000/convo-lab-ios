@@ -9,10 +9,10 @@ struct JournalClarificationView: View {
         HStack(alignment: .top, spacing: 12) {
             JournalAvatar(url: avatar).frame(width: 40, height: 40).accessibilityLabel("Your tutor")
             VStack(alignment: .leading, spacing: 16) {
-                if let question = model.state?.question {
+                if model.busy { JournalThinkingView(service: service) }
+                else if let question = model.state?.question {
                     JournalClarificationChoices(question: question, model: model).id(question.id)
                 }
-                if model.busy { ProgressView("Checking…") }
                 if let error = model.errorMessage {
                     Text(error).font(.footnote).foregroundStyle(.red)
                     if model.canRetry { Button("Retry") { model.retry() }.buttonStyle(.borderedProminent).disabled(model.busy) }

@@ -29,10 +29,9 @@ struct JournalEntryView: View {
                 }
                 if model.clarification.active {
                     JournalClarificationView(model: model.clarification, service: model.store.service)
+                } else if model.analysis?.status.isPending == true {
+                    JournalThinkingView(service: model.store.service)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
-                if let analysis = model.analysis, analysis.status.isPending {
-                    JournalProgressView(status: analysis.status, serverTime: analysis.updatedAt).id(analysis.id)
-                }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }

@@ -18,6 +18,7 @@ struct UITestModeNavigationFixture: View {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         try? ReadingLocalStorage.remove(userID: Self.user.id)
+        try? JournalDraftStorage.remove(userID: Self.user.id)
         let model = AppModel(
             configuration: .init(apiBaseURL: baseURL),
             makeContainer: { _ in try Persistence.makeContainer(inMemory: true) },

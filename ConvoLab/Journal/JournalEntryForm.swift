@@ -2,6 +2,8 @@ import SwiftUI
 
 struct JournalEntryForm: View {
     let model: JournalEntryModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var closing = false
 
     private var exceedsLimit: Bool {
         (model.draft?.body.unicodeScalars.count ?? 0) > 20_000 || (model.draft?.title?.unicodeScalars.count ?? 0) > 255
@@ -25,13 +27,14 @@ struct JournalEntryForm: View {
                     .font(.footnote).foregroundStyle(.red)
             }
             HStack {
-                Button("Save draft") { Task { await model.save(submit: false) } }.buttonStyle(.bordered)
+                Button("Close") { closing = true }.buttonStyle(JournalDraftButtonStyle())
                 Spacer()
                 Button("Submit") { Task { await model.save(submit: true) } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(JournalDraftButtonStyle())
                     .disabled(model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             }.disabled(exceedsLimit)
         }
+        .sheet(isPresented: $closing) { JournalDraftCloseSheet(model: model) { dismiss() } }
         .disabled(model.isBusy || model.store.busyEntryIDs.contains(model.id) || model.analysis?.status.isPending == true)
     }
 
