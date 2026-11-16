@@ -104,14 +104,18 @@ final class JournalWritingFieldTests: XCTestCase {
         let view = JournalWritingTextView()
         view.setEditingEnabled(false)
         XCTAssertTrue(view.isEditable, "Do not change the responder graph during updateUIView")
-        await Task.yield()
-        await Task.yield()
+        await drainMainQueue()
         XCTAssertFalse(view.isEditable)
         view.setEditingEnabled(true)
         view.setEditingEnabled(false)
-        await Task.yield()
-        await Task.yield()
+        await drainMainQueue()
         XCTAssertFalse(view.isEditable)
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     func testMarkedJapaneseTextIsNotReplacedByAnUpdate() {
