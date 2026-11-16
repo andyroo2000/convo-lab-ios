@@ -33,6 +33,8 @@ struct JournalWritingField: UIViewRepresentable {
         var text: Binding<String>
         init(text: Binding<String>) { self.text = text }
 
+        func textViewDidChangeSelection(_ textView: UITextView) { textView.setNeedsLayout() }
+
         func textViewDidChange(_ textView: UITextView) {
             text.wrappedValue = textView.text
             textView.invalidateIntrinsicContentSize()
@@ -79,17 +81,18 @@ final class JournalWritingTextView: UITextView {
         guard markedTextRange == nil else { return }
         let needsStyle = writingFont != font || attributedText.length == 0
         writingFont = font
-        let styled = NSMutableAttributedString(string: text.isEmpty ? " " : text,
+        let style = NSMutableAttributedString(string: " ",
             attributes: [.font: font, .foregroundColor: JournalPopoverStyle.ink])
-        JournalPaperText.align(styled, font: font)
-        if self.text != text || needsStyle {
+        JournalPaperText.align(style, font: font)
+        let attributes = style.attributes(at: 0, effectiveRange: nil)
+        if !(self.text as NSString).isEqual(to: text) || needsStyle {
             let selection = selectedRange
-            attributedText = text.isEmpty ? NSAttributedString() : styled
+            attributedText = NSAttributedString(string: text, attributes: attributes)
             let start = min(selection.location, (text as NSString).length)
             selectedRange = NSRange(location: start, length: min(selection.length, (text as NSString).length - start))
             invalidateIntrinsicContentSize()
         }
-        typingAttributes = styled.attributes(at: 0, effectiveRange: nil)
+        typingAttributes = attributes
         placeholder.font = font
         updatePlaceholder()
     }
@@ -105,8 +108,22 @@ final class JournalWritingTextView: UITextView {
         setNeedsLayout()
     }
 
+    private func revealCaret() {
+        guard isFirstResponder, let selection = selectedTextRange else { return }
+        var ancestor = superview
+        while let view = ancestor {
+            if let scroll = view as? UIScrollView, scroll.isScrollEnabled {
+                let caret = caretRect(for: selection.end).insetBy(dx: 0, dy: -12)
+                scroll.scrollRectToVisible(convert(caret, to: scroll), animated: false)
+                return
+            }
+            ancestor = view.superview
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        revealCaret()
         let pitch = writingFont.pointSize * JournalPaperText.linePitch
         placeholder.frame = CGRect(x: 0, y: (pitch - writingFont.lineHeight) / 2,
                                    width: bounds.width, height: writingFont.lineHeight)

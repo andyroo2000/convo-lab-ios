@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 import UIKit
 @testable import ConvoLab
@@ -62,6 +63,37 @@ final class JournalWritingFieldTests: XCTestCase {
             let second = view.caretRect(for: view.position(from: view.beginningOfDocument, offset: 12)!)
             XCTAssertEqual(second.minY - first.minY, font.pointSize * JournalPaperText.linePitch, accuracy: 1, selection)
         }
+    }
+
+    func testBindingRoundTripKeepsSelectionAndGrowingCaretVisible() {
+        var text = ""
+        let coordinator = JournalWritingField.Coordinator(text: Binding(get: { text }, set: { text = $0 }))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 400))
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let scroll = UIScrollView(frame: window.bounds)
+        controller.view.addSubview(scroll)
+        let view = JournalWritingTextView()
+        view.delegate = coordinator
+        scroll.addSubview(view)
+        let font = JournalTypography().unscaledFont
+        view.configure(text: "", font: font)
+        view.becomeFirstResponder()
+        view.insertText(String(repeating: "Another line.\n", count: 20))
+        coordinator.textViewDidChange(view)
+        let selection = view.selectedRange
+        view.configure(text: text, font: font)
+        view.frame = CGRect(origin: .zero, size: view.fittingSize(width: 280, minimumLines: 4))
+        scroll.contentSize = CGSize(width: view.frame.width, height: view.frame.height + 40)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        XCTAssertEqual(text, view.text)
+        XCTAssertEqual(view.selectedRange, selection)
+        let caret = view.convert(view.caretRect(for: view.selectedTextRange!.end), to: scroll)
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0)
+        XCTAssertLessThanOrEqual(caret.maxY, scroll.bounds.maxY)
     }
 
     func testMarkedJapaneseTextIsNotReplacedByAnUpdate() {
