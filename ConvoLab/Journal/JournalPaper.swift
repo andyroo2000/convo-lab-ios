@@ -44,9 +44,8 @@ private struct JournalPaperHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(JournalDates.notebook(draft.entryDate))
-                .font(.custom("Yomogi-Regular", size: 17, relativeTo: .body))
-                .foregroundStyle(Color(red: 0.47, green: 0.42, blue: 0.35))
-                .rotationEffect(.degrees(-2), anchor: .trailing)
+                .font(.custom("KleeOne-SemiBold", size: 17, relativeTo: .body))
+                .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityIdentifier("JournalEntryDate")
             Text(draft.title ?? "Untitled entry")

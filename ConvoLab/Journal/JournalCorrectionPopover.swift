@@ -14,8 +14,20 @@ struct JournalCorrectionPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            StudyRubyText(segment.explanationReading ?? segment.explanation ?? "", knownKanji: knownKanji,
-                          pointSize: 14, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4)
+            if let replacement = segment.replacement {
+                VStack(alignment: .leading, spacing: 8) {
+                    JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : segment.reading,
+                                             original: !segment.text.isEmpty, knownKanji: knownKanji)
+                    HStack(alignment: .top) {
+                        Text("→").accessibilityHidden(true)
+                        JournalCorrectionPassage(text: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement,
+                                                 original: false, knownKanji: knownKanji)
+                    }
+                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(red: 0.94, green: 0.92, blue: 0.98), in: .rect(cornerRadius: 8))
+                    .accessibilityElement(children: .combine).accessibilityLabel("Suggested edit")
+            }
+            JournalExplanationText(segment: segment, knownKanji: knownKanji)
             if let suggestion, let document {
                 Rectangle().fill(Color(uiColor: JournalPopoverStyle.line)).frame(height: 1).accessibilityHidden(true)
                 ViewThatFits(in: .horizontal) {
