@@ -5,6 +5,7 @@ struct JournalEntriesSheet: View {
     let selectedID: String
     var deleted: (String) -> Void = { _ in }
     var renamed: (String) -> Void = { _ in }
+    var create: () -> Void
     let select: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -53,8 +54,4 @@ struct JournalEntriesSheet: View {
             .environment(\.colorScheme, .light).tint(JournalDeskStyle.green)
     }
 
-    private func create() {
-        do { select(try store.create().id) }
-        catch { store.errorMessage = "Could not create a device draft. Try again." }
-    }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct JournalEntryForm: View {
     let model: JournalEntryModel
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var closing = false
 
@@ -19,15 +20,22 @@ struct JournalEntryForm: View {
                     .font(.footnote).foregroundStyle(.red)
             }
             HStack {
-                Button("Close") { closing = true }.buttonStyle(JournalDraftButtonStyle(sage: false))
+                Button("Close") {
+                    if !model.isSavedOnDevice && model.draft?.expectedVersion == 0 && model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { close() }
+                    else { closing = true }
+                }.buttonStyle(JournalDraftButtonStyle(sage: false))
                 Spacer()
                 Button("Submit") { Task { await model.save(submit: true) } }
                     .buttonStyle(JournalDraftButtonStyle())
                     .disabled(model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
             }.disabled(exceedsLimit)
         }
-        .sheet(isPresented: $closing) { JournalDraftCloseSheet(model: model) { dismiss() } }
+        .sheet(isPresented: $closing) { JournalDraftCloseSheet(model: model, closeEntry: close) }
         .disabled(model.isBusy || model.store.busyEntryIDs.contains(model.id) || model.analysis?.status.isPending == true)
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     private func writingBinding() -> Binding<String> {
