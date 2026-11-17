@@ -3,42 +3,49 @@ import SwiftUI
 struct JournalEntryView: View {
     let store: JournalStore
     let knownKanji: Set<Character>
-    @State private var selectedID: String
+    @State private var selection: JournalSelection
     @State private var showingEntries = false
     @State private var renameRevision = 0
-    @Environment(\.dismiss) private var dismiss
 
-    init(id: String, store: JournalStore, knownKanji: Set<Character>) {
+    init(id: String? = nil, store: JournalStore, knownKanji: Set<Character>) {
         self.store = store
         self.knownKanji = knownKanji
-        _selectedID = State(initialValue: id)
+        _selection = State(initialValue: id.map { JournalSelection(id: $0) } ?? .blank())
     }
     var body: some View {
-        JournalEntryScreen(id: selectedID, store: store, knownKanji: knownKanji).id("\(selectedID):\(renameRevision)")
-            .environment(\.journalShowEntries, { showingEntries = true })
+        JournalEntryScreen(selection: selection, store: store, knownKanji: knownKanji, close: showBlank, select: open)
+            .id("\(selection.id):\(renameRevision)")
+            .environment(\.journalShowEntries, { store.refreshDrafts(); showingEntries = true })
             .sheet(isPresented: $showingEntries) {
-                JournalEntriesSheet(store: store, selectedID: selectedID, deleted: { id in
-                    if id == selectedID { showingEntries = false; dismiss() }
+                JournalEntriesSheet(store: store, selectedID: selection.id, deleted: { id in
+                    if id == selection.id { showBlank() }
                 }, renamed: { id in
-                    if id == selectedID { renameRevision += 1 }
-                }) { id in
-                    selectedID = id; showingEntries = false
-                }
+                    if id == selection.id { renameRevision += 1 }
+                }, create: showBlank, select: open)
             }
     }
+
+    private func showBlank() { selection = .blank(); showingEntries = false }
+    private func open(_ id: String) { selection = JournalSelection(id: id); showingEntries = false }
 }
 
 
 private struct JournalEntryScreen: View {
     @State private var model: JournalEntryModel
     let knownKanji: Set<Character>
+    let close: () -> Void
+    let select: (String) -> Void
+    let isNew: Bool
     @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
     @State private var copiedID: String?
 
-    init(id: String, store: JournalStore, knownKanji: Set<Character>) {
-        _model = State(initialValue: JournalEntryModel(id: id, store: store))
+    init(selection: JournalSelection, store: JournalStore, knownKanji: Set<Character>, close: @escaping () -> Void, select: @escaping (String) -> Void) {
+        _model = State(initialValue: JournalEntryModel(id: selection.id, store: store, initialDraft: selection.draft))
         self.knownKanji = knownKanji
+        self.close = close
+        self.select = select
+        isNew = selection.draft != nil
     }
 
     private var isReviewing: Bool { model.analysis?.status == .ready && model.analysis?.result != nil && !model.isEditing }
@@ -65,7 +72,10 @@ private struct JournalEntryScreen: View {
                     JournalClarificationView(model: model.clarification, service: model.store.service)
                 } else if model.isSubmitting || model.analysis?.status.isPending == true {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
-                } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else { JournalEntryForm(model: model) }
+                } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
+                    if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
+                    JournalEntryForm(model: model, onClose: close)
+                }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }
@@ -79,7 +89,7 @@ private struct JournalEntryScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .onDisappear { model.clarification.cancel() }
-        .task { await model.load() }
+        .task { if model.draft == nil { await model.load() } }
         .task(id: pollingKey) { await model.poll() }
         .navigationDestination(item: $copiedID) { id in
             JournalEntryView(id: id, store: model.store, knownKanji: knownKanji)

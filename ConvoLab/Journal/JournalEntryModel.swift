@@ -8,6 +8,7 @@ final class JournalEntryModel {
     let clarification: JournalClarificationModel
     let store: JournalStore
     private var initial: JournalConversationNode?
+    private var initialDraft: JournalDraft?
     var draft: JournalDraft?
     var analysis: JournalAnalysis?
     var isEditing = false
@@ -18,9 +19,10 @@ final class JournalEntryModel {
     var hasConflict = false
     var isSavedOnDevice = false
 
-    init(id: String, store: JournalStore, initial: JournalConversationNode? = nil) {
+    init(id: String, store: JournalStore, initial: JournalConversationNode? = nil, initialDraft: JournalDraft? = nil) {
         clarification = JournalClarificationModel(service: store.service)
         self.id = id; self.store = store; self.initial = initial
+        self.initialDraft = initialDraft
     }
 
     func load(snapshot: JournalConversationNode? = nil) async {
@@ -30,12 +32,7 @@ final class JournalEntryModel {
             try store.service.checkSession()
             let seed = snapshot ?? initial
             initial = nil
-            if let local = try store.storage.load(id: id) {
-                draft = local
-                isSavedOnDevice = true
-                isEditing = true
-                return
-            }
+            if try restoreDraft() { return }
             if let seed {
                 draft = JournalDraft(entry: seed.entry)
                 analysis = seed.analysis
@@ -49,11 +46,29 @@ final class JournalEntryModel {
         }
     }
 
+    private func restoreDraft() throws -> Bool {
+        let local = try store.storage.load(id: id)
+        guard let restored = local ?? initialDraft else { return false }
+        draft = restored
+        initialDraft = nil
+        isSavedOnDevice = local != nil
+        isEditing = true
+        return true
+    }
+
+    var isUnwritten: Bool { draft.map(isUnwritten) ?? false }
+
+    private func isUnwritten(_ draft: JournalDraft) -> Bool {
+        !isSavedOnDevice && draft.expectedVersion == 0 && draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     func change(_ edit: (inout JournalDraft) -> Void) {
         guard var updated = draft, !isBusy, !store.busyEntryIDs.contains(id) else { return }
+        if isUnwritten(updated) { updated.entryDate = JournalDates.storage.string(from: .now) }
         edit(&updated)
         updated.editID = UUID().uuidString
         draft = updated
+        if isUnwritten(updated) { return }
         do {
             try store.write(updated)
             isSavedOnDevice = true

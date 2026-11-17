@@ -43,6 +43,8 @@ final class JournalAppearanceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
+        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
+        app.buttons["My entries"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()

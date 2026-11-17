@@ -8,9 +8,9 @@ final class JournalDeletionUITests: XCTestCase {
         app.launch()
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
-        app.buttons["JournalNewEntry"].tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
+        app.textViews["Journal entry"].tap()
+        app.textViews["Journal entry"].typeText("A new draft.")
         if app.buttons["Done"].exists { app.buttons["Done"].tap() }
         for _ in 0..<5 where !app.buttons["My entries"].isHittable { app.swipeDown() }
         app.buttons["My entries"].tap()
@@ -49,8 +49,9 @@ final class JournalDeletionUITests: XCTestCase {
         actions.tap()
         app.buttons["Delete"].tap()
         app.buttons["Delete entry"].tap()
-        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.textViews["Journal entry"].value as? String, "")
+        app.buttons["My entries"].tap()
         XCTAssertFalse(app.buttons[actionID].exists)
-        XCTAssertTrue(app.textViews["Journal entry"].waitForNonExistence(timeout: 5))
     }
 }

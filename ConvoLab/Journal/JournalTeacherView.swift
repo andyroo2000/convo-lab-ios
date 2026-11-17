@@ -35,7 +35,7 @@ struct JournalTeacherView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 if let tutor = model.question?.tutor {
-                    JournalTutorPortrait(tutor: tutor).frame(width: 32, height: 32)
+                    JournalTutorPortrait(tutor: tutor).frame(width: 32, height: 32).background(.white, in: Circle())
                         .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
                 }
                 if let question = model.question, question.tutor != nil {

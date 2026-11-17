@@ -115,7 +115,7 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertGreaterThan(journal.frame.minY, app.buttons["app-mode-dailyAudio"].frame.maxY)
         XCTAssertLessThan(journal.frame.maxY, app.buttons["app-mode-readings"].frame.minY)
         journal.tap()
-        XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.navigationBars.buttons["Study"].exists)
     }
 
@@ -124,8 +124,6 @@ final class ModeNavigationUITests: XCTestCase {
         let app = launchShell()
         XCTAssertFalse(app.buttons["StudyJournalLink"].exists)
         selectMode("journal", app: app)
-        XCTAssertTrue(app.navigationBars["My entries"].waitForExistence(timeout: 5))
-        app.buttons["JournalNewEntry"].tap()
         let body = app.textViews["Journal entry"]
         XCTAssertTrue(body.waitForExistence(timeout: 5))
         body.tap()
@@ -145,6 +143,8 @@ final class ModeNavigationUITests: XCTestCase {
         let app = launchShell()
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
+        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
+        app.buttons["My entries"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
@@ -174,6 +174,8 @@ final class ModeNavigationUITests: XCTestCase {
         let app = launchShell()
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
+        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
+        app.buttons["My entries"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
