@@ -36,9 +36,9 @@ struct JournalListenButton: View {
             HStack(spacing: 6) {
                 if player.preparing { ProgressView().controlSize(.small) }
                 else { Image(systemName: action.icon).font(.caption) }
-                Text(action.rawValue).font(.subheadline)
+                Text(action.rawValue).font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
             }.padding(.horizontal, 12).frame(minHeight: 44)
-                .foregroundStyle(Color(red: 0.19, green: 0.36, blue: 0.52))
+                .foregroundStyle(JournalToolbarButtonStyle.blue)
                 .background(.white, in: .capsule)
                 .overlay(Capsule().stroke(Color(red: 0.74, green: 0.81, blue: 0.89)))
         }.buttonStyle(.plain).disabled(disabled || player.preparing)

@@ -7,41 +7,36 @@ struct JournalEntryToolbar: View {
     @Binding var choosingVoice: Bool
     var edit: (() -> Void)?
     var editing = false
-    var player: JournalAudioPlayer?
-    var listen: () -> Void = {}
+    @State private var showingAppearance = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) {
-                JournalVersionPicker(selection: $version, compact: true).disabled(editing).fixedSize()
-                Spacer(minLength: 0)
-                controls().fixedSize()
+            HStack(spacing: 4) { JournalEntriesButton().disabled(editing); Spacer(minLength: 0); versions; actions }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack { JournalEntriesButton().disabled(editing); Spacer(); actions }
+                versions
             }
-            VStack(alignment: .leading, spacing: 8) {
-                JournalVersionPicker(selection: $version, compact: true).disabled(editing)
-                controls()
-            }
-        }.padding(.bottom, 10)
-            .overlay(alignment: .bottom) {
-                if let player { JournalRibbonProgress(player: player) }
-            }
+        }.modifier(JournalDeskStyle())
+            .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
             .accessibilityElement(children: .contain).accessibilityLabel("Entry controls")
     }
 
-    private func controls() -> some View {
-        HStack(spacing: 4) {
-            if let player {
-                JournalListenButton(player: player, label: "corrected version", disabled: !voice.isReady, toggle: listen)
-            }
-            Spacer(minLength: 0)
-            JournalVersionCopy(version: version, analysis: analysis)
-            if let edit {
-                Button(action: edit) { Image(systemName: "pencil") }
-                    .buttonStyle(JournalToolbarButtonStyle(outlined: false))
-                    .accessibilityLabel("Edit final").disabled(editing)
-            }
-            if version == .final && !editing { JournalVoiceButton(voice: voice, choosing: $choosingVoice) }
-        }
+    private var versions: some View {
+        JournalVersionPicker(selection: $version, compact: true).disabled(editing).fixedSize()
     }
 
+    private var actions: some View {
+        Menu {
+            Button("Copy text", systemImage: "doc.on.doc") {
+                UIPasteboard.general.string = JournalVersionCopy.text(version: version, analysis: analysis)
+            }
+            if let edit { Button("Edit final", systemImage: "pencil", action: edit).disabled(editing) }
+            if version == .final && !editing {
+                Button("Narration voice", systemImage: "person.wave.2") { choosingVoice = true }
+                    .disabled(!voice.isReady).accessibilityIdentifier("JournalVoicePicker")
+            }
+            Button("Appearance", systemImage: "textformat") { showingAppearance = true }
+        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+            .accessibilityLabel("More journal options").tint(JournalDeskStyle.green)
+    }
 }

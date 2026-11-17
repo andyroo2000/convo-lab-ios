@@ -4,6 +4,10 @@ import XCTest
 
 @MainActor
 final class JournalTypographyTests: XCTestCase {
+    func testBundledTeacherFontResolves() {
+        XCTAssertEqual(UIFont(name: "CrimsonPro-Regular", size: 18)?.fontName, "CrimsonPro-Regular")
+    }
+
     func testInvalidSizesRemainReadable() {
         XCTAssertEqual(JournalTypography(size: .nan).size, 20)
         XCTAssertEqual(JournalTypography(size: 1).size, 16)

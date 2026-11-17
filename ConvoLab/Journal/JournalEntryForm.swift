@@ -19,7 +19,7 @@ struct JournalEntryForm: View {
                     .font(.footnote).foregroundStyle(.red)
             }
             HStack {
-                Button("Close") { closing = true }.buttonStyle(JournalDraftButtonStyle())
+                Button("Close") { closing = true }.buttonStyle(JournalDraftButtonStyle(sage: false))
                 Spacer()
                 Button("Submit") { Task { await model.save(submit: true) } }
                     .buttonStyle(JournalDraftButtonStyle())

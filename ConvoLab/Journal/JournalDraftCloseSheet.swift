@@ -12,14 +12,16 @@ struct JournalDraftCloseSheet: View {
     var body: some View {
         VStack(spacing: 20) {
             JournalAvatar(url: avatar).frame(width: 72, height: 72).clipShape(Circle()).accessibilityLabel("Your tutor")
-            Text("Leave this draft?").font(.title2)
+            Text("Keep this draft?").font(.custom("CrimsonPro-Regular", size: 28, relativeTo: .title2))
+            Text("Your writing is saved automatically. You can come back and finish it later.")
+                .font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body)).multilineTextAlignment(.center)
             Button("Keep draft & close") { perform(delete: false) }.buttonStyle(JournalDraftButtonStyle())
-            Button("Delete draft", role: .destructive) { perform(delete: true) }.frame(minHeight: 44)
+            Button("Delete draft", role: .destructive) { perform(delete: true) }.buttonStyle(JournalDraftButtonStyle(sage: false))
             Button("Keep writing") { dismiss() }.frame(minHeight: 44)
             if busy { ProgressView() }
             if let error { Text(error).foregroundStyle(.red).font(.footnote) }
         }.padding(24).disabled(busy).interactiveDismissDisabled(busy)
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.medium, .large]).presentationBackground(Color(red: 1, green: 0.992, blue: 0.965)).environment(\.colorScheme, .light)
             .onAppear { visible = true }
             .onDisappear { visible = false }
             .task {
@@ -55,10 +57,11 @@ struct JournalDraftButtonStyle: ButtonStyle {
     var sage = true
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.custom("KleeOne-SemiBold", size: 18, relativeTo: .body))
-            .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.27))
+        configuration.label.font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
+            .foregroundStyle(sage ? Color(red: 0.278, green: 0.4, blue: 0.298) : Color(red: 0.459, green: 0.38, blue: 0.314))
             .padding(.horizontal, 18).padding(.vertical, 10).frame(minHeight: 44)
-            .background(sage ? Color(red: 0.88, green: 0.92, blue: 0.86) : Color(red: 0.98, green: 0.97, blue: 0.94), in: .rect(cornerRadius: 8))
+            .background(sage ? Color(red: 0.929, green: 0.953, blue: 0.914) : Color(red: 0.984, green: 0.961, blue: 0.945), in: .rect(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(sage ? Color(red: 0.604, green: 0.702, blue: 0.616) : Color(red: 0.804, green: 0.741, blue: 0.682)))
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }

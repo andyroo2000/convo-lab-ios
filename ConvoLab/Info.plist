@@ -36,6 +36,7 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>KleeOne-SemiBold.ttf</string>
+		<string>CrimsonPro.ttf</string>
 		<string>Yomogi-Regular.ttf</string>
 	</array>
 	<key>NSAppTransportSecurity</key>

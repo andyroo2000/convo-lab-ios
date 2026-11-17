@@ -3,6 +3,8 @@ import SwiftUI
 struct JournalRowActions: View {
     let row: JournalDraft
     let store: JournalStore
+    var onDeleted: () -> Void = {}
+    var onRenamed: () -> Void = {}
     @State private var renaming: JournalDraft?
     @State private var showingDelete = false
     @State private var isDeleting = false
@@ -18,7 +20,7 @@ struct JournalRowActions: View {
         .disabled(isDeleting || store.busyEntryIDs.contains(row.id))
         .accessibilityLabel("Actions for \(row.title ?? "Untitled entry")")
         .accessibilityIdentifier("JournalRowActions-\(row.id)")
-        .outsideDismissibleSheet(item: $renaming) { JournalRenameSheet(entry: $0, store: store) }
+        .outsideDismissibleSheet(item: $renaming) { JournalRenameSheet(entry: $0, store: store, onSaved: onRenamed) }
         .alert("Delete this entry?", isPresented: $showingDelete) {
             Button("Delete entry", role: .destructive) { Task { await deleteEntry() } }
             Button("Keep entry", role: .cancel) {}
@@ -37,7 +39,7 @@ struct JournalRowActions: View {
         guard !isDeleting else { return }
         isDeleting = true
         defer { isDeleting = false }
-        do { try await store.delete(id: row.id) }
+        do { try await store.delete(id: row.id); onDeleted() }
         catch { store.errorMessage = error.localizedDescription }
     }
 }

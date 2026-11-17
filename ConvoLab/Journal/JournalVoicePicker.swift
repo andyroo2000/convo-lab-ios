@@ -27,6 +27,6 @@ struct JournalVoicePicker: View {
                         .accessibilityAddTraits(voice.selected == option.id ? .isSelected : [])
                 }
             }
-        }.padding(14).background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16))
+        }.padding(14).background(.white, in: .rect(cornerRadius: 16))
     }
 }

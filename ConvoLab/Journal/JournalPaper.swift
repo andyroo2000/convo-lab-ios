@@ -49,7 +49,7 @@ private struct JournalPaperHeading: View {
         VStack(alignment: .leading, spacing: 20) {
             if !writing {
                 Text(JournalDates.notebook(draft.entryDate))
-                .font(.custom("KleeOne-SemiBold", size: 17, relativeTo: .body))
+                .font(JournalTypography(font: typography.selection, size: 17).font)
                 .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityIdentifier("JournalEntryDate")
