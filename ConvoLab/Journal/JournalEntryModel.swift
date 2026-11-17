@@ -56,12 +56,15 @@ final class JournalEntryModel {
         return true
     }
 
+    var isUnwritten: Bool { draft.map(isUnwritten) ?? false }
+
     private func isUnwritten(_ draft: JournalDraft) -> Bool {
         !isSavedOnDevice && draft.expectedVersion == 0 && draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func change(_ edit: (inout JournalDraft) -> Void) {
         guard var updated = draft, !isBusy, !store.busyEntryIDs.contains(id) else { return }
+        if isUnwritten(updated) { updated.entryDate = JournalDates.storage.string(from: .now) }
         edit(&updated)
         updated.editID = UUID().uuidString
         draft = updated

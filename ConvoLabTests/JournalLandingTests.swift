@@ -13,6 +13,29 @@ final class JournalLandingTests: XCTestCase {
         XCTAssertNil(JournalSelection.today(entries: [completed], drafts: [], date: "2026-11-17"))
     }
 
+    func testUnfinishedLookupMakesOneFilteredRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let api = APIClient(baseURL: URL(string: "https://journal.test")!, session: URLSession(configuration: configuration))
+        api.setAccessToken("journal")
+        let entry = JournalEntry(id: "01arz3ndektsv4rrffq69g5fav", body: "Older writing", entryDate: "2026-10-01", version: 1, createdAt: "now", updatedAt: "now")
+        let requestMade = expectation(description: "One filtered archive request")
+        requestMade.assertForOverFulfill = true
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertEqual(url.path, "/api/journal/entries")
+            XCTAssertTrue(query.contains(URLQueryItem(name: "unfinished", value: "1")))
+            XCTAssertTrue(query.contains(URLQueryItem(name: "limit", value: "1")))
+            requestMade.fulfill()
+            return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, try JSONEncoder().encode(JournalArchivePage(data: [entry], nextCursor: nil)))
+        }
+        defer { MockURLProtocol.handler = nil }
+        let found = try await JournalUnfinishedEntry.find(service: JournalService(api: api))
+        XCTAssertEqual(found, entry.id)
+        await fulfillment(of: [requestMade], timeout: 1)
+    }
+
     func testBlankNotebookPersistsOnlyAfterTypingAndKeepsTheSameID() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

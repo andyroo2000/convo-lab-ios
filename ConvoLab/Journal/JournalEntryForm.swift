@@ -21,7 +21,7 @@ struct JournalEntryForm: View {
             }
             HStack {
                 Button("Close") {
-                    if !model.isSavedOnDevice && model.draft?.expectedVersion == 0 && model.draft?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { close() }
+                    if model.isUnwritten { close() }
                     else { closing = true }
                 }.buttonStyle(JournalDraftButtonStyle(sage: false))
                 Spacer()

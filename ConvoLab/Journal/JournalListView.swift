@@ -11,7 +11,6 @@ struct JournalListView: View {
             if resolved { JournalEntryView(id: initialID, store: store, knownKanji: knownKanji) }
             else { ProgressView("Opening Journal…") }
         }
-        .onDisappear { resolved = false }
         .task {
             guard !resolved else { return }
             await store.loadMore(refresh: true)

@@ -4,6 +4,8 @@ struct JournalResumeView: View {
     let store: JournalStore
     let select: (String) -> Void
     @State private var remoteID: String?
+    @State private var failed = false
+    @State private var attempt = 0
 
     private var localID: String? {
         store.drafts.filter { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -14,11 +16,21 @@ struct JournalResumeView: View {
         Group {
             if let id = localID ?? remoteID {
                 Button("Continue draft") { select(id) }.buttonStyle(JournalDraftButtonStyle(sage: false))
+            } else if failed {
+                HStack {
+                    Text("Couldn’t check saved drafts.").font(.footnote)
+                    Button("Retry") { attempt += 1 }
+                }
             }
         }
-        .task {
-            guard localID == nil else { return }
-            remoteID = try? await JournalUnfinishedEntry.find(entries: store.entries, cursor: store.nextCursor, service: store.service)
-        }
+        .task(id: "\(localID ?? ""):\(attempt)") { await findDraft() }
+    }
+
+    private func findDraft() async {
+        guard localID == nil else { return }
+        failed = false
+        do { remoteID = try await JournalUnfinishedEntry.find(service: store.service) }
+        catch is CancellationError { }
+        catch { failed = true }
     }
 }

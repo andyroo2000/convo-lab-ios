@@ -125,6 +125,7 @@ struct MainModeView: View {
     let user: CurrentUser
     @State private var selectedTab: AppMode = .study
     @State private var managementMode: AppMode = .time
+    @State private var journalVisit = 0
 
     private var slotSelection: Binding<TabSlot> {
         Binding(
@@ -153,6 +154,7 @@ struct MainModeView: View {
                 }
                 if selectedTab == .journal { model.studyTime.stop(activity: .journal, source: .automatic) }
                 if AppMode.manage.contains(newTab) { managementMode = newTab }
+                if newTab == .journal { journalVisit += 1 }
                 selectedTab = newTab
             }
         )
@@ -188,7 +190,7 @@ struct MainModeView: View {
                 NavigationStack {
                     JournalDestination(api: model.api, userID: user.id, knownKanji: model.study.knownKanji)
                 }
-                .id(user.id)
+                .id("\(user.id):\(journalVisit)")
                 .environment(model.studyTime)
                 .environment(\.appModeDestination, .journal)
                 .environment(\.journalBeforeAudio, {
