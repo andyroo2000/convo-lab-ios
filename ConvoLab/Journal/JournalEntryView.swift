@@ -73,7 +73,7 @@ private struct JournalEntryScreen: View {
                 } else if model.isSubmitting || model.analysis?.status.isPending == true {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
-                    if isNew && model.draft?.body.isEmpty == true { JournalResumeView(store: model.store, select: select) }
+                    if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
                     JournalEntryForm(model: model, onClose: close)
                 }
                 if model.analysis?.status == .failed {

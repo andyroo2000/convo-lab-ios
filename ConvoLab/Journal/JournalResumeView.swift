@@ -12,6 +12,11 @@ struct JournalResumeView: View {
             .sorted { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }.first?.id
     }
 
+    private var lookupKey: String {
+        let archive = store.entries.map { "\($0.id):\($0.version)" }.joined(separator: ",")
+        return "\(localID ?? ""):\(attempt):\(archive)"
+    }
+
     var body: some View {
         Group {
             if let id = localID ?? remoteID {
@@ -23,12 +28,13 @@ struct JournalResumeView: View {
                 }
             }
         }
-        .task(id: "\(localID ?? ""):\(attempt)") { await findDraft() }
+        .task(id: lookupKey) { await findDraft() }
     }
 
     private func findDraft() async {
-        guard localID == nil else { return }
+        remoteID = nil
         failed = false
+        guard localID == nil else { return }
         do { remoteID = try await JournalUnfinishedEntry.find(service: store.service) }
         catch is CancellationError { }
         catch { failed = true }
