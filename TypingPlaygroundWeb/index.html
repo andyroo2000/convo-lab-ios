@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Japanese typing playground · ConvoLab</title>
+    <link rel="stylesheet" href="typing-playground.css" />
+    <script defer src="typing-playground.js"></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <a href="#">CONVOLAB <span>コンボラボ</span></a
+      ><span class="tag">Typing playground</span>
+    </header>
+    <main>
+      <div class="intro">
+        <div>
+          <p class="eyebrow">日本語を書こう</p>
+          <h1>Japanese, from your keyboard.</h1>
+          <p>
+            Write right on the page. Kanji appears as you pause. Enter to
+            commit.
+          </p>
+        </div>
+        <img src="typing-tutor.webp" alt="" />
+      </div>
+      <div class="readiness">
+        <p
+          id="engine-status"
+          role="status"
+          aria-live="polite"
+          data-state="loading"
+        >
+          Getting the model ready… You can start typing in a moment.
+        </p>
+        <button id="retry-engine" type="button" hidden>Try again</button>
+      </div>
+      <div class="workspace">
+        <section class="writing" aria-label="Japanese typing playground">
+          <div class="notebook-heading">
+            <span>練習帳 <small>Practice notebook</small></span
+            ><button id="copy" type="button">Copy text</button>
+          </div>
+          <div class="paper">
+            <label class="sr-only" for="notebook">Your notebook</label>
+            <div class="notebook-input">
+              <textarea
+                id="notebook"
+                rows="3"
+                readonly
+                placeholder="Start writing here: kinoueigawomimashita"
+                spellcheck="false"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                lang="ja"
+                aria-describedby="typing-help status"
+              ></textarea>
+            </div>
+          </div>
+          <fieldset
+            id="composition"
+            class="notebook-tools"
+            disabled
+            aria-label="Writing controls"
+          >
+            <button
+              id="mode"
+              type="button"
+              aria-label="Japanese input"
+              aria-pressed="true"
+              title="Switch between Japanese and English input"
+            >
+              日本語
+            </button>
+            <button id="convert" class="sage" type="button">Convert</button>
+            <button id="keep-kana" type="button">Kana</button>
+            <button data-key="Enter" type="button">Commit</button>
+            <button
+              data-key="ArrowLeft"
+              type="button"
+              aria-label="Previous section"
+            >
+              ←
+            </button>
+            <button
+              data-key="ArrowRight"
+              type="button"
+              aria-label="Next section"
+            >
+              →
+            </button>
+            <button data-key="ArrowLeft" data-shift="true" type="button">
+              Shorten
+            </button>
+            <button data-key="ArrowRight" data-shift="true" type="button">
+              Lengthen
+            </button>
+            <button id="restore-phrase" type="button" hidden>
+              Restore unfinished phrase
+            </button>
+          </fieldset>
+          <p id="typing-help" class="help">
+            <kbd>Space</kbd> choices · <kbd>← →</kbd> sections ·
+            <kbd>Shift + ← →</kbd> resize · <kbd>↑ ↓</kbd> alternatives ·
+            <kbd>Enter</kbd> commit · <kbd>Esc</kbd> return to kana
+          </p>
+          <p id="status" role="status" aria-live="polite">
+            Type in the notebook.
+          </p>
+          <div class="notebook-footer">
+            <span>Scratchpad · copy text before closing</span
+            ><button id="newline" type="button">New paragraph</button>
+          </div>
+        </section>
+        <aside>
+          <p class="eyebrow">ひとことずつ</p>
+          <h2>Try a phrase</h2>
+          <p>These examples test a few different readings.</p>
+          <button
+            class="example"
+            data-reading="きのうえいがをみました"
+            disabled
+          >
+            <span lang="ja">きのうえいがをみました</span
+            ><small>I watched a movie yesterday.</small>
+          </button>
+          <button class="example" data-reading="はしをわたりました" disabled>
+            <span lang="ja">はしをわたりました</span
+            ><small>I crossed a bridge.</small>
+          </button>
+          <button class="example" data-reading="はしでたべました" disabled>
+            <span lang="ja">はしでたべました</span
+            ><small>I ate with chopsticks.</small>
+          </button>
+          <button
+            class="example"
+            data-reading="そのあとともだちにあいました"
+            disabled
+          >
+            <span lang="ja">そのあとともだちにあいました</span
+            ><small>After that, I met a friend.</small>
+          </button>
+          <div class="engine-note">
+            <h3>Under the hood</h3>
+            <p>AzooKey · Zenzai neural conversion</p>
+            <p>
+              Normal effort · preloaded locally · no shared learning history.
+            </p>
+            <p id="metrics">Conversion timing will appear here.</p>
+            <details>
+              <summary>About this experiment</summary>
+              <p>
+                Conversion happens inside this notebook. Use ABC for English, or
+                use your existing Japanese keyboard. Select kana to convert it
+                again. This is a playground, not a system-wide keyboard.
+                Conversion runs locally; writing stays on this device.
+              </p>
+            </details>
+          </div>
+        </aside>
+      </div>
+    </main>
+    <div
+      id="candidates"
+      class="candidates"
+      role="group"
+      aria-label="Conversion candidates"
+      hidden
+    ></div>
+  </body>
+</html>

@@ -454,6 +454,6 @@ final class StudyTimeInsightsController {
             of: .weekOfYear,
             for: now()
         )?.start else { return false }
-        return abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
+        return Swift.abs(recap.week.endsAt.timeIntervalSince(currentWeekStart)) < 1
     }
 }

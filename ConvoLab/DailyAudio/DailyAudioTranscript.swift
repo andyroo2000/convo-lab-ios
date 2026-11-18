@@ -46,7 +46,7 @@ enum DailyAudioTranscript {
         }
 
         let targetEnd = durationSeconds * 1_000
-        guard abs(finalEnd - targetEnd) > timingDriftToleranceMilliseconds else {
+        guard Swift.abs(finalEnd - targetEnd) > timingDriftToleranceMilliseconds else {
             return timings
         }
         let scale = targetEnd / finalEnd

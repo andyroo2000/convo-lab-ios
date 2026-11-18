@@ -16,13 +16,16 @@ jobs:
   test:
     name: Xcode 26.2 tests
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Prepare pinned typing playground
+        run: node scripts/prepare-japanese-input.mjs
 
       - name: Verify toolchain and simulator
         run: |
