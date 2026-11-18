@@ -80,6 +80,8 @@ private final class UITestRealFlowComposition: ObservableObject {
     }
 
     private static func loginRestoration() throws -> Result {
+        // These flows exercise restored navigation, not first-use keyboard onboarding.
+        UserDefaults.standard.set(JournalKeyboardMode.device.rawValue, forKey: JournalKeyboardMode.key)
         let api = mockAPI()
         let credentialStore = try UITestCredentialStore(
             name: "login-restoration",
@@ -463,6 +465,10 @@ private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Senda
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if request.url?.path == "/api/convolab/feature-availability" {
+            succeed(with: Data(#"{"flashcardsEnabled":true,"readingsEnabled":true,"studyTimeEnabled":true}"#.utf8))
+            return
+        }
         if request.httpMethod == "POST",
            request.url?.path == "/api/study/card-drafts",
            let url = request.url,
