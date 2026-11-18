@@ -8,6 +8,8 @@ struct AccountRegistrationView: View {
     @State private var password = ""
     @State private var confirmation = ""
     @State private var inviteCode = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     init(auth: AuthStore, initialEmail: String, onRegistered: @escaping () async -> Void) {
@@ -37,11 +39,15 @@ struct AccountRegistrationView: View {
                 }
                 JournalAuthField(title: "Password") {
                     SecureField("Password", text: $password).textContentType(.newPassword)
+                        .accessibilityIdentifier("auth-register-password")
                 }
                 JournalAuthField(title: "Confirm password") {
                     SecureField("Confirm password", text: $confirmation).textContentType(.newPassword)
                 }
-                JournalAuthError(message: auth.errorMessage)
+                if !confirmation.isEmpty && password != confirmation {
+                    JournalAuthError(message: "Passwords do not match.")
+                }
+                JournalAuthError(message: errorMessage)
                 Button("Create an account", action: register)
                     .buttonStyle(JournalAuthSubmitStyle())
                     .disabled(!canRegister)
@@ -59,14 +65,19 @@ struct AccountRegistrationView: View {
 
     private var canRegister: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !email.isEmpty
+            && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !password.isEmpty && password == confirmation && !auth.isWorking
+            && !password.isEmpty && password == confirmation && !auth.isWorking && !isSubmitting
     }
 
     private func register() {
+        guard canRegister else { return }
+        isSubmitting = true
+        errorMessage = nil
         Task {
-            await auth.register(name: name, email: email, password: password, inviteCode: inviteCode)
+            defer { isSubmitting = false }
+            await auth.register(name: name, email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, inviteCode: inviteCode)
+            errorMessage = auth.errorMessage
             if case .signedIn = auth.state {
                 await onRegistered()
                 dismiss()

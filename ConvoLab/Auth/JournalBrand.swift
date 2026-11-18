@@ -14,22 +14,22 @@ struct JournalBrandView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("CONVO-LAB")
-                .font(.custom("Anton-Regular", size: compact ? 24 : 38))
+                .font(.custom("Anton-Regular", fixedSize: compact ? 24 : 38))
                 .tracking(compact ? -0.4 : -0.6)
                 .foregroundStyle(JournalBrandStyle.yellow)
                 .frame(height: compact ? 25 : 40)
             Text("コンボ・ラボ")
-                .font(.custom("NotoSansJP-Thin_Black", size: compact ? 11 : 27))
+                .font(.custom("NotoSansJP-Thin_Black", fixedSize: compact ? 11 : 27))
                 .tracking(compact ? -0.5 : -1.8)
                 .frame(height: compact ? 14 : 33)
                 .padding(.top, compact ? 3 : 12)
             if !compact {
                 Text("JOURNAL")
-                    .font(.custom("BarlowCondensed-ExtraBold", size: 18))
+                    .font(.custom("BarlowCondensed-ExtraBold", fixedSize: 18))
                     .tracking(5)
                     .padding(.top, 22)
                 Text("ジャーナル")
-                    .font(.custom("NotoSansJP-Thin_Bold", size: 12))
+                    .font(.custom("NotoSansJP-Thin_Bold", fixedSize: 12))
                     .tracking(2.5)
                     .padding(.top, 7)
             }
@@ -53,15 +53,16 @@ struct JournalAuthHeading: View {
 }
 
 struct JournalAuthField<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let title: String
     var onReset: (() -> Void)? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            labelLayout {
                 Text(title).font(.custom("Inter-Regular", size: 12, relativeTo: .caption))
-                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                 if let onReset {
                     Button("Forgot password?", action: onReset)
                         .font(.custom("Inter-Regular", size: 11, relativeTo: .caption))
@@ -77,6 +78,11 @@ struct JournalAuthField<Content: View>: View {
                 .background(.white, in: RoundedRectangle(cornerRadius: 3))
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color(white: 0.74)))
         }
+    }
+    private var labelLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout())
     }
 }
 

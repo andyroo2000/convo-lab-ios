@@ -4,6 +4,8 @@ struct PasswordResetView: View {
     let auth: AuthStore
     @State private var email: String
     @State private var sent = false
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     init(auth: AuthStore, initialEmail: String) {
@@ -27,12 +29,10 @@ struct PasswordResetView: View {
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()
                     }
-                    JournalAuthError(message: auth.errorMessage)
-                    Button("Send reset link") {
-                        Task { sent = await auth.requestPasswordReset(email: email) }
-                    }
+                    JournalAuthError(message: errorMessage)
+                    Button("Send reset link", action: sendResetLink)
                     .buttonStyle(JournalAuthSubmitStyle())
-                    .disabled(email.isEmpty || auth.isWorking)
+                    .disabled(cleanEmail.isEmpty || auth.isWorking || isSubmitting)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
@@ -42,6 +42,19 @@ struct PasswordResetView: View {
             .toolbarBackground(JournalBrandStyle.green, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .tint(.white)
+        }
+    }
+
+    private var cleanEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func sendResetLink() {
+        guard !cleanEmail.isEmpty, !auth.isWorking, !isSubmitting else { return }
+        isSubmitting = true
+        errorMessage = nil
+        Task {
+            defer { isSubmitting = false }
+            sent = await auth.requestPasswordReset(email: cleanEmail)
+            errorMessage = auth.errorMessage
         }
     }
 }

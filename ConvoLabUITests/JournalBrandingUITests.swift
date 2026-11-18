@@ -24,6 +24,39 @@ final class JournalBrandingUITests: XCTestCase {
     }
 
     @MainActor
+    func testRegistrationExplainsMismatchedPasswords() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "login-screen"]
+        app.launch()
+        app.buttons["Create an account"].tap()
+        let password = app.secureTextFields["auth-register-password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 5))
+        app.swipeUp()
+        password.tap()
+        password.typeText("example-password")
+        let confirmation = app.secureTextFields["Confirm password"]
+        confirmation.tap()
+        confirmation.typeText("different-password")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["Passwords do not match."].exists)
+        XCTAssertFalse(app.buttons["auth-register-submit"].isEnabled)
+    }
+
+    @MainActor
+    func testSignInFitsAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "login-screen",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        app.swipeUp()
+        XCTAssertTrue(app.textFields["Email"].exists)
+        XCTAssertTrue(app.secureTextFields["Password"].exists)
+        XCTAssertGreaterThanOrEqual(app.textFields["Email"].frame.minX, app.frame.minX + 24)
+        XCTAssertLessThanOrEqual(app.textFields["Email"].frame.maxX, app.frame.maxX - 24)
+        capture(app, name: "journal-login-accessibility")
+    }
+
+    @MainActor
     func testHeaderKeepsNativeModeNavigation() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]

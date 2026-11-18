@@ -6,6 +6,8 @@ struct LoginView: View {
 
     @State private var email = ""
     @State private var password = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
     @State private var showingReset = false
     @State private var showingRegistration = false
     @FocusState private var focus: Field?
@@ -42,7 +44,7 @@ struct LoginView: View {
                         .focused($focus, equals: .password)
                         .onSubmit(signIn)
                 }
-                JournalAuthError(message: auth.errorMessage)
+                JournalAuthError(message: errorMessage)
                 HStack {
                     Spacer()
                     Button(action: signIn) {
@@ -52,10 +54,13 @@ struct LoginView: View {
                         }
                     }
                     .buttonStyle(JournalAuthSubmitStyle())
-                    .disabled(email.isEmpty || password.isEmpty || auth.isWorking)
+                    .disabled(email.isEmpty || password.isEmpty || auth.isWorking || isSubmitting)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onAppear { errorMessage = auth.errorMessage }
+            .onChange(of: showingReset) { _, _ in errorMessage = nil }
+            .onChange(of: showingRegistration) { _, _ in errorMessage = nil }
             .outsideDismissibleSheet(isPresented: $showingReset) {
                 PasswordResetView(auth: auth, initialEmail: email)
             }
@@ -66,10 +71,14 @@ struct LoginView: View {
     }
 
     private func signIn() {
-        guard !email.isEmpty, !password.isEmpty, !auth.isWorking else { return }
+        guard !email.isEmpty, !password.isEmpty, !auth.isWorking, !isSubmitting else { return }
+        isSubmitting = true
+        errorMessage = nil
         focus = nil
         Task {
+            defer { isSubmitting = false }
             await auth.login(email: email, password: password)
+            errorMessage = auth.errorMessage
             if case .signedIn = auth.state { await onLogin() }
         }
     }
