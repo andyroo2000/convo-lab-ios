@@ -29,3 +29,11 @@ copyFileSync(
   root + "TypingPlaygroundWeb/typing-tutor.webp",
   target + "typing-tutor.webp",
 );
+
+await build({
+  entryPoints: [root + "TypingPlaygroundWeb/journal.mjs"],
+  bundle: true, format: "iife", outfile: target + "journal-typing.js", target: "safari18",
+});
+writeFileSync(target + "journal-typing.html", readFileSync(root + "TypingPlaygroundWeb/journal.html", "utf8").replace(
+  "<title>", "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'none'\"><title>"));
+copyFileSync(root + "TypingPlaygroundWeb/journal.css", target + "journal-typing.css");

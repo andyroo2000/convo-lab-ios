@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-struct JournalWritingField: UIViewRepresentable {
+struct JournalDeviceWritingField: UIViewRepresentable {
     @Binding var text: String
     var label: String
     var minimumLines = 4

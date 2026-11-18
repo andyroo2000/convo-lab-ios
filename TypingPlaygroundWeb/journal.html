@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>Journal input</title><link rel="stylesheet" href="journal-typing.css"></head>
+<body>
+<div class="writing"><textarea id="notebook" aria-label="Journal entry" placeholder="今日は…" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false" readonly></textarea></div>
+<div id="input-tools">
+<p id="engine-status" role="status">Preparing Japanese input…</p><button id="retry-engine" hidden>Retry Japanese input</button>
+<fieldset id="composition" disabled aria-label="Japanese conversion"><button data-action="convert">変換</button><button data-action="commit">確定</button><button data-action="kana">かな</button><button data-action="mode">ABC</button><button data-key="ArrowLeft" aria-label="Previous section">←</button><button data-key="ArrowRight" aria-label="Next section">→</button><button data-key="ArrowLeft" data-shift="true" aria-label="Shorten section">⇧ ←</button><button data-key="ArrowRight" data-shift="true" aria-label="Lengthen section">⇧ →</button></fieldset>
+<div id="candidates" aria-label="Conversion choices" hidden></div>
+<p id="status" role="status"></p><span id="metrics" hidden></span>
+</div>
+<script src="journal-typing.js"></script></body></html>

@@ -8,6 +8,7 @@ struct JournalEntryToolbar: View {
     var edit: (() -> Void)?
     var editing = false
     @State private var showingAppearance = false
+    @State private var showingKeyboard = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -18,6 +19,7 @@ struct JournalEntryToolbar: View {
             }
         }.modifier(JournalDeskStyle())
             .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
+            .sheet(isPresented: $showingKeyboard) { JournalKeyboardSheet() }
             .accessibilityElement(children: .contain).accessibilityLabel("Entry controls")
     }
 
@@ -26,17 +28,18 @@ struct JournalEntryToolbar: View {
     }
 
     private var actions: some View {
-        Menu {
-            Button("Copy text", systemImage: "doc.on.doc") {
+        JournalOptionsMenu {
+            JournalOptionButton(title: "Copy text", icon: "doc.on.doc") {
                 UIPasteboard.general.string = JournalVersionCopy.text(version: version, analysis: analysis)
             }
-            if let edit { Button("Edit final", systemImage: "pencil", action: edit).disabled(editing) }
+            if let edit { JournalOptionButton(title: "Edit final", icon: "pencil", action: edit).disabled(editing) }
             if version == .final && !editing {
-                Button("Narration voice", systemImage: "person.wave.2") { choosingVoice = true }
+                JournalOptionButton(title: "Narration voice", icon: "person.wave.2") { choosingVoice = true }
                     .disabled(!voice.isReady).accessibilityIdentifier("JournalVoicePicker")
             }
-            Button("Appearance", systemImage: "textformat") { showingAppearance = true }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+            JournalOptionButton(title: "Appearance", icon: "textformat") { showingAppearance = true }
+            JournalKeyboardMenuItem { showingKeyboard = true }
+        }
             .accessibilityLabel("More journal options").tint(JournalDeskStyle.green)
     }
 }
