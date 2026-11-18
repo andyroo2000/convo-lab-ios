@@ -33,10 +33,20 @@ export function placeCandidates(field, panel) {
   const x = rect.left + caret.left - field.scrollLeft;
   const y = rect.top + caret.top - field.scrollTop;
   mirror.remove();
-  const height = panel.getBoundingClientRect().height;
-  const width = panel.getBoundingClientRect().width;
-  let top = y - height - 8;
-  if (top < 12) top = y + parseFloat(style.lineHeight) + 4;
-  panel.style.left = `${Math.max(12, Math.min(x, innerWidth - width - 12))}px`;
-  panel.style.top = `${Math.min(top, Math.max(12, innerHeight - height - document.getElementById("composition").offsetHeight - 12))}px`;
+  positionPanel(panel, { x, y, lineHeight: parseFloat(style.lineHeight) });
+}
+
+function positionPanel(panel, caret) {
+  const toolbar = document.getElementById("composition").offsetHeight;
+  const bottom = innerHeight - toolbar - 12;
+  const above = Math.max(0, caret.y - 12);
+  const below = Math.max(0, bottom - caret.y - caret.lineHeight - 4);
+  const preferAbove = above >= 76 || above >= below;
+  const room = preferAbove ? above : below;
+  const bounds = panel.getBoundingClientRect();
+  const height = Math.min(bounds.height, Math.max(40, room - 8));
+  panel.style.height = `${height}px`;
+  const top = preferAbove ? caret.y - height - 8 : caret.y + caret.lineHeight + 4;
+  panel.style.left = `${Math.max(12, Math.min(caret.x, innerWidth - bounds.width - 12))}px`;
+  panel.style.top = `${Math.max(12, Math.min(top, bottom - height))}px`;
 }

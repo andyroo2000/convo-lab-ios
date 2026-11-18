@@ -4,13 +4,25 @@ import XCTest
 
 @MainActor
 final class TypingBenchmarkReportTests: XCTestCase {
-  func testPercentilesUseNearestRankAndHandleEmptySamples() {
-    XCTAssertNil(TypingBenchmarkReport.percentile([], fraction: 0.95))
+  func testMedianHandlesEmptyOddAndEvenSamples() {
+    XCTAssertNil(TypingBenchmarkReport.median([]))
     XCTAssertEqual(TypingBenchmarkReport.median([9, 1, 5, 3]), 4)
     XCTAssertEqual(TypingBenchmarkReport.median([1, 3, 9]), 3)
-    XCTAssertEqual(TypingBenchmarkReport.percentile([9, 1, 5, 3], fraction: 0.5), 3)
-    XCTAssertEqual(
-      TypingBenchmarkReport.percentile(Array(1...20).map(Double.init), fraction: 0.95), 19)
+  }
+
+  func testBridgeAlwaysRepliesWithJSONForStatusAndBusyRequests() async throws {
+    let model = TypingPlaygroundModel()
+    model.state = "ready"
+    model.benchmarking = true
+    let busy = await model.bridge(path: "/api/v1/convert", body: "{}")
+    let busyJSON = try JSONSerialization.jsonObject(with: Data(busy.utf8)) as? [String: String]
+    XCTAssertNotNil(busyJSON?["error"])
+    model.state = "error"
+    model.error = "Model failed"
+    let status = await model.bridge(path: "/api/v1/engine", body: nil)
+    let statusJSON = try JSONSerialization.jsonObject(with: Data(status.utf8)) as? [String: String]
+    XCTAssertEqual(statusJSON?["state"], "error")
+    XCTAssertEqual(statusJSON?["error"], "Model failed")
   }
 
   @MainActor func testReportExportsOnlyExplicitFixtureSamples() throws {
@@ -19,6 +31,7 @@ final class TypingBenchmarkReportTests: XCTestCase {
     report.failure = "Cancelled; partial run"
     let url = try report.save()
     defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(try report.save(), url)
     let json = try XCTUnwrap(
       JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     XCTAssertEqual(json["completed"] as? Bool, false)

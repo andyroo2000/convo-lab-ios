@@ -47,8 +47,9 @@ private struct TypingBenchmarkView: View {
           Button(model.benchmarking ? "Running…" : "Run benchmark") { model.startBenchmark() }
             .disabled(model.benchmarking || model.state != "ready")
           if model.benchmarking {
-            ProgressView(value: Double(model.progress), total: 76)
-            Text("\(model.progress) of 76 conversions")
+            ProgressView(value: Double(model.progress), total: Double(max(1, model.total)))
+              .accessibilityLabel("Benchmark conversions completed")
+            Text("\(model.progress) of \(model.total) conversions")
             Button("Stop after this conversion", role: .cancel) { model.cancelBenchmark() }
           }
         }

@@ -8,11 +8,7 @@ struct TypingPlaygroundWebView: UIViewRepresentable {
 
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
-    #if DEBUG
-      if UITestFixture.fromProcessArguments() == .typingPlayground {
-        configuration.websiteDataStore = .nonPersistent()
-      }
-    #endif
+    configuration.websiteDataStore = .nonPersistent()
     configuration.userContentController.addScriptMessageHandler(
       context.coordinator, contentWorld: .page, name: "typingEngine")
     let view = WKWebView(frame: .zero, configuration: configuration)

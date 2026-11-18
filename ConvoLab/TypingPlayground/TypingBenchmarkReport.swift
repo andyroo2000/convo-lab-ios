@@ -68,18 +68,11 @@ struct TypingBenchmarkReport: Codable {
     return sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
   }
 
-  static func percentile(_ values: [Double], fraction: Double) -> Double? {
-    guard !values.isEmpty else { return nil }
-    let sorted = values.sorted()
-    let index = min(sorted.count - 1, max(0, Int(ceil(Double(sorted.count) * fraction)) - 1))
-    return sorted[index]
-  }
-
   func save() throws -> URL {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(
       "TypingBenchmarks", isDirectory: true)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let url = folder.appendingPathComponent("typing-benchmark-\(UUID().uuidString).json")
+    let url = folder.appendingPathComponent("typing-benchmark.json")
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601

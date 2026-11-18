@@ -422,7 +422,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = ConvoLab;
 			};
@@ -436,7 +435,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = ConvoLab;
 			};

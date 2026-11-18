@@ -3,7 +3,9 @@
 Open **Settings → Experiments → Japanese typing playground**. Use an English
 keyboard to type romaji directly in the notebook. The bundled AzooKey/Zenzai model
 preloads before editing is enabled. Conversion runs on the device, without a
-server request or shared learning history. This scratchpad is separate from Journal.
+server request or shared learning history. This scratchpad is separate from Journal
+and uses a nonpersistent WebView session. Copy anything you want to keep before
+closing; scratchpad text is not retained between sessions.
 
 Tap candidates to select alternatives. The bottom controls provide previous/next
 section, Shorten/Lengthen boundary adjustment, kana, and Commit. Hardware keyboard
