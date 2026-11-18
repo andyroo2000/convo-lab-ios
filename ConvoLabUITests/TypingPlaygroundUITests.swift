@@ -43,7 +43,9 @@ final class TypingPlaygroundUITests: XCTestCase {
       app.webViews.staticTexts["Ready to write · Neural conversion"].waitForExistence(timeout: 120))
     app.buttons["Benchmark"].tap()
     app.buttons["Run benchmark"].tap()
-    XCTAssertTrue(app.buttons["Share benchmark results"].waitForExistence(timeout: 240))
+    // Hosted simulators use CPU inference; the exhaustive boundary ranking can
+    // outlast four minutes even after all 72 ordinary conversions have finished.
+    XCTAssertTrue(app.buttons["Share benchmark results"].waitForExistence(timeout: 600))
     XCTAssertTrue(app.staticTexts["Results"].exists)
     let capture = XCTAttachment(screenshot: app.screenshot())
     capture.name = "Completed on-device benchmark"
