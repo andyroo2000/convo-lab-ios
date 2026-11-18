@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import OSLog
 
 @MainActor
 final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
@@ -10,7 +11,8 @@ final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply,
     private var loaded = false
     private var lastText: String?
     private var settings: JournalTypingSettings?
-    private var revision = 0
+    private(set) var revision = 0
+    private static let logger = Logger(subsystem: "com.cdcg.convolab", category: "JournalTyping")
     private static let engine = TypingEngineActor()
 
     init(text: Binding<String>, height: Binding<CGFloat>) {
@@ -31,7 +33,9 @@ final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return }
         view?.callAsyncJavaScript("window.journal.configure(text, settings, revision)",
-            arguments: ["text": lastText ?? "", "settings": object, "revision": revision], in: nil, in: .page, completionHandler: nil)
+            arguments: ["text": lastText ?? "", "settings": object, "revision": revision], in: nil, in: .page) { result in
+                if case .failure = result { Self.logger.error("Could not configure the Journal typing editor") }
+            }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -41,7 +45,7 @@ final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply,
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
         replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
-        guard active, message.frameInfo.isMainFrame, message.frameInfo.request.url?.isFileURL == true,
+        guard active, message.frameInfo.isMainFrame, Self.isEditorURL(message.frameInfo.request.url),
               let payload = message.body as? [String: Any], let path = payload["path"] as? String
         else { replyHandler(nil, "Unsupported editor request"); return }
         if path == "journal/change" {
@@ -56,7 +60,7 @@ final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply,
         }
     }
 
-    private func receiveChange(_ payload: [String: Any]) {
+    func receiveChange(_ payload: [String: Any]) {
         guard let value = payload["text"] as? String,
               payload["revision"] as? Int == revision else { return }
         lastText = value
@@ -93,8 +97,13 @@ final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply,
         } catch { return "{\"error\":\"Could not prepare Japanese input. Retry or choose your device keyboard from the menu.\"}" }
     }
 
+    static func isEditorURL(_ url: URL?) -> Bool {
+        guard let url, let editor = Bundle.main.url(forResource: "journal-typing", withExtension: "html") else { return false }
+        return url.standardizedFileURL == editor.standardizedFileURL
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(action.request.url?.isFileURL == true ? .allow : .cancel)
+        decisionHandler(Self.isEditorURL(action.request.url) ? .allow : .cancel)
     }
 }
