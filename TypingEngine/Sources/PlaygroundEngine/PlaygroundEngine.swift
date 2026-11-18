@@ -5,11 +5,15 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 public final class PlaygroundEngine {
   let converter: KanaKanjiConverter
   let boundaryConverter: BoundaryCandidateConverter
-  let boundaryRanker: NeuralBoundaryRanker
+  private var boundaryRanker: NeuralBoundaryRanker?
   let modelURL: URL
-  var options: ConvertRequestOptions
+  let options: ConvertRequestOptions
+  private var recentReading: String?
+  private var recentCandidates: [Candidate] = []
+  public private(set) var preparationTimings: [String: Double] = [:]
 
   public init() throws {
+    let start = ContinuousClock.now
     guard
       let modelURL = Bundle.module.url(
         forResource: "model", withExtension: "gguf")
@@ -17,8 +21,8 @@ public final class PlaygroundEngine {
     let dictionary = DicdataStore.withDefaultDictionary()
     converter = KanaKanjiConverter(dicdataStore: dictionary)
     boundaryConverter = BoundaryCandidateConverter(dicdataStore: dictionary)
+    let dictionaryReady = ContinuousClock.now
     self.modelURL = modelURL
-    boundaryRanker = try NeuralBoundaryRanker(modelURL: modelURL)
     // Learning is disabled; this intentionally nonexistent path is never written.
     let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     options = ConvertRequestOptions(
@@ -33,6 +37,26 @@ public final class PlaygroundEngine {
       metadata: .init(versionString: "ConvoLab iPhone playground")
     )
     _ = try convert("{\"reading\":\"こんにちは\"}")
+    preparationTimings = [
+      "dictionaryMs": Self.milliseconds(from: start, to: dictionaryReady),
+      "modelAndOrdinaryWarmupMs": Self.milliseconds(from: dictionaryReady, to: .now),
+    ]
+  }
+
+  private static func milliseconds(from start: ContinuousClock.Instant, to end: ContinuousClock.Instant) -> Double {
+    let elapsed = start.duration(to: end).components
+    return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+  }
+
+  func boundaryRankingEngine() throws -> NeuralBoundaryRanker {
+    if let boundaryRanker { return boundaryRanker }
+    // The model is already loaded and warmed for ordinary typing. Allocate the
+    // additional ranking buffers only when the learner adjusts a section.
+    let start = ContinuousClock.now
+    let ranker = try NeuralBoundaryRanker(converter: converter, modelURL: modelURL)
+    boundaryRanker = ranker
+    preparationTimings["boundaryWarmupMs"] = Self.milliseconds(from: start, to: .now)
+    return ranker
   }
 
   public func convert(_ json: String) throws -> String {
@@ -50,14 +74,10 @@ public final class PlaygroundEngine {
   }
 
   func candidates(for request: ConversionInput) throws -> [ConversionCandidate] {
-    converter.stopComposition()
     var composition = ComposingText()
     composition.insertAtCursorPosition(request.reading, inputStyle: .direct)
-    let results = converter.requestCandidates(composition, options: options)
-    guard converter.zenzStatus == "load \(modelURL.absoluteString)"
-    else { throw PlaygroundFailure.modelNotLoaded }
-    var pool = results.mainResults
     let adjusted = request.boundaries?.isEmpty == false
+    var pool = try neuralCandidates(composition, reading: request.reading, reuse: adjusted)
     if adjusted {
       pool = try boundaryCandidates(
         reading: request.reading, boundaries: request.boundaries ?? [], neural: pool,
@@ -69,6 +89,19 @@ public final class PlaygroundEngine {
     return Array(
       serializeCandidates(pool, reading: request.reading, neuralRanked: adjusted)
         .prefix(request.expanded == true ? 160 : 10))
+  }
+
+  private func neuralCandidates(_ composition: ComposingText, reading: String, reuse: Bool) throws -> [Candidate] {
+    // Boundary changes do not change the whole-phrase neural proposal. Learning
+    // is disabled, and this cache retains only the most recent exact reading.
+    if reuse && reading == recentReading { return recentCandidates }
+    converter.stopComposition()
+    let results = converter.requestCandidates(composition, options: options)
+    guard converter.zenzStatus == "load \(modelURL.absoluteString)"
+    else { throw PlaygroundFailure.modelNotLoaded }
+    recentReading = reading
+    recentCandidates = results.mainResults
+    return recentCandidates
   }
 
   public static func fixtures() throws -> Data {

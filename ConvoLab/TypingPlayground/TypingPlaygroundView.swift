@@ -33,7 +33,7 @@ private struct TypingBenchmarkView: View {
       Form {
         Section("On-device benchmark") {
           Text(
-            "Runs the same 24 phrases three times, then four section-adjustment tests. Keep this screen open until it finishes."
+            "Runs the same 24 phrases three times, then four section-adjustment cases twice each. Keep this screen open until it finishes."
           )
           Text(
             "Only the bundled test phrases appear in the report. Your notebook writing is never included."

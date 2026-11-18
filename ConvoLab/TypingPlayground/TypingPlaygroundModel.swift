@@ -8,6 +8,7 @@ final class TypingPlaygroundModel {
   var state = "loading"
   var error: String?
   var preloadMs = 0.0
+  var preparationTimings: [String: Double] = [:]
   var benchmarking = false
   private(set) var activeConversions = 0
   var progress = 0
@@ -26,6 +27,7 @@ final class TypingPlaygroundModel {
     error = nil
     do {
       preloadMs = try await engine.prepare()
+      preparationTimings = await engine.preparationTimings()
       state = "ready"
     } catch {
       state = "error"
@@ -57,7 +59,7 @@ final class TypingPlaygroundModel {
     benchmarking = true
     progress = 0
     reportURL = nil
-    report = TypingBenchmarkReport(preloadMs: preloadMs)
+    report = TypingBenchmarkReport(preloadMs: preloadMs, preparationTimings: preparationTimings)
     benchmarkTask = Task { await runBenchmark() }
   }
 
@@ -69,25 +71,31 @@ final class TypingPlaygroundModel {
       try Task.checkCancellation()
       let fixtures = try JSONDecoder().decode(
         [TypingBenchmarkFixture].self, from: PlaygroundEngine.fixtures())
-      total = fixtures.count * 3 + boundaryCases.count
+      total = fixtures.count * 3 + boundaryCases.count * 2
       for trial in 0..<3 {
         for fixture in fixtures {
           try await measure(fixture, trial: trial, boundaries: [])
         }
       }
-      for (reading, boundary) in boundaryCases {
-        let fixture =
-          fixtures.first { $0.reading == reading }
-          ?? TypingBenchmarkFixture(reading: reading, expected: [], nativeTopChoice: nil)
-        try await measure(fixture, trial: 0, boundaries: [boundary])
-      }
+      try await measureBoundaries(fixtures)
       report?.completed = true
     } catch {
       report?.failure =
         error is CancellationError ? "Cancelled; partial run" : error.localizedDescription
     }
+    report?.preparationTimings = await engine.preparationTimings()
     do { reportURL = try report?.save() } catch {
       self.error = "Could not save the benchmark report: \(error.localizedDescription)"
+    }
+  }
+
+  private func measureBoundaries(_ fixtures: [TypingBenchmarkFixture]) async throws {
+    for (reading, boundary) in boundaryCases {
+      let fixture = fixtures.first { $0.reading == reading }
+        ?? TypingBenchmarkFixture(reading: reading, expected: [], nativeTopChoice: nil)
+      for trial in 0..<2 {
+        try await measure(fixture, trial: trial, boundaries: [boundary])
+      }
     }
   }
 
