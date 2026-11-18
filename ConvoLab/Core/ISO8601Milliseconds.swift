@@ -16,7 +16,7 @@ enum ISO8601Milliseconds {
         let nearestMillisecond = milliseconds.rounded()
         let representationTolerance = max(0.000_1, milliseconds.ulp * 2)
         let canonicalMilliseconds = if
-            abs(milliseconds - nearestMillisecond) <= representationTolerance
+            Swift.abs(milliseconds - nearestMillisecond) <= representationTolerance
         {
             nearestMillisecond
         } else {

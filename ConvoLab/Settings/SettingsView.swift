@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var confirmingCalendarDisconnect = false
     @State private var confirmingClearDownloads = false
     @State private var showingProfileEditor = false
+    @State private var showingTypingPlayground = false
     @State private var showingPasswordEditor = false
     @State private var showingAccountDeletion = false
     @State private var showingFailedStudyChanges = false
@@ -322,6 +323,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 }
 
+                Section("Experiments") {
+                    Button("Japanese typing playground") { showingTypingPlayground = true }
+                }
+
                 Section {
                     Button("Sync Now") {
                         Task {
@@ -336,6 +341,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showingTypingPlayground) { TypingPlaygroundView() }
             .navigationTitle(hasAppModeHeader ? "" : "Settings")
             .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
             .task {

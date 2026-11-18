@@ -6,6 +6,10 @@
 	objectVersion = 60;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 = {isa = PBXBuildFile; productRef = A10000000000000000000002; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		100000000000000000000001 /* ConvoLab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConvoLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000002 /* ConvoLab */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ConvoLab; sourceTree = "<group>"; };
@@ -68,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +143,7 @@
 			);
 			name = ConvoLab;
 			packageProductDependencies = (
+				A10000000000000000000002,
 			);
 			productName = ConvoLab;
 			productReference = 100000000000000000000001 /* ConvoLab.app */;
@@ -224,6 +230,7 @@
 			productRefGroup = 100000000000000000000022 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (A10000000000000000000003,);
 			targets = (
 				100000000000000000000030 /* ConvoLab */,
 				200000000000000000000010 /* ConvoLabTests */,
@@ -279,6 +286,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A10000000000000000000003 = {isa = XCLocalSwiftPackageReference; relativePath = TypingEngine; };
+/* End XCLocalSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000002 = {isa = XCSwiftPackageProductDependency; productName = PlaygroundEngine; };
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		100000000000000000000050 /* Debug */ = {
@@ -337,6 +351,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -364,6 +379,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -377,6 +393,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ConvoLab.app/ConvoLab";
 			};
@@ -391,6 +408,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ConvoLab.app/ConvoLab";
 			};
@@ -404,6 +422,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = ConvoLab;
 			};
@@ -417,6 +436,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cdcg.convolab.ui-tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_TARGET_NAME = ConvoLab;
 			};

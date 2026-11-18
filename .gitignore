@@ -7,3 +7,10 @@ xcuserdata/
 # Local API and signing overrides
 Config/Local.xcconfig
 
+
+# Reproducible, pinned typing-engine dependencies and generated web bundle
+TypingEngine/Vendor/
+TypingEngine/.build/
+TypingEngine/Sources/PlaygroundEngine/Resources/model.gguf
+TypingPlaygroundWeb/node_modules/
+ConvoLab/TypingPlayground/Generated/

@@ -24,6 +24,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Prepare pinned typing playground
+        run: node scripts/prepare-japanese-input.mjs
+
       - name: Verify toolchain and simulator
         run: |
           set -euo pipefail
