@@ -15,6 +15,6 @@ let package = Package(
         .target(name: "KanaKanjiConverterModule", dependencies: ["SwiftUtils", "EfficientNGram", "llama.cpp", .product(name: "Collections", package: "swift-collections")], path: "Vendor/AzooKey/Sources/KanaKanjiConverterModule", swiftSettings: flags),
         .target(name: "KanaKanjiConverterModuleWithDefaultDictionary", dependencies: ["KanaKanjiConverterModule"], path: "Vendor/AzooKey/Sources/KanaKanjiConverterModuleWithDefaultDictionary", exclude: ["azooKey_dictionary_storage/README.md", "azooKey_dictionary_storage/LICENSE", "azooKey_emoji_dictionary_storage/data", "azooKey_emoji_dictionary_storage/scripts", "azooKey_emoji_dictionary_storage/requirements.txt", "azooKey_emoji_dictionary_storage/README.md"], resources: [.copy("azooKey_dictionary_storage/Dictionary"), .copy("azooKey_emoji_dictionary_storage/EmojiDictionary")], swiftSettings: flags),
         .target(name: "PlaygroundEngine", dependencies: ["KanaKanjiConverterModuleWithDefaultDictionary"], resources: [.process("Resources")], swiftSettings: flags),
-        .testTarget(name: "PlaygroundEngineTests", dependencies: ["PlaygroundEngine"], swiftSettings: flags)
+        .testTarget(name: "PlaygroundEngineTests", dependencies: ["PlaygroundEngine", "KanaKanjiConverterModule"], swiftSettings: flags)
     ]
 )

@@ -15,6 +15,8 @@ actor TypingEngineActor {
     return try engine.convert(input)
   }
 
+  func preparationTimings() -> [String: Double] { engine?.preparationTimings ?? [:] }
+
   static func milliseconds(since start: ContinuousClock.Instant) -> Double {
     let elapsed = start.duration(to: .now).components
     return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15

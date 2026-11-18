@@ -3,12 +3,12 @@ import {
   mkdirSync,
   existsSync,
   readFileSync,
-  writeFileSync,
   copyFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { patchTypingEngine } from "./patch-typing-engine.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const vendor = resolve(root, "TypingEngine/Vendor/AzooKey");
 const revision = "80b8204f1cdfb364bb2ed355cf52c7ebb2519a0c";
@@ -25,7 +25,7 @@ if (!existsSync(vendor))
 run("git", ["checkout", "--detach", revision], vendor);
 run("git", ["submodule", "update", "--init", "--recursive"], vendor);
 const api = resolve(vendor, "Sources/KanaKanjiConverterModule/ConverterAPI");
-for (const name of ["WholePhraseCandidates", "NeuralBoundaryRanker"])
+for (const name of ["WholePhraseCandidates", "NeuralBoundaryRanker", "BoundaryScoreCache"])
   copyFileSync(
     resolve(root, `TypingEngine/Adapters/${name}.swift`),
     resolve(api, `ConvoLab${name}.swift`),
@@ -37,26 +37,7 @@ copyFileSync(
   resolve(root, "TypingEngine/Adapters/Personalization.swift"),
   resolve(root, "TypingEngine/Vendor/Personalization/Personalization.swift"),
 );
-// The simulator cannot load this Metal backend. Physical devices retain Metal;
-// simulation is explicitly CPU-only and is labelled as such in benchmark exports.
-const contextPath =
-  "Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift";
-const original = execFileSync("git", ["show", `${revision}:${contextPath}`], {
-  cwd: vendor,
-  encoding: "utf8",
-});
-writeFileSync(
-  resolve(vendor, contextPath),
-  original
-    .replaceAll(
-      "#if ZenzaiCPU",
-      "#if ZenzaiCPU || targetEnvironment(simulator)",
-    )
-    .replace(
-      "model_params.split_mode = LLAMA_SPLIT_MODE_NONE",
-      "model_params.split_mode = LLAMA_SPLIT_MODE_LAYER",
-    ),
-);
+patchTypingEngine({ root, vendor, revision });
 const resources = resolve(
   root,
   "TypingEngine/Sources/PlaygroundEngine/Resources",

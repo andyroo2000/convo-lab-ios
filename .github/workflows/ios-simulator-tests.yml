@@ -30,6 +30,11 @@ jobs:
       - name: Prepare pinned typing playground
         run: node scripts/prepare-japanese-input.mjs
 
+      - name: Verify engine state and cache safety
+        # Hosted runners have no guaranteed Metal device. Check the exact same
+        # state/cache behavior on CPU; Metal batching parity runs on a real GPU.
+        run: swift test -c release -Xswiftc -DZenzaiCPU --package-path TypingEngine
+
       - name: Verify toolchain and simulator
         run: |
           set -euo pipefail
