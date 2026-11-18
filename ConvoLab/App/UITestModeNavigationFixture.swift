@@ -10,6 +10,12 @@ struct UITestModeNavigationFixture: View {
     )
 
     init() {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-journal-keyboard-onboarding") {
+            UserDefaults.standard.removeObject(forKey: JournalKeyboardMode.key)
+        } else if !arguments.contains("-journal-keyboard-keep") {
+            UserDefaults.standard.set(JournalKeyboardMode.device.rawValue, forKey: JournalKeyboardMode.key)
+        }
         let baseURL = URL(string: "https://navigation.ui-tests.invalid")!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ModeNavigationFixtureProtocol.self]

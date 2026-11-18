@@ -13,7 +13,7 @@ struct JournalEntryForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             JournalPaper(draft: model.draft, writing: true) {
-                JournalWritingField(text: writingBinding(), label: "Journal entry")
+                JournalWritingField(text: writingBinding(), label: "Journal entry", requestChoice: model.draft != nil)
             }
             if exceedsLimit {
                 Text("Keep the entry within 20,000 characters. Your full text is saved on this device.")

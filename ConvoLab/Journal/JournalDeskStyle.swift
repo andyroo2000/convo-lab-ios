@@ -31,11 +31,14 @@ struct JournalEntriesButton: View {
 
 struct JournalAppearanceMenu: View {
     @State private var showing = false
+    @State private var showingKeyboard = false
     var body: some View {
-        Menu {
-            Button("Appearance", systemImage: "textformat") { showing = true }
-        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+        JournalOptionsMenu {
+            JournalOptionButton(title: "Appearance", icon: "textformat") { showing = true }
+            JournalKeyboardMenuItem { showingKeyboard = true }
+        }
             .accessibilityLabel("More journal options")
             .outsideDismissibleSheet(isPresented: $showing) { JournalAppearance() }
+            .sheet(isPresented: $showingKeyboard) { JournalKeyboardSheet() }
     }
 }
