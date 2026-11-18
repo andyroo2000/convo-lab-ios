@@ -12,7 +12,7 @@ public final class PlaygroundEngine {
   public init() throws {
     guard
       let modelURL = Bundle.module.url(
-        forResource: "model", withExtension: "gguf", subdirectory: "Resources")
+        forResource: "model", withExtension: "gguf")
     else { throw PlaygroundFailure.missingModel }
     let dictionary = DicdataStore.withDefaultDictionary()
     converter = KanaKanjiConverter(dicdataStore: dictionary)
@@ -74,7 +74,7 @@ public final class PlaygroundEngine {
   public static func fixtures() throws -> Data {
     guard
       let url = Bundle.module.url(
-        forResource: "fixtures", withExtension: "json", subdirectory: "Resources")
+        forResource: "fixtures", withExtension: "json")
     else { throw PlaygroundFailure.missingModel }
     return try Data(contentsOf: url)
   }
@@ -84,7 +84,7 @@ extension PlaygroundEngine {
   public static func attributions() -> String {
     guard
       let url = Bundle.module.url(
-        forResource: "Attributions", withExtension: "txt", subdirectory: "Resources"),
+        forResource: "Attributions", withExtension: "txt"),
       let text = try? String(contentsOf: url, encoding: .utf8)
     else { return "Attributions could not be loaded." }
     return text
