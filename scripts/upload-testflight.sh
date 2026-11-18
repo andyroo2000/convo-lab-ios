@@ -107,6 +107,8 @@ if [[ "${archived_api_url}" != "https://convo-lab.com" ]]; then
     exit 1
 fi
 
+node scripts/verify-ios-runtime.mjs "${archive_path}/Products/Applications/ConvoLab.app"
+
 xcodebuild -exportArchive \
     -archivePath "${archive_path}" \
     -exportPath "${export_path}" \

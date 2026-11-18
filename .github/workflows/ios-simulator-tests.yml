@@ -24,6 +24,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Verify archive runtime guard
+        run: node --test scripts/verify-ios-runtime.test.mjs
+
       - name: Prepare pinned typing playground
         run: node scripts/prepare-japanese-input.mjs
 
