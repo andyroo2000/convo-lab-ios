@@ -1,109 +1,145 @@
 import SwiftUI
-import WebKit
-import OSLog
+import UIKit
 
 @MainActor
-final class JournalTypingCoordinator: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
+final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     var text: Binding<String>
-    var height: Binding<CGFloat>
-    weak var view: WKWebView?
-    var active = true
-    private var loaded = false
-    private var lastText: String?
-    private var settings: JournalTypingSettings?
-    private(set) var revision = 0
-    private static let logger = Logger(subsystem: "com.cdcg.convolab", category: "JournalTyping")
-    private static let engine = TypingEngineActor()
+    private(set) var composition = JournalNativeComposition()
+    private let requests = JournalCandidateRequests()
+    private weak var view: JournalNativeTextView?
+    private var font = UIFont.systemFont(ofSize: 20)
+    private var updating = false
 
-    init(text: Binding<String>, height: Binding<CGFloat>) {
-        self.text = text
-        self.height = height
-    }
+    init(text: Binding<String>) { self.text = text }
 
-    func configure(text: String, settings: JournalTypingSettings) {
-        guard lastText != text || self.settings != settings else { return }
-        if lastText != text { revision += 1 }
-        lastText = text
-        self.settings = settings
-        sendConfiguration()
-    }
-
-    private func sendConfiguration() {
-        guard loaded, let settings, let data = try? JSONEncoder().encode(settings),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-        view?.callAsyncJavaScript("window.journal.configure(text, settings, revision)",
-            arguments: ["text": lastText ?? "", "settings": object, "revision": revision], in: nil, in: .page) { result in
-                if case .failure = result { Self.logger.error("Could not configure the Journal typing editor") }
-            }
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        loaded = true
-        sendConfiguration()
-    }
-
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
-        replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
-        guard active, message.frameInfo.isMainFrame, Self.isEditorURL(message.frameInfo.request.url),
-              let payload = message.body as? [String: Any], let path = payload["path"] as? String
-        else { replyHandler(nil, "Unsupported editor request"); return }
-        if path == "journal/change" {
-            receiveChange(payload)
-            replyHandler("{}", nil)
-        } else if path == "journal/layout" {
-            receiveLayout(payload)
-            replyHandler("{}", nil)
-        } else {
-            let body = payload["body"] as? String
-            Task { replyHandler(await Self.convert(path: path, body: body), nil) }
+    func attach(_ view: JournalNativeTextView) {
+        self.view = view
+        view.delegate = self
+        view.candidates.choose = { [weak self] index in self?.choose(index) }
+        view.candidates.dismissKeyboard = { [weak self, weak view] in self?.commit(); view?.resignFirstResponder() }
+        view.sectionAction = { [weak self] action, direction in self?.adjust(action, direction: direction) }
+        requests.receive = { [weak self] reading, result in
+            guard let self else { return }
+            _ = composition?.call("receive", [reading, result])
+            decorate()
         }
+        requests.prepare()
     }
 
-    func receiveChange(_ payload: [String: Any]) {
-        guard let value = payload["text"] as? String,
-              payload["revision"] as? Int == revision else { return }
-        lastText = value
-        text.wrappedValue = value
-    }
-
-    private func receiveLayout(_ payload: [String: Any]) {
-        if let value = payload["height"] as? Double, value.isFinite, value > 0 {
-            height.wrappedValue = CGFloat(value)
+    func configure(text: String, font: UIFont) {
+        self.font = font
+        if composition?.state.text != text {
+            requests.cancel()
+            composition?.call("external", [text])
         }
-        guard payload["focused"] as? Bool == true, let y = payload["caret"] as? Double, y.isFinite,
-              let view else { return }
-        let revealHeight = min(380, max(65, payload["revealHeight"] as? Double ?? 65))
-        DispatchQueue.main.async { [weak view] in
-            guard let view else { return }
-            var ancestor = view.superview
-            while let parent = ancestor {
-                if let scroll = parent as? UIScrollView, scroll.isScrollEnabled {
-                    let rect = CGRect(x: 0, y: y, width: 10, height: revealHeight)
-                    scroll.scrollRectToVisible(view.convert(rect, to: scroll), animated: false)
-                    return
-                }
-                ancestor = parent.superview
-            }
+        updating = true
+        view?.configure(text: text, font: font)
+        updating = false
+        decorate()
+    }
+
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
+        guard !updating, textView.markedTextRange == nil, let composition else { return true }
+        let roman = replacement.range(of: "^[a-z'-]+$", options: [.regularExpression, .caseInsensitive]) != nil
+        let punctuation = [".", ",", "?", "!", "/"].contains(replacement)
+        // Let UIKit perform ordinary edits, especially Delete after a commit.
+        guard composition.state.composition != nil || roman || punctuation else { return true }
+        let selection = textView.selectedRange
+        let state = composition.call("edit", [["text": textView.text ?? "", "range": [range.location, range.length],
+                                                "replacement": replacement, "selection": [selection.location, selection.length]]])
+        apply(state)
+        schedule()
+        return false
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        guard !updating else { return }
+        requests.cancel()
+        composition?.call("external", [textView.text ?? ""])
+        text.wrappedValue = textView.text
+        view?.updatePlaceholder()
+        view?.invalidateIntrinsicContentSize()
+        view?.requestCaretReveal()
+        decorate()
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        guard !updating, textView.text == composition?.state.text else { return }
+        let selection = textView.selectedRange
+        let previous = composition?.state.composition
+        composition?.call("moveSelection", [[selection.location, selection.length]])
+        if previous != nil && composition?.state.composition == nil { requests.cancel() }
+        decorate()
+        view?.requestCaretReveal()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) { commit() }
+
+    func choose(_ index: Int) {
+        guard let state = composition?.call("choose", [index]) else { return }
+        requests.cancel()
+        apply(state)
+    }
+
+    func commit() {
+        guard composition?.state.composition != nil, let state = composition?.call("commit") else { return }
+        requests.cancel()
+        apply(state)
+    }
+
+    func stop() { requests.cancel(); requests.receive = nil }
+
+    private func adjust(_ action: String, direction: Int) {
+        guard let composition else { return }
+        _ = composition.call(action, [direction])
+        decorate()
+        if action == "resize" { schedule(immediate: true) }
+    }
+
+    private func schedule(immediate: Bool = false) {
+        guard let state = composition?.state else { return }
+        requests.schedule(reading: state.reading, boundaries: state.boundaries, immediate: immediate)
+    }
+
+    private func apply(_ state: JournalInputSnapshot) {
+        updating = true
+        view?.configure(text: state.text, font: font)
+        view?.selectedRange = NSRange(location: state.caret, length: 0)
+        text.wrappedValue = state.text
+        updating = false
+        view?.updatePlaceholder()
+        view?.invalidateIntrinsicContentSize()
+        view?.requestCaretReveal()
+        decorate()
+    }
+
+    private func decorate() {
+        guard let view, view.markedTextRange == nil else { return }
+        updating = true
+        defer { updating = false }
+        let all = NSRange(location: 0, length: view.textStorage.length)
+        view.textStorage.removeAttribute(.underlineStyle, range: all)
+        view.textStorage.removeAttribute(.backgroundColor, range: all)
+        applyAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: composition?.state.composition)
+        applyAttribute(.underlineColor, value: UIColor.systemBlue, range: composition?.state.composition)
+        applyAttribute(.backgroundColor, value: UIColor.systemBlue.withAlphaComponent(0.12), range: composition?.state.section)
+        view.candidates.update(composition?.state.choices ?? [], context: "\(composition?.state.reading ?? ""):\(composition?.state.section ?? [])")
+        view.hasComposition = composition?.state.composition != nil
+    }
+
+    private func applyAttribute(_ key: NSAttributedString.Key, value: Any, range: [Int]?) {
+        guard let view, let range, range.count == 2, range[0] >= 0, range[1] > 0,
+              range[0] + range[1] <= view.textStorage.length else { return }
+        view.textStorage.addAttribute(key, value: value, range: NSRange(location: range[0], length: range[1]))
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard composition?.state.composition != nil else { return nil }
+        let actions = [("Previous section", "focusSection", -1), ("Next section", "focusSection", 1),
+                       ("Shorten section", "resize", -1), ("Lengthen section", "resize", 1)]
+        let menu = actions.map { title, action, direction in
+            UIAction(title: title) { [weak self] _ in self?.adjust(action, direction: direction) }
         }
-    }
-
-    private static func convert(path: String, body: String?) async -> String {
-        do {
-            _ = try await engine.prepare()
-            if path == "/api/v1/engine" || path == "/api/v1/engine/retry" { return "{\"state\":\"ready\"}" }
-            if path == "/api/v1/convert", let body { return try await engine.convert(body) }
-            return "{\"error\":\"Unsupported input request\"}"
-        } catch { return "{\"error\":\"Could not prepare Japanese input. Retry or choose your device keyboard from the menu.\"}" }
-    }
-
-    static func isEditorURL(_ url: URL?) -> Bool {
-        guard let url, let editor = Bundle.main.url(forResource: "journal-typing", withExtension: "html") else { return false }
-        return url.standardizedFileURL == editor.standardizedFileURL
-    }
-
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(Self.isEditorURL(action.request.url) ? .allow : .cancel)
+        return UIMenu(children: suggestedActions + [UIMenu(title: "Conversion sections", children: menu)])
     }
 }

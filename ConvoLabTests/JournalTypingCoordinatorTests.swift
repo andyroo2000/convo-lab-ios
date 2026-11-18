@@ -4,42 +4,67 @@ import XCTest
 
 @MainActor
 final class JournalTypingCoordinatorTests: XCTestCase {
-    private let settings = JournalTypingSettings(label: "Journal entry", font: "KleeOne-SemiBold", size: 20, lines: 4, enabled: true)
-
-    func testTypingRoundTripsWithoutInvalidatingInFlightChanges() {
-        var text = "  昨日\n"
-        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }), height: .constant(200))
-        coordinator.configure(text: text, settings: settings)
-        let revision = coordinator.revision
-        coordinator.receiveChange(["text": "  昨日は\n", "revision": NSNumber(value: revision)])
-        coordinator.configure(text: text, settings: settings)
-        coordinator.receiveChange(["text": "  昨日は映画\n", "revision": NSNumber(value: Double(revision))])
-        XCTAssertEqual(text, "  昨日は映画\n")
-        XCTAssertEqual(coordinator.revision, revision)
-        let larger = JournalTypingSettings(label: "Journal entry", font: "KleeOne-SemiBold", size: 28, lines: 4, enabled: true)
-        coordinator.configure(text: text, settings: larger)
-        XCTAssertEqual(coordinator.revision, revision, "Appearance changes must not invalidate pending input")
+    func testSuggestionsNeverReplaceKanaUntilTapped() throws {
+        let model = try XCTUnwrap(JournalNativeComposition())
+        let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "kyouhatanoshikatta", "selection": [0, 0]]])
+        XCTAssertEqual(state.text, "きょうはたのしかった")
+        let candidates: [String: Any] = ["candidates": [["text": "今日は楽しかった"]]]
+        let suggested = model.call("receive", [state.reading, candidates])
+        XCTAssertEqual(suggested.text, state.text)
+        XCTAssertEqual(suggested.caret, state.caret)
+        XCTAssertEqual(suggested.choices.first, "今日は楽しかった")
+        XCTAssertTrue(suggested.choices.contains("kyouhatanoshikatta"))
+        let committed = model.call("choose", [0])
+        XCTAssertEqual(committed.text, "今日は楽しかった")
+        XCTAssertNil(committed.composition)
     }
 
-    func testExternalReplacementRejectsOldDocumentKeystrokes() {
-        var text = "Old entry"
-        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }), height: .constant(200))
-        coordinator.configure(text: text, settings: settings)
-        let oldRevision = coordinator.revision
-        text = "Different entry"
-        coordinator.configure(text: text, settings: settings)
-        coordinator.receiveChange(["text": "Old entry with delayed input", "revision": oldRevision])
-        XCTAssertEqual(text, "Different entry")
-        coordinator.receiveChange(["text": "Different entry edited", "revision": coordinator.revision])
-        XCTAssertEqual(text, "Different entry edited")
+    func testOldSuggestionsCannotChangeAnEditedDocument() throws {
+        let model = try XCTUnwrap(JournalNativeComposition())
+        let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "ame", "selection": [0, 0]]])
+        _ = model.call("external", ["Different entry"])
+        let stale = model.call("receive", [state.reading, ["candidates": [["text": "雨"]]]])
+        XCTAssertEqual(stale.text, "Different entry")
+        XCTAssertTrue(stale.choices.isEmpty)
     }
 
-    func testOnlyBundledJournalPageCanUseTheBridge() throws {
-        let editor = try XCTUnwrap(Bundle.main.url(forResource: "journal-typing", withExtension: "html"))
-        XCTAssertTrue(JournalTypingCoordinator.isEditorURL(editor))
-        XCTAssertFalse(JournalTypingCoordinator.isEditorURL(editor.deletingLastPathComponent().appendingPathComponent("typing-playground.html")))
-        XCTAssertFalse(JournalTypingCoordinator.isEditorURL(URL(fileURLWithPath: "/tmp/journal-typing.html")))
-        XCTAssertFalse(JournalTypingCoordinator.isEditorURL(URL(string: "https://convo-lab.com")))
-        XCTAssertFalse(JournalTypingCoordinator.isEditorURL(nil))
+    func testNativeDeleteAfterCommitUpdatesBinding() throws {
+        var text = ""
+        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }))
+        let view = JournalNativeTextView()
+        coordinator.attach(view)
+        coordinator.configure(text: text, font: .systemFont(ofSize: 20))
+        XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "ohayou"))
+        XCTAssertEqual(text, "おはよう")
+        coordinator.commit()
+        XCTAssertNil(coordinator.composition?.state.composition)
+        view.deleteBackward()
+        XCTAssertEqual(view.text, "おはよ")
+        XCTAssertEqual(text, "おはよ")
+        XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: "u"))
+        XCTAssertEqual(text, "おはよう")
+        coordinator.stop()
     }
+
+    func testExactLatinSpellingCanBeCommitted() throws {
+        let model = try XCTUnwrap(JournalNativeComposition())
+        let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "OpenAI", "selection": [0, 0]]])
+        let index = try XCTUnwrap(state.choices.firstIndex(of: "OpenAI"))
+        XCTAssertEqual(model.call("choose", [index]).text, "OpenAI")
+    }
+    func testSectionAdjustmentWorksInIOSJavaScriptCore() throws {
+        let model = try XCTUnwrap(JournalNativeComposition())
+        _ = model.call("edit", [["text": "", "range": [0, 0], "replacement": "hashidetabemashita", "selection": [0, 0]]])
+        let candidate: [String: Any] = ["text": "箸で食べました", "sections": [
+            ["reading": "はしで", "text": "箸で"], ["reading": "たべました", "text": "食べました"],
+        ]]
+        _ = model.call("receive", ["はしでたべました", ["candidates": [candidate]]])
+        _ = model.call("focusSection", [1])
+        let resized = model.call("resize", [-1])
+        XCTAssertEqual(resized.boundaries, [2])
+        XCTAssertEqual(resized.reading, "はしでたべました")
+        XCTAssertEqual(resized.text, "はしでたべました")
+        XCTAssertNotNil(resized.section)
+    }
+
 }

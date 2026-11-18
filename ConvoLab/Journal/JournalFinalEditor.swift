@@ -25,7 +25,10 @@ struct JournalFinalEditor: View {
             HStack {
                 Spacer(minLength: 0)
                 Button("Cancel", action: close).buttonStyle(JournalDraftButtonStyle(sage: false))
-                Button("Save changes") { Task { if await edit.save(document) { close() } } }
+                Button("Save changes") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    Task { if await edit.save(document) { close() } }
+                }
                     .buttonStyle(JournalDraftButtonStyle()).disabled(!edit.canSave)
             }.disabled(document.disabled)
             if edit.text.utf16.count > 30_000 { Text("Keep your final text under 30,000 characters.").foregroundStyle(.red) }

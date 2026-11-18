@@ -30,31 +30,37 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["JournalKeyboard-builtIn"].waitForExistence(timeout: 8))
         app.buttons["JournalKeyboard-builtIn"].tap()
         app.buttons["JournalKeyboardConfirm"].tap()
-        let field = app.webViews.textViews["Journal entry"]
+        let field = app.textViews["Journal entry"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
-        let convert = app.webViews.buttons["変換"]
-        XCTAssertTrue(convert.waitForExistence(timeout: 120))
-        let ready = NSPredicate(format: "enabled == true")
-        expectation(for: ready, evaluatedWith: convert)
-        waitForExpectations(timeout: 120)
-        field.tap()
-        if app.buttons["Continue"].waitForExistence(timeout: 2) { app.buttons["Continue"].tap() }
-        field.typeText("hashidetabemashita")
-        expectation(for: NSPredicate(format: "value == %@", "箸で食べました"), evaluatedWith: field)
-        waitForExpectations(timeout: 40)
-        capture(app, "Built-in input on Journal paper")
-        convert.tap()
-        let bridge = app.webViews.switches["橋で"]
-        XCTAssertTrue(bridge.waitForExistence(timeout: 30))
-        bridge.tap()
-        XCTAssertEqual(field.value as? String, "橋で食べました")
-        app.webViews.buttons["Shorten section"].tap()
-        XCTAssertTrue(app.webViews.staticTexts["More choices ready · ↑ ↓ choose · ← → sections · Enter to commit."].waitForExistence(timeout: 120))
-        capture(app, "Journal full candidates after section adjustment")
-        app.webViews.buttons["確定"].tap()
+        field.typeText("kyouhatanoshikatta")
+        XCTAssertEqual(field.value as? String, "きょうはたのしかった")
+        let candidate = app.collectionViews["JournalCandidates"].cells["今日は楽しかった"]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 120))
+        XCTAssertEqual(field.value as? String, "きょうはたのしかった", "Suggestions must not rewrite the notebook")
+        let strip = app.collectionViews["JournalCandidates"]
+        XCTAssertTrue(app.buttons["Close"].isHittable)
+        XCTAssertTrue(app.buttons["Submit"].isHittable)
+        XCTAssertLessThanOrEqual(app.buttons["Submit"].frame.maxY, strip.frame.minY)
+        capture(app, "01 Kana stays in notebook with native candidate strip")
+        candidate.tap()
+        XCTAssertEqual(field.value as? String, "今日は楽しかった")
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
+        XCTAssertEqual(field.value as? String, "今日は楽しかっ")
+        field.typeText("ta\n")
+        XCTAssertEqual(field.value as? String, "今日は楽しかった")
+        XCTAssertFalse(app.buttons["変換"].exists)
+        capture(app, "02 Committed text with working native Delete")
+        field.typeText("\name")
+        let latin = strip.cells["ame"]
+        XCTAssertTrue(latin.waitForExistence(timeout: 10))
+        for _ in 0..<3 where !latin.isHittable { strip.swipeLeft() }
+        capture(app, "04 Kana katakana and Latin spellings in the candidate strip")
+        latin.tap()
+        XCTAssertEqual(field.value as? String, "今日は楽しかった\name")
         let converted = field.value as? String
         dismissKeyboard(app)
+        capture(app, "03 Notebook with Close and Submit unobstructed")
         openSettings(app)
         app.buttons["JournalKeyboard-device"].tap()
         app.buttons["JournalKeyboardConfirm"].tap()
@@ -64,6 +70,14 @@ final class JournalKeyboardUITests: XCTestCase {
         app.buttons["JournalKeyboardConfirm"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, converted)
+        field.tap()
+        field.typeText("hon")
+        let pending = field.value as? String
+        XCTAssertTrue(pending?.contains("ほn") == true)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Keep writing"].waitForExistence(timeout: 5))
+        app.buttons["Keep writing"].tap()
+        XCTAssertEqual(field.value as? String, pending?.replacingOccurrences(of: "ほn", with: "ほん"))
     }
 
     func testBuiltInFinalEditingSavesAndReopensTheConvertedText() {
@@ -81,15 +95,10 @@ final class JournalKeyboardUITests: XCTestCase {
         app.buttons["JournalKeyboardConfirm"].tap()
         app.buttons["More journal options"].firstMatch.tap()
         app.buttons["Edit final"].tap()
-        let field = app.webViews.textViews["Final text"]
+        let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
-        let convert = app.webViews.buttons["変換"]
-        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: convert)
-        waitForExpectations(timeout: 120)
-        field.tap()
-        field.typeText("ohayou")
-        app.webViews.buttons["確定"].tap()
+        field.typeText("ohayou\n")
         let edited = field.value as? String
         XCTAssertTrue(edited?.contains("おはよう") == true)
         dismissKeyboard(app)
@@ -123,8 +132,7 @@ final class JournalKeyboardUITests: XCTestCase {
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {
-        if app.buttons["Done"].exists { app.buttons["Done"].tap() }
-        app.swipeDown()
+        if app.buttons["Hide keyboard"].exists { app.buttons["Hide keyboard"].tap() }
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {

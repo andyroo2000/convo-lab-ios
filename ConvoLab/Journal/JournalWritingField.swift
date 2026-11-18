@@ -46,7 +46,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
     }
 }
 
-final class JournalWritingTextView: UITextView {
+class JournalWritingTextView: UITextView {
     private var requestedEditingEnabled = true
     private var needsCaretReveal = false
     private let placeholder = UILabel()
