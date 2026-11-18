@@ -47,7 +47,10 @@ struct UITestModeNavigationFixture: View {
     }
 
     var body: some View {
-        MainModeView(model: model, user: Self.user)
+        let beta = ProcessInfo.processInfo.arguments.contains("-journal-beta-visibility")
+        MainModeView(model: model, user: Self.user, initialMode: beta ? .journal : .study,
+                     initialFlags: beta ? .journalOnly : AppFeatureFlags(
+                        flashcardsEnabled: true, readingsEnabled: true, studyTimeEnabled: true))
             .modelContainer(model.container)
     }
 }
