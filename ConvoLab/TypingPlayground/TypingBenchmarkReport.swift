@@ -19,6 +19,7 @@ struct TypingBenchmarkSample: Codable {
   let expected: [String]
   let nativeTopChoice: String?
   let thermalState: String
+  let memoryFootprintBytes: UInt64?
 }
 
 struct TypingBenchmarkReport: Codable {
@@ -31,6 +32,7 @@ struct TypingBenchmarkReport: Codable {
   let modelSHA256: String
   let timingScope: String
   let preloadMs: Double
+  let memoryAfterPreloadBytes: UInt64?
   var samples: [TypingBenchmarkSample] = []
   var completed = false
   var failure: String?
@@ -55,6 +57,7 @@ struct TypingBenchmarkReport: Codable {
     timingScope =
       "Native actor request including JSON encoding/decoding; excludes keyboard, WebView bridge and painting. Three 24-phrase passes plus four full 160-candidate boundary requests."
     self.preloadMs = preloadMs
+    memoryAfterPreloadBytes = TypingMemoryFootprint.current()
   }
 
   var ordinaryMedian: Double? {

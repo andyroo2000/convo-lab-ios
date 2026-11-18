@@ -70,6 +70,10 @@ if (!existsSync(model)) {
 }
 if (createHash("sha256").update(readFileSync(model)).digest("hex") !== hash)
   throw Error("Model checksum mismatch");
+// Keep exported benchmark identity tied to the checksum actually verified above.
+const reportSource = readFileSync(resolve(root, "ConvoLab/TypingPlayground/TypingBenchmarkReport.swift"), "utf8");
+if (!reportSource.includes(`modelSHA256 = "${hash}"`))
+  throw Error("Benchmark model identity does not match the verified model");
 run(
   "npm",
   ["ci", "--no-audit", "--no-fund"],

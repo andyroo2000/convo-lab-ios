@@ -9,6 +9,7 @@ final class TypingPlaygroundModel {
   var error: String?
   var preloadMs = 0.0
   var benchmarking = false
+  private(set) var activeConversions = 0
   var progress = 0
   var total = 0
   private var preparing = false
@@ -34,19 +35,25 @@ final class TypingPlaygroundModel {
 
   func bridge(path: String, body: String?) async -> String {
     if path == "/api/v1/engine/retry" {
-      Task { await prepare() }
-      return bridgeStatus(state: "loading")
+      if state == "error" {
+        state = "loading"
+        error = nil
+        Task { await prepare() }
+      }
+      return bridgeStatus(state: state, error: error)
     }
     if path == "/api/v1/engine" { return bridgeStatus(state: state, error: error) }
     guard path == "/api/v1/convert", let body, state == "ready", !benchmarking
     else { return bridgeStatus(error: "The typing engine is busy or not ready.") }
+    activeConversions += 1
+    defer { activeConversions -= 1 }
     do {
       return try await engine.convert(body)
     } catch { return bridgeStatus(error: error.localizedDescription) }
   }
 
   func startBenchmark() {
-    guard state == "ready", !benchmarking else { return }
+    guard state == "ready", !benchmarking, activeConversions == 0 else { return }
     benchmarking = true
     progress = 0
     reportURL = nil
@@ -59,7 +66,6 @@ final class TypingPlaygroundModel {
   private func runBenchmark() async {
     defer { benchmarking = false }
     do {
-      await engine.waitUntilIdle()
       try Task.checkCancellation()
       let fixtures = try JSONDecoder().decode(
         [TypingBenchmarkFixture].self, from: PlaygroundEngine.fixtures())
@@ -103,7 +109,8 @@ final class TypingPlaygroundModel {
         wallMs: TypingEngineActor.milliseconds(since: start), engineMs: result.engineMs,
         candidates: result.candidates.map(\.text), expected: fixture.expected,
         nativeTopChoice: fixture.nativeTopChoice,
-        thermalState: String(describing: ProcessInfo.processInfo.thermalState)
+        thermalState: String(describing: ProcessInfo.processInfo.thermalState),
+        memoryFootprintBytes: TypingMemoryFootprint.current()
       ))
     progress += 1
   }

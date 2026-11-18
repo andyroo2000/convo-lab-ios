@@ -10,8 +10,6 @@ actor TypingEngineActor {
     return Self.milliseconds(since: start)
   }
 
-  func waitUntilIdle() {}
-
   func convert(_ input: String) throws -> String {
     guard let engine else { throw PlaygroundFailure.modelNotLoaded }
     return try engine.convert(input)

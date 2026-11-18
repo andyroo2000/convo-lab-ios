@@ -45,7 +45,8 @@ private struct TypingBenchmarkView: View {
             Text("Native Metal · normal-effort neural model")
           #endif
           Button(model.benchmarking ? "Running…" : "Run benchmark") { model.startBenchmark() }
-            .disabled(model.benchmarking || model.state != "ready")
+            .disabled(model.benchmarking || model.state != "ready" || model.activeConversions > 0)
+          if model.activeConversions > 0 { Text("Finishing the current conversion…") }
           if model.benchmarking {
             ProgressView(value: Double(model.progress), total: Double(max(1, model.total)))
               .accessibilityLabel("Benchmark conversions completed")

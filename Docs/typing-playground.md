@@ -17,7 +17,8 @@ Open **Benchmark → Run benchmark**, keep the screen open, then use **Share ben
 results** to export JSON. It runs the desktop comparison's 24 public phrases three
 times and four exhaustive, 160-candidate boundary reranking requests. No notebook
 text is exported. The report includes device identifier, OS/app/build, thermal state,
-model checksum, preload time, candidates and native/wall durations. Ordinary
+model checksum, preload time, candidates and native/wall durations. Memory footprint
+is sampled after preload and each conversion; it is not a continuously observed peak. Ordinary
 conversion and boundary ranking are separate samples. Timings exclude keyboard,
 WebView bridge and rendering. Use a cool, unplugged phone with Low Power Mode off
 for the most comparable run; repeat a run to see thermal/cache effects.

@@ -3,8 +3,8 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 
 // Owned exclusively by the app's serial actor. Never called on the UI thread.
 public final class PlaygroundEngine {
-  let converter = KanaKanjiConverter.withDefaultDictionary()
-  let boundaryConverter = BoundaryCandidateConverter(dicdataStore: .withDefaultDictionary())
+  let converter: KanaKanjiConverter
+  let boundaryConverter: BoundaryCandidateConverter
   let boundaryRanker: NeuralBoundaryRanker
   let modelURL: URL
   var options: ConvertRequestOptions
@@ -14,8 +14,12 @@ public final class PlaygroundEngine {
       let modelURL = Bundle.module.url(
         forResource: "model", withExtension: "gguf", subdirectory: "Resources")
     else { throw PlaygroundFailure.missingModel }
+    let dictionary = DicdataStore.withDefaultDictionary()
+    converter = KanaKanjiConverter(dicdataStore: dictionary)
+    boundaryConverter = BoundaryCandidateConverter(dicdataStore: dictionary)
     self.modelURL = modelURL
     boundaryRanker = try NeuralBoundaryRanker(modelURL: modelURL)
+    // Learning is disabled; this intentionally nonexistent path is never written.
     let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     options = ConvertRequestOptions(
       needTypoCorrection: false, requireJapanesePrediction: false,
