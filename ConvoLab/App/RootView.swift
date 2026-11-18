@@ -130,11 +130,13 @@ struct MainModeView: View {
     @State private var journalVisit = 0
 
     init(model: AppModel, user: CurrentUser, initialMode: AppMode = .journal,
-         initialFlags: AppFeatureFlags = .journalOnly) {
+         initialFlags: AppFeatureFlags = .journalOnly, persistAvailability: Bool = true) {
         self.model = model
         self.user = user
         _selectedTab = State(initialValue: initialMode)
-        _availability = State(initialValue: AppFeatureAvailability(flags: initialFlags))
+        let origin = model.api.sameOriginResourceURL("/")?.absoluteString ?? ""
+        let cacheKey = persistAvailability ? "app-feature-flags.\(origin).\(user.id)" : nil
+        _availability = State(initialValue: AppFeatureAvailability(flags: initialFlags, cacheKey: cacheKey))
     }
 
     private var slotSelection: Binding<TabSlot> {
@@ -238,7 +240,11 @@ struct MainModeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await availability.refresh(api: model.api) } }
         }
-        .onChange(of: availability.flags) { _, flags in
+        .onChange(of: availability.flags) { old, flags in
+            if old.flashcardsEnabled && !flags.flashcardsEnabled {
+                model.audioPlayer.stop()
+                model.studyAudioPlayer.stop()
+            }
             if !flags.modes.contains(selectedTab) { tabSelection.wrappedValue = .journal }
             if !flags.modes.contains(managementMode) { managementMode = .settings }
         }
