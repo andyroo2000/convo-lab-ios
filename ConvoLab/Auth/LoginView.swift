@@ -13,6 +13,12 @@ struct LoginView: View {
     @FocusState private var focus: Field?
     private enum Field { case email, password }
 
+    init(auth: AuthStore, onLogin: @escaping () async -> Void) {
+        self.auth = auth
+        self.onLogin = onLogin
+        _errorMessage = State(initialValue: auth.errorMessage)
+    }
+
     var body: some View {
         NavigationStack {
             JournalAuthScreen {
@@ -54,11 +60,10 @@ struct LoginView: View {
                         }
                     }
                     .buttonStyle(JournalAuthSubmitStyle())
-                    .disabled(email.isEmpty || password.isEmpty || auth.isWorking || isSubmitting)
+                    .disabled(cleanEmail.isEmpty || password.isEmpty || auth.isWorking || isSubmitting)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .onAppear { errorMessage = auth.errorMessage }
             .onChange(of: showingReset) { _, _ in errorMessage = nil }
             .onChange(of: showingRegistration) { _, _ in errorMessage = nil }
             .outsideDismissibleSheet(isPresented: $showingReset) {
@@ -70,14 +75,16 @@ struct LoginView: View {
         }
     }
 
+    private var cleanEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     private func signIn() {
-        guard !email.isEmpty, !password.isEmpty, !auth.isWorking, !isSubmitting else { return }
+        guard !cleanEmail.isEmpty, !password.isEmpty, !auth.isWorking, !isSubmitting else { return }
         isSubmitting = true
         errorMessage = nil
         focus = nil
         Task {
             defer { isSubmitting = false }
-            await auth.login(email: email, password: password)
+            await auth.login(email: cleanEmail, password: password)
             errorMessage = auth.errorMessage
             if case .signedIn = auth.state { await onLogin() }
         }

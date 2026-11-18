@@ -76,7 +76,12 @@ struct AccountRegistrationView: View {
         errorMessage = nil
         Task {
             defer { isSubmitting = false }
-            await auth.register(name: name, email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, inviteCode: inviteCode)
+            await auth.register(
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password,
+                inviteCode: inviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
             errorMessage = auth.errorMessage
             if case .signedIn = auth.state {
                 await onRegistered()
