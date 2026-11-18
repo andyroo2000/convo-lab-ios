@@ -31,7 +31,7 @@ jobs:
         run: node scripts/prepare-japanese-input.mjs
 
       - name: Verify Journal input binding
-        run: node --test TypingPlaygroundWeb/journal-binding.test.mjs
+        run: node --test TypingPlaygroundWeb/journal-binding.test.mjs TypingPlaygroundWeb/journal-native-session.test.mjs
 
       - name: Verify engine state and cache safety
         # Hosted runners have no guaranteed Metal device. Check the exact same

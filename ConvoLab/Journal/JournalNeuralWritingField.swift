@@ -1,63 +1,37 @@
 import SwiftUI
-import WebKit
+import UIKit
 
-struct JournalNeuralWritingField: View {
+struct JournalNeuralWritingField: UIViewRepresentable {
+    @Environment(\.journalWritingFocus) private var focusChanged
     @Binding var text: String
     let label: String
     let minimumLines: Int
-    @State private var height: CGFloat = 200
+    let unavailable: () -> Void
     @Environment(\.journalTypography) private var typography
     @Environment(\.isEnabled) private var enabled
     @ScaledMetric(relativeTo: .body) private var scale = 1.0
 
-    var body: some View {
-        JournalTypingWebView(text: $text, height: $height,
-            settings: JournalTypingSettings(label: label, font: typography.unscaledFont.fontName,
-                size: typography.size * scale, lines: minimumLines, enabled: enabled))
-            .frame(height: max(height, typography.size * scale * JournalPaperText.linePitch * Double(minimumLines)))
-    }
-}
+    func makeCoordinator() -> JournalTypingCoordinator { JournalTypingCoordinator(text: $text) }
 
-struct JournalTypingSettings: Equatable, Encodable {
-    let label: String
-    let font: String
-    let size: Double
-    let lines: Int
-    let enabled: Bool
-}
-
-struct JournalTypingWebView: UIViewRepresentable {
-    @Binding var text: String
-    @Binding var height: CGFloat
-    let settings: JournalTypingSettings
-
-    func makeCoordinator() -> JournalTypingCoordinator {
-        JournalTypingCoordinator(text: $text, height: $height)
-    }
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
-        config.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "typingEngine")
-        let view = WKWebView(frame: .zero, configuration: config)
-        view.navigationDelegate = context.coordinator
-        view.isOpaque = false
-        view.backgroundColor = .clear
-        view.scrollView.isScrollEnabled = false
-        view.scrollView.backgroundColor = .clear
-        context.coordinator.view = view
-        if let url = Bundle.main.url(forResource: "journal-typing", withExtension: "html") {
-            view.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        }
+    func makeUIView(context: Context) -> JournalNativeTextView {
+        let view = JournalNativeTextView()
+        context.coordinator.attach(view)
         return view
     }
-    func updateUIView(_ view: WKWebView, context: Context) {
+
+    func updateUIView(_ view: JournalNativeTextView, context: Context) {
         context.coordinator.text = $text
-        context.coordinator.height = $height
-        context.coordinator.configure(text: text, settings: settings)
+        context.coordinator.focusChanged = focusChanged
+        context.coordinator.unavailable = unavailable
+        context.coordinator.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
+        view.accessibilityLabel = label
+        view.setEditingEnabled(enabled)
     }
-    static func dismantleUIView(_ view: WKWebView, coordinator: JournalTypingCoordinator) {
-        coordinator.active = false
-        view.configuration.userContentController.removeScriptMessageHandler(forName: "typingEngine", contentWorld: .page)
-        view.stopLoading()
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: JournalNativeTextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        return uiView.fittingSize(width: width, minimumLines: minimumLines)
     }
+
+    static func dismantleUIView(_ view: JournalNativeTextView, coordinator: JournalTypingCoordinator) { coordinator.stop() }
 }

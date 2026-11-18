@@ -25,11 +25,12 @@ struct JournalWritingField: View {
     @Environment(\.isEnabled) private var enabled
     @AppStorage(JournalKeyboardMode.key) private var mode = ""
     @State private var choosing = false
+    @State private var inputUnavailable = false
 
     var body: some View {
         Group {
             if mode == JournalKeyboardMode.builtIn.rawValue {
-                JournalNeuralWritingField(text: $text, label: label, minimumLines: minimumLines)
+                JournalNeuralWritingField(text: $text, label: label, minimumLines: minimumLines, unavailable: { inputUnavailable = true })
             } else {
                 JournalDeviceWritingField(text: $text, label: label, minimumLines: minimumLines)
                     .disabled(JournalKeyboardMode(rawValue: mode) == nil)
@@ -43,6 +44,11 @@ struct JournalWritingField: View {
         }
         .task(id: requestChoice && enabled) {
             if requestChoice && enabled { choosing = JournalKeyboardMode(rawValue: mode) == nil }
+        }
+        .alert("Japanese input couldn’t start", isPresented: $inputUnavailable) {
+            Button("Use device keyboard") { mode = JournalKeyboardMode.device.rawValue }
+        } message: {
+            Text("Your writing is safe. Switch to your device’s keyboard to keep writing. You can try built-in input again from Keyboard settings.")
         }
         .sheet(isPresented: $choosing) { JournalKeyboardSheet(onboarding: true) }
     }

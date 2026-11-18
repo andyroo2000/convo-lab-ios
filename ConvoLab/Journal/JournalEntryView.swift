@@ -39,6 +39,8 @@ private struct JournalEntryScreen: View {
     @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
     @State private var copiedID: String?
+    @State private var keyboardDock = JournalKeyboardDock()
+    @State private var closingDraft = false
 
     init(selection: JournalSelection, store: JournalStore, knownKanji: Set<Character>, close: @escaping () -> Void, select: @escaping (String) -> Void) {
         _model = State(initialValue: JournalEntryModel(id: selection.id, store: store, initialDraft: selection.draft))
@@ -49,6 +51,10 @@ private struct JournalEntryScreen: View {
     }
 
     private var isReviewing: Bool { model.analysis?.status == .ready && model.analysis?.result != nil && !model.isEditing }
+    private var isWriting: Bool {
+        !model.missingEntry && !model.clarification.active && !model.isSubmitting &&
+        model.analysis?.status.isPending != true && !isReviewing
+    }
     private var pollingKey: String { "\(model.analysis?.id ?? ""):\(model.analysis?.status.rawValue ?? ""):\(model.analysis?.pendingReplyId ?? "")" }
 
     var body: some View {
@@ -74,13 +80,29 @@ private struct JournalEntryScreen: View {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
                     if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
-                    JournalEntryForm(model: model, onClose: close)
+                    JournalEntryForm(model: model, onClose: close, showActions: !keyboardDock.visible)
+                        .environment(\.journalWritingFocus, { keyboardDock.focusedWindow = $0 })
                 }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }
             }.padding(20)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if keyboardDock.visible && isWriting {
+                JournalDraftActions(model: model, requestClose: {
+                    if model.isUnwritten { close() } else { closingDraft = true }
+                })
+                    .padding(.horizontal, 20).padding(.vertical, 10)
+                    .background(.white)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            keyboardDock.keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .zero
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardDock.keyboardFrame = .zero }
+        .sheet(isPresented: $closingDraft) { JournalDraftCloseSheet(model: model, closeEntry: close) }
+        .scrollDismissesKeyboard(.interactively)
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
         .modifier(JournalTimeTracking(service: model.store.service))
         .background(.white)
