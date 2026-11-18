@@ -16,7 +16,7 @@ struct LoginView: View {
             JournalAuthScreen {
                 JournalAuthHeading(title: "Sign in")
                 HStack(spacing: 4) {
-                    Text("New user?").foregroundStyle(.secondary)
+                    Text("New user?").foregroundStyle(Color(white: 0.34))
                     Button("Create an account") { showingRegistration = true }
                         .underline()
                         .foregroundStyle(JournalBrandStyle.blue)

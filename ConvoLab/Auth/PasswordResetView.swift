@@ -19,7 +19,7 @@ struct PasswordResetView: View {
                     Text("If that account exists, we sent password reset instructions.")
                 } else {
                     Text("Enter your email address and we’ll send you a link to reset your password.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color(white: 0.34))
                     JournalAuthField(title: "Email") {
                         TextField("Email", text: $email)
                             .textContentType(.emailAddress)

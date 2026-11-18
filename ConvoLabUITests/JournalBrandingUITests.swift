@@ -36,6 +36,19 @@ final class JournalBrandingUITests: XCTestCase {
     }
 
     @MainActor
+    func testHeaderFitsAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "mode-navigation",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let picker = app.buttons["app-mode-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        XCTAssertTrue(picker.isHittable)
+        XCTAssertLessThanOrEqual(picker.frame.maxX, app.frame.maxX)
+        capture(app, name: "journal-header-accessibility")
+    }
+
+    @MainActor
     private func capture(_ app: XCUIApplication, name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

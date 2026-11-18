@@ -32,7 +32,7 @@ struct AccountRegistrationView: View {
                 }
                 JournalAuthField(title: "Invite code") {
                     TextField("Invite code", text: $inviteCode)
-                        .textInputAutocapitalization(.never)
+                        .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                 }
                 JournalAuthField(title: "Password") {

@@ -31,11 +31,13 @@ struct AppModePicker: View {
     var action: AppModeHeaderAction? = nil
     var toolbar: AppModeToolbar = .init()
     @State private var showingDestinations = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 12) {
-            JournalBrandView(compact: true)
-                .accessibilityHidden(true)
+            if !dynamicTypeSize.isAccessibilitySize {
+                JournalBrandView(compact: true).accessibilityHidden(true)
+            }
             Button { showingDestinations = true } label: {
                 HStack(spacing: 9) {
                     Text(selection.rawValue).fontWeight(.semibold)
