@@ -107,7 +107,6 @@ struct JournalAuthError: View {
     }
 }
 
-
 struct JournalAuthScreen<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -135,13 +134,14 @@ struct JournalAuthScreen<Content: View>: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(JournalBrandStyle.green)
-            .overlay {
+            .background {
+                JournalBrandStyle.green.overlay {
                 UnevenRoundedRectangle(topLeadingRadius: 26, bottomLeadingRadius: 3,
                                        bottomTrailingRadius: 26, topTrailingRadius: 3)
                     .stroke(Color(red: 239 / 255, green: 243 / 255, blue: 199 / 255).opacity(0.55), lineWidth: 2)
                     .padding(8)
                     .allowsHitTesting(false)
+                }
             }
         }
         .background(JournalBrandStyle.green.ignoresSafeArea())
@@ -150,6 +150,7 @@ struct JournalAuthScreen<Content: View>: View {
         .tint(JournalBrandStyle.blue)
         .preferredColorScheme(.light)
     }
+
     private var panel: some View {
         VStack(alignment: .leading, spacing: 22) { content }
             .padding(.horizontal, 24)
@@ -157,6 +158,5 @@ struct JournalAuthScreen<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.white, in: RoundedRectangle(cornerRadius: 4))
     }
-
 }
 

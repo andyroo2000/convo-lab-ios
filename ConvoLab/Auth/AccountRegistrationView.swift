@@ -45,6 +45,7 @@ struct AccountRegistrationView: View {
                 Button("Create an account", action: register)
                     .buttonStyle(JournalAuthSubmitStyle())
                     .disabled(!canRegister)
+                    .accessibilityIdentifier("auth-register-submit")
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .toolbar {
