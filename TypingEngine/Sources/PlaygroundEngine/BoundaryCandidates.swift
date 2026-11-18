@@ -22,7 +22,7 @@ extension PlaygroundEngine {
         reading: reading, boundaries: boundaries, options: options
       )
 
-    return try boundaryRanker.rank(pool, reading: reading)
+    return try boundaryRankingEngine().rank(pool, reading: reading)
 
   }
 }

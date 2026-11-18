@@ -41,7 +41,8 @@ public final class NeuralBoundaryRanker {
         let prompt = "\u{EE00}\(kana)\u{EE01}"
         let outputs = texts.map { $0.replacingOccurrences(of: " ", with: "\u{3000}") }
         cache.begin(reading: prompt)
-        let missing = outputs.filter { cache.score(for: $0) == nil }
+        var seen = Set<String>()
+        let missing = outputs.filter { cache.score(for: $0) == nil && seen.insert($0).inserted }
         let values = try context.boundaryScores(texts: missing, prompt: prompt, batch: batch)
         guard values.allSatisfy(\.isFinite) else { throw RankingError.invalidScore }
         // Keep this request's scores separately: cache eviction must never lose

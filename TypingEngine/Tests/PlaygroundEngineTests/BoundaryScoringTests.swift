@@ -75,4 +75,16 @@ final class BoundaryScoringTests: XCTestCase {
   private func bestIndex(_ scores: [Float]) -> Int? {
     scores.indices.max { scores[$0] < scores[$1] }
   }
+
+  func testOversizedSentenceFailsWithoutTruncationOrUnsafeScalarFallback() throws {
+    let engine = try PlaygroundEngine()
+    let context = try XCTUnwrap(engine.converter.getModel(modelURL: engine.modelURL)?.zenzContext)
+    guard let batch = try context.makeBoundaryBatchScorer() else {
+      throw XCTSkip("This guard protects Metal batching; CPU retains the upstream path")
+    }
+    // Upstream also has a 512-token context and batch. Its scalar path cannot
+    // safely handle this input either, so never use it as an oversize fallback.
+    let text = String(repeating: "あ", count: 1024)
+    XCTAssertThrowsError(try context.boundaryScores(texts: [text], prompt: "\u{EE00}ア\u{EE01}", batch: batch))
+  }
 }

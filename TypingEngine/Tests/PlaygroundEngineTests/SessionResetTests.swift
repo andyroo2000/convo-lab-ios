@@ -21,4 +21,16 @@ final class SessionResetTests: XCTestCase {
   }
 
   private struct Fixture: Decodable { let reading: String }
+
+  func testFirstBoundaryReturnsTheFullListAndPreparesOnlyOnce() throws {
+    let engine = try PlaygroundEngine()
+    XCTAssertNil(engine.preparationTimings["boundaryWarmupMs"])
+    let input = ConversionInput(reading: "はしでたべました", expanded: true, boundaries: [2])
+    let first = try engine.candidates(for: input)
+    XCTAssertEqual(first.count, 160)
+    let warmup = try XCTUnwrap(engine.preparationTimings["boundaryWarmupMs"])
+    let repeated = try engine.candidates(for: input)
+    XCTAssertEqual(repeated.map(\.text), first.map(\.text))
+    XCTAssertEqual(engine.preparationTimings["boundaryWarmupMs"], warmup)
+  }
 }

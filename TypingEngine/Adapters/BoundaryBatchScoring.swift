@@ -21,6 +21,8 @@ extension ZenzContext {
         // Each decode is capped at 512 TOTAL tokens and clears the pool first.
         params.n_ctx = 512
         params.n_seq_max = 16
+        params.n_batch = 512
+        params.n_ubatch = 512
         return try BoundaryBatchScorer(owner: self, model: model, params: params)
         #endif
     }

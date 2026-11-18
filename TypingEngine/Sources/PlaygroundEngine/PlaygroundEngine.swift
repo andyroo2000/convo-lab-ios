@@ -5,9 +5,9 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 public final class PlaygroundEngine {
   let converter: KanaKanjiConverter
   let boundaryConverter: BoundaryCandidateConverter
-  let boundaryRanker: NeuralBoundaryRanker
+  private var boundaryRanker: NeuralBoundaryRanker?
   let modelURL: URL
-  var options: ConvertRequestOptions
+  let options: ConvertRequestOptions
   private var recentReading: String?
   private var recentCandidates: [Candidate] = []
   public private(set) var preparationTimings: [String: Double] = [:]
@@ -23,8 +23,6 @@ public final class PlaygroundEngine {
     boundaryConverter = BoundaryCandidateConverter(dicdataStore: dictionary)
     let dictionaryReady = ContinuousClock.now
     self.modelURL = modelURL
-    boundaryRanker = try NeuralBoundaryRanker(converter: converter, modelURL: modelURL)
-    let modelReady = ContinuousClock.now
     // Learning is disabled; this intentionally nonexistent path is never written.
     let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     options = ConvertRequestOptions(
@@ -41,14 +39,24 @@ public final class PlaygroundEngine {
     _ = try convert("{\"reading\":\"こんにちは\"}")
     preparationTimings = [
       "dictionaryMs": Self.milliseconds(from: start, to: dictionaryReady),
-      "modelAndBoundaryWarmupMs": Self.milliseconds(from: dictionaryReady, to: modelReady),
-      "ordinaryWarmupMs": Self.milliseconds(from: modelReady, to: .now),
+      "modelAndOrdinaryWarmupMs": Self.milliseconds(from: dictionaryReady, to: .now),
     ]
   }
 
   private static func milliseconds(from start: ContinuousClock.Instant, to end: ContinuousClock.Instant) -> Double {
     let elapsed = start.duration(to: end).components
     return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+  }
+
+  func boundaryRankingEngine() throws -> NeuralBoundaryRanker {
+    if let boundaryRanker { return boundaryRanker }
+    // The model is already loaded and warmed for ordinary typing. Allocate the
+    // additional ranking buffers only when the learner adjusts a section.
+    let start = ContinuousClock.now
+    let ranker = try NeuralBoundaryRanker(converter: converter, modelURL: modelURL)
+    boundaryRanker = ranker
+    preparationTimings["boundaryWarmupMs"] = Self.milliseconds(from: start, to: .now)
+    return ranker
   }
 
   public func convert(_ json: String) throws -> String {

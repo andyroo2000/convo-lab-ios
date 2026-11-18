@@ -32,7 +32,7 @@ struct TypingBenchmarkReport: Codable {
   let modelSHA256: String
   let timingScope: String
   let preloadMs: Double
-  let preparationTimings: [String: Double]
+  var preparationTimings: [String: Double]
   let memoryAfterPreloadBytes: UInt64?
   var samples: [TypingBenchmarkSample] = []
   var completed = false
@@ -56,7 +56,7 @@ struct TypingBenchmarkReport: Codable {
     #endif
     modelSHA256 = "501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083"
     timingScope =
-      "Native actor request including JSON encoding/decoding; excludes keyboard, WebView bridge and painting. Three 24-phrase passes plus four full 160-candidate boundary cases, each repeated immediately."
+      "Native actor request including JSON encoding/decoding; excludes keyboard, WebView bridge and painting. Preload ends when ordinary neural typing is ready. Three 24-phrase passes plus four full 160-candidate boundary cases, each repeated immediately. First boundary timing includes ranking buffer setup."
     self.preloadMs = preloadMs
     self.preparationTimings = preparationTimings
     memoryAfterPreloadBytes = TypingMemoryFootprint.current()

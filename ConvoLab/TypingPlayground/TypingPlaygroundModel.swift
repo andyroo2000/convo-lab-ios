@@ -83,6 +83,7 @@ final class TypingPlaygroundModel {
       report?.failure =
         error is CancellationError ? "Cancelled; partial run" : error.localizedDescription
     }
+    report?.preparationTimings = await engine.preparationTimings()
     do { reportURL = try report?.save() } catch {
       self.error = "Could not save the benchmark report: \(error.localizedDescription)"
     }
