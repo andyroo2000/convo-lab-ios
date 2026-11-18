@@ -36,6 +36,12 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>KleeOne-SemiBold.ttf</string>
+		<string>Anton-Regular.ttf</string>
+		<string>BarlowCondensed-ExtraBold.ttf</string>
+		<string>Inter-Variable.ttf</string>
+		<string>Nunito-Variable.ttf</string>
+		<string>NotoSansJP-Variable.ttf</string>
+
 		<string>CrimsonPro.ttf</string>
 		<string>Yomogi-Regular.ttf</string>
 	</array>

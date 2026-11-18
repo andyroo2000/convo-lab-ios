@@ -9,6 +9,7 @@ final class ModeNavigationUITests: XCTestCase {
     @MainActor
     func testRootActionsStayInModeRowAndManagementHasNoMoreParent() {
         let app = launchShell()
+        selectMode("study", app: app)
         let sync = app.buttons["StudySyncButton"]
         assertInModeRow(sync, app: app)
         attachModeMenu(app, currentMode: "study")

@@ -58,30 +58,13 @@ struct RootView: View {
         switch model.auth.state {
         case .restoring:
             ZStack {
-                ConvoLabTheme.cream
-                    .ignoresSafeArea()
-
-                VStack(spacing: 18) {
-                    ZStack {
-                        Circle()
-                            .fill(ConvoLabTheme.cyan.opacity(0.16))
-                            .frame(width: 88, height: 88)
-                        Image(systemName: "waveform.and.mic")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(ConvoLabTheme.navy)
-                    }
-                    Text("CONVOLAB")
-                        .font(.title2.bold())
-                        .tracking(3)
-                        .foregroundStyle(ConvoLabTheme.navy)
-                    Text("Preparing your study space")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    ProgressView()
-                        .tint(ConvoLabTheme.coral)
+                JournalBrandStyle.green.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 32) {
+                    JournalBrandView()
+                    ProgressView().tint(.white)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Opening ConvoLab")
+                .accessibilityLabel("Opening ConvoLab Journal")
             }
         case .signedOut:
             LoginView(auth: model.auth) {
@@ -123,7 +106,7 @@ struct MainModeView: View {
 
     let model: AppModel
     let user: CurrentUser
-    @State private var selectedTab: AppMode = .study
+    @State private var selectedTab: AppMode = .journal
     @State private var managementMode: AppMode = .time
     @State private var journalVisit = 0
 
