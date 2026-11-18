@@ -39,7 +39,7 @@ private struct JournalEntryScreen: View {
     @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
     @State private var copiedID: String?
-    @State private var keyboardVisible = false
+    @State private var keyboardDock = JournalKeyboardDock()
     @State private var closingDraft = false
 
     init(selection: JournalSelection, store: JournalStore, knownKanji: Set<Character>, close: @escaping () -> Void, select: @escaping (String) -> Void) {
@@ -80,7 +80,8 @@ private struct JournalEntryScreen: View {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
                     if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
-                    JournalEntryForm(model: model, onClose: close, showActions: !keyboardVisible)
+                    JournalEntryForm(model: model, onClose: close, showActions: !keyboardDock.visible)
+                        .environment(\.journalWritingFocus, { keyboardDock.focusedWindow = $0 })
                 }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
@@ -88,7 +89,7 @@ private struct JournalEntryScreen: View {
             }.padding(20)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if keyboardVisible && isWriting {
+            if keyboardDock.visible && isWriting {
                 JournalDraftActions(model: model, requestClose: {
                     if model.isUnwritten { close() } else { closingDraft = true }
                 })
@@ -96,8 +97,10 @@ private struct JournalEntryScreen: View {
                     .background(.white)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            keyboardDock.keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .zero
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardDock.keyboardFrame = .zero }
         .sheet(isPresented: $closingDraft) { JournalDraftCloseSheet(model: model, closeEntry: close) }
         .scrollDismissesKeyboard(.interactively)
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))

@@ -2,9 +2,11 @@ import SwiftUI
 import UIKit
 
 struct JournalNeuralWritingField: UIViewRepresentable {
+    @Environment(\.journalWritingFocus) private var focusChanged
     @Binding var text: String
     let label: String
     let minimumLines: Int
+    let unavailable: () -> Void
     @Environment(\.journalTypography) private var typography
     @Environment(\.isEnabled) private var enabled
     @ScaledMetric(relativeTo: .body) private var scale = 1.0
@@ -19,6 +21,8 @@ struct JournalNeuralWritingField: UIViewRepresentable {
 
     func updateUIView(_ view: JournalNativeTextView, context: Context) {
         context.coordinator.text = $text
+        context.coordinator.focusChanged = focusChanged
+        context.coordinator.unavailable = unavailable
         context.coordinator.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
         view.accessibilityLabel = label
         view.setEditingEnabled(enabled)

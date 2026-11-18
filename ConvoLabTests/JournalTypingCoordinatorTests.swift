@@ -34,7 +34,9 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         let view = JournalNativeTextView()
         coordinator.attach(view)
         coordinator.configure(text: text, font: .systemFont(ofSize: 20))
-        XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "ohayou"))
+        for character in "ohayou" {
+            XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: String(character)))
+        }
         XCTAssertEqual(text, "おはよう")
         coordinator.commit()
         XCTAssertNil(coordinator.composition?.state.composition)
@@ -65,6 +67,61 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         XCTAssertEqual(resized.reading, "はしでたべました")
         XCTAssertEqual(resized.text, "はしでたべました")
         XCTAssertNotNil(resized.section)
+    }
+
+    func testPastePreservesLatinPunctuationAndNewlines() {
+        var text = ""
+        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }))
+        let view = JournalNativeTextView()
+        coordinator.attach(view)
+        coordinator.configure(text: text, font: .systemFont(ofSize: 20))
+        for value in ["a", "/", "OpenAI\nhttps://example.com"] { coordinator.paste(value) }
+        XCTAssertEqual(text, "a/OpenAI\nhttps://example.com")
+        XCTAssertNil(coordinator.composition?.state.composition)
+        XCTAssertTrue(coordinator.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: "another"))
+        coordinator.stop()
+    }
+
+    func testComposerFailureOffersFallbackOnce() {
+        let coordinator = JournalTypingCoordinator(text: .constant("Preserved"), composition: nil)
+        let view = JournalNativeTextView()
+        var notices = 0
+        coordinator.unavailable = { notices += 1 }
+        coordinator.attach(view)
+        coordinator.configure(text: "Preserved", font: .systemFont(ofSize: 20))
+        coordinator.textViewDidBeginEditing(view)
+        coordinator.textViewDidBeginEditing(view)
+        XCTAssertEqual(notices, 1)
+        XCTAssertEqual(view.text, "Preserved")
+        coordinator.stop()
+    }
+
+    func testExternalReplacementDuringCompositionClearsOldCandidates() {
+        var text = ""
+        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }))
+        let view = JournalNativeTextView()
+        coordinator.attach(view)
+        coordinator.configure(text: text, font: .systemFont(ofSize: 20))
+        XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: "a"))
+        XCTAssertNotNil(coordinator.composition?.state.composition)
+        text = "Different entry"
+        coordinator.configure(text: text, font: .systemFont(ofSize: 20))
+        XCTAssertNil(coordinator.composition?.state.composition)
+        XCTAssertEqual(view.text, text)
+        coordinator.stop()
+    }
+
+    func testOnlyThisEditorsDockedKeyboardShowsTheFooter() {
+        let window = CGRect(x: 0, y: 0, width: 400, height: 800)
+        let keyboard = CGRect(x: 0, y: 500, width: 400, height: 300)
+        var dock = JournalKeyboardDock(focusedWindow: nil, keyboardFrame: keyboard)
+        XCTAssertFalse(dock.visible)
+        dock.focusedWindow = window
+        XCTAssertTrue(dock.visible)
+        dock.keyboardFrame = CGRect(x: 100, y: 300, width: 200, height: 200)
+        XCTAssertFalse(dock.visible, "Floating keyboard must not add a bottom footer")
+        dock.keyboardFrame = CGRect(x: 0, y: 800, width: 400, height: 0)
+        XCTAssertFalse(dock.visible, "Hardware keyboard must not add a bottom footer")
     }
 
 }

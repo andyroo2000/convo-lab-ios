@@ -27,12 +27,13 @@ export class JournalNativeSession {
     return this.snapshot();
   }
 
-  edit({ text, range, replacement, selection }) {
+  edit({ text, range, replacement, selection, literal = false }) {
     if (text !== this.field.value) this.external(text);
     this.field.setSelectionRange(selection[0], selection[0] + selection[1]);
     if (!this.session.atCaret()) this.session.finish(true);
     this.resetCandidates();
-    this.replaceInput(range, replacement);
+    if (literal) this.literal(range[0], range[1], replacement, false);
+    else this.replaceInput(range, replacement);
     if (this.session.active?.raw === '') this.session.finish();
     return this.snapshot();
   }
@@ -69,11 +70,11 @@ export class JournalNativeSession {
     this.session.replace(goal);
   }
 
-  literal(start, length, replacement) {
+  literal(start, length, replacement, shortcuts = true) {
     // Finish without rewriting the selection immediately before a native edit.
     this.session.finish(!this.session.atCaret());
     const punctuation = { '.': '。', ',': '、', '?': '？', '!': '！', '/': '・' };
-    this.field.setRangeText(punctuation[replacement] ?? replacement, start, start + length);
+    this.field.setRangeText(shortcuts ? (punctuation[replacement] ?? replacement) : replacement, start, start + length);
   }
 
   receive(reading, result) {

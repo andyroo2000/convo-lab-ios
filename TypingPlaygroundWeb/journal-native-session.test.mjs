@@ -100,3 +100,14 @@ test('Latin option survives editing kana and pending n resolves before punctuati
   type(model, 'hon');
   assert.equal(type(model, '.').text, 'ほん。');
 });
+
+test('literal paste preserves single Latin characters, punctuation and URLs while composing', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'hon');
+  for (const replacement of ['a', '/', 'https://example.com\n']) {
+    const { text, caret } = model.snapshot();
+    model.edit({ text, range: [caret, 0], replacement, selection: [caret, 0], literal: true });
+  }
+  assert.equal(model.snapshot().text, 'ほんa/https://example.com\n');
+  assert.equal(model.snapshot().composition, null);
+});

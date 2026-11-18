@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct JournalDeviceWritingField: UIViewRepresentable {
+    @Environment(\.journalWritingFocus) private var focusChanged
     @Binding var text: String
     var label: String
     var minimumLines = 4
@@ -19,6 +20,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
 
     func updateUIView(_ view: JournalWritingTextView, context: Context) {
         context.coordinator.text = $text
+        context.coordinator.focusChanged = focusChanged
         view.accessibilityLabel = label
         view.setEditingEnabled(enabled)
         view.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
@@ -31,7 +33,13 @@ struct JournalDeviceWritingField: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var text: Binding<String>
+        var focusChanged: (CGRect?) -> Void = { _ in }
         init(text: Binding<String>) { self.text = text }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            focusChanged(textView.window.map { $0.convert($0.bounds, to: nil) })
+        }
+        func textViewDidEndEditing(_ textView: UITextView) { focusChanged(nil) }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             (textView as? JournalWritingTextView)?.requestCaretReveal()

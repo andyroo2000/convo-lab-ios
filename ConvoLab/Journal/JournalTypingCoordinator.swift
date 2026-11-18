@@ -4,13 +4,18 @@ import UIKit
 @MainActor
 final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     var text: Binding<String>
-    private(set) var composition = JournalNativeComposition()
+    private(set) var composition: JournalNativeComposition?
+    var focusChanged: (CGRect?) -> Void = { _ in }
+    var unavailable: () -> Void = {}
+    private var reportedFailure = false
     private let requests = JournalCandidateRequests()
     private weak var view: JournalNativeTextView?
     private var font = UIFont.systemFont(ofSize: 20)
     private var updating = false
 
-    init(text: Binding<String>) { self.text = text }
+    init(text: Binding<String>, composition: JournalNativeComposition? = JournalNativeComposition()) {
+        self.text = text; self.composition = composition
+    }
 
     func attach(_ view: JournalNativeTextView) {
         self.view = view
@@ -18,6 +23,8 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
         view.candidates.choose = { [weak self] index in self?.choose(index) }
         view.candidates.dismissKeyboard = { [weak self, weak view] in self?.commit(); view?.resignFirstResponder() }
         view.sectionAction = { [weak self] action, direction in self?.adjust(action, direction: direction) }
+        view.pasteText = { [weak self] value in self?.paste(value) }
+        requests.unavailable = { [weak self] in self?.reportFailure() }
         requests.receive = { [weak self] reading, result in
             guard let self else { return }
             _ = composition?.call("receive", [reading, result])
@@ -40,16 +47,39 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
         guard !updating, textView.markedTextRange == nil, let composition else { return true }
-        let roman = replacement.range(of: "^[a-z'-]+$", options: [.regularExpression, .caseInsensitive]) != nil
+        let roman = replacement.utf16.count == 1 && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'-".contains(replacement)
         let punctuation = [".", ",", "?", "!", "/"].contains(replacement)
         // Let UIKit perform ordinary edits, especially Delete after a commit.
         guard composition.state.composition != nil || roman || punctuation else { return true }
-        let selection = textView.selectedRange
-        let state = composition.call("edit", [["text": textView.text ?? "", "range": [range.location, range.length],
-                                                "replacement": replacement, "selection": [selection.location, selection.length]]])
-        apply(state)
+        replace(replacement, range: range, literal: replacement.utf16.count > 1)
         schedule()
         return false
+    }
+
+    private func replace(_ replacement: String, range: NSRange, literal: Bool) {
+        guard let view, let composition else { return }
+        let selection = view.selectedRange
+        let state = composition.call("edit", [["text": view.text ?? "", "range": [range.location, range.length],
+            "replacement": replacement, "selection": [selection.location, selection.length], "literal": literal]])
+        apply(state)
+    }
+
+    func paste(_ value: String) {
+        guard let view else { return }
+        guard composition != nil else { view.insertText(value); return }
+        requests.cancel()
+        replace(value, range: view.selectedRange, literal: true)
+    }
+
+    private func reportFailure() {
+        guard !reportedFailure else { return }
+        reportedFailure = true
+        unavailable()
+    }
+
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        focusChanged(textView.window.map { $0.convert($0.bounds, to: nil) })
+        if composition == nil { reportFailure() }
     }
 
     func textViewDidChange(_ textView: UITextView) {
@@ -73,7 +103,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
         view?.requestCaretReveal()
     }
 
-    func textViewDidEndEditing(_ textView: UITextView) { commit() }
+    func textViewDidEndEditing(_ textView: UITextView) { commit(); focusChanged(nil) }
 
     func choose(_ index: Int) {
         guard let state = composition?.call("choose", [index]) else { return }
@@ -87,7 +117,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
         apply(state)
     }
 
-    func stop() { requests.cancel(); requests.receive = nil }
+    func stop() { requests.cancel(); requests.receive = nil; requests.unavailable = nil }
 
     private func adjust(_ action: String, direction: Int) {
         guard let composition else { return }

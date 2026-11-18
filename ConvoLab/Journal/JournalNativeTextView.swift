@@ -3,6 +3,7 @@ import UIKit
 final class JournalNativeTextView: JournalWritingTextView {
     let candidates = JournalCandidateBar()
     var hasComposition = false
+    var pasteText: ((String) -> Void)?
     var sectionAction: ((String, Int) -> Void)?
 
     override init() {
@@ -17,6 +18,11 @@ final class JournalNativeTextView: JournalWritingTextView {
         inputAccessoryView = candidates
     }
     required init?(coder: NSCoder) { nil }
+
+    override func paste(_ sender: Any?) {
+        guard let value = UIPasteboard.general.string, let pasteText else { super.paste(sender); return }
+        pasteText(value)
+    }
 
     override func caretRect(for position: UITextPosition) -> CGRect {
         var rect = super.caretRect(for: position)
