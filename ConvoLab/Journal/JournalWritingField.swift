@@ -61,22 +61,32 @@ class JournalWritingTextView: UITextView {
     private var didAutofocus = false
     private var requestedEditingEnabled = true
     private var needsCaretReveal = false
-    private let placeholder = UILabel()
+    private let placeholder: UITextView
+    private let placeholderStorage: NSTextStorage
     private let notebookStorage: NSTextStorage
     private var writingFont = UIFont.systemFont(ofSize: 20)
 
     init() {
         let storage = NSTextStorage()
         notebookStorage = storage
+        let previewStorage = NSTextStorage()
+        placeholderStorage = previewStorage
+        placeholder = UITextView(frame: .zero, textContainer: Self.notebookContainer(storage: previewStorage))
         super.init(frame: .zero, textContainer: Self.notebookContainer(storage: storage))
         isScrollEnabled = false
         backgroundColor = .clear
         textContainerInset = .zero
         textContainer.lineFragmentPadding = 0
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        placeholder.text = "今日は…"
-        placeholder.textColor = .placeholderText
+        // Use the editor's TextKit metrics, including fixed paragraph height and Japanese font fallback.
+        placeholder.backgroundColor = .clear
+        placeholder.textContainerInset = .zero
+        placeholder.textContainer.lineFragmentPadding = 0
+        placeholder.isScrollEnabled = false
+        placeholder.isEditable = false
+        placeholder.isSelectable = false
         placeholder.isAccessibilityElement = false
+        placeholder.accessibilityElementsHidden = true
         placeholder.isUserInteractionEnabled = false
         addSubview(placeholder)
     }
@@ -120,7 +130,9 @@ class JournalWritingTextView: UITextView {
             invalidateIntrinsicContentSize()
         }
         typingAttributes = attributes
-        placeholder.font = font
+        var placeholderAttributes = attributes
+        placeholderAttributes[.foregroundColor] = UIColor.placeholderText
+        placeholder.attributedText = NSAttributedString(string: "今日は…", attributes: placeholderAttributes)
         updatePlaceholder()
     }
 
@@ -168,8 +180,6 @@ class JournalWritingTextView: UITextView {
         super.layoutSubviews()
         focusIfRequested()
         revealCaret()
-        let pitch = writingFont.pointSize * JournalPaperText.linePitch
-        placeholder.frame = CGRect(x: 0, y: (pitch - writingFont.lineHeight) / 2,
-                                   width: bounds.width, height: writingFont.lineHeight)
+        placeholder.frame = CGRect(origin: .zero, size: bounds.size)
     }
 }

@@ -66,7 +66,12 @@ struct JournalSettingsChapter<Content: View>: View {
         VStack(spacing: 0) {
             Divider()
             Button {
-                expanded = expanded == title ? nil : title
+                // Keep disclosure reflow atomic; inherited animations can move the label over its controls.
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    expanded = expanded == title ? nil : title
+                }
             } label: {
                 HStack(spacing: 12) {
                     if title != "Account" {
@@ -82,6 +87,8 @@ struct JournalSettingsChapter<Content: View>: View {
                 }
                 .padding(.vertical, 17)
                 .frame(minHeight: 56)
+                .fixedSize(horizontal: false, vertical: true)
+                .geometryGroup()
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

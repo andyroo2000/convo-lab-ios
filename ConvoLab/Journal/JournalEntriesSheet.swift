@@ -39,6 +39,7 @@ struct JournalEntriesSheet: View {
                 if store.isLoading { ProgressView() }
             }
             .refreshable { await store.loadMore(refresh: true) }
+            .contentMargins(.top, 8, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Color(red: 1, green: 0.992, blue: 0.961))
             .navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
