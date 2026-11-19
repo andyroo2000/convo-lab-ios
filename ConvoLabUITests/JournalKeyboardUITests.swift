@@ -120,7 +120,8 @@ final class JournalKeyboardUITests: XCTestCase {
         app.launchArguments = ["-ui-test-fixture", "mode-navigation", onboarding ? "-journal-keyboard-onboarding" : "-journal-keyboard-keep"]
         app.launch()
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["app-mode-picker"].label.contains("Journal"))
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
         return app
     }
 

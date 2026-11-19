@@ -33,9 +33,15 @@ final class JournalBrandingUITests: XCTestCase {
         XCTAssertTrue(password.waitForExistence(timeout: 5))
         app.swipeUp()
         password.tap()
+        if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
+            app.buttons["Close"].tap()
+        }
         password.typeText("example-password")
         let confirmation = app.secureTextFields["Confirm password"]
         confirmation.tap()
+        if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
+            app.buttons["Close"].tap()
+        }
         confirmation.typeText("different-password")
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["Passwords do not match."].exists)
