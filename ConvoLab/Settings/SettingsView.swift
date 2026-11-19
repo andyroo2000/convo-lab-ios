@@ -5,6 +5,7 @@ struct SettingsView: View {
     let user: CurrentUser
 
     @Environment(\.hasAppModeHeader) private var hasAppModeHeader
+    @Environment(\.availableAppModes) private var availableAppModes
     @Environment(\.scenePhase) private var scenePhase
     @State private var wanikaniAPIToken = ""
     @State private var confirmingWaniKaniDisconnect = false
@@ -186,7 +187,9 @@ struct SettingsView: View {
                     )
                 }
 
-                googleCalendarSection
+                if availableAppModes.contains(.study) {
+                    googleCalendarSection
+                }
 
                 Section("More Integrations") {
                     NavigationLink {
@@ -350,9 +353,7 @@ struct SettingsView: View {
                         model.study.capabilities.studyActivity
                     )
                 }
-                async let studySettings: Void = model.study.refreshStudySettings()
-                async let calendar: Void = model.studyTime.loadGoogleCalendarConnection()
-                _ = await (studySettings, calendar)
+                await model.study.refreshStudySettings()
                 if let settings = model.study.studySettings {
                     let limits = model.study.capabilities.settings
                     newCardsPerDay = min(
@@ -389,6 +390,14 @@ struct SettingsView: View {
                             )
                         )
                     }
+                }
+            }
+            .task(id: availableAppModes.contains(.study)) {
+                if availableAppModes.contains(.study) {
+                    await model.studyTime.loadGoogleCalendarConnection()
+                } else {
+                    calendarSettingsModel = nil
+                    confirmingCalendarDisconnect = false
                 }
             }
             .confirmationDialog(
@@ -437,7 +446,9 @@ struct SettingsView: View {
                 AccountDeletionView(model: model)
             }
             .outsideDismissibleSheet(item: $calendarSettingsModel) { calendarModel in
-                GoogleCalendarSettingsView(model: calendarModel)
+                if availableAppModes.contains(.study) {
+                    GoogleCalendarSettingsView(model: calendarModel)
+                }
             }
         }
         .outsideDismissibleSheet(isPresented: $showingFailedStudyChanges) {
