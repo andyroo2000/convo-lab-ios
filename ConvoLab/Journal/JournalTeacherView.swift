@@ -31,11 +31,7 @@ struct JournalTeacherView: View {
         }.task { await model.load() }
             .onChange(of: model.question?.id) { player.stop() }
             .onChange(of: tutorRevision) {
-                guard model.question?.tutor == nil else { return }
-                Task {
-                    await model.load()
-                    if model.question?.tutor != nil { model.choosing = false }
-                }
+                Task { await model.refreshUnassignedTutor() }
             }
     }
 

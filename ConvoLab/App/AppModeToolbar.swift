@@ -21,6 +21,7 @@ struct AppModeToolbar: Equatable {
     var buttons: [AppModeToolbarAction] = []
     var menu: [AppModeToolbarAction] = []
     var menuIdentifier = "AppModeMoreButton"
+    var preventsNavigation = false
 }
 
 struct AppModeToolbarKey: PreferenceKey {

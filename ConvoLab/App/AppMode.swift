@@ -56,6 +56,7 @@ struct AppModePicker: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Switch mode, \(selection.rawValue)")
             .accessibilityIdentifier("app-mode-picker")
+            .disabled(toolbar.preventsNavigation)
             .popover(isPresented: $showingDestinations, arrowEdge: .top) {
                 destinationPicker
                     .presentationCompactAdaptation(.popover)
@@ -70,7 +71,7 @@ struct AppModePicker: View {
                     .accessibilityIdentifier("StudyEndSessionButton")
             } else {
                 AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
-                AppAccountMenu(selection: $selection, journalActions: toolbar.menu)
+                AppAccountMenu(selection: $selection, journalActions: toolbar.menu, preventsNavigation: toolbar.preventsNavigation)
             }
         }
         .padding(.leading, 14)

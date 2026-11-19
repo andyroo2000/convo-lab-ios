@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct JournalKeyboardGuide: View {
+    @Environment(\.appAccountName) private var name
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Here’s where to change it later")
@@ -22,8 +24,10 @@ struct JournalKeyboardGuide: View {
                 HStack {
                     Text("Journal")
                     Spacer()
-                    Image(systemName: "person.crop.circle").padding(6)
-                        .background(Color(red: 0.929, green: 0.953, blue: 0.91), in: .rect(cornerRadius: 6))
+                    Text(name.first.map { String($0).uppercased() } ?? "?")
+                        .font(.custom("Anton-Regular", fixedSize: 18)).frame(width: 30, height: 30)
+                        .background(ConvoLabTheme.cream, in: Circle())
+                        .overlay(Circle().stroke(JournalBrandStyle.spine, lineWidth: 3))
                 }
                 JournalDeskStyle.green.frame(height: 3)
                 Rectangle().fill(.gray.opacity(0.2)).frame(height: 1)

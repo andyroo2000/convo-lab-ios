@@ -127,6 +127,29 @@ final class JournalTutorModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
+    func testPreferenceRefreshWaitsForAnInFlightUnassignedQuestion() async throws {
+        let assigned = try XCTUnwrap(model.question)
+        let unassigned = JournalTutorQuestion(id: assigned.id, text: assigned.text, reading: assigned.reading,
+            translation: assigned.translation, tutor: nil)
+        let loading = JournalTutorModel(entryID: "01arz3ndektsv4rrffq69g5fav", service: JournalService(api: api), savedQuestion: unassigned)
+        let deferred = LockedDeferredResponse()
+        MockURLProtocol.deferredHandler = { _, completion in deferred.hold(completion) }
+        let task = Task { await loading.load() }
+        await deferred.waitUntilPending()
+        await loading.refreshUnassignedTutor()
+        MockURLProtocol.deferredHandler = nil
+        let preferences = JournalTutorPreferences(selectedId: "hana", tutors: [hana, ren])
+        MockURLProtocol.handler = { request in
+            if request.url!.path.contains("/questions/") { return try Self.response(request.url!, assigned) }
+            return try Self.response(request.url!, preferences)
+        }
+        deferred.succeed(with: try Self.response(URL(string: "https://journal.test")!, unassigned))
+        await task.value
+        XCTAssertEqual(loading.question?.tutor?.id, "hana")
+        XCTAssertFalse(loading.choosing)
+        XCTAssertFalse(loading.isBusy)
+    }
+
     nonisolated private static func response<Value: Codable & Sendable>(_ url: URL, _ value: Value) throws -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, try JSONEncoder().encode(JournalResource(data: value)))
     }

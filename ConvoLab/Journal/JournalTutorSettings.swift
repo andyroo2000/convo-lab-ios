@@ -6,6 +6,7 @@ extension EnvironmentValues {
 
 struct JournalTutorSettings: View {
     let service: JournalService
+    let changed: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var preferences: JournalTutorPreferences?
     @State private var busy = false
@@ -48,7 +49,7 @@ struct JournalTutorSettings: View {
     private func choose(_ tutor: JournalTutor) async {
         busy = true; error = nil
         defer { busy = false }
-        do { preferences = try await service.chooseTutor(tutor.id); dismiss() }
+        do { preferences = try await service.chooseTutor(tutor.id); changed(); dismiss() }
         catch { self.error = "Your tutor could not be saved. Please choose again." }
     }
 }

@@ -25,7 +25,7 @@ struct JournalEntryView: View {
             .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
             .sheet(isPresented: $showingKeyboard) { JournalKeyboardSheet() }
             .environment(\.journalTutorRevision, tutorRevision)
-            .sheet(isPresented: $showingTutor, onDismiss: { tutorRevision += 1 }) { JournalTutorSettings(service: store.service) }
+            .sheet(isPresented: $showingTutor) { JournalTutorSettings(service: store.service, changed: { tutorRevision += 1 }) }
             .environment(\.journalShowEntries, { store.refreshDrafts(); showingEntries = true })
             .sheet(isPresented: $showingEntries) {
                 JournalEntriesSheet(store: store, selectedID: selection.id, deleted: { id in
@@ -49,7 +49,7 @@ struct JournalEntryView: View {
             AppModeToolbarAction(id: "JournalAppearance", title: "Appearance") { appearance.wrappedValue = true },
             AppModeToolbarAction(id: "JournalKeyboard", title: "Keyboard") { keyboard.wrappedValue = true },
             AppModeToolbarAction(id: "JournalTutor", title: "Choose your tutor") { tutor.wrappedValue = true }
-        ])
+        ], preventsNavigation: editingFinal)
     }
 
     private func showBlank() { selection = .blank(); showingEntries = false }
