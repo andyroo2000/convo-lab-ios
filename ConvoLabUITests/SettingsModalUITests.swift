@@ -62,6 +62,24 @@ final class SettingsModalUITests: XCTestCase {
     }
 
     @MainActor
+    func testStudyPreferencesHeaderStaysAboveExpandedControls() {
+        let app = launch(beta: false)
+        openSettings(app)
+        let chapter = app.buttons["SettingsChapter-Study preferences"]
+        for _ in 0..<3 {
+            chapter.tap()
+            let firstRow = app.steppers.matching(NSPredicate(format: "label BEGINSWITH %@", "New cards per day")).firstMatch
+            XCTAssertTrue(firstRow.waitForExistence(timeout: 5))
+            let title = chapter.staticTexts["Study preferences"]
+            XCTAssertLessThanOrEqual(title.frame.maxY, firstRow.frame.minY)
+            XCTAssertLessThanOrEqual(chapter.frame.maxY, firstRow.frame.minY)
+            capture(app, name: "Expanded study preferences")
+            app.buttons["SettingsChapter-Account"].tap()
+            XCTAssertTrue(firstRow.waitForNonExistence(timeout: 5))
+        }
+    }
+
+    @MainActor
     private func launch(beta: Bool) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]

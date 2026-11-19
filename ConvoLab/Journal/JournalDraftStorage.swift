@@ -30,7 +30,8 @@ struct JournalDraftStorage {
         var result = JournalDraftListing()
         guard FileManager.default.fileExists(atPath: directory.path) else { return result }
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }
+            // Narrator snapshots share this account directory but are not draft documents.
+            .filter { $0.pathExtension == "json" && ClientIdentifier.isULID($0.deletingPathExtension().lastPathComponent) }
         for url in files {
             do {
                 if let draft = try load(id: url.deletingPathExtension().lastPathComponent) {
