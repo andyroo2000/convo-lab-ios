@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct JournalExplanationText: UIViewRepresentable {
+    @Environment(\.journalTypography) private var typography
     let segment: JournalSegment
     let knownKanji: Set<Character>
 
@@ -21,7 +22,8 @@ struct JournalExplanationText: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: 16) ?? .systemFont(ofSize: 16))
+        let size = max(14, typography.size - 4)
+        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size))
         let content = JournalExplanationContent.attributed(segment, knownKanji: knownKanji, font: font)
         context.coordinator.updateRubyRanges(in: content)
         view.attributedText = content
