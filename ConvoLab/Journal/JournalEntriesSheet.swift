@@ -41,7 +41,7 @@ struct JournalEntriesSheet: View {
             .refreshable { await store.loadMore(refresh: true) }
             .scrollContentBackground(.hidden)
             .background(Color(red: 1, green: 0.992, blue: 0.961))
-            .navigationTitle("My entries").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) }
                 ToolbarItem(placement: .topBarTrailing) {

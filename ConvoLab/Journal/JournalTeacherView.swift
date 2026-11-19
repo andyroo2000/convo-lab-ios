@@ -4,6 +4,7 @@ struct JournalTeacherView: View {
     let feedback: JournalFeedback?
     let knownKanji: Set<Character>
     @State private var showEnglish = false
+    @Environment(\.journalTutorRevision) private var tutorRevision
     @State private var player = JournalAudioPlayer()
     @State private var model: JournalTutorModel
 
@@ -29,23 +30,28 @@ struct JournalTeacherView: View {
             }
         }.task { await model.load() }
             .onChange(of: model.question?.id) { player.stop() }
+            .onChange(of: tutorRevision) {
+                guard model.question?.tutor == nil else { return }
+                Task {
+                    await model.load()
+                    if model.question?.tutor != nil { model.choosing = false }
+                }
+            }
     }
 
     private var questionRibbon: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 if let tutor = model.question?.tutor {
-                    JournalTutorPortrait(tutor: tutor).frame(width: 32, height: 32).background(.white, in: Circle())
+                    JournalTutorPortrait(tutor: tutor).frame(width: 88, height: 88).background(.white, in: Circle())
                         .clipShape(Circle()).accessibilityLabel("\(tutor.name), your tutor")
                 }
                 if let question = model.question, question.tutor != nil {
                     JournalQuestionAudioView(model: model, question: question, player: player).id(question.id)
                 }
                 Spacer(minLength: 0)
-                JournalQuestionControls(busy: model.isBusy, showEnglish: $showEnglish) {
-                    Task { await model.showPicker() }
-                }
-            }.padding(.horizontal, 10).padding(.vertical, 6)
+                JournalQuestionControls(showEnglish: $showEnglish)
+            }.padding(.horizontal, 10).padding(.vertical, 10).frame(minHeight: 108)
                 .background(Color(red: 0.894, green: 0.937, blue: 0.988))
                 .overlay(alignment: .bottom) { JournalRibbonProgress(player: player) }
             JournalSentenceText(text: model.question?.reading ?? feedback?.questionReading ?? "", knownKanji: knownKanji, player: player)

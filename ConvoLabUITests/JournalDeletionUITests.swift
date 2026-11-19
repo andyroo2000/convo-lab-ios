@@ -12,8 +12,8 @@ final class JournalDeletionUITests: XCTestCase {
         app.textViews["Journal entry"].tap()
         app.textViews["Journal entry"].typeText("A new draft.")
         if app.buttons["Done"].exists { app.buttons["Done"].tap() }
-        for _ in 0..<5 where !app.buttons["My entries"].isHittable { app.swipeDown() }
-        app.buttons["My entries"].tap()
+        for _ in 0..<5 where !app.buttons["Contents"].isHittable { app.swipeDown() }
+        app.buttons["Contents"].tap()
         let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "JournalRowActions-")).firstMatch
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
         let actionID = actions.identifier
@@ -39,7 +39,7 @@ final class JournalDeletionUITests: XCTestCase {
         body.tap()
         body.typeText("Keep the renamed title.")
         if app.buttons["Done"].exists { app.buttons["Done"].tap() }
-        app.buttons["My entries"].tap()
+        app.buttons["Contents"].tap()
         XCTAssertTrue(app.staticTexts["Movie night"].waitForExistence(timeout: 5))
         actions.tap()
         app.buttons["Delete"].tap()
@@ -51,7 +51,7 @@ final class JournalDeletionUITests: XCTestCase {
         app.buttons["Delete entry"].tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textViews["Journal entry"].value as? String, "")
-        app.buttons["My entries"].tap()
+        app.buttons["Contents"].tap()
         XCTAssertFalse(app.buttons[actionID].exists)
     }
 }

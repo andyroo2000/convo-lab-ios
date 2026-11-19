@@ -88,7 +88,7 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["JournalKeyboard-device"].waitForExistence(timeout: 8))
         app.buttons["JournalKeyboard-device"].tap()
         app.buttons["JournalKeyboardConfirm"].tap()
-        app.buttons["My entries"].tap()
+        app.buttons["Contents"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
@@ -126,11 +126,10 @@ final class JournalKeyboardUITests: XCTestCase {
     }
 
     private func openSettings(_ app: XCUIApplication) {
-        for _ in 0..<8 where !app.buttons["More journal options"].firstMatch.isHittable { app.swipeDown() }
-        app.buttons["More journal options"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["JournalKeyboardMenu"].waitForExistence(timeout: 5))
-        capture(app, "Keyboard below Appearance in the Journal menu")
-        app.buttons["JournalKeyboardMenu"].tap()
+        app.buttons["app-account-menu"].tap()
+        XCTAssertTrue(app.buttons["JournalKeyboard"].waitForExistence(timeout: 5))
+        capture(app, "Keyboard in the account menu Journal section")
+        app.buttons["JournalKeyboard"].tap()
         XCTAssertTrue(app.buttons["JournalKeyboardConfirm"].waitForExistence(timeout: 5))
     }
 

@@ -32,7 +32,7 @@ final class JournalAppearanceUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Font"].exists)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         XCTAssertTrue(app.sliders["Font size"].waitForNonExistence(timeout: 5))
-        app.buttons["More journal options"].firstMatch.tap()
+        app.buttons["app-account-menu"].tap()
         app.buttons["Appearance"].tap()
         XCTAssertTrue(app.sliders["Font size"].waitForExistence(timeout: 5))
     }
@@ -43,12 +43,12 @@ final class JournalAppearanceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
-        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
+        app.buttons["Contents"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
-        app.buttons["More journal options"].firstMatch.tap()
+        app.buttons["app-account-menu"].tap()
         let appearance = app.buttons["Appearance"]
         XCTAssertTrue(appearance.waitForExistence(timeout: 5))
         appearance.tap()

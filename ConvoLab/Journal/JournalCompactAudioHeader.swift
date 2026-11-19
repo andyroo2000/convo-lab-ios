@@ -7,11 +7,12 @@ struct JournalCompactAudioHeader: View {
     var body: some View {
         HStack(spacing: 12) {
             JournalAvatar(url: voice.voices.first(where: { $0.id == voice.selected })?.avatarUrl)
-                .frame(width: 38, height: 38).clipShape(Circle()).accessibilityHidden(true)
+                .frame(width: 88, height: 88).background(.white, in: Circle()).clipShape(Circle()).accessibilityHidden(true)
             JournalListenButton(player: player, label: "corrected version", disabled: !voice.isReady, toggle: toggle)
             Spacer(minLength: 0)
-        }.padding(.horizontal, 16).padding(.vertical, 9)
-            .background(Color(red: 0.898, green: 0.933, blue: 0.984), in: UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12))
+        }.padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(minHeight: 108)
+            .background(Color(red: 0.898, green: 0.933, blue: 0.984), in: Rectangle())
             .overlay(alignment: .bottom) { JournalSeekRibbon(player: player).offset(y: 20) }
             .zIndex(1)
     }
@@ -40,7 +41,7 @@ struct JournalSeekRibbon: View {
                     })
             }.frame(height: 44)
         }.accessibilityElement(children: .ignore).accessibilityLabel("Corrected version audio position")
-            .accessibilityValue("\(Int(fraction * 100)) percent")
+            .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
             .accessibilityAdjustableAction { direction in
                 player.seek(player.playbackPosition + (direction == .increment ? 5 : -5))
             }

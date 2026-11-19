@@ -21,7 +21,7 @@ struct JournalFeedbackView: View {
     }
     var body: some View {
         if let analysis = model.analysis, let result = analysis.result {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 0) {
                 if version == .draft {
                     JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice)
                     JournalPaper(draft: model.draft, reply: nested) {

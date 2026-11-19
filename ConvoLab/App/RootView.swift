@@ -232,6 +232,8 @@ struct MainModeView: View {
                 .presentationSizing(.form)
                 .presentationDragIndicator(.visible)
         }
+        .environment(\.appAccountName, user.name)
+        .environment(\.appAccountLogout, { Task { await model.logout() } })
         .environment(\.availableAppModes, availability.flags.modes)
         .task(id: model.api.accessToken) { await availability.refresh(api: model.api) }
         .onChange(of: scenePhase) { _, phase in

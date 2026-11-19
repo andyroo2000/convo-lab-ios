@@ -26,6 +26,7 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
             return "{\"flashcardsEnabled\":\(enabled),\"readingsEnabled\":\(enabled),\"studyTimeEnabled\":\(enabled)}"
         }
         if path == "/api/journal/entries", request.url?.query?.contains("unfinished=1") == true { return "{\"data\":[],\"nextCursor\":null}" }
+        if path == "/api/journal/voices" { return JournalPortraitFixture.voices }
         if path.hasSuffix("/audio/timed") { return JournalAudioNavigationFixture.response }
         if let journal = JournalReplyNavigationFixture.shared.response(path: path, method: request.httpMethod,
             body: requestBody(), initial: Self.journalAnalysis, entry: Self.journalEntry) { return journal }

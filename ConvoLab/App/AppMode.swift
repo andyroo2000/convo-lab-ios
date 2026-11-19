@@ -35,13 +35,15 @@ struct AppModePicker: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 6) {
             if !dynamicTypeSize.isAccessibilitySize {
-                JournalBrandView(compact: true).accessibilityHidden(true)
+                Text("CONVO-LAB").font(.custom("Anton-Regular", fixedSize: 30))
+                    .tracking(-0.5).foregroundStyle(JournalBrandStyle.yellow).fixedSize()
+                    .accessibilityHidden(true)
             }
             Button { showingDestinations = true } label: {
-                HStack(spacing: 9) {
-                    Text(selection.rawValue).fontWeight(.semibold)
+                HStack(spacing: 4) {
+                    Text(selection.rawValue).font(.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.85)
                     Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                 }
                 .frame(minHeight: 44)
@@ -60,18 +62,19 @@ struct AppModePicker: View {
                     .presentationBackground(ConvoLabTheme.cream)
                     .preferredColorScheme(.light)
             }
-            Spacer(minLength: 12)
+            Spacer(minLength: 0)
             if let action {
                 Button("End session", action: action.perform)
                     .frame(minHeight: 44)
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("StudyEndSessionButton")
             } else {
-                AppModeToolbarView(toolbar: toolbar)
+                AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
+                AppAccountMenu(selection: $selection, journalActions: toolbar.menu)
             }
         }
-        .padding(.leading, 21)
-        .padding(.trailing, 14)
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
         .frame(minHeight: 72)
         .foregroundStyle(.white)
         .background(JournalBrandStyle.green)
