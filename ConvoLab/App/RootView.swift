@@ -89,7 +89,7 @@ struct RootView: View {
             }
             .preferredColorScheme(.light)
         case let .signedIn(user):
-            MainModeView(model: model, user: user)
+            MainModeView(model: model, user: user).id(user.id)
         }
     }
 }
@@ -123,9 +123,21 @@ struct MainModeView: View {
 
     let model: AppModel
     let user: CurrentUser
-    @State private var selectedTab: AppMode = .study
-    @State private var managementMode: AppMode = .time
+    @State private var selectedTab: AppMode = .journal
+    @State private var availability = AppFeatureAvailability()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var managementMode: AppMode = .settings
     @State private var journalVisit = 0
+
+    init(model: AppModel, user: CurrentUser, initialMode: AppMode = .journal,
+         initialFlags: AppFeatureFlags = .journalOnly, persistAvailability: Bool = true) {
+        self.model = model
+        self.user = user
+        _selectedTab = State(initialValue: initialMode)
+        let origin = model.api.sameOriginResourceURL("/")?.absoluteString ?? ""
+        let cacheKey = persistAvailability ? "app-feature-flags.\(origin).\(user.id)" : nil
+        _availability = State(initialValue: AppFeatureAvailability(flags: initialFlags, cacheKey: cacheKey))
+    }
 
     private var slotSelection: Binding<TabSlot> {
         Binding(
@@ -138,7 +150,7 @@ struct MainModeView: View {
         Binding(
             get: { selectedTab },
             set: { newTab in
-                guard newTab != selectedTab else { return }
+                guard availability.flags.modes.contains(newTab), newTab != selectedTab else { return }
                 if selectedTab == .study || selectedTab == .cards,
                    let active = model.studyTime.active,
                    active.source == .automatic,
@@ -162,29 +174,33 @@ struct MainModeView: View {
 
     var body: some View {
         TabView(selection: slotSelection) {
-            Tab("Study", systemImage: "rectangle.stack.fill", value: TabSlot.study) {
-                StudyHomeView(
-                    store: model.study,
-                    player: model.studyAudioPlayer,
-                    timeStore: model.studyTime,
-                    automaticSynchronization: model.refreshStudyIfNeeded
-                )
-                .id(user.id)
-                .environment(\.journalBeforeAudio, {
-                    model.audioPlayer.stop()
-                    model.studyAudioPlayer.stop()
-                })
-                .environment(\.colorScheme, .light)
-                .toolbar(.hidden, for: .tabBar)
+            if availability.flags.modes.contains(.study) {
+                Tab("Study", systemImage: "rectangle.stack.fill", value: TabSlot.study) {
+                    StudyHomeView(
+                        store: model.study,
+                        player: model.studyAudioPlayer,
+                        timeStore: model.studyTime,
+                        automaticSynchronization: model.refreshStudyIfNeeded
+                    )
+                    .id(user.id)
+                    .environment(\.journalBeforeAudio, {
+                        model.audioPlayer.stop()
+                        model.studyAudioPlayer.stop()
+                    })
+                    .environment(\.colorScheme, .light)
+                    .toolbar(.hidden, for: .tabBar)
+                }
             }
-            Tab("Daily Audio", systemImage: "headphones", value: TabSlot.dailyAudio) {
-                DailyAudioView(
-                    store: model.dailyAudio,
-                    player: model.audioPlayer,
-                    capabilities: model.study.capabilities.dailyAudio
-                )
-                .environment(\.colorScheme, .light)
-                .toolbar(.hidden, for: .tabBar)
+            if availability.flags.modes.contains(.dailyAudio) {
+                Tab("Daily Audio", systemImage: "headphones", value: TabSlot.dailyAudio) {
+                    DailyAudioView(
+                        store: model.dailyAudio,
+                        player: model.audioPlayer,
+                        capabilities: model.study.capabilities.dailyAudio
+                    )
+                    .environment(\.colorScheme, .light)
+                    .toolbar(.hidden, for: .tabBar)
+                }
             }
             Tab("Journal", systemImage: "book.pages", value: TabSlot.journal) {
                 NavigationStack {
@@ -200,14 +216,16 @@ struct MainModeView: View {
                 .environment(\.colorScheme, .light)
                 .toolbar(.hidden, for: .tabBar)
             }
-            Tab("Readings", systemImage: "book.closed", value: TabSlot.readings) {
-                ReadingLibraryView(api: model.api, userID: user.id) {
-                    model.audioPlayer.stop()
-                    model.studyAudioPlayer.stop()
+            if availability.flags.modes.contains(.readings) {
+                Tab("Readings", systemImage: "book.closed", value: TabSlot.readings) {
+                    ReadingLibraryView(api: model.api, userID: user.id) {
+                        model.audioPlayer.stop()
+                        model.studyAudioPlayer.stop()
+                    }
+                    .id("\(user.id):\(model.api.accessToken ?? "")")
+                    .environment(model.studyTime)
+                    .toolbar(.hidden, for: .tabBar)
                 }
-                .id("\(user.id):\(model.api.accessToken ?? "")")
-                .environment(model.studyTime)
-                .toolbar(.hidden, for: .tabBar)
             }
             Tab("Manage", systemImage: "gearshape.fill", value: TabSlot.manage) {
                 managementContent
@@ -217,6 +235,19 @@ struct MainModeView: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .modifier(AppModeHeader(selection: tabSelection))
+        .environment(\.availableAppModes, availability.flags.modes)
+        .task(id: model.api.accessToken) { await availability.refresh(api: model.api) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await availability.refresh(api: model.api) } }
+        }
+        .onChange(of: availability.flags) { old, flags in
+            if old.flashcardsEnabled && !flags.flashcardsEnabled {
+                model.audioPlayer.stop()
+                model.studyAudioPlayer.stop()
+            }
+            if !flags.modes.contains(selectedTab) { tabSelection.wrappedValue = .journal }
+            if !flags.modes.contains(managementMode) { managementMode = .settings }
+        }
         .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
     }
@@ -224,19 +255,23 @@ struct MainModeView: View {
     private var managementContent: some View {
         // A separate native tab container preserves all three management stacks.
         TabView(selection: $managementMode) {
-            Tab("Cards", systemImage: "square.and.pencil", value: AppMode.cards) {
-                CardLibraryView(
-                    store: model.study,
-                    player: model.studyAudioPlayer,
-                    timeStore: model.studyTime
-                )
-                .environment(\.appModeDestination, .cards)
-                .environment(\.colorScheme, .light)
-                .toolbar(.hidden, for: .tabBar)
-            }
-            Tab("Time", systemImage: "clock.fill", value: AppMode.time) {
-                StudyTimeView(store: model.studyTime, studyStore: model.study)
+            if availability.flags.modes.contains(.cards) {
+                Tab("Cards", systemImage: "square.and.pencil", value: AppMode.cards) {
+                    CardLibraryView(
+                        store: model.study,
+                        player: model.studyAudioPlayer,
+                        timeStore: model.studyTime
+                    )
+                    .environment(\.appModeDestination, .cards)
+                    .environment(\.colorScheme, .light)
                     .toolbar(.hidden, for: .tabBar)
+                }
+            }
+            if availability.flags.modes.contains(.time) {
+                Tab("Time", systemImage: "clock.fill", value: AppMode.time) {
+                    StudyTimeView(store: model.studyTime, studyStore: model.study)
+                        .toolbar(.hidden, for: .tabBar)
+                }
             }
             Tab("Settings", systemImage: "gearshape.fill", value: AppMode.settings) {
                 SettingsView(model: model, user: user)

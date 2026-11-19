@@ -21,6 +21,10 @@ nonisolated final class ModeNavigationFixtureProtocol: URLProtocol, @unchecked S
     }
 
     private func responseBody(path: String) -> String? {
+        if path == "/api/convolab/feature-availability" {
+            let enabled = !ProcessInfo.processInfo.arguments.contains("-journal-beta-visibility")
+            return "{\"flashcardsEnabled\":\(enabled),\"readingsEnabled\":\(enabled),\"studyTimeEnabled\":\(enabled)}"
+        }
         if path == "/api/journal/entries", request.url?.query?.contains("unfinished=1") == true { return "{\"data\":[],\"nextCursor\":null}" }
         if path.hasSuffix("/audio/timed") { return JournalAudioNavigationFixture.response }
         if let journal = JournalReplyNavigationFixture.shared.response(path: path, method: request.httpMethod,

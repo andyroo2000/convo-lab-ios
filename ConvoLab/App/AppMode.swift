@@ -27,6 +27,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
 }
 
 struct AppModePicker: View {
+    @Environment(\.availableAppModes) private var availableModes
     @Binding var selection: AppMode
     var action: AppModeHeaderAction? = nil
     var toolbar: AppModeToolbar = .init()
@@ -97,7 +98,7 @@ struct AppModePicker: View {
     }
 
     private func destinations(_ modes: [AppMode]) -> some View {
-        ForEach(modes) { mode in
+        ForEach(modes.filter { availableModes.contains($0) }) { mode in
             Button {
                 showingDestinations = false
                 selection = mode
