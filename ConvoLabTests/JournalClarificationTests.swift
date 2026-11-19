@@ -23,6 +23,7 @@ final class JournalClarificationTests: XCTestCase {
     func testQuestionsReplaceEachOtherBeforeResolving() async throws {
         respond("waiting", question: "Who was driving?")
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.state?.question?.prompt == "Who was driving?" && !model.busy }
         respond("waiting", question: "Were you or Molly driving?")
@@ -35,6 +36,7 @@ final class JournalClarificationTests: XCTestCase {
         try await waitUntil { model.state?.question?.prompt == "Which scene was unclear?" && !model.busy }
         respond("resolved")
         model.answer("The last scene")
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertEqual(result, sessionID)
         XCTAssertFalse(model.active)
@@ -47,11 +49,13 @@ final class JournalClarificationTests: XCTestCase {
     func testFailureCanRetryWithoutCompletingSubmission() async throws {
         respond("failed", error: "Try again")
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.errorMessage != nil && !model.busy }
         XCTAssertTrue(model.active)
         respond("resolved")
         model.retry()
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertEqual(result, sessionID)
     }
@@ -59,6 +63,7 @@ final class JournalClarificationTests: XCTestCase {
     func testRetryResendsTheSameAnswerAfterNetworkFailure() async throws {
         respond("waiting", question: "Who was driving?")
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.state != nil && !model.busy }
         MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
@@ -72,6 +77,7 @@ final class JournalClarificationTests: XCTestCase {
             return Self.response(request, json: #"{"data":{"id":"01arz3ndektsv4rrffq69g5faw","sourceVersion":3,"revision":1,"status":"resolved","question":null,"error":null,"updatedAt":"now"}}"#)
         }
         model.retry()
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertEqual(result, sessionID)
     }
@@ -79,9 +85,11 @@ final class JournalClarificationTests: XCTestCase {
     func testCancelPreservesNoPendingContinuation() async throws {
         respond("waiting", question: "Who was driving?")
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.state != nil && !model.busy }
         model.cancel()
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertNil(result)
         XCTAssertFalse(model.active)
@@ -93,6 +101,7 @@ final class JournalClarificationTests: XCTestCase {
     func testWrongVersionCannotCompleteAndChangedAccountCannotRetry() async throws {
         respond("resolved", version: 2)
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.errorMessage != nil && !model.busy }
         XCTAssertTrue(model.active)
@@ -100,6 +109,7 @@ final class JournalClarificationTests: XCTestCase {
         model.retry()
         try await waitUntil { model.errorMessage?.contains("session changed") == true && !model.busy }
         model.cancel()
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertNil(result)
     }
@@ -109,6 +119,7 @@ final class JournalClarificationTests: XCTestCase {
             (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
         }
         let model = JournalClarificationModel(service: JournalService(api: api))
+        defer { model.cancel() }
         let completion = Task { await model.begin(entry) }
         try await waitUntil { model.errorMessage != nil && !model.busy }
         XCTAssertFalse(model.canRetry)
@@ -116,6 +127,7 @@ final class JournalClarificationTests: XCTestCase {
         MockURLProtocol.handler = { _ in XCTFail("Do not repeat an expired-session request"); throw URLError(.cancelled) }
         model.retry()
         model.cancel()
+        try await waitUntil { !model.active }
         let result = await completion.value
         XCTAssertNil(result)
     }
@@ -148,12 +160,22 @@ final class JournalClarificationTests: XCTestCase {
         let encoded = try! JSONSerialization.data(withJSONObject: ["data": data])
         MockURLProtocol.handler = { request in (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, encoded) }
     }
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<100 {
+    func testStateWaitThrowsOnTimeoutInsteadOfContinuingWithPendingWork() async throws {
+        do {
+            try await waitUntil(timeout: .milliseconds(20)) { false }
+            XCTFail("An unmet condition must stop the test")
+        } catch WaitFailure.timedOut { }
+    }
+
+    private enum WaitFailure: Error { case timedOut }
+
+    private func waitUntil(timeout: Duration = .seconds(10), _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTFail("Clarification did not reach expected state")
+        throw WaitFailure.timedOut
     }
     nonisolated private static func response(_ request: URLRequest, json: String) -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(json.utf8))
