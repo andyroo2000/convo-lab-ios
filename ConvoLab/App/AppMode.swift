@@ -74,6 +74,7 @@ struct AppModePicker: View {
             } else {
                 HStack(spacing: 6) {
                     AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
+                        .fixedSize(horizontal: selection == .journal, vertical: false)
                     if dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
                     AppAccountMenu(selection: $selection, journalActions: toolbar.menu, preventsNavigation: toolbar.preventsNavigation)
                 }

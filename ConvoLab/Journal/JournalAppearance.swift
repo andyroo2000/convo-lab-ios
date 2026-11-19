@@ -3,16 +3,11 @@ import SwiftUI
 struct JournalAppearance: View {
     @AppStorage(JournalTypography.fontKey) private var font = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var size = 20.0
-    @Environment(\.dismiss) private var dismiss
     private var typography: JournalTypography { JournalTypography(font: font, size: size) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Spacer()
-                    Button("Done") { dismiss() }.frame(minHeight: 44)
-                }
                 VStack(spacing: 12) {
                     fontCard("Klee One", value: "klee")
                     fontCard("Sans-serif", value: "sans")
@@ -28,11 +23,17 @@ struct JournalAppearance: View {
                         .accessibilityLabel("Font size")
                         .accessibilityValue("\(Int(typography.size)) points")
                 }
+                Text("今日は日本語のレッスン。\nToday I learned something new.")
+                    .font(typography.font)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+                    .accessibilityIdentifier("JournalAppearancePreview")
                 Text("Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
             }.padding(24)
         }
         .tint(JournalToolbarButtonStyle.blue)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(560), .large])
         .presentationDragIndicator(.visible)
     }
 

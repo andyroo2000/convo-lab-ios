@@ -115,6 +115,18 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
+    func testCorrectionPopoverFollowsJournalFontSize() {
+        let small = openEntry(fontSize: 16)
+        inspectCorrection(small)
+        let smallHeight = small.otherElements["JournalCorrectionPopover"].firstMatch.frame.height
+        small.terminate()
+        let large = openEntry(fontSize: 30)
+        inspectCorrection(large)
+        let largeHeight = large.otherElements["JournalCorrectionPopover"].firstMatch.frame.height
+        XCTAssertGreaterThan(largeHeight, smallHeight + 20)
+    }
+
+    @MainActor
     func testLongCorrectionStaysInsideScreenAndScrollsAtLargeText() {
         let app = openEntry(contentSize: "UICTContentSizeCategoryAccessibilityL", longCorrection: true)
         inspectCorrection(app)
@@ -152,9 +164,10 @@ final class JournalEditingUITests: XCTestCase {
     }
 
     @MainActor
-    private func openEntry(contentSize: String? = nil, resetVersion: Bool = true, longCorrection: Bool = false) -> XCUIApplication {
+    private func openEntry(contentSize: String? = nil, resetVersion: Bool = true, longCorrection: Bool = false, fontSize: Int = 20) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Dark", "-reading-theme", "system", "-reading-format", "Phone reader"]
+        app.launchArguments += ["-journal.typography.size", String(fontSize)]
         if let contentSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize] }
         if longCorrection { app.launchArguments += ["-journal-long-correction"] }
         app.launch()

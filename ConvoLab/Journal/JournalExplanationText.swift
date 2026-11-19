@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct JournalExplanationText: UIViewRepresentable {
+    @Environment(\.journalTypography) private var typography
     let segment: JournalSegment
     let knownKanji: Set<Character>
 
@@ -21,7 +22,8 @@ struct JournalExplanationText: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: 16) ?? .systemFont(ofSize: 16))
+        let size = max(14, typography.size - 4)
+        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size))
         let content = JournalExplanationContent.attributed(segment, knownKanji: knownKanji, font: font)
         context.coordinator.updateRubyRanges(in: content)
         view.attributedText = content
@@ -62,6 +64,14 @@ enum JournalExplanationContent {
             weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4, font: font))
         styleJapanese(result, size: font.pointSize, replacement: segment.replacement ?? "")
         emphasize(result, font: font)
+        // Use one baseline pitch even when Japanese fallback fonts have taller metrics.
+        let paragraph = NSMutableParagraphStyle()
+        let japanese = UIFont(name: "HiraMinProN-W3", size: font.pointSize) ?? font
+        let pitch = max(font.lineHeight, japanese.lineHeight) + font.pointSize * (document.hasRuby ? 0.5 : 0.15)
+        paragraph.minimumLineHeight = pitch
+        paragraph.maximumLineHeight = pitch
+        paragraph.lineBreakStrategy = []
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
     }
 

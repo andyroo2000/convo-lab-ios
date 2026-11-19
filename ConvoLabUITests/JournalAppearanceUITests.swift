@@ -6,6 +6,8 @@ final class JournalAppearanceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
         openAppearance(app)
+        XCTAssertFalse(app.buttons["Done"].exists)
+        XCTAssertTrue(app.staticTexts["JournalAppearancePreview"].exists)
         app.buttons["Serif"].tap()
         app.sliders["Font size"].adjust(toNormalizedSliderPosition: 0.85)
         let size = app.sliders["Font size"].value as? String
@@ -13,14 +15,14 @@ final class JournalAppearanceUITests: XCTestCase {
         preview.name = "Journal font cards and slider"
         preview.lifetime = .keepAlways
         add(preview)
-        app.buttons["Done"].tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         app.terminate()
         openAppearance(app)
         XCTAssertTrue(app.buttons["Serif"].isSelected)
         XCTAssertEqual(app.sliders["Font size"].value as? String, size)
         app.buttons["Sans-serif"].tap()
         app.sliders["Font size"].adjust(toNormalizedSliderPosition: 0.28)
-        app.buttons["Done"].tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
     }
 
     @MainActor
