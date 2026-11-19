@@ -20,7 +20,9 @@ final class JournalBetaVisibilityUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.buttons["app-mode-settings"].tap()
-        XCTAssertTrue(picker.label.contains("Settings"))
+        XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
+        app.buttons["SettingsClose-Settings"].tap()
+        XCTAssertTrue(picker.label.contains("Journal"))
     }
 
     @MainActor

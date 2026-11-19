@@ -4,7 +4,7 @@ struct SettingsView: View {
     let model: AppModel
     let user: CurrentUser
 
-    @Environment(\.hasAppModeHeader) private var hasAppModeHeader
+    @State private var expandedChapter: String? = "Account"
     @Environment(\.availableAppModes) private var availableAppModes
     @Environment(\.scenePhase) private var scenePhase
     @State private var wanikaniAPIToken = ""
@@ -37,7 +37,8 @@ struct SettingsView: View {
                 ?? model.study.overview?.lessonBatchSize
                 ?? model.study.capabilities.settings.lessonBatchSize.default
         )
-        let initialReviewTimeBudgetMinutes = model.study.studySettings?.reviewTimeBudgetMinutes
+        let initialReviewTimeBudgetMinutes =
+            model.study.studySettings?.reviewTimeBudgetMinutes
             ?? model.study.overview?.learningReadiness?.reviewTimeBudgetMinutes
             ?? model.study.capabilities.settings.reviewTimeBudgetMinutes.default
         let reviewBudgetRange = model.study.capabilities.settings.reviewTimeBudgetMinutes.range
@@ -55,59 +56,20 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Account") {
-                    LabeledContent("Name", value: user.name)
-                    LabeledContent("Email", value: user.email)
-                    Button("Edit Profile") {
-                        showingProfileEditor = true
-                    }
-                    Button("Change Password") {
-                        showingPasswordEditor = true
-                    }
-                }
-
-                Section("Offline") {
-                    LabeledContent(
-                        "Downloaded media",
-                        value: ByteCountFormatter.string(
-                            fromByteCount: model.mediaCache.totalByteCount,
-                            countStyle: .file
-                        )
+            JournalSettingsPanel(title: "Settings") {
+                JournalSettingsChapter("Account", icon: "person", expanded: $expandedChapter) {
+                    JournalSettingsAccountActions(
+                        name: accountUser.name,
+                        onEditProfile: { showingProfileEditor = true },
+                        onChangePassword: { showingPasswordEditor = true },
+                        onSignOut: { Task { await model.logout() } },
+                        onDeleteAccount: { showingAccountDeletion = true }
                     )
-                    LabeledContent("Study window", value: offlineStudyWindow)
-                    LabeledContent("Cards ready offline", value: model.study.preparedCardCount.formatted())
-                    Button("Download Offline Study") {
-                        Task { await model.study.downloadOfflineStudy() }
-                    }
-                    .disabled(model.study.syncStatus == .syncing)
-                    Text("Sync updates your cards without downloading media. Download your study window here before going offline.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button("Remove Downloaded Media", role: .destructive) {
-                        confirmingClearDownloads = true
-                    }
-                    if model.study.failedStudyChanges.isEmpty {
-                        LabeledContent(
-                            "Changes needing attention",
-                            value: model.study.failedStudyChanges.count.formatted()
-                        )
-                    } else {
-                        Button {
-                            showingFailedStudyChanges = true
-                        } label: {
-                            LabeledContent(
-                                "Changes needing attention",
-                                value: model.study.failedStudyChanges.count.formatted()
-                            )
-                        }
-                    }
-                    Text("Playback positions are stored only on this device.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
-                Section {
+                JournalSettingsChapter(
+                    "Study preferences", icon: "slider.horizontal.3", expanded: $expandedChapter
+                ) {
                     Stepper(
                         "New cards per day: \(newCardsPerDay)",
                         value: $newCardsPerDay,
@@ -179,174 +141,207 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }
-                } header: {
-                    Text("Study")
-                } footer: {
-                    Text(
-                        "The daily limit is your allowance. Cards per lesson controls the preview-and-quiz batch size. Your review budget guides learning-readiness advice; it does not stop reviews."
+                }
+
+                JournalSettingsChapter(
+                    "Offline & sync", icon: "arrow.down.circle", expanded: $expandedChapter
+                ) {
+                    LabeledContent(
+                        "Downloaded media",
+                        value: ByteCountFormatter.string(
+                            fromByteCount: model.mediaCache.totalByteCount,
+                            countStyle: .file
+                        )
                     )
-                }
-
-                if availableAppModes.contains(.study) {
-                    googleCalendarSection
-                }
-
-                Section("More Integrations") {
-                    NavigationLink {
-                        SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
-                    } label: {
-                        LabeledContent {
-                            Text(satoriReaderStatus)
-                                .foregroundStyle(.secondary)
-                        } label: {
-                            Label("Satori Reader", systemImage: "book.pages")
-                        }
+                    LabeledContent("Study window", value: offlineStudyWindow)
+                    LabeledContent("Cards ready offline", value: model.study.preparedCardCount.formatted())
+                    Button("Download Offline Study") {
+                        Task { await model.study.downloadOfflineStudy() }
                     }
-                    .accessibilityIdentifier("SatoriReaderIntegrationLink")
+                    .disabled(model.study.syncStatus == .syncing)
                     Text(
-                        "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
+                        "Sync updates your cards without downloading media. Download your study window here before going offline."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                }
-
-                Section("WaniKani") {
-                    if model.study.wanikaniConnected {
-                        LabeledContent("WaniKani", value: "Connected")
+                    Button("Sync Now") { Task { await model.synchronize() } }
+                    Button("Remove Downloaded Media", role: .destructive) {
+                        confirmingClearDownloads = true
+                    }
+                    if model.study.failedStudyChanges.isEmpty {
                         LabeledContent(
-                            "Known kanji",
-                            value: model.study.knownKanji.count.formatted()
+                            "Changes needing attention",
+                            value: model.study.failedStudyChanges.count.formatted()
                         )
-                        if let lastSyncedAt = model.study.wanikaniLastSyncedAt {
+                    } else {
+                        Button {
+                            showingFailedStudyChanges = true
+                        } label: {
                             LabeledContent(
-                                "WaniKani synced",
-                                value: lastSyncedAt.formatted(
-                                    date: .abbreviated,
-                                    time: .shortened
-                                )
+                                "Changes needing attention",
+                                value: model.study.failedStudyChanges.count.formatted()
                             )
                         }
-                        Toggle(
-                            "Daily vocabulary transfer",
-                            isOn: Binding(
-                                get: { model.study.wanikaniTransferBridgeEnabled },
-                                set: { enabled in
-                                    Task {
-                                        await model.study
-                                            .setWaniKaniTransferBridgeEnabled(enabled)
-                                    }
-                                }
-                            )
-                        )
-                        .disabled(model.study.isWaniKaniWorking)
-                        .accessibilityIdentifier("WaniKaniTransferBridgeToggle")
-                        .accessibilityHint(
-                            "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
-                        )
+                    }
+                    Text("Playback positions are stored only on this device.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                JournalSettingsChapter("Connections", icon: "link", expanded: $expandedChapter) {
+
+                    if availableAppModes.contains(.study) {
+                        googleCalendarSection
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        NavigationLink {
+                            SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
+                                .toolbar(.visible, for: .navigationBar)
+                        } label: {
+                            LabeledContent {
+                                Text(satoriReaderStatus)
+                                    .foregroundStyle(.secondary)
+                            } label: {
+                                Label("Satori Reader", systemImage: "book.pages")
+                            }
+                        }
+                        .accessibilityIdentifier("SatoriReaderIntegrationLink")
                         Text(
-                            "Imports up to two recently passed vocabulary items each day as four contextual listening, recognition, and cloze cards. Related cards unlock over time."
+                            "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        if shouldShowWaniKaniTransferStatus {
-                            LabeledContent(
-                                "Vocabulary imported",
-                                value: model.study.wanikaniImportedVocabularyCount.formatted()
-                            )
-                            if model.study.wanikaniPendingVocabularyCount > 0 {
-                                LabeledContent(
-                                    "Imports in progress",
-                                    value: model.study.wanikaniPendingVocabularyCount.formatted()
-                                )
-                            }
-                            if model.study.wanikaniFailedVocabularyCount > 0 {
-                                LabeledContent("Imports needing retry") {
-                                    Text(
-                                        model.study.wanikaniFailedVocabularyCount.formatted()
-                                    )
-                                    .foregroundStyle(.red)
-                                }
-                                Text("Failed imports retry automatically during a future WaniKani sync.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let lastImportedAt = model.study.wanikaniLastImportedAt {
-                                LabeledContent(
-                                    "Last vocabulary import",
-                                    value: lastImportedAt.formatted(
-                                        date: .abbreviated,
-                                        time: .shortened
-                                    )
-                                )
-                            }
-                        }
-                        Button("Sync WaniKani") {
-                            Task { await model.study.syncWaniKani() }
-                        }
-                        .disabled(model.study.isWaniKaniWorking)
-                        Button("Disconnect WaniKani", role: .destructive) {
-                            confirmingWaniKaniDisconnect = true
-                        }
-                        .disabled(model.study.isWaniKaniWorking)
-                    } else {
-                        SecureField("WaniKani API token", text: $wanikaniAPIToken)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .privacySensitive()
-                        Button("Connect and Sync") {
-                            let token = wanikaniAPIToken
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            Task {
-                                await model.study.connectWaniKani(apiToken: token)
-                                if model.study.wanikaniConnected {
-                                    wanikaniAPIToken = ""
-                                }
-                            }
-                        }
-                        .disabled(
-                            wanikaniAPIToken
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                                .isEmpty
-                                || model.study.isWaniKaniWorking
-                        )
                     }
 
-                    if model.study.isWaniKaniWorking {
-                        ProgressView("Updating WaniKani…")
-                    }
-                    if let error = model.study.wanikaniErrorMessage {
-                        Label(error, systemImage: "exclamationmark.triangle")
+                    DisclosureGroup("WaniKani") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            if model.study.wanikaniConnected {
+                                LabeledContent("WaniKani", value: "Connected")
+                                LabeledContent(
+                                    "Known kanji",
+                                    value: model.study.knownKanji.count.formatted()
+                                )
+                                if let lastSyncedAt = model.study.wanikaniLastSyncedAt {
+                                    LabeledContent(
+                                        "WaniKani synced",
+                                        value: lastSyncedAt.formatted(
+                                            date: .abbreviated,
+                                            time: .shortened
+                                        )
+                                    )
+                                }
+                                Toggle(
+                                    "Daily vocabulary transfer",
+                                    isOn: Binding(
+                                        get: { model.study.wanikaniTransferBridgeEnabled },
+                                        set: { enabled in
+                                            Task {
+                                                await model.study
+                                                    .setWaniKaniTransferBridgeEnabled(enabled)
+                                            }
+                                        }
+                                    )
+                                )
+                                .disabled(model.study.isWaniKaniWorking)
+                                .accessibilityIdentifier("WaniKaniTransferBridgeToggle")
+                                .accessibilityHint(
+                                    "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
+                                )
+                                Text(
+                                    "Imports up to two recently passed vocabulary items each day as four contextual listening, recognition, and cloze cards. Related cards unlock over time."
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                if shouldShowWaniKaniTransferStatus {
+                                    LabeledContent(
+                                        "Vocabulary imported",
+                                        value: model.study.wanikaniImportedVocabularyCount.formatted()
+                                    )
+                                    if model.study.wanikaniPendingVocabularyCount > 0 {
+                                        LabeledContent(
+                                            "Imports in progress",
+                                            value: model.study.wanikaniPendingVocabularyCount.formatted()
+                                        )
+                                    }
+                                    if model.study.wanikaniFailedVocabularyCount > 0 {
+                                        LabeledContent("Imports needing retry") {
+                                            Text(
+                                                model.study.wanikaniFailedVocabularyCount.formatted()
+                                            )
+                                            .foregroundStyle(.red)
+                                        }
+                                        Text("Failed imports retry automatically during a future WaniKani sync.")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let lastImportedAt = model.study.wanikaniLastImportedAt {
+                                        LabeledContent(
+                                            "Last vocabulary import",
+                                            value: lastImportedAt.formatted(
+                                                date: .abbreviated,
+                                                time: .shortened
+                                            )
+                                        )
+                                    }
+                                }
+                                Button("Sync WaniKani") {
+                                    Task { await model.study.syncWaniKani() }
+                                }
+                                .disabled(model.study.isWaniKaniWorking)
+                                Button("Disconnect WaniKani", role: .destructive) {
+                                    confirmingWaniKaniDisconnect = true
+                                }
+                                .disabled(model.study.isWaniKaniWorking)
+                            } else {
+                                SecureField("WaniKani API token", text: $wanikaniAPIToken)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .privacySensitive()
+                                Button("Connect and Sync") {
+                                    let token =
+                                        wanikaniAPIToken
+                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    Task {
+                                        await model.study.connectWaniKani(apiToken: token)
+                                        if model.study.wanikaniConnected {
+                                            wanikaniAPIToken = ""
+                                        }
+                                    }
+                                }
+                                .disabled(
+                                    wanikaniAPIToken
+                                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        .isEmpty
+                                        || model.study.isWaniKaniWorking
+                                )
+                            }
+
+                            if model.study.isWaniKaniWorking {
+                                ProgressView("Updating WaniKani…")
+                            }
+                            if let error = model.study.wanikaniErrorMessage {
+                                Label(error, systemImage: "exclamationmark.triangle")
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                            }
+                            Text(
+                                "Furigana stays visible unless every kanji in a word is in your synced known-kanji set. The API token is sent to learning-os and is never saved on this device."
+                            )
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.secondary)
+                        }
+
                     }
-                    Text(
-                        "Furigana stays visible unless every kanji in a word is in your synced known-kanji set. The API token is sent to learning-os and is never saved on this device."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
                 }
 
-                Section("Experiments") {
+                JournalSettingsChapter("Experiments", icon: "flask", expanded: $expandedChapter) {
                     Button("Japanese typing playground") { showingTypingPlayground = true }
                 }
 
-                Section {
-                    Button("Sync Now") {
-                        Task {
-                            await model.synchronize()
-                        }
-                    }
-                    Button("Sign Out", role: .destructive) {
-                        Task { await model.logout() }
-                    }
-                    Button("Delete Account", role: .destructive) {
-                        showingAccountDeletion = true
-                    }
-                }
             }
             .fullScreenCover(isPresented: $showingTypingPlayground) { TypingPlaygroundView() }
-            .navigationTitle(hasAppModeHeader ? "" : "Settings")
-            .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .task {
                 if await model.study.refreshCapabilities() {
                     model.studyTime.applyStudyActivityCapabilities(
@@ -437,7 +432,7 @@ struct SettingsView: View {
                 Text("Cards remain available. Audio and images will download again when needed.")
             }
             .outsideDismissibleSheet(isPresented: $showingProfileEditor) {
-                ProfileEditorView(auth: model.auth, user: user)
+                ProfileEditorView(auth: model.auth, user: accountUser)
             }
             .outsideDismissibleSheet(isPresented: $showingPasswordEditor) {
                 PasswordEditorView(auth: model.auth)
@@ -496,86 +491,94 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var googleCalendarSection: some View {
-        Section("Google Calendar") {
-            if model.studyTime.googleCalendarIsLoading,
-               model.studyTime.googleCalendarStatus == nil
-            {
-                HStack {
-                    ProgressView()
-                    Text("Checking connection…")
-                }
-            } else if model.studyTime.googleCalendarStatus?.connected == true {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.green)
-                if let email = model.studyTime.googleCalendarStatus?.accountEmail {
-                    LabeledContent("Account", value: email)
-                }
-                if let lastSync = model.studyTime.googleCalendarStatus?.lastSyncedAt {
-                    LabeledContent("Last sync") {
-                        Text(
-                            lastSync,
-                            format: .dateTime.month(.abbreviated).day().hour().minute()
-                        )
-                    }
-                } else {
-                    LabeledContent("Last sync", value: "Waiting for first sync")
-                }
-                if model.studyTime.googleCalendarIsWorking {
+        DisclosureGroup("Google Calendar") {
+            VStack(alignment: .leading, spacing: 16) {
+                if model.studyTime.googleCalendarIsLoading,
+                    model.studyTime.googleCalendarStatus == nil
+                {
                     HStack {
                         ProgressView()
-                        Text("Disconnecting…")
+                        Text("Checking connection…")
                     }
-                } else {
-                    Button {
-                        calendarSettingsModel = model.studyTime.makeGoogleCalendarSettingsModel()
-                    } label: {
-                        Label("Calendar Settings", systemImage: "calendar")
-                            .frame(minHeight: 44)
+                } else if model.studyTime.googleCalendarStatus?.connected == true {
+                    Label("Connected", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.green)
+                    if let email = model.studyTime.googleCalendarStatus?.accountEmail {
+                        LabeledContent("Account", value: email)
                     }
-                    .disabled(model.studyTime.googleCalendarIsLoading)
-
-                    Button("Disconnect", role: .destructive) {
-                        confirmingCalendarDisconnect = true
+                    if let lastSync = model.studyTime.googleCalendarStatus?.lastSyncedAt {
+                        LabeledContent("Last sync") {
+                            Text(
+                                lastSync,
+                                format: .dateTime.month(.abbreviated).day().hour().minute()
+                            )
+                        }
+                    } else {
+                        LabeledContent("Last sync", value: "Waiting for first sync")
                     }
-                    .frame(minHeight: 44)
-                    .disabled(model.studyTime.googleCalendarIsLoading)
-                }
-            } else {
-                Text("Connect your account to include calendar lessons in study analytics.")
-                    .foregroundStyle(.secondary)
-                Button {
-                    Task { await model.studyTime.connectGoogleCalendar() }
-                } label: {
                     if model.studyTime.googleCalendarIsWorking {
                         HStack {
                             ProgressView()
-                            Text("Connecting…")
+                            Text("Disconnecting…")
                         }
                     } else {
-                        Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
-                    }
-                }
-                .disabled(
-                    model.studyTime.googleCalendarIsLoading
-                        || model.studyTime.googleCalendarIsWorking
-                )
-            }
+                        Button {
+                            calendarSettingsModel = model.studyTime.makeGoogleCalendarSettingsModel()
+                        } label: {
+                            Label("Calendar Settings", systemImage: "calendar")
+                                .frame(minHeight: 44)
+                        }
+                        .disabled(model.studyTime.googleCalendarIsLoading)
 
-            if let message = model.studyTime.googleCalendarErrorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                if model.studyTime.googleCalendarStatus == nil {
-                    Button("Retry") {
-                        Task { await model.studyTime.loadGoogleCalendarConnection() }
+                        Button("Disconnect", role: .destructive) {
+                            confirmingCalendarDisconnect = true
+                        }
+                        .frame(minHeight: 44)
+                        .disabled(model.studyTime.googleCalendarIsLoading)
+                    }
+                } else {
+                    Text("Connect your account to include calendar lessons in study analytics.")
+                        .foregroundStyle(.secondary)
+                    Button {
+                        Task { await model.studyTime.connectGoogleCalendar() }
+                    } label: {
+                        if model.studyTime.googleCalendarIsWorking {
+                            HStack {
+                                ProgressView()
+                                Text("Connecting…")
+                            }
+                        } else {
+                            Label("Connect Google Calendar", systemImage: "calendar.badge.plus")
+                        }
                     }
                     .disabled(
                         model.studyTime.googleCalendarIsLoading
                             || model.studyTime.googleCalendarIsWorking
                     )
                 }
+
+                if let message = model.studyTime.googleCalendarErrorMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    if model.studyTime.googleCalendarStatus == nil {
+                        Button("Retry") {
+                            Task { await model.studyTime.loadGoogleCalendarConnection() }
+                        }
+                        .disabled(
+                            model.studyTime.googleCalendarIsLoading
+                                || model.studyTime.googleCalendarIsWorking
+                        )
+                    }
+                }
             }
         }
+
+    }
+
+    private var accountUser: CurrentUser {
+        if case .signedIn(let current) = model.auth.state { return current }
+        return user
     }
 
     private var shouldShowWaniKaniTransferStatus: Bool {
@@ -584,95 +587,6 @@ struct SettingsView: View {
             || model.study.wanikaniPendingVocabularyCount > 0
             || model.study.wanikaniFailedVocabularyCount > 0
             || model.study.wanikaniLastImportedAt != nil
-    }
-}
-
-private struct ProfileEditorView: View {
-    let auth: AuthStore
-    @State private var name: String
-    @State private var email: String
-    @Environment(\.dismiss) private var dismiss
-
-    init(auth: AuthStore, user: CurrentUser) {
-        self.auth = auth
-        _name = State(initialValue: user.name)
-        _email = State(initialValue: user.email)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Name", text: $name)
-                    .textContentType(.name)
-                TextField("Email", text: $email)
-                    .textContentType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                accountError(auth)
-            }
-            .navigationTitle("Edit Profile")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            if await auth.updateProfile(name: name, email: email) {
-                                dismiss()
-                            }
-                        }
-                    }
-                    .disabled(name.isEmpty || email.isEmpty || auth.isWorking)
-                }
-            }
-        }
-    }
-}
-
-private struct PasswordEditorView: View {
-    let auth: AuthStore
-    @State private var currentPassword = ""
-    @State private var password = ""
-    @State private var confirmation = ""
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                SecureField("Current password", text: $currentPassword)
-                SecureField("New password", text: $password)
-                    .textContentType(.newPassword)
-                SecureField("Confirm new password", text: $confirmation)
-                    .textContentType(.newPassword)
-                accountError(auth)
-            }
-            .navigationTitle("Change Password")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Update") {
-                        Task {
-                            if await auth.updatePassword(
-                                currentPassword: currentPassword,
-                                password: password,
-                                passwordConfirmation: confirmation
-                            ) {
-                                dismiss()
-                            }
-                        }
-                    }
-                    .disabled(
-                        currentPassword.isEmpty
-                            || password.isEmpty
-                            || password != confirmation
-                            || auth.isWorking
-                    )
-                }
-            }
-        }
     }
 }
 

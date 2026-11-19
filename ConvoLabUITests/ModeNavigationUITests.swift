@@ -31,6 +31,7 @@ final class ModeNavigationUITests: XCTestCase {
             attachScreenshot(app, name: "\(mode) root without More navigation")
         }
         assertSettingsDetailBack(app)
+        app.buttons["SettingsClose-Settings"].tap()
         selectMode("study", app: app)
         assertInModeRow(sync, app: app)
     }
@@ -276,9 +277,10 @@ final class ModeNavigationUITests: XCTestCase {
 
     @MainActor
     private func assertSettingsDetailBack(_ app: XCUIApplication) {
+        app.buttons["SettingsChapter-Connections"].tap()
         let integration = app.buttons["SatoriReaderIntegrationLink"]
         for _ in 0..<4 where !isFullyVisibleSettingsRow(integration, app: app) {
-            app.collectionViews.firstMatch.swipeUp(velocity: .slow)
+            app.scrollViews.firstMatch.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(isFullyVisibleSettingsRow(integration, app: app))
         integration.tap()
