@@ -34,7 +34,10 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
         field.typeText("kyouhatanoshikatta")
-        XCTAssertEqual(field.value as? String, "きょうはたのしかった")
+        let kanaReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "きょうはたのしかった"), object: field
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [kanaReady], timeout: 5), .completed)
         let candidate = app.collectionViews["JournalCandidates"].cells["今日は楽しかった"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 120))
         XCTAssertEqual(field.value as? String, "きょうはたのしかった", "Suggestions must not rewrite the notebook")
