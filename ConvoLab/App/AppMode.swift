@@ -32,14 +32,15 @@ struct AppModePicker: View {
     var action: AppModeHeaderAction? = nil
     var toolbar: AppModeToolbar = .init()
     @State private var showingDestinations = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                JournalBrandView(compact: true).accessibilityHidden(true)
+            }
             Button { showingDestinations = true } label: {
                 HStack(spacing: 9) {
-                    Image(systemName: selection.icon)
-                        .frame(width: 24, height: 24)
-                        .contentTransition(.identity)
                     Text(selection.rawValue).fontWeight(.semibold)
                     Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                 }
@@ -69,9 +70,12 @@ struct AppModePicker: View {
                 AppModeToolbarView(toolbar: toolbar)
             }
         }
-        .padding(.horizontal, 20)
-        .foregroundStyle(ConvoLabTheme.navy)
-        .background(ConvoLabTheme.cream)
+        .padding(.leading, 21)
+        .padding(.trailing, 14)
+        .frame(minHeight: 72)
+        .foregroundStyle(.white)
+        .background(JournalBrandStyle.green)
+        .overlay(alignment: .leading) { JournalBrandStyle.spine.frame(width: 7) }
         .environment(\.colorScheme, .light)
     }
 

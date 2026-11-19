@@ -19,7 +19,16 @@ final class JournalDraftCloseUITests: XCTestCase {
         capture(app, name: "Empty notebook draft")
         let text = String(repeating: "A line in my journal.\n", count: 8) + "\n\n"
         body.tap()
-        body.typeText(text)
+        var entered = ""
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false).dropLast() {
+            let next = String(line) + "\n"
+            body.typeText(next)
+            entered += next
+            let complete = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", entered), object: body
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 5), .completed)
+        }
         XCTAssertGreaterThan(body.frame.height, emptyHeight)
         XCTAssertEqual(body.value as? String, text)
         capture(app, name: "Growing notebook draft")

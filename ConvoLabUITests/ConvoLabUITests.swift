@@ -13,12 +13,12 @@ final class ConvoLabUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.staticTexts["Study without\nbreaking your flow."].waitForExistence(timeout: 5)
+            app.descendants(matching: .any)["ConvoLab Journal"].firstMatch.waitForExistence(timeout: 5)
         )
         XCTAssertTrue(app.textFields["Email"].exists)
         XCTAssertTrue(app.secureTextFields["Password"].exists)
-        XCTAssertTrue(app.buttons["Sign In"].exists)
-        XCTAssertFalse(app.buttons["Sign In"].isEnabled)
+        XCTAssertTrue(app.buttons["Sign in"].exists)
+        XCTAssertFalse(app.buttons["Sign in"].isEnabled)
     }
 
     @MainActor
@@ -26,6 +26,8 @@ final class ConvoLabUITests: XCTestCase {
         let app = launchFixture("login-restoration", reset: true)
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
+        let keyboardChoice = app.buttons["Close keyboard choice"]
+        if keyboardChoice.waitForExistence(timeout: 3) { keyboardChoice.tap() }
         app.buttons["app-mode-picker"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 3))
         app.buttons["Settings"].tap()

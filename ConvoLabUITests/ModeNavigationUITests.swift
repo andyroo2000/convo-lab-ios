@@ -9,6 +9,7 @@ final class ModeNavigationUITests: XCTestCase {
     @MainActor
     func testRootActionsStayInModeRowAndManagementHasNoMoreParent() {
         let app = launchShell()
+        selectMode("study", app: app)
         let sync = app.buttons["StudySyncButton"]
         assertInModeRow(sync, app: app)
         attachModeMenu(app, currentMode: "study")
@@ -57,7 +58,9 @@ final class ModeNavigationUITests: XCTestCase {
         toggleQueueEditing(app, expectedLabel: "Edit queue")
         toggleQueueEditing(app, expectedLabel: "Done editing")
         app.buttons["CardsMoreButton"].tap()
-        app.buttons["Study Lesson Cards Now"].tap()
+        let studySelection = app.buttons["Study Lesson Cards Now"]
+        XCTAssertTrue(studySelection.waitForExistence(timeout: 5))
+        studySelection.tap()
         let next = app.buttons["CardsNextSelectionButton"]
         assertInModeRow(next, app: app)
         XCTAssertFalse(next.isEnabled)
@@ -245,6 +248,13 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertTrue(edit.waitForExistence(timeout: 3))
         XCTAssertEqual(edit.label, expectedLabel)
         edit.tap()
+        XCTAssertTrue(edit.waitForNonExistence(timeout: 5))
+        let reorder = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reorder")).firstMatch
+        if expectedLabel == "Edit queue" {
+            XCTAssertTrue(reorder.waitForExistence(timeout: 5))
+        } else {
+            XCTAssertTrue(reorder.waitForNonExistence(timeout: 5))
+        }
     }
 
     @MainActor
