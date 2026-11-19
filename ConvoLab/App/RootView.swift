@@ -109,14 +109,16 @@ struct MainModeView: View {
     @State private var selectedTab: AppMode = .journal
     @State private var availability = AppFeatureAvailability()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var managementMode: AppMode = .settings
+    @State private var managementMode: AppMode = .cards
+    @State private var showingSettings = false
     @State private var journalVisit = 0
 
     init(model: AppModel, user: CurrentUser, initialMode: AppMode = .journal,
          initialFlags: AppFeatureFlags = .journalOnly, persistAvailability: Bool = true) {
         self.model = model
         self.user = user
-        _selectedTab = State(initialValue: initialMode)
+        _selectedTab = State(initialValue: initialMode == .settings ? .journal : initialMode)
+        _showingSettings = State(initialValue: initialMode == .settings)
         let origin = model.api.sameOriginResourceURL("/")?.absoluteString ?? ""
         let cacheKey = persistAvailability ? "app-feature-flags.\(origin).\(user.id)" : nil
         _availability = State(initialValue: AppFeatureAvailability(flags: initialFlags, cacheKey: cacheKey))
@@ -134,6 +136,10 @@ struct MainModeView: View {
             get: { selectedTab },
             set: { newTab in
                 guard availability.flags.modes.contains(newTab), newTab != selectedTab else { return }
+                if newTab == .settings {
+                    showingSettings = true
+                    return
+                }
                 if selectedTab == .study || selectedTab == .cards,
                    let active = model.studyTime.active,
                    active.source == .automatic,
@@ -210,14 +216,22 @@ struct MainModeView: View {
                     .toolbar(.hidden, for: .tabBar)
                 }
             }
-            Tab("Manage", systemImage: "gearshape.fill", value: TabSlot.manage) {
-                managementContent
-                    .environment(\.colorScheme, .light)
-                    .toolbar(.hidden, for: .tabBar)
+            if availability.flags.modes.contains(.cards) || availability.flags.modes.contains(.time) {
+                Tab("Manage", systemImage: "gearshape.fill", value: TabSlot.manage) {
+                    managementContent
+                        .environment(\.colorScheme, .light)
+                        .toolbar(.hidden, for: .tabBar)
+                }
             }
         }
         .toolbar(.hidden, for: .tabBar)
         .modifier(AppModeHeader(selection: tabSelection))
+        .outsideDismissibleSheet(isPresented: $showingSettings) {
+            SettingsView(model: model, user: user)
+                .environment(\.availableAppModes, availability.flags.modes)
+                .presentationSizing(.form)
+                .presentationDragIndicator(.visible)
+        }
         .environment(\.availableAppModes, availability.flags.modes)
         .task(id: model.api.accessToken) { await availability.refresh(api: model.api) }
         .onChange(of: scenePhase) { _, phase in
@@ -229,14 +243,14 @@ struct MainModeView: View {
                 model.studyAudioPlayer.stop()
             }
             if !flags.modes.contains(selectedTab) { tabSelection.wrappedValue = .journal }
-            if !flags.modes.contains(managementMode) { managementMode = .settings }
+            if !flags.modes.contains(managementMode) { managementMode = flags.modes.contains(.cards) ? .cards : .time }
         }
         .preferredColorScheme(selectedTab == .readings ? nil : .light)
         .tint(ConvoLabTheme.navy)
     }
 
     private var managementContent: some View {
-        // A separate native tab container preserves all three management stacks.
+        // A separate native tab container preserves the library and time stacks.
         TabView(selection: $managementMode) {
             if availability.flags.modes.contains(.cards) {
                 Tab("Cards", systemImage: "square.and.pencil", value: AppMode.cards) {
@@ -255,10 +269,6 @@ struct MainModeView: View {
                     StudyTimeView(store: model.studyTime, studyStore: model.study)
                         .toolbar(.hidden, for: .tabBar)
                 }
-            }
-            Tab("Settings", systemImage: "gearshape.fill", value: AppMode.settings) {
-                SettingsView(model: model, user: user)
-                    .toolbar(.hidden, for: .tabBar)
             }
         }.toolbar(.hidden, for: .tabBar)
     }

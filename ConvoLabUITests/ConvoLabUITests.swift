@@ -31,7 +31,7 @@ final class ConvoLabUITests: XCTestCase {
         app.buttons["app-mode-picker"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 3))
         app.buttons["Settings"].tap()
-        XCTAssertTrue(app.buttons["app-mode-picker"].label.contains("Settings"))
+        XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
 
         app.terminate()
         launchFixture("login-restoration", reset: false, application: app)
@@ -178,6 +178,8 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testGoogleCalendarConnectsThroughProductionSettingsFlow() {
         let app = launchFixture("calendar-connection", reset: true)
+        app.buttons["SettingsChapter-Connections"].tap()
+        app.buttons["Google Calendar"].tap()
         let connect = app.buttons["Connect Google Calendar"]
         for _ in 0..<5 where !connect.isHittable {
             app.swipeUp()
@@ -205,6 +207,7 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testSatoriReaderSetupIsDiscoverableOnlyThroughSettings() {
         let app = launchFixture("calendar-connection", reset: true)
+        app.buttons["SettingsChapter-Connections"].tap()
         let integration = app.buttons["SatoriReaderIntegrationLink"]
         for _ in 0..<5 where !integration.isHittable {
             app.swipeUp()
