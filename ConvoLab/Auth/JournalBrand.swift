@@ -22,7 +22,7 @@ struct JournalBrandView: View {
                 .font(.custom("NotoSansJP-Thin_Black", fixedSize: compact ? 11 : 27))
                 .tracking(compact ? -0.5 : -1.8)
                 .frame(height: compact ? 14 : 33)
-                .padding(.top, compact ? 3 : 12)
+                .padding(.top, compact ? 3 : 2)
             if !compact {
                 Text("JOURNAL")
                     .font(.custom("BarlowCondensed-ExtraBold", fixedSize: 18))
@@ -31,7 +31,7 @@ struct JournalBrandView: View {
                 Text("ジャーナル")
                     .font(.custom("NotoSansJP-Thin_Bold", fixedSize: 12))
                     .tracking(2.5)
-                    .padding(.top, 7)
+                    .padding(.top, 1)
             }
         }
         .foregroundStyle(.white)
