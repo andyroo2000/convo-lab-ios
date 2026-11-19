@@ -39,6 +39,11 @@ final class JournalEditingUITests: XCTestCase {
         edit.tap()
         let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Contents"].isEnabled)
+        XCTAssertFalse(app.buttons["app-mode-picker"].isEnabled)
+        app.buttons["app-account-menu"].tap()
+        XCTAssertFalse(app.buttons["Settings"].isEnabled)
+        app.tap()
         XCTAssertFalse(app.buttons["Draft"].isEnabled)
         XCTAssertFalse(app.buttons["Final"].isEnabled)
         let original = field.value as? String
@@ -47,6 +52,8 @@ final class JournalEditingUITests: XCTestCase {
         field.typeText(" Discard this change.")
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Draft"].isEnabled)
+        XCTAssertTrue(app.buttons["Contents"].isEnabled)
+        XCTAssertTrue(app.buttons["app-mode-picker"].isEnabled)
         app.buttons["More journal options"].firstMatch.tap()
         edit.tap()
         XCTAssertEqual(field.value as? String, original)
@@ -67,6 +74,9 @@ final class JournalEditingUITests: XCTestCase {
     @MainActor
     func testPickerFitsAtLargestTextSize() {
         let app = openEntry(contentSize: "UICTContentSizeCategoryAccessibilityXXXL")
+        for label in ["Contents", "app-account-menu", "app-mode-picker"] {
+            XCTAssertTrue(app.buttons[label].isHittable)
+        }
         for label in ["Draft", "Final"] {
             let button = app.buttons[label]
             XCTAssertTrue(button.isHittable)
@@ -164,8 +174,8 @@ final class JournalEditingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
-        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
+        app.buttons["Contents"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()

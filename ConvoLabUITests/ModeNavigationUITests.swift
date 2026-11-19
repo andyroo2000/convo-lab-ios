@@ -137,7 +137,7 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertTrue(body.waitForExistence(timeout: 5))
         XCTAssertEqual(body.value as? String, "A journal draft kept on this device.")
         attachScreenshot(app, name: "Journal draft retained across modes")
-        app.buttons["My entries"].tap()
+        app.buttons["Contents"].tap()
         XCTAssertTrue(app.buttons["JournalNewEntry"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Untitled entry"].firstMatch.exists)
     }
@@ -147,8 +147,8 @@ final class ModeNavigationUITests: XCTestCase {
         let app = launchShell()
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
-        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
+        app.buttons["Contents"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
@@ -178,8 +178,8 @@ final class ModeNavigationUITests: XCTestCase {
         let app = launchShell()
         app.buttons["app-mode-picker"].tap()
         app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["My entries"].waitForExistence(timeout: 5))
-        app.buttons["My entries"].tap()
+        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
+        app.buttons["Contents"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()

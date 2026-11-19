@@ -12,7 +12,7 @@ struct JournalCorrectedView: View {
     @State private var player = JournalAudioPlayer()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             if editing {
                 JournalEntryToolbar(version: $version, analysis: analysis, voice: voice, choosingVoice: $choosingVoice, edit: beginEditing, editing: true)
                 JournalFinalEditor(document: document, analysis: analysis, paperReply: paperReply) { editing = false }
@@ -27,6 +27,7 @@ struct JournalCorrectedView: View {
                 }
             }
         }
+        .preference(key: JournalFinalEditingKey.self, value: editing)
     }
 
     private func beginEditing() {

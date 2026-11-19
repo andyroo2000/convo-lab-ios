@@ -7,19 +7,11 @@ struct JournalEntryToolbar: View {
     @Binding var choosingVoice: Bool
     var edit: (() -> Void)?
     var editing = false
-    @State private var showingAppearance = false
-    @State private var showingKeyboard = false
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 4) { JournalEntriesButton().disabled(editing); Spacer(minLength: 0); versions; actions }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack { JournalEntriesButton().disabled(editing); Spacer(); actions }
-                versions
-            }
-        }.modifier(JournalDeskStyle())
-            .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
-            .sheet(isPresented: $showingKeyboard) { JournalKeyboardSheet() }
+        HStack(spacing: 6) { versions; Spacer(minLength: 0); actions }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color(red: 1, green: 0.992, blue: 0.961), in: UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10))
             .accessibilityElement(children: .contain).accessibilityLabel("Entry controls")
     }
 
@@ -37,8 +29,6 @@ struct JournalEntryToolbar: View {
                 JournalOptionButton(title: "Narration voice", icon: "person.wave.2") { choosingVoice = true }
                     .disabled(!voice.isReady).accessibilityIdentifier("JournalVoicePicker")
             }
-            JournalOptionButton(title: "Appearance", icon: "textformat") { showingAppearance = true }
-            JournalKeyboardMenuItem { showingKeyboard = true }
         }
             .accessibilityLabel("More journal options").tint(JournalDeskStyle.green)
     }

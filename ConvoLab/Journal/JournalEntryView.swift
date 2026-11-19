@@ -6,6 +6,11 @@ struct JournalEntryView: View {
     @State private var selection: JournalSelection
     @State private var showingEntries = false
     @State private var renameRevision = 0
+    @State private var showingAppearance = false
+    @State private var showingKeyboard = false
+    @State private var showingTutor = false
+    @State private var editingFinal = false
+    @State private var tutorRevision = 0
 
     init(id: String? = nil, store: JournalStore, knownKanji: Set<Character>) {
         self.store = store
@@ -15,6 +20,12 @@ struct JournalEntryView: View {
     var body: some View {
         JournalEntryScreen(selection: selection, store: store, knownKanji: knownKanji, close: showBlank, select: open)
             .id("\(selection.id):\(renameRevision)")
+            .preference(key: AppModeToolbarKey.self, value: [.journal: journalToolbar])
+            .onPreferenceChange(JournalFinalEditingKey.self) { editingFinal = $0 }
+            .outsideDismissibleSheet(isPresented: $showingAppearance) { JournalAppearance() }
+            .sheet(isPresented: $showingKeyboard) { JournalKeyboardSheet() }
+            .environment(\.journalTutorRevision, tutorRevision)
+            .sheet(isPresented: $showingTutor) { JournalTutorSettings(service: store.service, changed: { tutorRevision += 1 }) }
             .environment(\.journalShowEntries, { store.refreshDrafts(); showingEntries = true })
             .sheet(isPresented: $showingEntries) {
                 JournalEntriesSheet(store: store, selectedID: selection.id, deleted: { id in
@@ -23,6 +34,22 @@ struct JournalEntryView: View {
                     if id == selection.id { renameRevision += 1 }
                 }, create: showBlank, select: open)
             }
+    }
+
+    private var journalToolbar: AppModeToolbar {
+        let entries = $showingEntries
+        let appearance = $showingAppearance
+        let keyboard = $showingKeyboard
+        let tutor = $showingTutor
+        return AppModeToolbar(buttons: [
+            AppModeToolbarAction(id: "JournalContents", title: "Contents", icon: "list.bullet", showsTitle: true, isEnabled: !editingFinal) {
+                store.refreshDrafts(); entries.wrappedValue = true
+            }
+        ], menu: [
+            AppModeToolbarAction(id: "JournalAppearance", title: "Appearance") { appearance.wrappedValue = true },
+            AppModeToolbarAction(id: "JournalKeyboard", title: "Keyboard") { keyboard.wrappedValue = true },
+            AppModeToolbarAction(id: "JournalTutor", title: "Choose your tutor") { tutor.wrappedValue = true }
+        ], preventsNavigation: editingFinal)
     }
 
     private func showBlank() { selection = .blank(); showingEntries = false }
@@ -60,9 +87,6 @@ private struct JournalEntryScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if !isReviewing {
-                    HStack { JournalEntriesButton(); Spacer(); JournalAppearanceMenu() }.modifier(JournalDeskStyle())
-                }
                 if let message = model.errorMessage {
                     Text(message).font(.footnote).foregroundStyle(.red)
                 }
@@ -86,7 +110,7 @@ private struct JournalEntryScreen: View {
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }
-            }.padding(20)
+            }.padding(.horizontal, 14).padding(.vertical, 22)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if keyboardDock.visible && isWriting {
@@ -105,7 +129,7 @@ private struct JournalEntryScreen: View {
         .scrollDismissesKeyboard(.interactively)
         .environment(\.journalTypography, JournalTypography(font: journalFont, size: journalSize))
         .modifier(JournalTimeTracking(service: model.store.service))
-        .background(.white)
+        .background(Color(red: 0.98, green: 0.976, blue: 0.965))
         .tint(JournalToolbarButtonStyle.blue)
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)

@@ -12,6 +12,7 @@ final class JournalTutorModel {
     private(set) var isBusy = false
     private(set) var errorMessage: String?
     var choosing = false
+    private var refreshRequested = false
     private var catalogLoadedAt: Date?
     private let catalogLifetime: TimeInterval
     private var catalogTask: Task<JournalTutorPreferences, Error>?
@@ -35,8 +36,17 @@ final class JournalTutorModel {
         await perform {
             self.question = try await self.prepare()
             if self.question?.tutor == nil { try await self.openPicker() }
+            else { self.choosing = false }
         }
         if question?.tutor != nil { await preloadAvatars() }
+    }
+
+    func refreshUnassignedTutor() async {
+        guard question?.tutor == nil else { return }
+        refreshRequested = true
+        guard !isBusy else { return }
+        refreshRequested = false
+        await load()
     }
 
     func showPicker() async { await perform { try await self.openPicker() } }
@@ -97,9 +107,13 @@ final class JournalTutorModel {
         guard !isBusy else { return }
         isBusy = true
         errorMessage = nil
-        defer { isBusy = false }
         do { try await operation() }
         catch is CancellationError { }
         catch { if !Task.isCancelled { errorMessage = "Your tutor could not be loaded or saved. Please try again." } }
+        isBusy = false
+        if refreshRequested {
+            refreshRequested = false
+            if !Task.isCancelled { await refreshUnassignedTutor() }
+        }
     }
 }

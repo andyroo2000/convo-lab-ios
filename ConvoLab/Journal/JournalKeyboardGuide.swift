@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct JournalKeyboardGuide: View {
+    @Environment(\.appAccountName) private var name
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Here’s where to change it later")
@@ -12,18 +14,20 @@ struct JournalKeyboardGuide: View {
         }.font(.custom("CrimsonPro-Regular", size: 17, relativeTo: .body))
             .foregroundStyle(Color(red: 0.30, green: 0.42, blue: 0.29))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("To change your keyboard later, open the three-dot menu above your notebook, then tap Keyboard below Appearance.")
+            .accessibilityLabel("To change your keyboard later, open your account avatar in the top bar, then tap Keyboard under Journal.")
     }
 
     private var first: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Open the menu", systemImage: "1.circle")
+            Label("Open your account", systemImage: "1.circle")
             VStack(spacing: 12) {
                 HStack {
                     Text("Journal")
                     Spacer()
-                    Image(systemName: "ellipsis").padding(6)
-                        .background(Color(red: 0.929, green: 0.953, blue: 0.91), in: .rect(cornerRadius: 6))
+                    Text(name.first.map { String($0).uppercased() } ?? "?")
+                        .font(.custom("Anton-Regular", fixedSize: 18)).frame(width: 30, height: 30)
+                        .background(ConvoLabTheme.cream, in: Circle())
+                        .overlay(Circle().stroke(JournalBrandStyle.spine, lineWidth: 3))
                 }
                 JournalDeskStyle.green.frame(height: 3)
                 Rectangle().fill(.gray.opacity(0.2)).frame(height: 1)

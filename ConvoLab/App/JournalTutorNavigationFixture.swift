@@ -6,8 +6,8 @@ nonisolated struct JournalTutorNavigationFixture {
     private var selected: String?
     private var questions: [String: [String: Any]] = [:]
     private let tutors: [[String: String]] = [
-        ["id": "hana", "name": "Hana", "gender": "F", "avatar": "hana-v1"],
-        ["id": "ren", "name": "Ren", "gender": "M", "avatar": "ren-v1"]
+        ["id": "hana", "name": "Hana", "gender": "F", "avatar": "hana-v1", "avatarUrl": JournalPortraitFixture.url("professor-female")],
+        ["id": "ren", "name": "Ren", "gender": "M", "avatar": "ren-v1", "avatarUrl": JournalPortraitFixture.url("male-02")]
     ]
 
     mutating func response(path: String, method: String?, body: [String: Any], analysis: [String: Any]) -> [String: Any]? {

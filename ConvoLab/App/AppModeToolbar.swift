@@ -4,6 +4,7 @@ struct AppModeToolbarAction: Identifiable, Equatable {
     let id: String
     let title: String
     var icon: String? = nil
+    var showsTitle = false
     var isEnabled = true
     var isLoading = false
     let perform: () -> Void
@@ -12,7 +13,7 @@ struct AppModeToolbarAction: Identifiable, Equatable {
     // Closures are not comparable, so presentation state drives preference updates.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id && lhs.title == rhs.title && lhs.icon == rhs.icon
-            && lhs.isEnabled == rhs.isEnabled && lhs.isLoading == rhs.isLoading
+            && lhs.showsTitle == rhs.showsTitle && lhs.isEnabled == rhs.isEnabled && lhs.isLoading == rhs.isLoading
     }
 }
 
@@ -20,6 +21,7 @@ struct AppModeToolbar: Equatable {
     var buttons: [AppModeToolbarAction] = []
     var menu: [AppModeToolbarAction] = []
     var menuIdentifier = "AppModeMoreButton"
+    var preventsNavigation = false
 }
 
 struct AppModeToolbarKey: PreferenceKey {
@@ -64,6 +66,9 @@ struct AppModeToolbarView: View {
     private func buttonLabel(_ item: AppModeToolbarAction) -> some View {
         if item.isLoading {
             ProgressView().controlSize(.small)
+        } else if item.showsTitle {
+            Label(item.title, systemImage: item.icon ?? "list.bullet")
+                .font(.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.85)
         } else if let icon = item.icon {
             Image(systemName: icon)
         } else {
