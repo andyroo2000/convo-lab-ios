@@ -6,7 +6,7 @@ struct JournalExplanationText: UIViewRepresentable {
     let segment: JournalSegment
     let knownKanji: Set<Character>
 
-    func makeCoordinator() -> StudyRubyLineBreakDelegate { StudyRubyLineBreakDelegate() }
+    func makeCoordinator() -> JournalExplanationLayout { JournalExplanationLayout() }
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
@@ -17,6 +17,7 @@ struct JournalExplanationText: UIViewRepresentable {
         // Ruby readings extend above the first baseline; reserve space for their ascenders.
         view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 2, right: 0)
         view.textContainer.lineFragmentPadding = 0
+        view.textLayoutManager?.usesFontLeading = false
         view.textLayoutManager?.delegate = context.coordinator
         return view
     }
@@ -25,7 +26,7 @@ struct JournalExplanationText: UIViewRepresentable {
         let size = max(14, typography.size - 4)
         let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size))
         let content = JournalExplanationContent.attributed(segment, knownKanji: knownKanji, font: font)
-        context.coordinator.updateRubyRanges(in: content)
+        context.coordinator.update(content, font: font)
         view.attributedText = content
     }
 
@@ -72,6 +73,7 @@ enum JournalExplanationContent {
         paragraph.maximumLineHeight = pitch
         paragraph.lineBreakStrategy = []
         result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
+        JournalRubyTypography.compact(result)
         return result
     }
 

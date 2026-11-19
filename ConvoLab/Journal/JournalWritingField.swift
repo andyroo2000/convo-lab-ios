@@ -6,6 +6,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
     @Binding var text: String
     var label: String
     var minimumLines = 4
+    var autofocus = false
     @Environment(\.journalTypography) private var typography
     @Environment(\.isEnabled) private var enabled
     @ScaledMetric(relativeTo: .body) private var scale = 1.0
@@ -21,6 +22,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
     func updateUIView(_ view: JournalWritingTextView, context: Context) {
         context.coordinator.text = $text
         context.coordinator.focusChanged = focusChanged
+        view.focusOnAppearance = autofocus
         view.accessibilityLabel = label
         view.setEditingEnabled(enabled)
         view.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
@@ -55,6 +57,8 @@ struct JournalDeviceWritingField: UIViewRepresentable {
 }
 
 class JournalWritingTextView: UITextView {
+    var focusOnAppearance = false
+    private var didAutofocus = false
     private var requestedEditingEnabled = true
     private var needsCaretReveal = false
     private let placeholder = UILabel()
@@ -151,8 +155,18 @@ class JournalWritingTextView: UITextView {
         }
     }
 
+    private func focusIfRequested() {
+        guard focusOnAppearance, !didAutofocus, window != nil, isEditable else { return }
+        didAutofocus = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, self.isEditable else { return }
+            self.becomeFirstResponder()
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        focusIfRequested()
         revealCaret()
         let pitch = writingFont.pointSize * JournalPaperText.linePitch
         placeholder.frame = CGRect(x: 0, y: (pitch - writingFont.lineHeight) / 2,

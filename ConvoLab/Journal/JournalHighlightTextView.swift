@@ -10,6 +10,7 @@ final class JournalHighlightTextView: UITextView {
     init() {
         // Use the designated initializer so Swift storage exists before UIKit lays out.
         super.init(frame: .zero, textContainer: nil)
+        textLayoutManager?.usesFontLeading = false
     }
 
     required init?(coder: NSCoder) { super.init(coder: coder) }

@@ -39,6 +39,11 @@ struct JournalFeedbackView: View {
             }
                 .environment(\.journalShowEntries, nested ? nil : showEntries)
                 .onChange(of: version) { choosingVoice = false }
+                .task(id: "\(model.id):\(analysis.id):\(analysis.replyRevision ?? 0)") {
+                    await voice.load(entryID: model.id, analysis: analysis, service: model.store.service,
+                        snapshotURL: model.store.storage.directory.appendingPathComponent("narrator-\(model.id).json"))
+                }
+                .onDisappear { voice.cancel() }
         }
     }
 }

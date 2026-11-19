@@ -14,7 +14,7 @@ struct JournalFinalEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             JournalPaper(draft: document.entry.draft, reply: paperReply) {
-                JournalWritingField(text: $edit.text, label: "Final text", minimumLines: 3)
+                JournalWritingField(text: $edit.text, label: "Final text", minimumLines: 3, autofocus: true)
                     .disabled(document.disabled)
             }
             if let message = document.errorMessage {

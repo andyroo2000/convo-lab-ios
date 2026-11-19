@@ -35,6 +35,9 @@ struct JournalHighlights: UIViewRepresentable {
         context.coordinator.sourceID = sourceID
         context.coordinator.segments = segments
         context.coordinator.knownKanji = knownKanji
+        let key = RenderKey(segments: segments, knownKanji: knownKanji, typography: typography, scale: textScale, onPaper: onPaper)
+        guard context.coordinator.rendered != key else { return }
+        context.coordinator.rendered = key
         let output = NSMutableAttributedString()
         var ranges: [NSRange] = []
         for segment in segments {
@@ -43,6 +46,7 @@ struct JournalHighlights: UIViewRepresentable {
             ranges.append(NSRange(location: output.length, length: text.length))
             output.append(text)
         }
+        JournalRubyTypography.compact(output)
         context.coordinator.ranges = ranges
         if onPaper { JournalPaperText.align(output, font: typography.unscaledFont.withSize(typography.size * textScale)) }
         view.attributedText = output
@@ -64,7 +68,16 @@ struct JournalHighlights: UIViewRepresentable {
         return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 
+    struct RenderKey: Equatable {
+        let segments: [JournalSegment]
+        let knownKanji: Set<Character>
+        let typography: JournalTypography
+        let scale: Double
+        let onPaper: Bool
+    }
+
     final class Coordinator: NSObject, UIPopoverPresentationControllerDelegate {
+        var rendered: RenderKey?
         weak var view: UITextView?
         var typography = JournalTypography()
         var document: JournalDocumentModel?
@@ -103,7 +116,7 @@ struct JournalHighlights: UIViewRepresentable {
             popup.overrideUserInterfaceStyle = .light
             popup.view.backgroundColor = JournalPopoverStyle.surface
             popup.view.clipsToBounds = true
-            popup.view.layer.cornerRadius = 24
+            popup.view.layer.cornerRadius = JournalPopoverBackground.cornerRadius
             popup.modalPresentationStyle = .popover
             // UIKit may shorten this preferred size around the anchor. Let the scroll view
             // fill the actual presentation bounds rather than fixing its SwiftUI height.
@@ -123,7 +136,10 @@ struct JournalHighlights: UIViewRepresentable {
         private func sourceRect(_ index: Int, view: UITextView) -> CGRect {
             guard let start = view.position(from: view.beginningOfDocument, offset: ranges[index].location),
                   let end = view.position(from: start, offset: ranges[index].length), let range = view.textRange(from: start, to: end) else { return view.bounds }
-            return view.firstRect(for: range)
+            let rect = view.firstRect(for: range)
+            let font = view.attributedText.attribute(.font, at: ranges[index].location, effectiveRange: nil) as? UIFont
+            // UITextView selection rectangles include the notebook's interline spacing.
+            return JournalPopoverAnchor.glyphRect(selection: rect, range: ranges[index], in: view, font: font ?? typography.uiFont)
         }
 
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }

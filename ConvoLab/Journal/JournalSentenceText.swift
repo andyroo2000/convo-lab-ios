@@ -30,6 +30,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         view.isEditable = false; view.isScrollEnabled = false
         view.backgroundColor = .clear; view.overrideUserInterfaceStyle = .light
         view.textContainer.lineFragmentPadding = 0
+        view.textLayoutManager?.usesFontLeading = false
         view.textLayoutManager?.delegate = context.coordinator.ruby
         view.delegate = context.coordinator
         view.pauseAudio = { [weak player] in player?.pause() }
@@ -46,6 +47,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         let attributed = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
             weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 8, font: font))
         let ranges = JournalSentenceTimeline.ranges(player.sentences, text: document.plainText)
+        JournalRubyTypography.compact(attributed)
         if onPaper { JournalPaperText.align(attributed, font: font) }
         for (index, range) in ranges.enumerated() {
             attributed.addAttribute(.link, value: "journal-sentence://\(index)", range: range)
