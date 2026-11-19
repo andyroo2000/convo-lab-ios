@@ -7,6 +7,7 @@ struct JournalEntryToolbar: View {
     @Binding var choosingVoice: Bool
     var edit: (() -> Void)?
     var editing = false
+    @State private var copyID: UUID?
 
     var body: some View {
         HStack(spacing: 6) { versions; Spacer(minLength: 0); actions }
@@ -23,6 +24,8 @@ struct JournalEntryToolbar: View {
         JournalOptionsMenu {
             JournalOptionButton(title: "Copy text", icon: "doc.on.doc") {
                 UIPasteboard.general.string = JournalVersionCopy.text(version: version, analysis: analysis)
+                copyID = UUID()
+                UIAccessibility.post(notification: .announcement, argument: "Text copied")
             }
             if let edit { JournalOptionButton(title: "Edit final", icon: "pencil", action: edit).disabled(editing) }
             if version == .final && !editing {
@@ -31,5 +34,13 @@ struct JournalEntryToolbar: View {
             }
         }
             .accessibilityLabel("More journal options").tint(JournalDeskStyle.green)
+            .overlay(alignment: .topTrailing) {
+                if copyID != nil { JournalCopyToast().alignmentGuide(.top) { $0[.bottom] + 4 } }
+            }
+            .task(id: copyID) {
+                guard copyID != nil else { return }
+                do { try await Task.sleep(for: .seconds(2)); copyID = nil } catch { }
+            }
+            .onChange(of: version) { copyID = nil }
     }
 }

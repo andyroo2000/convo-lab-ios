@@ -30,7 +30,6 @@ struct JournalAudioControls: View {
             if let error = player.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
         }
         .outsideDismissibleSheet(isPresented: $choosingVoice) { ScrollView { JournalVoicePicker(voice: voice, choosing: $choosingVoice).padding() }.presentationDetents([.medium, .large]).presentationBackground(.white).environment(\.colorScheme, .light) }
-        .task(id: "\(entryID):\(analysis.id):\(analysis.replyRevision ?? 0)") { await loadVoices() }
         .onChange(of: voice.isLoading) { if voice.isLoading { choosingVoice = false } }
         .onChange(of: voice.errorMessage) { if voice.errorMessage != nil { choosingVoice = false } }
         .onChange(of: voice.voices.count) { if voice.voices.isEmpty { choosingVoice = false } }
@@ -44,7 +43,7 @@ struct JournalAudioControls: View {
                 player.stop()
             }
         }
-        .onDisappear { player.stop(); voice.cancel() }
+        .onDisappear { player.stop() }
     }
 
     private func loadVoices() async {

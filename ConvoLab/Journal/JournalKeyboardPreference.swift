@@ -22,6 +22,7 @@ struct JournalWritingField: View {
     var label: String
     var minimumLines = 4
     var requestChoice = true
+    var autofocus = false
     @Environment(\.isEnabled) private var enabled
     @AppStorage(JournalKeyboardMode.key) private var mode = ""
     @State private var choosing = false
@@ -30,9 +31,9 @@ struct JournalWritingField: View {
     var body: some View {
         Group {
             if mode == JournalKeyboardMode.builtIn.rawValue {
-                JournalNeuralWritingField(text: $text, label: label, minimumLines: minimumLines, unavailable: { inputUnavailable = true })
+                JournalNeuralWritingField(text: $text, label: label, minimumLines: minimumLines, autofocus: autofocus, unavailable: { inputUnavailable = true })
             } else {
-                JournalDeviceWritingField(text: $text, label: label, minimumLines: minimumLines)
+                JournalDeviceWritingField(text: $text, label: label, minimumLines: minimumLines, autofocus: autofocus)
                     .disabled(JournalKeyboardMode(rawValue: mode) == nil)
                     .overlay {
                         if JournalKeyboardMode(rawValue: mode) == nil {

@@ -19,6 +19,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         // Ruby readings extend above the first baseline; reserve space for their ascenders.
         view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
         view.textContainer.lineFragmentPadding = 0
+        view.textLayoutManager?.usesFontLeading = false
         view.textLayoutManager?.delegate = context.coordinator
         return view
     }
@@ -39,6 +40,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
                 color: UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1),
                 alignment: .left, extraLineSpacing: 2, font: font))
         }
+        JournalRubyTypography.compact(value)
         context.coordinator.updateRubyRanges(in: value)
         view.attributedText = value
     }

@@ -16,9 +16,11 @@ struct JournalCorrectionPopover: View {
                     .background(Color(red: 0.937, green: 0.925, blue: 0.969))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
-            JournalExplanationText(segment: segment, knownKanji: knownKanji).frame(width: width - 2 * inset).padding(inset)
+            JournalExplanationText(segment: segment, knownKanji: knownKanji).frame(width: width - 2 * inset)
+                .padding(.horizontal, inset).padding(.top, 6).padding(.bottom, 12)
         }.frame(width: width)
             .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: JournalPopoverBackground.cornerRadius, style: .circular))
             .environment(\.colorScheme, .light)
             .accessibilityIdentifier("JournalCorrectionPopover")
     }

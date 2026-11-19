@@ -100,7 +100,7 @@ final class JournalKeyboardUITests: XCTestCase {
         openFinalEditor(app)
         let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
-        field.tap()
+        XCTAssertTrue(app.collectionViews["JournalCandidates"].waitForExistence(timeout: 10))
         field.typeText("ohayou\n")
         let edited = field.value as? String
         XCTAssertTrue(edited?.contains("おはよう") == true)

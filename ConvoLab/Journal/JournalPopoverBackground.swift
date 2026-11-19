@@ -1,6 +1,8 @@
 import UIKit
 
 final class JournalPopoverBackground: UIPopoverBackgroundView {
+    static let cornerRadius: CGFloat = 24
+    static let pointerHeight: CGFloat = 8
     private var offset: CGFloat = 0
     private var direction: UIPopoverArrowDirection = .up
     private let bubble = CAShapeLayer()
@@ -14,7 +16,7 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         set { direction = newValue; setNeedsLayout() }
     }
     override class func arrowBase() -> CGFloat { 24 }
-    override class func arrowHeight() -> CGFloat { 12 }
+    override class func arrowHeight() -> CGFloat { pointerHeight }
     override class func contentViewInsets() -> UIEdgeInsets { .zero }
     override class var wantsDefaultContentAppearance: Bool { false }
 
@@ -36,14 +38,14 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         super.layoutSubviews()
         let top = direction == .up
         let body = bounds.insetBy(dx: 0.5, dy: 0.5)
-            .inset(by: UIEdgeInsets(top: top ? 12 : 0, left: 0, bottom: top ? 0 : 12, right: 0))
-        let path = UIBezierPath(roundedRect: body, cornerRadius: 24)
+            .inset(by: UIEdgeInsets(top: top ? Self.pointerHeight : 0, left: 0, bottom: top ? 0 : Self.pointerHeight, right: 0))
+        let path = UIBezierPath(roundedRect: body, cornerRadius: Self.cornerRadius)
         // Place the arrow on the shared silhouette without an interior border.
         let x = min(body.maxX - 36, max(body.minX + 36, bounds.midX + offset))
         let y = top ? body.minY : body.maxY
         let arrow = UIBezierPath()
         arrow.move(to: CGPoint(x: x - 12, y: y))
-        arrow.addLine(to: CGPoint(x: x, y: y + (top ? -12 : 12)))
+        arrow.addLine(to: CGPoint(x: x, y: y + (top ? -Self.pointerHeight : Self.pointerHeight)))
         arrow.addLine(to: CGPoint(x: x + 12, y: y))
         arrow.close()
         let silhouette = path.cgPath.union(arrow.cgPath)
