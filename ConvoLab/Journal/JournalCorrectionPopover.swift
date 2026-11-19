@@ -13,7 +13,7 @@ struct JournalCorrectionPopover: View {
                                              original: !segment.text.isEmpty, knownKanji: knownKanji).frame(width: width - 2 * inset)
                     JournalCorrectionPassage(text: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement,
                                              original: false, knownKanji: knownKanji).frame(width: width - 2 * inset)
-                }.padding(.horizontal, inset).padding(.top, 4).padding(.bottom, 12).frame(width: width, alignment: .leading)
+                }.padding(.horizontal, inset).padding(.top, 12).padding(.bottom, 12).frame(width: width, alignment: .leading)
                     .background(Color(red: 0.937, green: 0.925, blue: 0.969))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }

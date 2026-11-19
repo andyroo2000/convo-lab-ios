@@ -96,10 +96,9 @@ struct JournalHighlights: UIViewRepresentable {
             let measured = UIHostingController(rootView: content).sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
             let bounds = view.window?.safeAreaLayoutGuide.layoutFrame ?? controller.view.bounds
             let height = min(measured.height, max(120, bounds.height - 48))
-            let popup = UIHostingController(rootView: ScrollView { content }.accessibilityLabel("Correction explanation").accessibilityIdentifier("JournalCorrectionScroll"))
+            let popup = UIHostingController(rootView: ScrollView { content }.clipped().accessibilityLabel("Correction explanation").accessibilityIdentifier("JournalCorrectionScroll"))
             popup.overrideUserInterfaceStyle = .light
             popup.view.backgroundColor = JournalPopoverStyle.surface
-            popup.view.layer.cornerRadius = 14
             popup.view.clipsToBounds = true
             popup.modalPresentationStyle = .popover
             // UIKit may shorten this preferred size around the anchor. Let the scroll view
@@ -107,7 +106,7 @@ struct JournalHighlights: UIViewRepresentable {
             popup.preferredContentSize = CGSize(width: width, height: height)
             if let presentation = popup.popoverPresentationController {
                 presentation.delegate = self
-                presentation.popoverBackgroundViewClass = JournalPopoverBackground.self
+                // UIKit owns the outline so the header and surface share one corner mask.
                 presentation.backgroundColor = JournalPopoverStyle.surface
                 presentation.sourceView = view
                 presentation.sourceRect = sourceRect(index, view: view)
