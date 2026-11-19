@@ -4,7 +4,7 @@ struct JournalCorrectionPopover: View {
     let segment: JournalSegment
     let knownKanji: Set<Character>
     let width: CGFloat
-    private let inset: CGFloat = 14
+    private let inset: CGFloat = 18
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let replacement = segment.replacement {
@@ -12,12 +12,12 @@ struct JournalCorrectionPopover: View {
                                          original: !segment.text.isEmpty, knownKanji: knownKanji,
                                          replacement: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement)
                     .frame(width: width - 2 * inset)
-                    .padding(.horizontal, inset).padding(.vertical, 10).frame(width: width, alignment: .leading)
+                    .padding(.horizontal, inset).padding(.vertical, 14).frame(width: width, alignment: .leading)
                     .background(Color(red: 0.937, green: 0.925, blue: 0.969))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
             JournalExplanationText(segment: segment, knownKanji: knownKanji).frame(width: width - 2 * inset)
-                .padding(.horizontal, inset).padding(.top, 6).padding(.bottom, 12)
+                .padding(.horizontal, inset).padding(.top, 10).padding(.bottom, 16)
         }.frame(width: width)
             .background(.white)
             .clipShape(RoundedRectangle(cornerRadius: JournalPopoverBackground.cornerRadius, style: .circular))

@@ -26,10 +26,6 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         bubble.fillColor = UIColor.white.cgColor
         bubble.strokeColor = UIColor(red: 0.72, green: 0.70, blue: 0.68, alpha: 0.65).cgColor
         bubble.lineWidth = 1
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.10
-        layer.shadowRadius = 8
-        layer.shadowOffset = CGSize(width: 0, height: 3)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -51,5 +47,10 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         let silhouette = path.cgPath.union(arrow.cgPath)
         bubble.path = silhouette
         layer.shadowPath = silhouette
+        // Apply after UIKit's layout so its default popover shadow cannot replace the softer style.
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.08
+        layer.shadowRadius = 7
+        layer.shadowOffset = CGSize(width: 0, height: 2)
     }
 }
