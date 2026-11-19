@@ -35,7 +35,8 @@ struct AppModePicker: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize
+        let stacksHeader = selection == .journal && dynamicTypeSize.isAccessibilitySize
+        let layout = stacksHeader
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 6))
         return layout {
             if !dynamicTypeSize.isAccessibilitySize {
@@ -65,7 +66,7 @@ struct AppModePicker: View {
                     .presentationBackground(ConvoLabTheme.cream)
                     .preferredColorScheme(.light)
             }
-            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            if !stacksHeader { Spacer(minLength: 0) }
             if let action {
                 Button("End session", action: action.perform)
                     .frame(minHeight: 44)
@@ -75,7 +76,7 @@ struct AppModePicker: View {
                 HStack(spacing: 6) {
                     AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
                         .fixedSize(horizontal: selection == .journal, vertical: false)
-                    if dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                    if stacksHeader { Spacer(minLength: 0) }
                     AppAccountMenu(selection: $selection, journalActions: toolbar.menu, preventsNavigation: toolbar.preventsNavigation)
                 }
             }
