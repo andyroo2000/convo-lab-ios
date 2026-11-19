@@ -23,7 +23,13 @@ final class ModeNavigationUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["Cards"].exists)
         attachScreenshot(app, name: "Cards compact header in dark device appearance")
         for mode in ["time", "settings"] {
-            selectMode(mode, app: app)
+            if mode == "settings" {
+                app.buttons["app-account-menu"].tap()
+                app.buttons["Settings"].tap()
+                XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
+            } else {
+                selectMode(mode, app: app)
+            }
             XCTAssertFalse(app.navigationBars["More"].exists)
             XCTAssertFalse(app.buttons["More"].exists)
             XCTAssertFalse(app.navigationBars.buttons["Back"].exists)

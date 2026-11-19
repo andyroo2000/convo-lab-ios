@@ -23,7 +23,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
     }
 
     static let practice: [Self] = [.study, .dailyAudio, .journal, .readings]
-    static let manage: [Self] = [.cards, .time, .settings]
+    static let manage: [Self] = [.cards, .time]
 }
 
 struct AppModePicker: View {
@@ -34,6 +34,8 @@ struct AppModePicker: View {
     @State private var showingDestinations = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    private var navigationModes: [AppMode] { availableModes.filter { $0 != .settings } }
+
     var body: some View {
         let stacksHeader = selection == .journal && dynamicTypeSize.isAccessibilitySize
         let layout = stacksHeader
@@ -43,11 +45,18 @@ struct AppModePicker: View {
                 Text("CONVO-LAB").font(.custom("Anton-Regular", fixedSize: 30))
                     .tracking(-0.5).foregroundStyle(JournalBrandStyle.yellow).fixedSize()
                     .accessibilityHidden(true)
+                Rectangle().fill(.white.opacity(0.4)).frame(width: 1, height: 32)
+                    .padding(.horizontal, 3).accessibilityHidden(true)
             }
-            Button { showingDestinations = true } label: {
+            Button {
+                if navigationModes.count > 1 { showingDestinations = true }
+                else if let mode = navigationModes.first { selection = mode }
+            } label: {
                 HStack(spacing: 4) {
                     Text(selection.rawValue).font(.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.85)
-                    Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                    if navigationModes.count > 1 {
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                    }
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -57,9 +66,9 @@ struct AppModePicker: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Switch mode, \(selection.rawValue)")
+            .accessibilityLabel(navigationModes.count > 1 ? "Switch mode, \(selection.rawValue)" : selection.rawValue)
             .accessibilityIdentifier("app-mode-picker")
-            .disabled(toolbar.preventsNavigation)
+            .disabled(toolbar.preventsNavigation || (navigationModes.count == 1 && navigationModes.first == selection))
             .popover(isPresented: $showingDestinations, arrowEdge: .top) {
                 destinationPicker
                     .presentationCompactAdaptation(.popover)
@@ -73,7 +82,7 @@ struct AppModePicker: View {
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("StudyEndSessionButton")
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: 10) {
                     AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
                         .fixedSize(horizontal: selection == .journal, vertical: false)
                     if stacksHeader { Spacer(minLength: 0) }
@@ -93,21 +102,25 @@ struct AppModePicker: View {
     private var destinationPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             destinationGroup("Practice", modes: AppMode.practice)
-            Divider().padding(.horizontal, 12)
-            destinationGroup("Manage", modes: AppMode.manage)
+            if AppMode.manage.contains(where: navigationModes.contains) {
+                Divider().padding(.horizontal, 12)
+                destinationGroup("Manage", modes: AppMode.manage)
+            }
         }
-        .padding(10)
-        .frame(minWidth: 240)
+        .padding(14)
+        .frame(minWidth: 260)
         .foregroundStyle(ConvoLabTheme.navy)
         .background(ConvoLabTheme.cream)
     }
 
     private func destinationGroup(_ title: String, modes: [AppMode]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            if modes.contains(where: navigationModes.contains) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .medium)).tracking(1.5)
+                .foregroundStyle(ConvoLabTheme.navy.opacity(0.67))
                 .padding(.horizontal, 12)
+            }
             destinations(modes)
         }
     }
@@ -120,12 +133,13 @@ struct AppModePicker: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: mode.icon).frame(width: 24)
-                    Text(mode.rawValue)
+                    Text(mode.rawValue).font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
                     Spacer(minLength: 12)
                     if mode == selection { Image(systemName: "checkmark") }
                 }
                 .padding(.horizontal, 12)
-                .frame(minHeight: 44)
+                .frame(minHeight: 49)
+                .background(mode == selection ? Color(red: 0.906, green: 0.929, blue: 0.812) : .clear, in: .rect(cornerRadius: 9))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

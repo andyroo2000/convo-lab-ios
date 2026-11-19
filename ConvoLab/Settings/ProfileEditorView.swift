@@ -17,12 +17,12 @@ struct ProfileEditorView: View {
     var body: some View {
         JournalSettingsPanel(title: "Edit profile") {
             fieldLayout {
-                JournalAuthField(title: "Name") {
+                JournalSettingsField(title: "Name") {
                     TextField("Name", text: $name)
                         .textContentType(.name)
                         .accessibilityLabel("Name")
                 }
-                JournalAuthField(title: "Email") {
+                JournalSettingsField(title: "Email") {
                     TextField("Email", text: $email)
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -40,7 +40,7 @@ struct ProfileEditorView: View {
                         if await auth.updateProfile(name: cleanName, email: cleanEmail) { dismiss() }
                     }
                 }
-                .buttonStyle(JournalAuthSubmitStyle())
+                .buttonStyle(JournalSettingsSubmitStyle())
                 .disabled(cleanName.isEmpty || cleanEmail.isEmpty || auth.isWorking)
                 .accessibilityIdentifier("SettingsSaveProfile")
             }
@@ -69,13 +69,13 @@ struct PasswordEditorView: View {
     var body: some View {
         JournalSettingsPanel(title: "Change password") {
             VStack(alignment: .leading, spacing: 22) {
-                JournalAuthField(title: "Current password") {
+                JournalSettingsField(title: "Current password") {
                     SecureField("Current password", text: $currentPassword).textContentType(.password)
                 }
-                JournalAuthField(title: "New password") {
+                JournalSettingsField(title: "New password") {
                     SecureField("New password", text: $password).textContentType(.newPassword)
                 }
-                JournalAuthField(title: "Confirm password") {
+                JournalSettingsField(title: "Confirm password") {
                     SecureField("Confirm password", text: $confirmation).textContentType(.newPassword)
                 }
                 JournalAuthError(message: auth.errorMessage)
@@ -84,7 +84,7 @@ struct PasswordEditorView: View {
             HStack {
                 Spacer()
                 Button(auth.isWorking ? "Updating…" : "Update password", action: updatePassword)
-                    .buttonStyle(JournalAuthSubmitStyle())
+                    .buttonStyle(JournalSettingsSubmitStyle())
                     .disabled(
                         currentPassword.isEmpty || password.isEmpty || password != confirmation
                             || auth.isWorking)

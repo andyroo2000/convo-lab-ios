@@ -96,8 +96,8 @@ final class JournalKeyboardUITests: XCTestCase {
         openSettings(app)
         app.buttons["JournalKeyboard-builtIn"].tap()
         app.buttons["JournalKeyboardConfirm"].tap()
-        app.buttons["More journal options"].firstMatch.tap()
-        app.buttons["Edit final"].tap()
+        XCTAssertTrue(app.buttons["JournalKeyboardConfirm"].waitForNonExistence(timeout: 5))
+        openFinalEditor(app)
         let field = app.textViews["Final text"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
@@ -108,11 +108,20 @@ final class JournalKeyboardUITests: XCTestCase {
         for _ in 0..<8 where !app.buttons["Save changes"].isHittable { app.swipeUp() }
         app.buttons["Save changes"].tap()
         XCTAssertTrue(app.buttons["Listen corrected version"].waitForExistence(timeout: 10))
-        app.buttons["More journal options"].firstMatch.tap()
-        app.buttons["Edit final"].tap()
+        openFinalEditor(app)
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, edited)
         capture(app, "Saved final text with built-in input")
+    }
+
+    private func openFinalEditor(_ app: XCUIApplication) {
+        let options = app.buttons["More journal options"].firstMatch
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: options)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
+        options.tap()
+        let edit = app.buttons["Edit final"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
     }
 
     private func openJournal(onboarding: Bool) -> XCUIApplication {

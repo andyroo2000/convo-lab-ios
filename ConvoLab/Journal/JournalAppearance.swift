@@ -8,6 +8,12 @@ struct JournalAppearance: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Text("今日はいい一日でした。\nToday was a good day.")
+                    .font(typography.font)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+                    .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+                    .accessibilityIdentifier("JournalAppearancePreview")
                 VStack(spacing: 12) {
                     fontCard("Klee One", value: "klee")
                     fontCard("Sans-serif", value: "sans")
@@ -23,13 +29,7 @@ struct JournalAppearance: View {
                         .accessibilityLabel("Font size")
                         .accessibilityValue("\(Int(typography.size)) points")
                 }
-                Text("今日は日本語のレッスン。\nToday I learned something new.")
-                    .font(typography.font)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
-                    .accessibilityIdentifier("JournalAppearancePreview")
-                Text("Scales with your system text size.").font(.footnote).foregroundStyle(.secondary)
+
             }.padding(24)
         }
         .tint(JournalToolbarButtonStyle.blue)
