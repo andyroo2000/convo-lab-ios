@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct JournalCorrectionPassage: UIViewRepresentable {
+    @Environment(\.journalTypography) private var typography
     let text: String
     let original: Bool
     let knownKanji: Set<Character>
@@ -22,7 +23,8 @@ struct JournalCorrectionPassage: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: 17) ?? .systemFont(ofSize: 17))
+        let size = max(14, typography.size - 2)
+        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: size) ?? .systemFont(ofSize: size))
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let value = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
             weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 10, font: font))

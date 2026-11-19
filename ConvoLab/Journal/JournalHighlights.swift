@@ -30,6 +30,7 @@ struct JournalHighlights: UIViewRepresentable {
     }
 
     func updateUIView(_ view: JournalHighlightTextView, context: Context) {
+        context.coordinator.typography = typography
         context.coordinator.document = document
         context.coordinator.sourceID = sourceID
         context.coordinator.segments = segments
@@ -65,6 +66,7 @@ struct JournalHighlights: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIPopoverPresentationControllerDelegate {
         weak var view: UITextView?
+        var typography = JournalTypography()
         var document: JournalDocumentModel?
         var sourceID = ""
         var segments: [JournalSegment] = []
@@ -93,6 +95,7 @@ struct JournalHighlights: UIViewRepresentable {
             document?.errorMessage = nil
             let width = min(360, (view.window?.bounds.width ?? 368) - 32)
             let content = JournalCorrectionPopover(segment: segments[index], knownKanji: knownKanji, width: width)
+                .environment(\.journalTypography, typography)
             let measured = UIHostingController(rootView: content).sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
             let bounds = view.window?.safeAreaLayoutGuide.layoutFrame ?? controller.view.bounds
             let height = min(measured.height, max(120, bounds.height - 48))
