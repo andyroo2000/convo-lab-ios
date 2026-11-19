@@ -62,6 +62,14 @@ enum JournalExplanationContent {
             weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4, font: font))
         styleJapanese(result, size: font.pointSize, replacement: segment.replacement ?? "")
         emphasize(result, font: font)
+        // Use one baseline pitch even when Japanese fallback fonts have taller metrics.
+        let paragraph = NSMutableParagraphStyle()
+        let japanese = UIFont(name: "HiraMinProN-W3", size: font.pointSize) ?? font
+        let pitch = max(font.lineHeight, japanese.lineHeight) + font.pointSize * (document.hasRuby ? 0.5 : 0.15)
+        paragraph.minimumLineHeight = pitch
+        paragraph.maximumLineHeight = pitch
+        paragraph.lineBreakStrategy = []
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
     }
 

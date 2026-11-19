@@ -5,6 +5,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
     let text: String
     let original: Bool
     let knownKanji: Set<Character>
+    var replacement: String?
 
     func makeCoordinator() -> StudyRubyLineBreakDelegate { StudyRubyLineBreakDelegate() }
 
@@ -15,7 +16,7 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         view.isScrollEnabled = false
         view.backgroundColor = .clear
         // Ruby readings extend above the first baseline; reserve space for their ascenders.
-        view.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 2, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.textLayoutManager?.delegate = context.coordinator
         return view
@@ -25,10 +26,16 @@ struct JournalCorrectionPassage: UIViewRepresentable {
         let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: 17) ?? .systemFont(ofSize: 17))
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let value = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
-            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 10, font: font))
+            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 2, font: font))
         if original {
             value.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: UIColor.systemRed],
                                 range: NSRange(location: 0, length: value.length))
+        }
+        if let replacement {
+            let corrected = StudyRubyDocument.parse(" → " + replacement, knownKanji: knownKanji)
+            value.append(corrected.attributedString(pointSize: font.pointSize, weight: .regular,
+                color: UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1),
+                alignment: .left, extraLineSpacing: 2, font: font))
         }
         context.coordinator.updateRubyRanges(in: value)
         view.attributedText = value

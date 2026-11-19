@@ -100,12 +100,14 @@ struct JournalHighlights: UIViewRepresentable {
             popup.overrideUserInterfaceStyle = .light
             popup.view.backgroundColor = JournalPopoverStyle.surface
             popup.view.clipsToBounds = true
+            popup.view.layer.cornerRadius = 24
             popup.modalPresentationStyle = .popover
             // UIKit may shorten this preferred size around the anchor. Let the scroll view
             // fill the actual presentation bounds rather than fixing its SwiftUI height.
             popup.preferredContentSize = CGSize(width: width, height: height)
             if let presentation = popup.popoverPresentationController {
                 presentation.delegate = self
+                presentation.popoverBackgroundViewClass = JournalPopoverBackground.self
                 // UIKit owns the outline so the header and surface share one corner mask.
                 presentation.backgroundColor = JournalPopoverStyle.surface
                 presentation.sourceView = view

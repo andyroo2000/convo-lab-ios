@@ -8,12 +8,11 @@ struct JournalCorrectionPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let replacement = segment.replacement {
-                VStack(alignment: .leading, spacing: 8) {
-                    JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : (segment.reading.isEmpty ? segment.text : segment.reading),
-                                             original: !segment.text.isEmpty, knownKanji: knownKanji).frame(width: width - 2 * inset)
-                    JournalCorrectionPassage(text: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement,
-                                             original: false, knownKanji: knownKanji).frame(width: width - 2 * inset)
-                }.padding(.horizontal, inset).padding(.top, 12).padding(.bottom, 12).frame(width: width, alignment: .leading)
+                JournalCorrectionPassage(text: segment.text.isEmpty ? "Insert" : (segment.reading.isEmpty ? segment.text : segment.reading),
+                                         original: !segment.text.isEmpty, knownKanji: knownKanji,
+                                         replacement: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement)
+                    .frame(width: width - 2 * inset)
+                    .padding(.horizontal, inset).padding(.vertical, 10).frame(width: width, alignment: .leading)
                     .background(Color(red: 0.937, green: 0.925, blue: 0.969))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
