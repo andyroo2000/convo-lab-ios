@@ -73,8 +73,8 @@ final class SettingsModalUITests: XCTestCase {
 
     @MainActor
     private func openSettings(_ app: XCUIApplication) {
-        app.buttons["app-mode-picker"].tap()
-        app.buttons["app-mode-settings"].tap()
+        app.buttons["app-account-menu"].tap()
+        app.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
     }
 

@@ -10,7 +10,7 @@ struct JournalEntryToolbar: View {
 
     var body: some View {
         HStack(spacing: 6) { versions; Spacer(minLength: 0); actions }
-            .padding(.horizontal, 10).padding(.vertical, 5)
+            .padding(.horizontal, 10).padding(.vertical, 12)
             .background(Color(red: 1, green: 0.992, blue: 0.961), in: UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10))
             .accessibilityElement(children: .contain).accessibilityLabel("Entry controls")
     }
