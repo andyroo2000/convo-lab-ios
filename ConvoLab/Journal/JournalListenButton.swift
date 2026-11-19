@@ -26,6 +26,7 @@ struct JournalListenButton: View {
     var disabled = false
     let toggle: () -> Void
     @FocusState private var keyboardFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var action: JournalPlaybackAction {
         .current(preparing: player.preparing, playing: player.isPlaying, position: player.position, duration: player.duration)
@@ -35,8 +36,9 @@ struct JournalListenButton: View {
         Button { toggle(); keyboardFocused = true } label: {
             HStack(spacing: 6) {
                 if player.preparing { ProgressView().controlSize(.small) }
-                else { Image(systemName: action.icon).font(.caption) }
+                else if !dynamicTypeSize.isAccessibilitySize { Image(systemName: action.icon).font(.caption) }
                 Text(action.rawValue).font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }.padding(.horizontal, 12).frame(minHeight: 44)
                 .foregroundStyle(JournalToolbarButtonStyle.blue)
                 .background(.white, in: .capsule)

@@ -35,7 +35,9 @@ struct AppModePicker: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 6) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 6))
+        return layout {
             if !dynamicTypeSize.isAccessibilitySize {
                 Text("CONVO-LAB").font(.custom("Anton-Regular", fixedSize: 30))
                     .tracking(-0.5).foregroundStyle(JournalBrandStyle.yellow).fixedSize()
@@ -63,15 +65,18 @@ struct AppModePicker: View {
                     .presentationBackground(ConvoLabTheme.cream)
                     .preferredColorScheme(.light)
             }
-            Spacer(minLength: 0)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
             if let action {
                 Button("End session", action: action.perform)
                     .frame(minHeight: 44)
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("StudyEndSessionButton")
             } else {
-                AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
-                AppAccountMenu(selection: $selection, journalActions: toolbar.menu, preventsNavigation: toolbar.preventsNavigation)
+                HStack(spacing: 6) {
+                    AppModeToolbarView(toolbar: selection == .journal ? AppModeToolbar(buttons: toolbar.buttons) : toolbar)
+                    if dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                    AppAccountMenu(selection: $selection, journalActions: toolbar.menu, preventsNavigation: toolbar.preventsNavigation)
+                }
             }
         }
         .padding(.leading, 14)
