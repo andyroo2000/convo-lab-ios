@@ -28,7 +28,7 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         let keyboardChoice = app.buttons["Close keyboard choice"]
         if keyboardChoice.waitForExistence(timeout: 3) { keyboardChoice.tap() }
-        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-account-menu"].tap()
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 3))
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
