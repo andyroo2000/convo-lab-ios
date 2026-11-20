@@ -8,6 +8,7 @@ struct JournalInputSnapshot: Decodable {
     let section: [Int]?
     let choices: [String]
     let reading: String
+    let highlighted: Int
     let boundaries: [Int]
 }
 

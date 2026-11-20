@@ -66,6 +66,25 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         coordinator.stop()
     }
 
+    func testCandidatePanelExpandsWithoutDroppingChoices() {
+        let bar = JournalCandidateBar()
+        bar.frame.size.width = 390
+        let choices = (0..<160).map { "候補\($0)" }
+        bar.update(choices, context: "こうほ")
+        bar.toggleExpanded()
+        XCTAssertTrue(bar.expanded)
+        XCTAssertEqual(bar.intrinsicContentSize.height, 216)
+        let collection = bar.subviews.compactMap { $0 as? UICollectionView }.first!
+        XCTAssertEqual(collection.numberOfItems(inSection: 0), 160)
+        bar.toggleExpanded()
+        XCTAssertEqual(bar.intrinsicContentSize.height, 48)
+        bar.update([], context: "")
+        var dismissed = false
+        bar.dismissKeyboard = { dismissed = true }
+        bar.toggleExpanded()
+        XCTAssertTrue(dismissed)
+    }
+
     func testExactLatinSpellingCanBeCommitted() throws {
         let model = try XCTUnwrap(JournalNativeComposition())
         let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "OpenAI", "selection": [0, 0]]])

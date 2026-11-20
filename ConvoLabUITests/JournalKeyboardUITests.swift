@@ -46,6 +46,13 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Submit"].isHittable)
         XCTAssertLessThanOrEqual(app.buttons["Submit"].frame.maxY, strip.frame.minY)
         capture(app, "01 Kana stays in notebook with native candidate strip")
+        let compactHeight = strip.frame.height
+        app.buttons["JournalExpandCandidates"].tap()
+        XCTAssertGreaterThan(strip.frame.height, compactHeight)
+        XCTAssertTrue(app.buttons["Submit"].isHittable)
+        XCTAssertLessThanOrEqual(app.buttons["Submit"].frame.maxY, strip.frame.minY)
+        capture(app, "Expanded candidates keep notebook actions above keyboard")
+        app.buttons["JournalExpandCandidates"].tap()
         candidate.tap()
         XCTAssertEqual(field.value as? String, "今日は楽しかった")
         field.typeText(XCUIKeyboardKey.delete.rawValue)
