@@ -67,6 +67,27 @@ final class JournalExplanationTests: XCTestCase {
         XCTAssertEqual(JournalExplanationContent.text(segment), "Use 日本[にほん].\u{2002}Next.\u{2002}**早め**.\u{2002}Another.\u{2002}日本語.\nEnglish. English.")
     }
 
+    @MainActor
+    func testMixedSentenceBoundariesMatchWebAndDoNotChangeStoredText() {
+        let cases = [
+            ("Use とても to describe how tired you were. たくさん expresses quantity.",
+             "Use とても to describe how tired you were.\u{2002}たくさん expresses quantity."),
+            ("Tired? **とても** fits! **疲れた** means tired.", "Tired?\u{2002}**とても** fits!\u{2002}**疲れた** means tired."),
+            ("Try it. “とても” fits.", "Try it.\u{2002}“とても” fits."),
+            ("**日本.** Another sentence.", "**日本.**\u{2002}Another sentence."),
+            ("Use 日本!” Next.", "Use 日本!”\u{2002}Next."),
+            ("English.\u{2002}日本語.\u{2002}Next.", "English.\u{2002}日本語.\u{2002}Next."),
+            ("English.\n日本語", "English.\n日本語"),
+            ("Use とても here, then 日本語.", "Use とても here, then 日本語."),
+            ("Version 3.14. Visit example.jp. Done.", "Version 3.14. Visit example.jp. Done.")
+        ]
+        for (input, expected) in cases {
+            let segment = example(input)
+            XCTAssertEqual(JournalExplanationContent.text(segment), expected, input)
+            XCTAssertEqual(segment.explanation, input)
+        }
+    }
+
     private func example(_ explanation: String) -> JournalSegment {
         JournalSegment(text: "", reading: "", kind: .correction, suggestion: nil,
                        suggestionReading: nil, explanation: explanation, explanationReading: nil)

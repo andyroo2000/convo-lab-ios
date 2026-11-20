@@ -4,7 +4,7 @@ import UIKit
 /// Keep readings close to their kanji without changing notebook baselines.
 enum JournalRubyTypography {
     @discardableResult
-    static func compact(_ text: NSMutableAttributedString, onPaper: Bool = false) -> CGFloat {
+    static func compact(_ text: NSMutableAttributedString, onPaper: Bool = false, useTextColor: Bool = false) -> CGFloat {
         var inset: CGFloat = 0
         let key = NSAttributedString.Key(kCTRubyAnnotationAttributeName as String)
         text.enumerateAttribute(key, in: NSRange(location: 0, length: text.length)) { value, range, _ in
@@ -16,10 +16,11 @@ enum JournalRubyTypography {
                 let extraHeight = max(0, font.lineHeight - font.pointSize)
                 inset = max(inset, font.pointSize * 0.035 + extraHeight * 0.7)
             }
+            let textColor = text.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor ?? .secondaryLabel
             let closer = CTRubyAnnotationCreateWithAttributes(.auto, .auto, .before, reading, [
                 kCTRubyAnnotationSizeFactorAttributeName: 0.42,
                 kCTBaselineOffsetAttributeName: -font.pointSize * 0.10,
-                kCTForegroundColorAttributeName: UIColor.secondaryLabel.cgColor
+                kCTForegroundColorAttributeName: (useTextColor ? textColor : UIColor.secondaryLabel).cgColor
             ] as CFDictionary)
             text.addAttribute(key, value: closer, range: range)
         }

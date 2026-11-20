@@ -13,7 +13,7 @@ struct JournalCorrectionPopover: View {
                                          replacement: replacement.isEmpty ? "Remove" : segment.replacementReading ?? replacement)
                     .frame(width: width - 2 * inset)
                     .padding(.horizontal, inset).padding(.vertical, 14).frame(width: width, alignment: .leading)
-                    .background(Color(red: 0.937, green: 0.925, blue: 0.969))
+                    .background(Color(uiColor: JournalPopoverStyle.editHeader))
                     .accessibilityElement(children: .ignore).accessibilityLabel(editDescription(replacement))
             }
             JournalExplanationText(segment: segment, knownKanji: knownKanji).frame(width: width - 2 * inset)

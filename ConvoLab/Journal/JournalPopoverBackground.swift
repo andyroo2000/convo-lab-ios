@@ -1,11 +1,13 @@
 import UIKit
 
-final class JournalPopoverBackground: UIPopoverBackgroundView {
+class JournalPopoverBackground: UIPopoverBackgroundView {
+    class var headerColor: UIColor { .white }
     static let cornerRadius: CGFloat = 24
     static let pointerHeight: CGFloat = 8
     private var offset: CGFloat = 0
     private var direction: UIPopoverArrowDirection = .up
     private let bubble = CAShapeLayer()
+    private let headerCap = CAShapeLayer()
 
     override var arrowOffset: CGFloat {
         get { offset }
@@ -23,9 +25,9 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.addSublayer(bubble)
+        layer.addSublayer(headerCap)
         bubble.fillColor = UIColor.white.cgColor
-        bubble.strokeColor = UIColor(red: 0.72, green: 0.70, blue: 0.68, alpha: 0.65).cgColor
-        bubble.lineWidth = 1
+        bubble.strokeColor = nil
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -33,6 +35,7 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let top = direction == .up
+        headerCap.fillColor = Self.headerColor.cgColor
         let body = bounds.insetBy(dx: 0.5, dy: 0.5)
             .inset(by: UIEdgeInsets(top: top ? Self.pointerHeight : 0, left: 0, bottom: top ? 0 : Self.pointerHeight, right: 0))
         let path = UIBezierPath(roundedRect: body, cornerRadius: Self.cornerRadius)
@@ -46,6 +49,10 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         arrow.close()
         let silhouette = path.cgPath.union(arrow.cgPath)
         bubble.path = silhouette
+        // Match the header at both top corners even when UIKit puts the pointer below.
+        let cap = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width,
+                         height: body.minY + 2 * Self.cornerRadius)
+        headerCap.path = silhouette.intersection(CGPath(rect: cap, transform: nil))
         layer.shadowPath = silhouette
         // Apply after UIKit's layout so its default popover shadow cannot replace the softer style.
         layer.shadowColor = UIColor.black.cgColor
@@ -53,4 +60,8 @@ final class JournalPopoverBackground: UIPopoverBackgroundView {
         layer.shadowRadius = 7
         layer.shadowOffset = CGSize(width: 0, height: 2)
     }
+}
+
+final class JournalEditPopoverBackground: JournalPopoverBackground {
+    override class var headerColor: UIColor { JournalPopoverStyle.editHeader }
 }
