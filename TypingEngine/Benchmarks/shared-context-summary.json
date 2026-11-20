@@ -1,0 +1,227 @@
+{
+  "samples": 72,
+  "baselineMedianMs": 606.797354,
+  "optimizedMedianMs": 235.73472900000002,
+  "sameTop5": 72,
+  "sameFullOrder": 48,
+  "sameSetsAndStructure": 72,
+  "maxScoreDelta": 0.00665300000000002,
+  "cases": [
+    {
+      "reading": "きのうえいがをみました",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 642.7505,
+      "optimizedMs": 329.922375,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "きょうはいいてんきです",
+      "cut": 5,
+      "count": 160,
+      "baselineMs": 549.496458,
+      "optimizedMs": 216.061208,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "あたらしいほんをかいました",
+      "cut": 4,
+      "count": 160,
+      "baselineMs": 682.564333,
+      "optimizedMs": 286.517458,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "にほんごをべんきょうしています",
+      "cut": 14,
+      "count": 160,
+      "baselineMs": 734.113083,
+      "optimizedMs": 298.006458,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "そのあとともだちにあいました",
+      "cut": 3,
+      "count": 160,
+      "baselineMs": 769.068709,
+      "optimizedMs": 324.836708,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "あしたはやくおきます",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 575.47325,
+      "optimizedMs": 233.121125,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "きんようびにかえります",
+      "cut": 10,
+      "count": 160,
+      "baselineMs": 604.7195,
+      "optimizedMs": 235.571292,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "くるまをうんてんしました",
+      "cut": 3,
+      "count": 160,
+      "baselineMs": 621.363,
+      "optimizedMs": 231.789583,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "えいごのじまくがありました",
+      "cut": 3,
+      "count": 160,
+      "baselineMs": 730.428834,
+      "optimizedMs": 289.435834,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "ひこうきがとべなくなりました",
+      "cut": 4,
+      "count": 160,
+      "baselineMs": 797.437833,
+      "optimizedMs": 339.392541,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "はしをわたりました",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 535.316416,
+      "optimizedMs": 206.074541,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "はしでたべました",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 513.444,
+      "optimizedMs": 201.753625,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "あめがふっています",
+      "cut": 8,
+      "count": 160,
+      "baselineMs": 550.757,
+      "optimizedMs": 213.71225,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "あめをたべました",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 531.971292,
+      "optimizedMs": 197.197083,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "かみをきりました",
+      "cut": 2,
+      "count": 160,
+      "baselineMs": 511.641541,
+      "optimizedMs": 196.213334,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "きしゃがきしゃできしゃにきた",
+      "cut": 3,
+      "count": 160,
+      "baselineMs": 785.221791,
+      "optimizedMs": 316.482333,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "とうきょうえきでまちあわせしました",
+      "cut": 7,
+      "count": 160,
+      "baselineMs": 817.846625,
+      "optimizedMs": 356.628084,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "しんじゅくにいきました",
+      "cut": 10,
+      "count": 160,
+      "baselineMs": 617.57875,
+      "optimizedMs": 237.803583,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "らーめんをたべました",
+      "cut": 4,
+      "count": 160,
+      "baselineMs": 599.04075,
+      "optimizedMs": 232.945791,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "こーひーをのみました",
+      "cut": 9,
+      "count": 160,
+      "baselineMs": 620.4435,
+      "optimizedMs": 238.531291,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "えいがはおもしろかったです。",
+      "cut": 3,
+      "count": 68,
+      "baselineMs": 330.557958,
+      "optimizedMs": 139.795875,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "わたしはがっこうにいきませんでした",
+      "cut": 16,
+      "count": 80,
+      "baselineMs": 466.816291,
+      "optimizedMs": 192.135,
+      "top5Same": true,
+      "orderSame": true
+    },
+    {
+      "reading": "たべなければなりません",
+      "cut": 10,
+      "count": 128,
+      "baselineMs": 536.47975,
+      "optimizedMs": 240.569583,
+      "top5Same": true,
+      "orderSame": false
+    },
+    {
+      "reading": "きのうともだちとえいがをみてからばんごはんをたべました",
+      "cut": 7,
+      "count": 160,
+      "baselineMs": 1309.906708,
+      "optimizedMs": 569.574167,
+      "top5Same": true,
+      "orderSame": false
+    }
+  ]
+}
