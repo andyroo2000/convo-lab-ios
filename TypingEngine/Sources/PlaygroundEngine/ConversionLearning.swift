@@ -23,7 +23,10 @@ final class ConversionLearning {
     if let directory {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       if let url = preferenceURL, FileManager.default.fileExists(atPath: url.path) {
-        preferences = try JSONDecoder().decode([ConfirmedConversion].self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        // A damaged preference cache must not prevent the keyboard from starting.
+        let restored = (try? JSONDecoder().decode([ConfirmedConversion].self, from: data)) ?? []
+        preferences = Array(restored.suffix(256))
       }
     }
   }

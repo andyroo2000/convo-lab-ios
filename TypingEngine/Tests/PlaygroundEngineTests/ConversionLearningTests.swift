@@ -92,6 +92,18 @@ struct ConversionLearningTests {
     }
   }
 
+  @Test func damagedPreferenceCacheRecoversAndCanLearnAgain() throws {
+    let folder = try directory()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try Data("{broken".utf8).write(to: folder.appendingPathComponent("confirmed.json"))
+    let engine = try PlaygroundEngine(learningDirectory: folder)
+    #expect(try texts(engine, "あめ").contains("飴"))
+    #expect(try engine.learn(#"{"reading":"あめ","text":"飴","start":0,"end":2}"#))
+    let restarted = try PlaygroundEngine(learningDirectory: folder)
+    #expect(try texts(restarted, "あめ").first == "飴")
+    try restarted.resetLearning()
+  }
+
   @Test func unpersonalizedBenchmarksStayUnchanged() throws {
     let engine = try PlaygroundEngine()
     let before = try texts(engine, "あめ")
