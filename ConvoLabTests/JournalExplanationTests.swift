@@ -48,7 +48,10 @@ final class JournalExplanationTests: XCTestCase {
         XCTAssertEqual(text.attribute(.foregroundColor, at: finalTerm.location, effectiveRange: nil) as? UIColor,
                        UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1))
         let japanese = text.attribute(.font, at: finalTerm.location, effectiveRange: nil) as? UIFont
-        XCTAssertFalse(japanese?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+        XCTAssertEqual(japanese?.fontName, "HiraMinProN-W6")
+        XCTAssertEqual(japanese?.pointSize, 16)
+        let latin = text.attribute(.font, at: (text.string as NSString).range(of: "and").location, effectiveRange: nil) as? UIFont
+        XCTAssertEqual(latin?.pointSize ?? 0, 12.8, accuracy: 0.01)
     }
 
     @MainActor

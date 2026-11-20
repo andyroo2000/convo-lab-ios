@@ -71,9 +71,6 @@ struct AppModePicker: View {
             .disabled(toolbar.preventsNavigation || (navigationModes.count == 1 && navigationModes.first == selection))
             .popover(isPresented: $showingDestinations, arrowEdge: .top) {
                 destinationPicker
-                    .presentationCompactAdaptation(.popover)
-                    .presentationBackground(ConvoLabTheme.cream)
-                    .preferredColorScheme(.light)
             }
             if !stacksHeader { Spacer(minLength: 0) }
             if let action {
@@ -100,52 +97,27 @@ struct AppModePicker: View {
     }
 
     private var destinationPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        AppPaperMenu {
             destinationGroup("Practice", modes: AppMode.practice)
             if AppMode.manage.contains(where: navigationModes.contains) {
                 Divider().padding(.horizontal, 12)
                 destinationGroup("Manage", modes: AppMode.manage)
             }
         }
-        .padding(14)
-        .frame(minWidth: 260)
-        .foregroundStyle(ConvoLabTheme.navy)
-        .background(ConvoLabTheme.cream)
     }
 
-    private func destinationGroup(_ title: String, modes: [AppMode]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if modes.contains(where: navigationModes.contains) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .medium)).tracking(1.5)
-                .foregroundStyle(ConvoLabTheme.navy.opacity(0.67))
-                .padding(.horizontal, 12)
-            }
-            destinations(modes)
-        }
-    }
-
-    private func destinations(_ modes: [AppMode]) -> some View {
-        ForEach(modes.filter { availableModes.contains($0) }) { mode in
-            Button {
-                showingDestinations = false
-                selection = mode
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: mode.icon).frame(width: 24)
-                    Text(mode.rawValue).font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
-                    Spacer(minLength: 12)
-                    if mode == selection { Image(systemName: "checkmark") }
+    @ViewBuilder private func destinationGroup(_ title: String, modes: [AppMode]) -> some View {
+        let visible = modes.filter { availableModes.contains($0) }
+        if !visible.isEmpty {
+            AppPaperMenuGroup(title: title) {
+                ForEach(visible) { mode in
+                    AppPaperMenuRow(title: mode.rawValue, icon: mode.icon, selected: mode == selection) {
+                        showingDestinations = false
+                        selection = mode
+                    }
+                    .accessibilityIdentifier("app-mode-\(mode)")
                 }
-                .padding(.horizontal, 12)
-                .frame(minHeight: 49)
-                .background(mode == selection ? Color(red: 0.906, green: 0.929, blue: 0.812) : .clear, in: .rect(cornerRadius: 9))
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(mode.rawValue)
-            .accessibilityAddTraits(mode == selection ? .isSelected : [])
-            .accessibilityIdentifier("app-mode-\(mode)")
         }
     }
 }

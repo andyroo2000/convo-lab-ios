@@ -15,12 +15,17 @@ struct JournalVoicePicker: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 12) {
                 ForEach(voice.voices) { option in
                     Button { voice.selected = option.id; choosing = false } label: {
-                        VStack(spacing: 8) {
-                            JournalAvatar(url: option.avatarUrl).frame(width: 80, height: 80)
-                                .clipShape(Circle()).accessibilityHidden(true)
-                            if voice.selected == option.id { Image(systemName: "checkmark").accessibilityHidden(true) }
-                        }.frame(maxWidth: .infinity).padding(12)
+                        JournalAvatar(url: option.avatarUrl)
+                            .frame(width: 80, height: 80)
+                            .background(.white, in: Circle()).clipShape(Circle()).accessibilityHidden(true)
+                            .frame(maxWidth: .infinity).padding(12)
                             .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
+                            .overlay(alignment: .bottomTrailing) {
+                                if voice.selected == option.id {
+                                    Image(systemName: "checkmark").font(.footnote.weight(.semibold))
+                                        .padding(8).accessibilityHidden(true)
+                                }
+                            }
                     }.buttonStyle(.plain).disabled(voice.isLoading || voice.errorMessage != nil)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(option.name)

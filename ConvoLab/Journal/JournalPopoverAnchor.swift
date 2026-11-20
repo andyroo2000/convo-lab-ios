@@ -10,8 +10,7 @@ enum JournalPopoverAnchor {
             guard let line = fragment.textLineFragments.first(where: {
                 NSLocationInRange(range.location, NSRange(location: offset + $0.characterRange.location, length: $0.characterRange.length))
             }) else { return false }
-            let baseline = view.textContainerInset.top + fragment.layoutFragmentFrame.minY
-                + line.typographicBounds.minY + line.glyphOrigin.y
+            let baseline = JournalRubyTypography.glyphBaseline(in: view, fragment: fragment, line: line, at: range.location)
             anchor.origin.y = baseline - font.ascender - 2
             anchor.size.height = font.ascender - font.descender + 4
             return false

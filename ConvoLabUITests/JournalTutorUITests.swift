@@ -3,18 +3,7 @@ import XCTest
 final class JournalTutorUITests: XCTestCase {
     @MainActor
     func testTutorChoicePersistsAndDoesNotReassignAnOlderQuestion() {
-        let app = XCUIApplication()
-        app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Light", "-journal.typography.font", "klee", "-journal.typography.size", "20"]
-        app.launchEnvironment["JOURNAL_FIXTURE_AVATARS"] = ProcessInfo.processInfo.environment["JOURNAL_FIXTURE_AVATARS"]
-        app.launch()
-        XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
-        app.buttons["app-mode-picker"].tap()
-        app.buttons["app-mode-journal"].tap()
-        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
-        app.buttons["Contents"].tap()
-        let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
+        let app = openEntry()
         for _ in 0..<3 { app.swipeUp() }
         let hana = app.buttons["Hana"]
         XCTAssertTrue(hana.waitForExistence(timeout: 5))
@@ -50,5 +39,57 @@ final class JournalTutorUITests: XCTestCase {
         attachment.name = "Journal tutor picker keeps the existing question with Hana"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+    @MainActor
+    func testWritingOnTutorReplyPaperUsesSelectedJapaneseInput() {
+        let app = openEntry(arguments: ["-journal-keyboard-keep", "-journal.keyboard.mode", "builtIn"])
+        let tutor = app.buttons["Hana"]
+        for _ in 0..<4 where !tutor.isHittable { app.swipeUp() }
+        tutor.tap()
+        let answer = app.textViews["Your answer"]
+        for _ in 0..<5 where !answer.isHittable { app.swipeUp() }
+        XCTAssertTrue(answer.isHittable)
+        app.swipeUp()
+        capture(app, "Tutor response notebook")
+        answer.tap()
+        let candidates = app.collectionViews["JournalCandidates"]
+        XCTAssertTrue(candidates.waitForExistence(timeout: 8))
+        answer.typeText("kazokuto")
+        XCTAssertTrue(candidates.cells.firstMatch.waitForExistence(timeout: 30))
+        capture(app, "Writing a Japanese tutor response")
+        answer.typeText("\n")
+        XCTAssertEqual(answer.value as? String, "かぞくと")
+        app.buttons["Hide keyboard"].tap()
+        app.buttons["app-account-menu"].tap()
+        XCTAssertTrue(app.buttons["JournalKeyboard"].waitForExistence(timeout: 5))
+        capture(app, "Paper account menu")
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.buttons["SettingsClose-Settings"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = name
+        image.lifetime = .keepAlways
+        add(image)
+    }
+
+    @MainActor
+    private func openEntry(arguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Light", "-journal.typography.font", "klee", "-journal.typography.size", "20"]
+        app.launchArguments += arguments
+        app.launchEnvironment["JOURNAL_FIXTURE_AVATARS"] = ProcessInfo.processInfo.environment["JOURNAL_FIXTURE_AVATARS"]
+        app.launch()
+        XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
+        XCTAssertTrue(app.buttons["Contents"].waitForExistence(timeout: 5))
+        app.buttons["Contents"].tap()
+        let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A movie night")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        return app
     }
 }

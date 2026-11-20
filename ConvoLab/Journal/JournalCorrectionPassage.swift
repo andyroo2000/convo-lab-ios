@@ -27,9 +27,10 @@ struct JournalCorrectionPassage: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         let size = max(14, typography.size - 2)
         let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: size) ?? .systemFont(ofSize: size))
+        let latin = font.withSize(font.pointSize * JournalCorrectionFonts.latinScale)
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let value = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
-            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 2, font: font))
+            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 2, font: latin))
         if original {
             value.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: UIColor.systemRed],
                                 range: NSRange(location: 0, length: value.length))
@@ -38,8 +39,9 @@ struct JournalCorrectionPassage: UIViewRepresentable {
             let corrected = StudyRubyDocument.parse(" → " + replacement, knownKanji: knownKanji)
             value.append(corrected.attributedString(pointSize: font.pointSize, weight: .regular,
                 color: UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1),
-                alignment: .left, extraLineSpacing: 2, font: font))
+                alignment: .left, extraLineSpacing: 2, font: latin))
         }
+        JournalCorrectionFonts.applyJapanese(to: value, size: font.pointSize)
         JournalRubyTypography.compact(value)
         context.coordinator.updateRubyRanges(in: value)
         view.attributedText = value
