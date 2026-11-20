@@ -36,7 +36,12 @@ final class JournalBrandingUITests: XCTestCase {
         if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
             app.buttons["Close"].tap()
         }
-        password.typeText("example-password")
+        password.typeText("example")
+        let hint = app.staticTexts["Use at least 8 characters for your password."]
+        XCTAssertTrue(hint.exists)
+        capture(app, name: "Journal signup password requirement")
+        password.typeText("-password")
+        XCTAssertFalse(hint.exists)
         let confirmation = app.secureTextFields["Confirm password"]
         confirmation.tap()
         if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {

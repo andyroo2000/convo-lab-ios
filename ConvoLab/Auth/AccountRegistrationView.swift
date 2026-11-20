@@ -38,11 +38,14 @@ struct AccountRegistrationView: View {
                         .autocorrectionDisabled()
                 }
                 JournalAuthField(title: "Password") {
-                    SecureField("Password", text: $password).textContentType(.newPassword)
+                    SecureField("At least 8 characters", text: $password).textContentType(.newPassword)
                         .accessibilityIdentifier("auth-register-password")
                 }
                 JournalAuthField(title: "Confirm password") {
                     SecureField("Confirm password", text: $confirmation).textContentType(.newPassword)
+                }
+                if !password.isEmpty && !hasMinimumPasswordLength {
+                    JournalAuthError(message: "Use at least 8 characters for your password.")
                 }
                 if !confirmation.isEmpty && password != confirmation {
                     JournalAuthError(message: "Passwords do not match.")
@@ -63,11 +66,13 @@ struct AccountRegistrationView: View {
         }
     }
 
+    private var hasMinimumPasswordLength: Bool { password.unicodeScalars.count >= 8 }
+
     private var canRegister: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !password.isEmpty && password == confirmation && !auth.isWorking && !isSubmitting
+            && hasMinimumPasswordLength && password == confirmation && !auth.isWorking && !isSubmitting
     }
 
     private func register() {
