@@ -4,7 +4,9 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 // Owned exclusively by the app's serial actor. Never called on the UI thread.
 public final class PlaygroundEngine {
   let converter: KanaKanjiConverter
-  let boundaryConverter: BoundaryCandidateConverter
+  var boundaryConverter: BoundaryCandidateConverter
+  let dictionary: DicdataStore
+  let learning: ConversionLearning
   private var boundaryRanker: NeuralBoundaryRanker?
   let modelURL: URL
   let options: ConvertRequestOptions
@@ -12,23 +14,25 @@ public final class PlaygroundEngine {
   private var recentCandidates: [Candidate] = []
   public private(set) var preparationTimings: [String: Double] = [:]
 
-  public init() throws {
+  public init(learningDirectory: URL? = nil) throws {
     let start = ContinuousClock.now
     guard
       let modelURL = Bundle.module.url(
         forResource: "model", withExtension: "gguf")
     else { throw PlaygroundFailure.missingModel }
-    let dictionary = DicdataStore.withDefaultDictionary()
+    learning = try ConversionLearning(directory: learningDirectory)
+    dictionary = DicdataStore.withDefaultDictionary()
     converter = KanaKanjiConverter(dicdataStore: dictionary)
     boundaryConverter = BoundaryCandidateConverter(dicdataStore: dictionary)
     let dictionaryReady = ContinuousClock.now
     self.modelURL = modelURL
-    // Learning is disabled; this intentionally nonexistent path is never written.
+    // Benchmarks remain unpersonalized unless the caller supplies local storage.
     let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     options = ConvertRequestOptions(
       needTypoCorrection: false, requireJapanesePrediction: false,
       requireEnglishPrediction: false, keyboardLanguage: .ja_JP,
-      learningType: .nothing, memoryDirectoryURL: scratch, sharedContainerURL: scratch,
+      learningType: learningDirectory == nil ? .nothing : .inputAndOutput,
+      memoryDirectoryURL: learningDirectory ?? scratch, sharedContainerURL: learningDirectory ?? scratch,
       textReplacer: .withDefaultEmojiDictionary(),
       specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
       zenzaiMode: .on(
@@ -86,14 +90,16 @@ public final class PlaygroundEngine {
       pool += expandedCandidates(
         composition, converter: converter, options: options, reference: pool.first)
     }
+    pool = learning.ranked(pool, reading: request.reading)
+    learning.remember(pool, reading: request.reading)
     return Array(
       serializeCandidates(pool, reading: request.reading, neuralRanked: adjusted)
         .prefix(request.expanded == true ? 160 : 10))
   }
 
   private func neuralCandidates(_ composition: ComposingText, reading: String, reuse: Bool) throws -> [Candidate] {
-    // Boundary changes do not change the whole-phrase neural proposal. Learning
-    // is disabled, and this cache retains only the most recent exact reading.
+    // Boundary changes reuse the most recent exact reading. Confirmed learning
+    // and reset both invalidate this cache before the next conversion.
     if reuse && reading == recentReading { return recentCandidates }
     converter.stopComposition()
     let results = converter.requestCandidates(composition, options: options)
@@ -102,6 +108,32 @@ public final class PlaygroundEngine {
     recentReading = reading
     recentCandidates = results.mainResults
     return recentCandidates
+  }
+
+  public func learn(_ json: String) throws -> Bool {
+    let selection = try JSONDecoder().decode(ConfirmedConversion.self, from: Data(json.utf8))
+    guard learning.enabled, let candidate = learning.candidate(for: selection) else { return false }
+    try learning.confirm(selection)
+    converter.stopComposition()
+    converter.updateLearningData(candidate)
+    converter.commitUpdateLearningData()
+    invalidateLearningCaches()
+    try learning.protectStorage()
+    return true
+  }
+
+  public func resetLearning() throws {
+    guard learning.enabled else { return }
+    defer { invalidateLearningCaches() }
+    converter.resetMemory()
+    try learning.clear()
+  }
+
+  private func invalidateLearningCaches() {
+    recentReading = nil
+    recentCandidates = []
+    converter.stopComposition()
+    boundaryConverter = BoundaryCandidateConverter(dicdataStore: dictionary)
   }
 
   public static func fixtures() throws -> Data {

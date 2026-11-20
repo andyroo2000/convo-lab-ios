@@ -40,6 +40,10 @@ final class JournalNativeComposition {
         return state
     }
 
+    func takeConfirmedConversions() -> [[String: Any]] {
+        session.invokeMethod("takeConfirmedConversions", withArguments: [])?.toArray() as? [[String: Any]] ?? []
+    }
+
     private static func decode(_ value: JSValue?) -> JournalInputSnapshot? {
         guard let object = value?.toDictionary(),
               let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }

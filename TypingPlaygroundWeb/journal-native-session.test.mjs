@@ -191,11 +191,13 @@ test('confirming a section keeps the suffix editable and sends full context', ()
   model.receive('きょうはいいてんき', { candidates: [{text:'今日はいい天気',sections:[{reading:'きょうは',text:'今日は'},{reading:'いいてんき',text:'いい天気'}]}] });
   model.focusSection(1);
   let state = model.choose(0);
+  assert.deepEqual(model.takeConfirmedConversions(), [{ reading: 'きょうはいいてんき', text: '今日は', start: 0, end: 4 }]);
   assert.equal(state.text, '今日はいいてんき');
   assert.deepEqual(state.composition, [3, 5]);
   assert.equal(state.reading, 'きょうはいいてんき');
   model.receive(state.reading, { candidates: [{text:'今日はいい天気',sections:[{reading:'きょうは',text:'今日は'},{reading:'いいてんき',text:'いい天気'}]}] });
   state = model.choose(0);
+  assert.deepEqual(model.takeConfirmedConversions(), [{ reading: 'きょうはいいてんき', text: 'いい天気', start: 4, end: 9 }]);
   assert.equal(state.text, '今日はいい天気');
   assert.equal(state.composition, null);
 });
@@ -225,4 +227,34 @@ test('section commit retains all aligned alternatives and clearing the suffix dr
   state = type(model, 'hon');
   assert.equal(state.reading, 'ほん');
   assert.equal(state.text, '今日はほn');
+});
+
+test('learning records explicit choices once, never previews or ordinary commits', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'ame');
+  suggestions(model, ['雨', '飴']);
+  assert.deepEqual(model.takeConfirmedConversions(), []);
+  model.commit();
+  assert.deepEqual(model.takeConfirmedConversions(), []);
+  type(model, 'ame');
+  suggestions(model, ['雨', '飴']);
+  const index = model.snapshot().choices.indexOf('飴');
+  model.choose(index);
+  assert.deepEqual(model.takeConfirmedConversions(), [{ reading: 'あめ', text: '飴', start: 0, end: 2 }]);
+  assert.deepEqual(model.takeConfirmedConversions(), []);
+  model.choose(0);
+  assert.deepEqual(model.takeConfirmedConversions(), []);
+});
+
+test('Enter learns a highlighted choice but cancel and paste do not', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'ame');
+  suggestions(model, ['雨', '飴']);
+  type(model, ' ');
+  type(model, '\n');
+  assert.equal(model.takeConfirmedConversions()[0].text, '雨');
+  type(model, 'ame');
+  suggestions(model, ['雨', '飴']);
+  model.external('別の文章');
+  assert.deepEqual(model.takeConfirmedConversions(), []);
 });

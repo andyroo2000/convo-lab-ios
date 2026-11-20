@@ -146,6 +146,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     }
 
     private func apply(_ state: JournalInputSnapshot) {
+        requests.learn(composition?.takeConfirmedConversions() ?? [])
         updating = true
         view?.configure(text: state.text, font: font)
         view?.selectedRange = NSRange(location: state.caret, length: 0)

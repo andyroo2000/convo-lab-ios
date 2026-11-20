@@ -23,6 +23,7 @@ struct JournalKeyboardSheet: View {
                     choice(.device)
                 }
                 if onboarding { JournalKeyboardGuide() }
+                else if selection == .builtIn { JournalKeyboardLearningSettings() }
                 Button {
                     guard let selection else { return }
                     storedMode = selection.rawValue

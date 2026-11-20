@@ -19,6 +19,22 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         XCTAssertNil(committed.composition)
     }
 
+    func testOnlyConfirmedSelectionsCrossTheLearningBridgeOnce() throws {
+        let model = try XCTUnwrap(JournalNativeComposition())
+        _ = model.call("edit", [["text": "", "range": [0, 0], "replacement": "ame", "selection": [0, 0]]])
+        _ = model.call("receive", ["あめ", ["candidates": [["text": "飴"]]]])
+        XCTAssertTrue(model.takeConfirmedConversions().isEmpty)
+        _ = model.call("choose", [0])
+        let selections = model.takeConfirmedConversions()
+        XCTAssertEqual(selections.count, 1)
+        XCTAssertEqual(selections.first?["text"] as? String, "飴")
+        XCTAssertEqual(selections.first?["reading"] as? String, "あめ")
+        XCTAssertEqual(selections.first?["end"] as? Int, 2)
+        XCTAssertTrue(model.takeConfirmedConversions().isEmpty)
+        _ = model.call("commit")
+        XCTAssertTrue(model.takeConfirmedConversions().isEmpty)
+    }
+
     func testOldSuggestionsCannotChangeAnEditedDocument() throws {
         let model = try XCTUnwrap(JournalNativeComposition())
         let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "ame", "selection": [0, 0]]])
