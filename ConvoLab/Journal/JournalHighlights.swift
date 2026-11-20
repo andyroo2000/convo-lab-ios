@@ -123,7 +123,8 @@ struct JournalHighlights: UIViewRepresentable {
             popup.preferredContentSize = CGSize(width: width, height: height)
             if let presentation = popup.popoverPresentationController {
                 presentation.delegate = self
-                presentation.popoverBackgroundViewClass = JournalPopoverBackground.self
+                presentation.popoverBackgroundViewClass = segments[index].replacement == nil
+                    ? JournalPopoverBackground.self : JournalEditPopoverBackground.self
                 // UIKit owns the outline so the header and surface share one corner mask.
                 presentation.backgroundColor = JournalPopoverStyle.surface
                 presentation.sourceView = view

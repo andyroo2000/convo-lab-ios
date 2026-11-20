@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 nonisolated enum JournalPopoverStyle {
+    static let editHeader = adaptive(light: 0x398c43, dark: 0x398c43)
+    static let editOriginal = adaptive(light: 0xfff7a9, dark: 0xfff7a9)
+    static let editReplacement = adaptive(light: 0xfffdf2, dark: 0xfffdf2)
     static let surface = adaptive(light: 0xffffff, dark: 0x2a3338)
     static let ink = adaptive(light: 0x4b1800, dark: 0xe2e9ee)
     static let muted = adaptive(light: 0x65727b, dark: 0xabb8c0)

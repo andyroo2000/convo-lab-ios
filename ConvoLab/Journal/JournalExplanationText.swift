@@ -24,7 +24,7 @@ struct JournalExplanationText: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         let size = max(14, typography.size - 4)
-        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "Georgia", size: size) ?? .systemFont(ofSize: size))
+        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "CrimsonPro-Regular", size: size) ?? .systemFont(ofSize: size))
         let content = JournalExplanationContent.attributed(segment, knownKanji: knownKanji, font: font)
         context.coordinator.update(content, font: font)
         view.attributedText = content
@@ -50,9 +50,10 @@ enum JournalExplanationContent {
     }
 
     private static func sentenceSpacing(_ text: String) -> String {
+        // Breakable half-em gaps scale with the font; leave paragraphs and ordinary spaces intact.
         let patterns = [
-            #"((?:[\p{Han}\p{Hiragana}\p{Katakana}々〆ー]|\[[ぁ-ゖァ-ヺー]+\])\*{0,3}\.)[ \t]+(?=\S)"#,
-            #"(\.)[ \t]+(?=\*{0,3}[\p{Han}\p{Hiragana}\p{Katakana}])"#
+            #"((?:[\p{Han}\p{Hiragana}\p{Katakana}々〆ー]|\[[ぁ-ゖァ-ヺー]+\])\*{0,3}[.!?]["'’”)]?\*{0,3})[ \t]+(?=\S)"#,
+            #"([.!?]["'’”)]?\*{0,3})[ \t]+(?=\*{0,3}["'‘“(「『]?[\p{Han}\p{Hiragana}\p{Katakana}])"#
         ]
         return patterns.reduce(text) { value, pattern in
             value.replacingOccurrences(of: pattern, with: "$1\u{2002}", options: .regularExpression)

@@ -25,24 +25,24 @@ struct JournalCorrectionPassage: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        let size = max(14, typography.size - 2)
-        let font = UIFontMetrics.default.scaledFont(for: UIFont(name: "HiraMinProN-W3", size: size) ?? .systemFont(ofSize: size))
-        let latin = font.withSize(font.pointSize * JournalCorrectionFonts.latinScale)
+        // The selected green needs large bold lettering, including Insert/Remove labels.
+        let size = max(19, UIFontMetrics.default.scaledValue(for: typography.size - 2))
+        let font = JournalCorrectionFonts.japanese(size: size)
+        let latin = font
         let document = StudyRubyDocument.parse(text, knownKanji: knownKanji)
         let value = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
-            weight: .regular, color: original ? UIColor(red: 0.537, green: 0.439, blue: 0.392, alpha: 1) : UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), alignment: .left, extraLineSpacing: 2, font: latin))
-        if original {
-            value.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: UIColor.systemRed],
-                                range: NSRange(location: 0, length: value.length))
-        }
+            weight: .regular, color: original ? JournalPopoverStyle.editOriginal : JournalPopoverStyle.editReplacement, alignment: .left, extraLineSpacing: 2, font: latin))
         if let replacement {
+            let arrowRange = NSRange(location: value.length + 1, length: 1)
             let corrected = StudyRubyDocument.parse(" → " + replacement, knownKanji: knownKanji)
             value.append(corrected.attributedString(pointSize: font.pointSize, weight: .regular,
-                color: UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1),
+                color: JournalPopoverStyle.editReplacement,
                 alignment: .left, extraLineSpacing: 2, font: latin))
+            let arrowFont = UIFont(name: "Georgia-Bold", size: font.pointSize) ?? .boldSystemFont(ofSize: font.pointSize)
+            value.addAttribute(.font, value: arrowFont, range: arrowRange)
         }
         JournalCorrectionFonts.applyJapanese(to: value, size: font.pointSize)
-        JournalRubyTypography.compact(value)
+        JournalRubyTypography.compact(value, useTextColor: true)
         context.coordinator.updateRubyRanges(in: value)
         view.attributedText = value
     }
