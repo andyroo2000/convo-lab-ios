@@ -29,6 +29,7 @@ struct JournalKeyboardLearningSettings: View {
                 try await JournalCandidateRequests.resetLearning()
                 message = "Learned conversions cleared."
             } catch { message = "Couldn’t reset learned conversions. Please try again." }
+            if let message { AccessibilityNotification.Announcement(message).post() }
         }
     }
 }

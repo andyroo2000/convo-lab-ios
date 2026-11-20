@@ -118,14 +118,15 @@ public final class PlaygroundEngine {
     converter.updateLearningData(candidate)
     converter.commitUpdateLearningData()
     invalidateLearningCaches()
+    try learning.protectStorage()
     return true
   }
 
   public func resetLearning() throws {
     guard learning.enabled else { return }
+    defer { invalidateLearningCaches() }
     converter.resetMemory()
     try learning.clear()
-    invalidateLearningCaches()
   }
 
   private func invalidateLearningCaches() {

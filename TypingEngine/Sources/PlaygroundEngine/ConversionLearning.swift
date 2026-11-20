@@ -21,7 +21,7 @@ final class ConversionLearning {
     enabled = directory != nil
     preferenceURL = directory?.appendingPathComponent("confirmed.json")
     if let directory {
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      try LearningStorage.prepare(directory)
       if let url = preferenceURL, FileManager.default.fileExists(atPath: url.path) {
         let data = try Data(contentsOf: url)
         // A damaged preference cache must not prevent the keyboard from starting.
@@ -46,10 +46,14 @@ final class ConversionLearning {
   }
 
   func clear() throws {
+    defer { preferences = []; readings = []; pools = [:] }
     if let preferenceURL, FileManager.default.fileExists(atPath: preferenceURL.path) {
       try FileManager.default.removeItem(at: preferenceURL)
     }
-    preferences = []; readings = []; pools = [:]
+  }
+
+  func protectStorage() throws {
+    if let preferenceURL { try LearningStorage.protect(preferenceURL.deletingLastPathComponent()) }
   }
 
   func confirm(_ selection: ConfirmedConversion) throws {
@@ -60,6 +64,7 @@ final class ConversionLearning {
     next.append(selection)
     next = Array(next.suffix(256))
     try JSONEncoder().encode(next).write(to: preferenceURL, options: .atomic)
+    try protectStorage()
     preferences = next
   }
 

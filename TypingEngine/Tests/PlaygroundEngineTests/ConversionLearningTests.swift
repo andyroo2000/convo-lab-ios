@@ -111,4 +111,28 @@ struct ConversionLearningTests {
     try engine.resetLearning()
     #expect(try texts(engine, "あめ") == before)
   }
+
+  #if os(macOS)
+  @Test func failedResetStillClearsInMemoryPreferencesAndCandidatePools() throws {
+    let folder = try directory()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let engine = try PlaygroundEngine(learningDirectory: folder)
+    _ = try texts(engine, "あめ")
+    let selection = ConfirmedConversion(reading: "あめ", text: "飴", start: 0, end: 2)
+    let candidate = try #require(engine.learning.candidate(for: selection))
+    let rain = try #require(engine.learning.candidate(for: ConfirmedConversion(reading: "あめ", text: "雨", start: 0, end: 2)))
+    try engine.learning.confirm(selection)
+    #expect(engine.learning.ranked([rain, candidate], reading: "あめ").first?.text == "飴")
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+    #expect(throws: (any Error).self) { try engine.resetLearning() }
+    #expect(engine.learning.candidate(for: selection) == nil)
+    #expect(engine.learning.ranked([rain, candidate], reading: "あめ").first?.text == "雨")
+    // The cache must remain usable after permissions are restored and reset is retried.
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+    try engine.resetLearning()
+    #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("confirmed.json").path))
+    #expect(try texts(engine, "あめ").contains("雨"))
+  }
+  #endif
 }

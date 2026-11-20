@@ -6,6 +6,7 @@ final class JournalCandidateRequests {
     // No actor-bound teardown; avoid the iOS 26.2 isolated-deinit runtime bug.
     nonisolated deinit {}
     private static let engine = TypingEngineActor(learnsConversions: true)
+    private static let learningQueue = JournalLearningQueue()
     private var version = 0
     private var busy = false
     private var failed = false
@@ -14,14 +15,20 @@ final class JournalCandidateRequests {
     private var debounce: Task<Void, Never>?
     var receive: ((String, [String: Any]) -> Void)?
 
-    static func resetLearning() async throws { try await engine.resetLearning() }
+    static func resetLearning() async throws {
+        try await learningQueue.enqueue { try await engine.resetLearning() }.value
+    }
 
     func learn(_ selections: [[String: Any]]) {
         guard !selections.isEmpty else { return }
         let encoded = selections.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
-        Task {
+        _ = Self.learningQueue.enqueue {
             for data in encoded {
-                do { _ = try await Self.engine.learn(String(decoding: data, as: UTF8.self)) }
+                do {
+                    if try await !Self.engine.learn(String(decoding: data, as: UTF8.self)) {
+                        Logger(subsystem: "com.convolab", category: "Keyboard").debug("Confirmed conversion was not eligible for learning.")
+                    }
+                }
                 catch { Logger(subsystem: "com.convolab", category: "Keyboard").error("Could not save a confirmed conversion.") }
             }
         }
