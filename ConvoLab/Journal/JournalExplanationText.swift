@@ -61,13 +61,15 @@ enum JournalExplanationContent {
 
     static func attributed(_ segment: JournalSegment, knownKanji: Set<Character>, font: UIFont) -> NSAttributedString {
         let document = StudyRubyDocument.parse(text(segment), knownKanji: knownKanji)
+        let latin = font.withSize(font.pointSize * JournalCorrectionFonts.latinScale)
         let result = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
-            weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4, font: font))
-        styleJapanese(result, size: font.pointSize, replacement: segment.replacement ?? "")
-        emphasize(result, font: font)
+            weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 4, font: latin))
+        JournalCorrectionFonts.applyJapanese(to: result, size: font.pointSize)
+        colorReplacement(result, replacement: segment.replacement ?? "")
+        emphasize(result, font: latin)
         // Use one baseline pitch even when Japanese fallback fonts have taller metrics.
         let paragraph = NSMutableParagraphStyle()
-        let japanese = UIFont(name: "HiraMinProN-W3", size: font.pointSize) ?? font
+        let japanese = JournalCorrectionFonts.japanese(size: font.pointSize)
         let pitch = max(font.lineHeight, japanese.lineHeight) + font.pointSize * (document.hasRuby ? 0.5 : 0.15)
         paragraph.minimumLineHeight = pitch
         paragraph.maximumLineHeight = pitch
@@ -77,13 +79,12 @@ enum JournalExplanationContent {
         return result
     }
 
-    private static func styleJapanese(_ text: NSMutableAttributedString, size: CGFloat, replacement: String) {
-        guard let pattern = try? NSRegularExpression(pattern: #"[\p{Han}\p{Hiragana}\p{Katakana}々〆ー]+"#) else { return }
-        let font = UIFont(name: "HiraMinProN-W3", size: size) ?? .systemFont(ofSize: size)
-        for match in pattern.matches(in: text.string, range: NSRange(location: 0, length: text.length)) {
+    private static func colorReplacement(_ text: NSMutableAttributedString, replacement: String) {
+        for match in JournalCorrectionFonts.words(in: text) {
             let term = (text.string as NSString).substring(with: match.range)
-            let color = term == replacement ? UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1) : JournalPopoverStyle.ink
-            text.addAttributes([.font: font, .foregroundColor: color], range: match.range)
+            if term == replacement {
+                text.addAttribute(.foregroundColor, value: UIColor(red: 0.239, green: 0.412, blue: 0.298, alpha: 1), range: match.range)
+            }
         }
     }
 

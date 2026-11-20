@@ -39,8 +39,7 @@ final class JournalHighlightTextView: UITextView {
                 let lineRange = NSRange(location: offset + line.characterRange.location, length: line.characterRange.length)
                 let overlap = NSIntersectionRange(range, lineRange)
                 guard overlap.length > 0 else { continue }
-                let baseline = self.textContainerInset.top + fragment.layoutFragmentFrame.minY
-                    + line.typographicBounds.minY + line.glyphOrigin.y
+                let baseline = JournalRubyTypography.glyphBaseline(in: self, fragment: fragment, line: line, at: overlap.location)
                 self.drawHighlightLine(overlap, baseline: baseline, optional: optional)
             }
             let fragmentEnd = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.endLocation)

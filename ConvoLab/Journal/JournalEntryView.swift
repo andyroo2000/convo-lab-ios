@@ -46,9 +46,9 @@ struct JournalEntryView: View {
                 store.refreshDrafts(); entries.wrappedValue = true
             }
         ], menu: [
-            AppModeToolbarAction(id: "JournalAppearance", title: "Appearance") { appearance.wrappedValue = true },
-            AppModeToolbarAction(id: "JournalKeyboard", title: "Keyboard") { keyboard.wrappedValue = true },
-            AppModeToolbarAction(id: "JournalTutor", title: "Choose your tutor") { tutor.wrappedValue = true }
+            AppModeToolbarAction(id: "JournalAppearance", title: "Appearance", icon: "textformat") { appearance.wrappedValue = true },
+            AppModeToolbarAction(id: "JournalKeyboard", title: "Keyboard", icon: "keyboard") { keyboard.wrappedValue = true },
+            AppModeToolbarAction(id: "JournalTutor", title: "Choose your tutor", icon: "person.2") { tutor.wrappedValue = true }
         ], preventsNavigation: editingFinal)
     }
 

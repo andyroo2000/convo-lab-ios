@@ -30,7 +30,6 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
             _ = composition?.call("receive", [reading, result])
             decorate()
         }
-        requests.prepare()
     }
 
     func configure(text: String, font: UIFont) {
@@ -79,7 +78,8 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
 
     func textViewDidBeginEditing(_ textView: UITextView) {
         focusChanged(textView.window.map { $0.convert($0.bounds, to: nil) })
-        if composition == nil { reportFailure() }
+        guard composition != nil else { reportFailure(); return }
+        requests.prepare()
     }
 
     func textViewDidChange(_ textView: UITextView) {

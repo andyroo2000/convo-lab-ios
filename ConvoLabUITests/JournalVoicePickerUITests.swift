@@ -4,7 +4,8 @@ final class JournalVoicePickerUITests: XCTestCase {
     @MainActor
     func testCompactPlayerAndDrawerActions() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
+        app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-journal.typography.font", "klee", "-journal.typography.size", "20"]
+        app.launchEnvironment["JOURNAL_FIXTURE_AVATARS"] = ProcessInfo.processInfo.environment["JOURNAL_FIXTURE_AVATARS"]
         app.launch()
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))
         app.buttons["app-mode-picker"].tap()

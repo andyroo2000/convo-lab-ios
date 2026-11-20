@@ -13,25 +13,12 @@ struct AppAccountMenu: View {
     var preventsNavigation = false
     @State private var confirmingLogout = false
 
+    @State private var showingMenu = false
+    @State private var pendingAction: (() -> Void)?
+
     var body: some View {
-        Menu {
-            if selection == .journal, !journalActions.isEmpty {
-                Section("Journal") {
-                    ForEach(journalActions) { item in
-                        Button(item.title, action: item.perform)
-                            .disabled(!item.isEnabled)
-                            .accessibilityIdentifier(item.id)
-                    }
-                }
-            }
-            Section("Account") {
-                Button("Settings", systemImage: "gearshape") { selection = .settings }
-                    .disabled(preventsNavigation)
-                if logout != nil {
-                    Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") { confirmingLogout = true }
-                        .disabled(preventsNavigation)
-                }
-            }
+        Button {
+            showingMenu = true
         } label: {
             Text(name.first.map { String($0).uppercased() } ?? "?")
                 .font(.custom("Anton-Regular", fixedSize: 25))
@@ -40,6 +27,14 @@ struct AppAccountMenu: View {
                 .background(ConvoLabTheme.cream, in: Circle())
                 .padding(4).background(JournalBrandStyle.spine.opacity(0.5), in: Circle())
         }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingMenu, arrowEdge: .top) {
+            accountOptions.onDisappear {
+                let perform = pendingAction
+                pendingAction = nil
+                perform?()
+            }
+        }
         .confirmationDialog("Log out of ConvoLab?", isPresented: $confirmingLogout, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { logout?() }
         } message: {
@@ -47,5 +42,32 @@ struct AppAccountMenu: View {
         }
         .accessibilityLabel("Account menu")
         .accessibilityIdentifier("app-account-menu")
+    }
+    private var accountOptions: some View {
+        AppPaperMenu {
+            if selection == .journal, !journalActions.isEmpty {
+                AppPaperMenuGroup(title: "Journal") {
+                    ForEach(journalActions) { item in
+                        AppPaperMenuRow(title: item.title, icon: item.icon ?? "ellipsis") { choose(item.perform) }
+                            .disabled(!item.isEnabled)
+                            .accessibilityIdentifier(item.id)
+                    }
+                }
+                Divider().padding(.horizontal, 12)
+            }
+            AppPaperMenuGroup(title: "Account") {
+                AppPaperMenuRow(title: "Settings", icon: "gearshape") { choose { selection = .settings } }
+                if logout != nil {
+                    AppPaperMenuRow(title: "Log out", icon: "rectangle.portrait.and.arrow.right") {
+                        choose { confirmingLogout = true }
+                    }
+                }
+            }.disabled(preventsNavigation)
+        }
+    }
+
+    private func choose(_ perform: @escaping () -> Void) {
+        pendingAction = perform
+        showingMenu = false
     }
 }

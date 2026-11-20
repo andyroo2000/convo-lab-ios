@@ -5,6 +5,7 @@ struct JournalNeuralWritingField: UIViewRepresentable {
     @Environment(\.journalWritingFocus) private var focusChanged
     @Binding var text: String
     let label: String
+    let placeholder: String
     let minimumLines: Int
     var autofocus = false
     let unavailable: () -> Void
@@ -24,6 +25,7 @@ struct JournalNeuralWritingField: UIViewRepresentable {
         context.coordinator.text = $text
         context.coordinator.focusChanged = focusChanged
         context.coordinator.unavailable = unavailable
+        view.placeholderText = placeholder
         context.coordinator.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
         view.focusOnAppearance = autofocus
         view.accessibilityLabel = label

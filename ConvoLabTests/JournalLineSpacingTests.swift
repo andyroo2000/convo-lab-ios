@@ -12,7 +12,7 @@ final class JournalLineSpacingTests: XCTestCase {
 
     private func checkPitch(size: CGFloat, width: CGFloat) throws {
         let segment = JournalSegment(text: "", reading: "", kind: .correction, suggestion: nil,
-            suggestionReading: nil, explanation: "Use レッスン for the spelling. 中止[ちゅうし]になった means **was canceled** and fits a scheduled lesson. With が取り消した, the lesson itself would be doing the canceling.", explanationReading: nil)
+            suggestionReading: nil, explanation: "Use レッスン for the spelling. 中止[ちゅうし]になった means **was canceled** and fits a scheduled lesson. With が取り消した, the lesson itself would be doing the canceling. Use 中止 for the event and explain who canceled it in the next sentence.", explanationReading: nil)
         let text = JournalExplanationContent.attributed(segment, knownKanji: [], font: UIFont(name: "Georgia", size: size)!)
         let view = UITextView(usingTextLayoutManager: true)
         view.textLayoutManager?.usesFontLeading = false

@@ -46,13 +46,13 @@ struct JournalHighlights: UIViewRepresentable {
             ranges.append(NSRange(location: output.length, length: text.length))
             output.append(text)
         }
-        JournalRubyTypography.compact(output)
+        let readingInset = JournalRubyTypography.compact(output, onPaper: onPaper)
         context.coordinator.ranges = ranges
         if onPaper { JournalPaperText.align(output, font: typography.unscaledFont.withSize(typography.size * textScale)) }
         view.attributedText = output
         view.highlights = zip(ranges, segments).map { (range: $0.0, kind: $0.1.kind) }
         let size = typography.size * textScale
-        view.textContainerInset = UIEdgeInsets(top: onPaper ? 0 : size * 0.52, left: 0, bottom: size * 0.08, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: onPaper ? readingInset : size * 0.52, left: 0, bottom: max(0, size * 0.08 - readingInset), right: 0)
         view.accessibilityLabel = segments.map(JournalEditText.accessibilityLabel).joined()
         view.accessibilityCustomActions = segments.enumerated().compactMap { index, segment in
             guard segment.kind.isHighlighted else { return nil }

@@ -43,7 +43,8 @@ final class JournalEditingUITests: XCTestCase {
         XCTAssertFalse(app.buttons["app-mode-picker"].isEnabled)
         app.buttons["app-account-menu"].tap()
         XCTAssertFalse(app.buttons["Settings"].isEnabled)
-        app.tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.47)).tap()
+        XCTAssertTrue(app.buttons["Settings"].waitForNonExistence(timeout: 3))
         XCTAssertFalse(app.buttons["Draft"].isEnabled)
         XCTAssertFalse(app.buttons["Final"].isEnabled)
         let original = field.value as? String
@@ -89,6 +90,20 @@ final class JournalEditingUITests: XCTestCase {
         preview.name = "Picker at largest accessibility text size"
         preview.lifetime = .keepAlways
         add(preview)
+        app.buttons["app-account-menu"].tap()
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let scroll = app.scrollViews["AppPaperMenuScroll"]
+        let logout = app.buttons["Log out"]
+        if scroll.exists { scroll.swipeUp() }
+        XCTAssertTrue(logout.isHittable)
+        XCTAssertTrue(settings.isHittable)
+        let menuPreview = XCTAttachment(screenshot: app.screenshot())
+        menuPreview.name = "Account menu at largest text size"
+        menuPreview.lifetime = .keepAlways
+        add(menuPreview)
+        logout.tap()
+        XCTAssertTrue(app.staticTexts["Log out of ConvoLab?"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -171,6 +186,7 @@ final class JournalEditingUITests: XCTestCase {
         app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-AppleInterfaceStyle", "Dark", "-reading-theme", "system", "-reading-format", "Phone reader"]
         app.launchArguments += ["-journal.typography.size", String(fontSize)]
         if let contentSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize] }
+        app.launchEnvironment["JOURNAL_FIXTURE_AVATARS"] = ProcessInfo.processInfo.environment["JOURNAL_FIXTURE_AVATARS"]
         if longCorrection { app.launchArguments += ["-journal-long-correction"] }
         app.launch()
         XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 8))

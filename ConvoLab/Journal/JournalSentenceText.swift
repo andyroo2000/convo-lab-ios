@@ -47,7 +47,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         let attributed = NSMutableAttributedString(attributedString: document.attributedString(pointSize: font.pointSize,
             weight: .regular, color: JournalPopoverStyle.ink, alignment: .left, extraLineSpacing: 8, font: font))
         let ranges = JournalSentenceTimeline.ranges(player.sentences, text: document.plainText)
-        JournalRubyTypography.compact(attributed)
+        let readingInset = JournalRubyTypography.compact(attributed, onPaper: onPaper)
         if onPaper { JournalPaperText.align(attributed, font: font) }
         for (index, range) in ranges.enumerated() {
             attributed.addAttribute(.link, value: "journal-sentence://\(index)", range: range)
@@ -60,7 +60,7 @@ private struct JournalSentenceTextRepresentable: UIViewRepresentable {
         view.accessibilityHint = "Tap a sentence to seek. Left and right arrows move by sentence. Space pauses audio."
         view.linkTextAttributes = [.foregroundColor: JournalPopoverStyle.ink, .underlineStyle: 0]
         if view.attributedText != attributed { view.attributedText = attributed }
-        view.textContainerInset = UIEdgeInsets(top: document.hasRuby && !onPaper ? font.pointSize * 0.52 : 0, left: 0, bottom: 0, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: onPaper ? readingInset : (document.hasRuby ? font.pointSize * 0.52 : 0), left: 0, bottom: 0, right: 0)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: SentenceTextView, context: Context) -> CGSize? {

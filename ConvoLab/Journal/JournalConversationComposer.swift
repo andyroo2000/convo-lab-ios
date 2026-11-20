@@ -6,7 +6,6 @@ struct JournalConversationComposer: View {
     let knownKanji: Set<Character>
     let refresh: () async -> Bool
     @State private var answer: JournalConversationAnswer
-    @FocusState private var writing: Bool
 
     init(entry: JournalEntryModel, rootID: String, analysis: JournalAnalysis, knownKanji: Set<Character>, refresh: @escaping () async -> Bool) {
         self.entry = entry; self.analysis = analysis; self.knownKanji = knownKanji; self.refresh = refresh
@@ -22,17 +21,15 @@ struct JournalConversationComposer: View {
             } else if answer.busy {
                 JournalThinkingView(service: entry.store.service, lastAnswer: answer.clarification.lastAnswer)
             } else { answerForm }
-        }.onDisappear { answer.clarification.cancel() }.toolbar {
-            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { writing = false } }
-        }
+        }.onDisappear { answer.clarification.cancel() }
     }
     private var answerForm: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextEditor(text: $answer.body).modifier(JournalBodyFont()).frame(minHeight: 120)
-                .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink)).environment(\.colorScheme, .light)
-                .padding(10).background(.white, in: .rect(cornerRadius: 12))
-                .focused($writing).accessibilityLabel("Your answer").disabled(answer.busy || answer.request != nil)
-                .onChange(of: answer.body) { answer.save() }
+            JournalPaper(reply: true, writing: true) {
+                JournalWritingField(text: $answer.body, label: "Your answer", placeholder: "返事を書く…", requestChoice: false, showsDoneButton: true)
+            }
+            .disabled(answer.busy || answer.request != nil)
+            .onChange(of: answer.body) { answer.save() }
             if let error = answer.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
                 Button("Reload conversation") { Task { await refresh() } }
@@ -42,8 +39,12 @@ struct JournalConversationComposer: View {
             }.buttonStyle(JournalDraftButtonStyle()).disabled(answer.busy || answer.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func submit() async {
-        writing = false
+        dismissKeyboard()
         do {
             if let request = answer.request {
                 await answer.submit(questionID: request.questionId, refresh: refresh)

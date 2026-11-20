@@ -5,8 +5,10 @@ struct JournalDeviceWritingField: UIViewRepresentable {
     @Environment(\.journalWritingFocus) private var focusChanged
     @Binding var text: String
     var label: String
+    let placeholder: String
     var minimumLines = 4
     var autofocus = false
+    var showsDoneButton = false
     @Environment(\.journalTypography) private var typography
     @Environment(\.isEnabled) private var enabled
     @ScaledMetric(relativeTo: .body) private var scale = 1.0
@@ -15,6 +17,15 @@ struct JournalDeviceWritingField: UIViewRepresentable {
 
     func makeUIView(context: Context) -> JournalWritingTextView {
         let view = JournalWritingTextView()
+        if showsDoneButton {
+            let toolbar = UIToolbar()
+            toolbar.items = [
+                .flexibleSpace(),
+                UIBarButtonItem(barButtonSystemItem: .done, target: view, action: #selector(UIResponder.resignFirstResponder))
+            ]
+            toolbar.sizeToFit()
+            view.inputAccessoryView = toolbar
+        }
         view.delegate = context.coordinator
         return view
     }
@@ -25,6 +36,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
         view.focusOnAppearance = autofocus
         view.accessibilityLabel = label
         view.setEditingEnabled(enabled)
+        view.placeholderText = placeholder
         view.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))
     }
 
@@ -57,6 +69,7 @@ struct JournalDeviceWritingField: UIViewRepresentable {
 }
 
 class JournalWritingTextView: UITextView {
+    var placeholderText = "今日は…"
     var focusOnAppearance = false
     private var didAutofocus = false
     private var requestedEditingEnabled = true
@@ -132,7 +145,7 @@ class JournalWritingTextView: UITextView {
         typingAttributes = attributes
         var placeholderAttributes = attributes
         placeholderAttributes[.foregroundColor] = UIColor.placeholderText
-        placeholder.attributedText = NSAttributedString(string: "今日は…", attributes: placeholderAttributes)
+        placeholder.attributedText = NSAttributedString(string: placeholderText, attributes: placeholderAttributes)
         updatePlaceholder()
     }
 

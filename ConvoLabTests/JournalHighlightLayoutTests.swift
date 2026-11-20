@@ -28,7 +28,7 @@ final class JournalHighlightLayoutTests: XCTestCase {
     }
 
     func testHighlightsCoverGlyphRowsAcrossJournalFontsAndSizes() throws {
-        for family in ["sans", "serif"] {
+        for family in ["klee", "sans", "serif"] {
             for size in [16.0, 20.0, 30.0] {
                 try assertGlyphCoverage(font: JournalTypography(font: family, size: size).unscaledFont)
             }
@@ -38,9 +38,13 @@ final class JournalHighlightLayoutTests: XCTestCase {
     private func assertGlyphCoverage(font: UIFont) throws {
         let view = JournalHighlightTextView()
         view.frame = CGRect(x: 0, y: 0, width: 180, height: 800)
-        view.textContainerInset = UIEdgeInsets(top: 17, left: 9, bottom: 0, right: 9)
         let segment = JournalSegment(text: "", reading: "先々日の夜は辺りしい映画を見た。映画[えいが]を見[み]た。\n車で運転するながら。", kind: .correction, suggestion: nil, suggestionReading: nil, explanation: nil, explanationReading: nil)
-        view.attributedText = JournalEditText.attributed(segment, knownKanji: [], font: font)
+        let text = NSMutableAttributedString(attributedString: JournalEditText.attributed(segment, knownKanji: [], font: font))
+        let readingInset = JournalRubyTypography.compact(text, onPaper: true)
+        XCTAssertGreaterThan(readingInset, 0)
+        view.textContainerInset = UIEdgeInsets(top: readingInset, left: 9, bottom: 0, right: 9)
+        JournalPaperText.align(text, font: font)
+        view.attributedText = text
         view.highlights = [(NSRange(location: 0, length: view.attributedText.length), .correction)]
         view.layoutIfNeeded()
         let rectangles = backgroundRects(view)
@@ -50,7 +54,7 @@ final class JournalHighlightLayoutTests: XCTestCase {
         manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
             for line in fragment.textLineFragments where line.characterRange.length > 0 {
                 let baseline = view.textContainerInset.top + fragment.layoutFragmentFrame.minY
-                    + line.typographicBounds.minY + line.glyphOrigin.y
+                    + line.typographicBounds.minY + line.glyphOrigin.y - readingInset
                 // The entire base-font ascent/descent must be covered, not merely
                 // the lower half of the characters and the following line spacing.
                 let matching = rectangles.filter { $0.minY <= baseline - font.ascender + 0.5
