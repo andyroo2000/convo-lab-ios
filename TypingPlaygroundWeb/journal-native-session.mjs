@@ -11,6 +11,7 @@ export class JournalNativeSession {
     this.field = new NativeText();
     this.session = new InlineSession(this.field, kanaComposer(toHiragana), () => {});
     this.contextReading = "";
+    this.confirmedConversions = [];
     this.resetCandidates();
   }
 
@@ -152,11 +153,20 @@ export class JournalNativeSession {
     return this.highlighted < 0 ? this.commit() : this.choose(this.highlighted);
   }
 
+  takeConfirmedConversions() {
+    const selections = this.confirmedConversions;
+    this.confirmedConversions = [];
+    return selections;
+  }
+
   choose(index) {
     const choice = this.choices()[index];
     if (!choice || !this.session.active) return this.snapshot();
     this.session.select(this.session.active.end, this.session.active.end);
     const part = this.sections[this.selected];
+    const start = this.contextReading.length + (part?.start ?? 0);
+    this.confirmedConversions.push({ reading: this.fullReading(), text: choice, start,
+      end: start + (part?.reading ?? this.session.reading()).length });
     if (!part) {
       this.session.preview(choice);
       return this.commit();
