@@ -68,6 +68,8 @@ final class JournalTypingCoordinatorTests: XCTestCase {
 
     func testCandidatePanelExpandsWithoutDroppingChoices() {
         let bar = JournalCandidateBar()
+        bar.traitOverrides.verticalSizeClass = .regular
+        bar.updateTraitsIfNeeded()
         bar.frame.size.width = 390
         let choices = (0..<160).map { "候補\($0)" }
         bar.update(choices, context: "こうほ")
@@ -83,6 +85,22 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         bar.dismissKeyboard = { dismissed = true }
         bar.toggleExpanded()
         XCTAssertTrue(dismissed)
+    }
+
+    func testExpandedCandidatesFitCompactHeightAndCollapseWhenEmpty() {
+        let bar = JournalCandidateBar()
+        bar.traitOverrides.verticalSizeClass = .compact
+        bar.updateTraitsIfNeeded()
+        bar.frame.size.width = 780
+        bar.update(["雨", "飴"], context: "あめ")
+        bar.toggleExpanded()
+        XCTAssertEqual(bar.intrinsicContentSize.height, 96)
+        let button = bar.subviews.compactMap { $0 as? UIButton }.first!
+        XCTAssertEqual(button.accessibilityValue, "Expanded")
+        bar.update([], context: "")
+        XCTAssertFalse(bar.expanded)
+        XCTAssertEqual(bar.intrinsicContentSize.height, 48)
+        XCTAssertEqual(button.accessibilityLabel, "Hide keyboard")
     }
 
     func testExactLatinSpellingCanBeCommitted() throws {

@@ -9,7 +9,8 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
     private(set) var expanded = false
     private var highlighted = -1
     var sizeChanged: (() -> Void)?
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: expanded ? 216 : 48) }
+    private var expandedHeight: CGFloat { traitCollection.verticalSizeClass == .compact ? 96 : 216 }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: expanded ? expandedHeight : 48) }
     override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
         CGSize(width: targetSize.width, height: intrinsicContentSize.height)
     }
@@ -23,6 +24,9 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
         collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48))
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        registerForTraitChanges([UITraitVerticalSizeClass.self]) { (bar: JournalCandidateBar, _) in
+            if bar.expanded { bar.updateLayout() }
+        }
         backgroundColor = .secondarySystemBackground
         collection.dataSource = self
         collection.delegate = self
@@ -35,10 +39,10 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
         updateExpansionButton()
         for view in [collection, expand] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
-            collection.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            collection.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
             collection.topAnchor.constraint(equalTo: topAnchor), collection.bottomAnchor.constraint(equalTo: bottomAnchor),
             collection.trailingAnchor.constraint(equalTo: expand.leadingAnchor),
-            expand.trailingAnchor.constraint(equalTo: trailingAnchor), expand.widthAnchor.constraint(equalToConstant: 44),
+            expand.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor), expand.widthAnchor.constraint(equalToConstant: 44),
             expand.topAnchor.constraint(equalTo: topAnchor), expand.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
@@ -54,6 +58,7 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
         expand.setImage(UIImage(systemName: expanded ? "chevron.up" : "chevron.down"), for: .normal)
         expand.accessibilityLabel = choices.isEmpty ? "Hide keyboard" : (expanded ? "Collapse candidates" : "Show all candidates")
         expand.accessibilityIdentifier = "JournalExpandCandidates"
+        expand.accessibilityValue = choices.isEmpty ? nil : (expanded ? "Expanded" : "Collapsed")
     }
 
     private func updateLayout() {

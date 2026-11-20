@@ -20,13 +20,12 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     func attach(_ view: JournalNativeTextView) {
         self.view = view
         view.delegate = self
+        view.focusGeometryChanged = { [weak self] frame in self?.focusChanged(frame) }
         view.candidates.choose = { [weak self] index in self?.choose(index) }
         view.candidates.dismissKeyboard = { [weak self, weak view] in self?.commit(); view?.resignFirstResponder() }
         view.candidates.sizeChanged = { [weak view] in
-            guard let view else { return }
-            view.inputAccessoryView = nil
-            view.inputAccessoryView = view.candidates
-            view.reloadInputViews()
+            // Avoid rebuilding the accessory inside a text-view delegate call.
+            DispatchQueue.main.async { view?.reloadInputViews() }
         }
         view.sectionAction = { [weak self] action, direction in self?.adjust(action, direction: direction) }
         view.pasteText = { [weak self] value in self?.paste(value) }

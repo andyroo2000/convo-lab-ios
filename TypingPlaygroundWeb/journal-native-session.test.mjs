@@ -35,6 +35,24 @@ test('typed Latin is available for explicit commit', () => {
   assert.equal(model.choose(index).text, 'OpenAI');
 });
 
+test('numbers can start an editable composition without losing digits', () => {
+  const model = new JournalNativeSession(toHiragana);
+  for (const digit of '2024') type(model, digit);
+  assert.equal(model.snapshot().text, '2024');
+  assert.ok(model.snapshot().composition);
+  assert.equal(model.commit().text, '2024');
+  assert.equal(model.snapshot().composition, null);
+});
+
+test('Space highlights an available kana choice before inference responds', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'ame');
+  const state = type(model, ' ');
+  assert.equal(state.choices[state.highlighted], 'あめ');
+  assert.equal(type(model, '\n').text, 'あめ');
+  assert.equal(type(model, ' ').text, 'あめ ');
+});
+
 test('backspace handles composition and committed text', () => {
   const model = new JournalNativeSession(toHiragana);
   type(model, 'ohayou');
