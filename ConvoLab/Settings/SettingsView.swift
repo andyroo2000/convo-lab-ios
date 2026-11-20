@@ -67,125 +67,127 @@ struct SettingsView: View {
                     )
                 }
 
-                JournalSettingsChapter(
-                    "Study preferences", icon: "slider.horizontal.3", expanded: $expandedChapter
-                ) {
-                    Stepper(
-                        "New cards per day: \(newCardsPerDay)",
-                        value: $newCardsPerDay,
-                        in: model.study.capabilities.settings.newCardsPerDay.range
-                    )
-                    .onChange(of: newCardsPerDay) {
-                        studySettingsSaved = false
-                    }
-                    Stepper(
-                        "Cards per lesson: \(lessonBatchSize)",
-                        value: $lessonBatchSize,
-                        in: model.study.capabilities.settings.lessonBatchSize.range
-                    )
-                    .onChange(of: lessonBatchSize) {
-                        studySettingsSaved = false
-                    }
-                    Stepper(
-                        "Review budget: \(reviewTimeBudgetMinutes) min",
-                        value: $reviewTimeBudgetMinutes,
-                        in: model.study.capabilities.settings.reviewTimeBudgetMinutes.range,
-                        step: 15
-                    )
-                    .onChange(of: reviewTimeBudgetMinutes) {
-                        studySettingsSaved = false
-                    }
-                    if let laneWeights {
+                if availableAppModes.contains(.study) {
+                    JournalSettingsChapter(
+                        "Study preferences", icon: "slider.horizontal.3", expanded: $expandedChapter
+                    ) {
                         Stepper(
-                            "Standard queue: \(laneWeights.standard) (\(laneWeights.percentage(for: laneWeights.standard))%)",
-                            value: laneWeightBinding(\.standard),
-                            in: model.study.capabilities.settings.newCardLaneWeights.standard.range
+                            "New cards per day: \(newCardsPerDay)",
+                            value: $newCardsPerDay,
+                            in: model.study.capabilities.settings.newCardsPerDay.range
                         )
+                        .onChange(of: newCardsPerDay) {
+                            studySettingsSaved = false
+                        }
                         Stepper(
-                            "Learn soon: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
-                            value: laneWeightBinding(\.lessonFollowup),
-                            in: model.study.capabilities.settings.newCardLaneWeights.lessonFollowup.range
+                            "Cards per lesson: \(lessonBatchSize)",
+                            value: $lessonBatchSize,
+                            in: model.study.capabilities.settings.lessonBatchSize.range
                         )
+                        .onChange(of: lessonBatchSize) {
+                            studySettingsSaved = false
+                        }
                         Stepper(
-                            "WaniKani: \(laneWeights.wanikani) (\(laneWeights.percentage(for: laneWeights.wanikani))%)",
-                            value: laneWeightBinding(\.wanikani),
-                            in: model.study.capabilities.settings.newCardLaneWeights.wanikani.range
+                            "Review budget: \(reviewTimeBudgetMinutes) min",
+                            value: $reviewTimeBudgetMinutes,
+                            in: model.study.capabilities.settings.reviewTimeBudgetMinutes.range,
+                            step: 15
                         )
+                        .onChange(of: reviewTimeBudgetMinutes) {
+                            studySettingsSaved = false
+                        }
+                        if let laneWeights {
+                            Stepper(
+                                "Standard queue: \(laneWeights.standard) (\(laneWeights.percentage(for: laneWeights.standard))%)",
+                                value: laneWeightBinding(\.standard),
+                                in: model.study.capabilities.settings.newCardLaneWeights.standard.range
+                            )
+                            Stepper(
+                                "Learn soon: \(laneWeights.lessonFollowup) (\(laneWeights.percentage(for: laneWeights.lessonFollowup))%)",
+                                value: laneWeightBinding(\.lessonFollowup),
+                                in: model.study.capabilities.settings.newCardLaneWeights.lessonFollowup.range
+                            )
+                            Stepper(
+                                "WaniKani: \(laneWeights.wanikani) (\(laneWeights.percentage(for: laneWeights.wanikani))%)",
+                                value: laneWeightBinding(\.wanikani),
+                                in: model.study.capabilities.settings.newCardLaneWeights.wanikani.range
+                            )
+                            Text(
+                                "These are relative weights, not daily limits. Empty lanes automatically give their space to the others."
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
+                            Task {
+                                studySettingsSaved = await model.study
+                                    .updateStudySettings(
+                                        newCardsPerDay: newCardsPerDay,
+                                        lessonBatchSize: lessonBatchSize,
+                                        reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
+                                        newCardLaneWeights: laneWeights
+                                    )
+                            }
+                        }
+                        .disabled(model.study.isUpdatingStudySettings)
+
+                        if studySettingsSaved {
+                            Label("Study settings saved", systemImage: "checkmark.circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.green)
+                        }
+                        if let error = model.study.studySettingsErrorMessage {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    JournalSettingsChapter(
+                        "Offline & sync", icon: "arrow.down.circle", expanded: $expandedChapter
+                    ) {
+                        LabeledContent(
+                            "Downloaded media",
+                            value: ByteCountFormatter.string(
+                                fromByteCount: model.mediaCache.totalByteCount,
+                                countStyle: .file
+                            )
+                        )
+                        LabeledContent("Study window", value: offlineStudyWindow)
+                        LabeledContent("Cards ready offline", value: model.study.preparedCardCount.formatted())
+                        Button("Download Offline Study") {
+                            Task { await model.study.downloadOfflineStudy() }
+                        }
+                        .disabled(model.study.syncStatus == .syncing)
                         Text(
-                            "These are relative weights, not daily limits. Empty lanes automatically give their space to the others."
+                            "Sync updates your cards without downloading media. Download your study window here before going offline."
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    }
-
-                    Button(model.study.isUpdatingStudySettings ? "Saving…" : "Save Study Settings") {
-                        Task {
-                            studySettingsSaved = await model.study
-                                .updateStudySettings(
-                                    newCardsPerDay: newCardsPerDay,
-                                    lessonBatchSize: lessonBatchSize,
-                                    reviewTimeBudgetMinutes: reviewTimeBudgetMinutes,
-                                    newCardLaneWeights: laneWeights
-                                )
+                        Button("Sync Now") { Task { await model.synchronize() } }
+                        Button("Remove Downloaded Media", role: .destructive) {
+                            confirmingClearDownloads = true
                         }
-                    }
-                    .disabled(model.study.isUpdatingStudySettings)
-
-                    if studySettingsSaved {
-                        Label("Study settings saved", systemImage: "checkmark.circle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.green)
-                    }
-                    if let error = model.study.studySettingsErrorMessage {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                JournalSettingsChapter(
-                    "Offline & sync", icon: "arrow.down.circle", expanded: $expandedChapter
-                ) {
-                    LabeledContent(
-                        "Downloaded media",
-                        value: ByteCountFormatter.string(
-                            fromByteCount: model.mediaCache.totalByteCount,
-                            countStyle: .file
-                        )
-                    )
-                    LabeledContent("Study window", value: offlineStudyWindow)
-                    LabeledContent("Cards ready offline", value: model.study.preparedCardCount.formatted())
-                    Button("Download Offline Study") {
-                        Task { await model.study.downloadOfflineStudy() }
-                    }
-                    .disabled(model.study.syncStatus == .syncing)
-                    Text(
-                        "Sync updates your cards without downloading media. Download your study window here before going offline."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    Button("Sync Now") { Task { await model.synchronize() } }
-                    Button("Remove Downloaded Media", role: .destructive) {
-                        confirmingClearDownloads = true
-                    }
-                    if model.study.failedStudyChanges.isEmpty {
-                        LabeledContent(
-                            "Changes needing attention",
-                            value: model.study.failedStudyChanges.count.formatted()
-                        )
-                    } else {
-                        Button {
-                            showingFailedStudyChanges = true
-                        } label: {
+                        if model.study.failedStudyChanges.isEmpty {
                             LabeledContent(
                                 "Changes needing attention",
                                 value: model.study.failedStudyChanges.count.formatted()
                             )
+                        } else {
+                            Button {
+                                showingFailedStudyChanges = true
+                            } label: {
+                                LabeledContent(
+                                    "Changes needing attention",
+                                    value: model.study.failedStudyChanges.count.formatted()
+                                )
+                            }
                         }
+                        Text("Playback positions are stored only on this device.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("Playback positions are stored only on this device.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 JournalSettingsChapter("Connections", icon: "link", expanded: $expandedChapter) {
@@ -194,24 +196,26 @@ struct SettingsView: View {
                         googleCalendarSection
                     }
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        NavigationLink {
-                            SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
-                                .toolbar(.visible, for: .navigationBar)
-                        } label: {
-                            LabeledContent {
-                                Text(satoriReaderStatus)
-                                    .foregroundStyle(.secondary)
+                    if availableAppModes.contains(.time) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            NavigationLink {
+                                SatoriReaderSettingsView(tracking: model.satoriReaderTracking)
+                                    .toolbar(.visible, for: .navigationBar)
                             } label: {
-                                Label("Satori Reader", systemImage: "book.pages")
+                                LabeledContent {
+                                    Text(satoriReaderStatus)
+                                        .foregroundStyle(.secondary)
+                                } label: {
+                                    Label("Satori Reader", systemImage: "book.pages")
+                                }
                             }
+                            .accessibilityIdentifier("SatoriReaderIntegrationLink")
+                            Text(
+                                "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                         }
-                        .accessibilityIdentifier("SatoriReaderIntegrationLink")
-                        Text(
-                            "Optional Shortcuts setup for automatically tracking time in the Satori Reader iPhone app."
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                     }
 
                     DisclosureGroup("WaniKani") {
@@ -231,60 +235,63 @@ struct SettingsView: View {
                                         )
                                     )
                                 }
-                                Toggle(
-                                    "Daily vocabulary transfer",
-                                    isOn: Binding(
-                                        get: { model.study.wanikaniTransferBridgeEnabled },
-                                        set: { enabled in
-                                            Task {
-                                                await model.study
-                                                    .setWaniKaniTransferBridgeEnabled(enabled)
+                                if availableAppModes.contains(.study) {
+                                    Toggle(
+                                        "Daily vocabulary transfer",
+                                        isOn: Binding(
+                                            get: { model.study.wanikaniTransferBridgeEnabled },
+                                            set: { enabled in
+                                                Task {
+                                                    await model.study
+                                                        .setWaniKaniTransferBridgeEnabled(enabled)
+                                                }
                                             }
-                                        }
-                                    )
-                                )
-                                .disabled(model.study.isWaniKaniWorking)
-                                .accessibilityIdentifier("WaniKaniTransferBridgeToggle")
-                                .accessibilityHint(
-                                    "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
-                                )
-                                Text(
-                                    "Imports up to two recently passed vocabulary items each day as four contextual listening, recognition, and cloze cards. Related cards unlock over time."
-                                )
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                if shouldShowWaniKaniTransferStatus {
-                                    LabeledContent(
-                                        "Vocabulary imported",
-                                        value: model.study.wanikaniImportedVocabularyCount.formatted()
-                                    )
-                                    if model.study.wanikaniPendingVocabularyCount > 0 {
-                                        LabeledContent(
-                                            "Imports in progress",
-                                            value: model.study.wanikaniPendingVocabularyCount.formatted()
                                         )
-                                    }
-                                    if model.study.wanikaniFailedVocabularyCount > 0 {
-                                        LabeledContent("Imports needing retry") {
-                                            Text(
-                                                model.study.wanikaniFailedVocabularyCount.formatted()
-                                            )
-                                            .foregroundStyle(.red)
-                                        }
-                                        Text("Failed imports retry automatically during a future WaniKani sync.")
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if let lastImportedAt = model.study.wanikaniLastImportedAt {
+                                    )
+                                    .disabled(model.study.isWaniKaniWorking)
+                                    .accessibilityIdentifier("WaniKaniTransferBridgeToggle")
+                                    .accessibilityHint(
+                                        "Automatically imports recently passed WaniKani vocabulary into ConvoLab practice"
+                                    )
+                                    Text(
+                                        "Imports up to two recently passed vocabulary items each day as four contextual listening, recognition, and cloze cards. Related cards unlock over time."
+                                    )
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    if shouldShowWaniKaniTransferStatus {
                                         LabeledContent(
-                                            "Last vocabulary import",
-                                            value: lastImportedAt.formatted(
-                                                date: .abbreviated,
-                                                time: .shortened
-                                            )
+                                            "Vocabulary imported",
+                                            value: model.study.wanikaniImportedVocabularyCount.formatted()
                                         )
+                                        if model.study.wanikaniPendingVocabularyCount > 0 {
+                                            LabeledContent(
+                                                "Imports in progress",
+                                                value: model.study.wanikaniPendingVocabularyCount.formatted()
+                                            )
+                                        }
+                                        if model.study.wanikaniFailedVocabularyCount > 0 {
+                                            LabeledContent("Imports needing retry") {
+                                                Text(
+                                                    model.study.wanikaniFailedVocabularyCount.formatted()
+                                                )
+                                                .foregroundStyle(.red)
+                                            }
+                                            Text("Failed imports retry automatically during a future WaniKani sync.")
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        if let lastImportedAt = model.study.wanikaniLastImportedAt {
+                                            LabeledContent(
+                                                "Last vocabulary import",
+                                                value: lastImportedAt.formatted(
+                                                    date: .abbreviated,
+                                                    time: .shortened
+                                                )
+                                            )
+                                        }
                                     }
                                 }
+
                                 Button("Sync WaniKani") {
                                     Task { await model.study.syncWaniKani() }
                                 }
@@ -342,7 +349,8 @@ struct SettingsView: View {
             }
             .fullScreenCover(isPresented: $showingTypingPlayground) { TypingPlaygroundView() }
             .toolbar(.hidden, for: .navigationBar)
-            .task {
+            .task(id: availableAppModes.contains(.study)) {
+                guard availableAppModes.contains(.study) else { return }
                 if await model.study.refreshCapabilities() {
                     model.studyTime.applyStudyActivityCapabilities(
                         model.study.capabilities.studyActivity

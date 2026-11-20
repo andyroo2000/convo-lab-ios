@@ -37,11 +37,15 @@ final class SettingsModalUITests: XCTestCase {
     }
 
     @MainActor
-    func testCalendarIsHiddenWithoutStudyAccess() {
+    func testJournalOnlySettingsOfferJournalConnections() {
         let app = launch(beta: true)
         openSettings(app)
+        XCTAssertFalse(app.buttons["SettingsChapter-Study preferences"].exists)
+        XCTAssertFalse(app.buttons["SettingsChapter-Offline & sync"].exists)
         app.buttons["SettingsChapter-Connections"].tap()
-        XCTAssertTrue(app.buttons["SatoriReaderIntegrationLink"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["WaniKani"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["SatoriReaderIntegrationLink"].exists)
+        capture(app, name: "Journal-only settings connections")
         XCTAssertFalse(app.buttons["Google Calendar"].exists)
         XCTAssertFalse(app.buttons["Connect Google Calendar"].exists)
         XCTAssertFalse(app.buttons["Edit Profile"].exists)
@@ -55,6 +59,7 @@ final class SettingsModalUITests: XCTestCase {
         let app = launch(beta: false)
         openSettings(app)
         app.buttons["SettingsChapter-Connections"].tap()
+        XCTAssertTrue(app.buttons["SatoriReaderIntegrationLink"].exists)
         let calendar = app.buttons["Google Calendar"]
         XCTAssertTrue(calendar.waitForExistence(timeout: 5))
         calendar.tap()
