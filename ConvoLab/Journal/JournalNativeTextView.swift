@@ -5,6 +5,8 @@ final class JournalNativeTextView: JournalWritingTextView {
     var hasComposition = false
     var pasteText: ((String) -> Void)?
     var sectionAction: ((String, Int) -> Void)?
+    var focusGeometryChanged: ((CGRect) -> Void)?
+    private var focusedWindowFrame: CGRect?
 
     override init() {
         super.init()
@@ -18,6 +20,18 @@ final class JournalNativeTextView: JournalWritingTextView {
         inputAccessoryView = candidates
     }
     required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard isFirstResponder, let window else { return }
+        let frame = window.convert(window.bounds, to: nil)
+        guard frame != focusedWindowFrame else { return }
+        focusedWindowFrame = frame
+        DispatchQueue.main.async { [weak self] in
+            guard let self, isFirstResponder else { return }
+            focusGeometryChanged?(frame)
+        }
+    }
 
     override func paste(_ sender: Any?) {
         guard let value = UIPasteboard.general.string, let pasteText else { super.paste(sender); return }

@@ -66,6 +66,43 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         coordinator.stop()
     }
 
+    func testCandidatePanelExpandsWithoutDroppingChoices() {
+        let bar = JournalCandidateBar()
+        bar.traitOverrides.verticalSizeClass = .regular
+        bar.updateTraitsIfNeeded()
+        bar.frame.size.width = 390
+        let choices = (0..<160).map { "候補\($0)" }
+        bar.update(choices, context: "こうほ")
+        bar.toggleExpanded()
+        XCTAssertTrue(bar.expanded)
+        XCTAssertEqual(bar.intrinsicContentSize.height, 216)
+        let collection = bar.subviews.compactMap { $0 as? UICollectionView }.first!
+        XCTAssertEqual(collection.numberOfItems(inSection: 0), 160)
+        bar.toggleExpanded()
+        XCTAssertEqual(bar.intrinsicContentSize.height, 48)
+        bar.update([], context: "")
+        var dismissed = false
+        bar.dismissKeyboard = { dismissed = true }
+        bar.toggleExpanded()
+        XCTAssertTrue(dismissed)
+    }
+
+    func testExpandedCandidatesFitCompactHeightAndCollapseWhenEmpty() {
+        let bar = JournalCandidateBar()
+        bar.traitOverrides.verticalSizeClass = .compact
+        bar.updateTraitsIfNeeded()
+        bar.frame.size.width = 780
+        bar.update(["雨", "飴"], context: "あめ")
+        bar.toggleExpanded()
+        XCTAssertEqual(bar.intrinsicContentSize.height, 96)
+        let button = bar.subviews.compactMap { $0 as? UIButton }.first!
+        XCTAssertEqual(button.accessibilityValue, "Expanded")
+        bar.update([], context: "")
+        XCTAssertFalse(bar.expanded)
+        XCTAssertEqual(bar.intrinsicContentSize.height, 48)
+        XCTAssertEqual(button.accessibilityLabel, "Hide keyboard")
+    }
+
     func testExactLatinSpellingCanBeCommitted() throws {
         let model = try XCTUnwrap(JournalNativeComposition())
         let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "OpenAI", "selection": [0, 0]]])

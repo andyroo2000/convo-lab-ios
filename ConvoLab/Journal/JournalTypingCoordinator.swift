@@ -20,8 +20,13 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     func attach(_ view: JournalNativeTextView) {
         self.view = view
         view.delegate = self
+        view.focusGeometryChanged = { [weak self] frame in self?.focusChanged(frame) }
         view.candidates.choose = { [weak self] index in self?.choose(index) }
         view.candidates.dismissKeyboard = { [weak self, weak view] in self?.commit(); view?.resignFirstResponder() }
+        view.candidates.sizeChanged = { [weak view] in
+            // Avoid rebuilding the accessory inside a text-view delegate call.
+            DispatchQueue.main.async { view?.reloadInputViews() }
+        }
         view.sectionAction = { [weak self] action, direction in self?.adjust(action, direction: direction) }
         view.pasteText = { [weak self] value in self?.paste(value) }
         requests.unavailable = { [weak self] in self?.reportFailure() }
@@ -46,7 +51,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
         guard !updating, textView.markedTextRange == nil, let composition else { return true }
-        let roman = replacement.utf16.count == 1 && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'-".contains(replacement)
+        let roman = replacement.utf16.count == 1 && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'-".contains(replacement)
         let punctuation = [".", ",", "?", "!", "/"].contains(replacement)
         // Let UIKit perform ordinary edits, especially Delete after a commit.
         guard composition.state.composition != nil || roman || punctuation else { return true }
@@ -117,6 +122,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
         guard let state = composition?.call("choose", [index]) else { return }
         requests.cancel()
         apply(state)
+        schedule(immediate: true)
     }
 
     func commit() {
@@ -161,7 +167,7 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
         applyAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: composition?.state.composition)
         applyAttribute(.underlineColor, value: UIColor.systemBlue, range: composition?.state.composition)
         applyAttribute(.backgroundColor, value: UIColor.systemBlue.withAlphaComponent(0.12), range: composition?.state.section)
-        view.candidates.update(composition?.state.choices ?? [], context: "\(composition?.state.reading ?? ""):\(composition?.state.section ?? [])")
+        view.candidates.update(composition?.state.choices ?? [], highlighted: composition?.state.highlighted ?? -1, context: "\(composition?.state.reading ?? ""):\(composition?.state.section ?? [])")
         view.hasComposition = composition?.state.composition != nil
     }
 

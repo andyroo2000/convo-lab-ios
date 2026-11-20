@@ -1,5 +1,6 @@
 import { InlineSession, kanaComposer } from './inline-session.mjs';
 import { replaceCompositionRange, changedRange } from './composition-edit.mjs';
+import { remainingCandidates } from './remaining-candidates.mjs';
 import { phraseSections, expandSectionChoices } from './sections.mjs';
 import { resizedSections, resolveBoundaries } from './section-boundaries.mjs';
 
@@ -9,10 +10,12 @@ export class JournalNativeSession {
   constructor(toHiragana) {
     this.field = new NativeText();
     this.session = new InlineSession(this.field, kanaComposer(toHiragana), () => {});
+    this.contextReading = "";
     this.resetCandidates();
   }
 
   resetCandidates() {
+    this.highlighted = -1;
     this.candidates = [];
     this.sections = [];
     this.selected = -1;
@@ -21,6 +24,7 @@ export class JournalNativeSession {
   }
 
   external(text) {
+    this.contextReading = "";
     this.session.active = null;
     this.field.value = text;
     this.field.setSelectionRange(Math.min(this.field.selectionStart, text.length), Math.min(this.field.selectionEnd, text.length));
@@ -31,13 +35,29 @@ export class JournalNativeSession {
   edit({ text, range, replacement, selection, literal = false }) {
     if (text !== this.field.value) this.external(text);
     this.field.setSelectionRange(selection[0], selection[0] + selection[1]);
-    const active = this.session.active;
-    if (active && !this.selectionInside(active, range[0], range[1])) this.session.finish(true);
+    this.prepareEdit(range);
+    if (!literal && this.command(replacement)) return this.snapshot();
     this.resetCandidates();
     if (literal) this.literal(range[0], range[1], replacement, false);
     else this.replaceInput(range, replacement);
     if (this.session.active?.raw === '') this.session.finish();
+    if (!this.session.active) this.contextReading = "";
     return this.snapshot();
+  }
+
+  prepareEdit([start, length]) {
+    const active = this.session.active;
+    if (active && !this.selectionInside(active, start, length)) {
+      this.session.finish(true);
+      this.contextReading = "";
+    }
+  }
+
+  command(replacement) {
+    if (!this.session.active) return false;
+    if (replacement === " ") { this.cycle(); return true; }
+    if (replacement === "\n") { this.accept(); return true; }
+    return false;
   }
 
   reconcile(text, selection) {
@@ -51,6 +71,7 @@ export class JournalNativeSession {
     const active = this.session.active;
     if (active && !this.selectionInside(active, start, length)) {
       this.session.finish(true);
+      this.contextReading = "";
       this.resetCandidates();
     }
     return this.snapshot();
@@ -93,12 +114,17 @@ export class JournalNativeSession {
     this.field.setRangeText(shortcuts ? (punctuation[replacement] ?? replacement) : replacement, start, start + length);
   }
 
-  receive(reading, result) {
-    if (!this.session.active || this.session.reading() !== reading) return this.snapshot();
-    this.candidates = result.candidates ?? [];
+  fullReading() { return this.contextReading + this.session.reading(); }
+
+  receive(fullReading, result) {
+    if (!this.session.active || this.fullReading() !== fullReading) return this.snapshot();
+    const highlightedText = this.choices()[this.highlighted];
+    const reading = this.session.reading();
+    this.candidates = remainingCandidates(result.candidates ?? [], fullReading, this.contextReading.length);
     this.sections = this.manualSections
       ? expandSectionChoices(resolveBoundaries(this.sections, reading, this.candidates), reading, this.candidates)
       : phraseSections(reading, this.candidates);
+    this.highlighted = highlightedText ? this.choices().indexOf(highlightedText) : -1;
     return this.snapshot();
   }
 
@@ -116,22 +142,48 @@ export class JournalNativeSession {
     return this.snapshot();
   }
 
+  cycle() {
+    const count = this.choices().length;
+    this.highlighted = count ? (this.highlighted + 1) % count : -1;
+    return this.snapshot();
+  }
+
+  accept() {
+    return this.highlighted < 0 ? this.commit() : this.choose(this.highlighted);
+  }
+
   choose(index) {
     const choice = this.choices()[index];
     if (!choice || !this.session.active) return this.snapshot();
     this.session.select(this.session.active.end, this.session.active.end);
     const part = this.sections[this.selected];
-    if (part) {
-      const reading = this.session.reading();
-      this.session.preview(reading.slice(0, part.start) + choice + reading.slice(part.start + part.reading.length));
-    } else this.session.preview(choice);
+    if (!part) {
+      this.session.preview(choice);
+      return this.commit();
+    }
+    return this.commitSection(part, choice);
+  }
+
+  commitSection(part, choice) {
+    const reading = this.session.reading();
+    const end = part.start + part.reading.length;
+    const rest = reading.slice(end);
+    this.session.preview(reading.slice(0, part.start) + choice + rest);
     this.session.finish();
+    this.contextReading += reading.slice(0, end);
     this.resetCandidates();
+    if (rest) {
+      const end = this.field.selectionEnd;
+      this.field.setSelectionRange(end - rest.length, end);
+      this.session.begin(rest);
+      this.session.select(end, end);
+    } else this.contextReading = "";
     return this.snapshot();
   }
 
   commit() {
     this.session.finish();
+    this.contextReading = "";
     this.resetCandidates();
     return this.snapshot();
   }
@@ -157,8 +209,9 @@ export class JournalNativeSession {
       composition: active ? [active.start, active.end - active.start] : null,
       section: active && part ? [active.start + part.start, part.reading.length] : null,
       choices: this.choices(),
-      reading: active ? this.session.reading() : '',
-      boundaries: this.boundaries,
+      reading: active ? this.fullReading() : '',
+      highlighted: this.highlighted,
+      boundaries: this.contextReading ? [this.contextReading.length, ...this.boundaries.map(value => value + this.contextReading.length)] : this.boundaries,
     };
   }
 }

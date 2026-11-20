@@ -35,6 +35,24 @@ test('typed Latin is available for explicit commit', () => {
   assert.equal(model.choose(index).text, 'OpenAI');
 });
 
+test('numbers can start an editable composition without losing digits', () => {
+  const model = new JournalNativeSession(toHiragana);
+  for (const digit of '2024') type(model, digit);
+  assert.equal(model.snapshot().text, '2024');
+  assert.ok(model.snapshot().composition);
+  assert.equal(model.commit().text, '2024');
+  assert.equal(model.snapshot().composition, null);
+});
+
+test('Space highlights an available kana choice before inference responds', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'ame');
+  const state = type(model, ' ');
+  assert.equal(state.choices[state.highlighted], 'あめ');
+  assert.equal(type(model, '\n').text, 'あめ');
+  assert.equal(type(model, ' ').text, 'あめ ');
+});
+
 test('backspace handles composition and committed text', () => {
   const model = new JournalNativeSession(toHiragana);
   type(model, 'ohayou');
@@ -164,4 +182,47 @@ test('native deletion reconciles inside composition and allows continued typing'
   state = type(model, "nn");
   assert.equal(state.reading, 'きょうはいいてんき');
   assert.notEqual(state.composition, null);
+});
+
+
+test('confirming a section keeps the suffix editable and sends full context', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'kyouhaiitenki');
+  model.receive('きょうはいいてんき', { candidates: [{text:'今日はいい天気',sections:[{reading:'きょうは',text:'今日は'},{reading:'いいてんき',text:'いい天気'}]}] });
+  model.focusSection(1);
+  let state = model.choose(0);
+  assert.equal(state.text, '今日はいいてんき');
+  assert.deepEqual(state.composition, [3, 5]);
+  assert.equal(state.reading, 'きょうはいいてんき');
+  model.receive(state.reading, { candidates: [{text:'今日はいい天気',sections:[{reading:'きょうは',text:'今日は'},{reading:'いいてんき',text:'いい天気'}]}] });
+  state = model.choose(0);
+  assert.equal(state.text, '今日はいい天気');
+  assert.equal(state.composition, null);
+});
+
+test('Space browses candidates and Enter confirms only the highlighted choice', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'ame'); suggestions(model, ['雨','飴']);
+  let state = type(model, ' ');
+  assert.equal(state.text, 'あめ');
+  assert.equal(state.highlighted, 0);
+  assert.notEqual(state.composition, null);
+  state = type(model, '\n');
+  assert.equal(state.text, '雨');
+  assert.equal(state.composition, null);
+});
+
+
+test('section commit retains all aligned alternatives and clearing the suffix drops old context', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'kyouhaame');
+  const candidates = Array.from({ length: 160 }, (_, i) => ({text:`今日は候補${i}`, sections:[{reading:'きょうは',text:'今日は'},{reading:'あめ',text:`候補${i}`}]}));
+  model.receive('きょうはあめ', {candidates});
+  model.focusSection(1); model.choose(0);
+  let state = model.receive('きょうはあめ', {candidates});
+  for (let i = 0; i < 160; i++) assert.ok(state.choices.includes(`候補${i}`));
+  type(model, '', [3,2]);
+  state = type(model, 'hon');
+  assert.equal(state.reading, 'ほん');
+  assert.equal(state.text, '今日はほn');
 });
