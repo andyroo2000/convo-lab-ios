@@ -48,6 +48,24 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         coordinator.stop()
     }
 
+    func testPunctuationAndNumbersKeepNativeCompositionActive() throws {
+        var text = ""
+        let coordinator = JournalTypingCoordinator(text: Binding(get: { text }, set: { text = $0 }))
+        let view = JournalNativeTextView()
+        coordinator.attach(view)
+        coordinator.configure(text: text, font: .systemFont(ofSize: 20))
+        for character in "ame1." {
+            XCTAssertFalse(coordinator.textView(view, shouldChangeTextIn: view.selectedRange, replacementText: String(character)))
+        }
+        XCTAssertEqual(text, "あめ1。")
+        XCTAssertEqual(coordinator.composition?.state.reading, text)
+        XCTAssertEqual(coordinator.composition?.state.composition, [0, 4])
+        view.deleteBackward()
+        XCTAssertEqual(text, "あめ1")
+        XCTAssertNotNil(coordinator.composition?.state.composition)
+        coordinator.stop()
+    }
+
     func testExactLatinSpellingCanBeCommitted() throws {
         let model = try XCTUnwrap(JournalNativeComposition())
         let state = model.call("edit", [["text": "", "range": [0, 0], "replacement": "OpenAI", "selection": [0, 0]]])

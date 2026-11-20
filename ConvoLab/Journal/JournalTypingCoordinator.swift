@@ -83,8 +83,16 @@ final class JournalTypingCoordinator: NSObject, UITextViewDelegate {
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        guard !updating else { return }
+        // Ignore notifications for text already published by the composer. Native
+        // deletion can also skip shouldChangeTextIn; reconcile that edit below.
+        guard !updating, textView.text != composition?.state.text else { return }
         requests.cancel()
+        if textView.markedTextRange == nil, let composition, composition.state.composition != nil {
+            let selection = textView.selectedRange
+            apply(composition.call("reconcile", [textView.text ?? "", [selection.location, selection.length]]))
+            schedule()
+            return
+        }
         composition?.call("external", [textView.text ?? ""])
         text.wrappedValue = textView.text
         view?.updatePlaceholder()

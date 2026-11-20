@@ -1,4 +1,5 @@
 import { InlineSession, kanaComposer } from './inline-session.mjs';
+import { replaceCompositionRange, changedRange } from './composition-edit.mjs';
 import { phraseSections, expandSectionChoices } from './sections.mjs';
 import { resizedSections, resolveBoundaries } from './section-boundaries.mjs';
 
@@ -30,12 +31,19 @@ export class JournalNativeSession {
   edit({ text, range, replacement, selection, literal = false }) {
     if (text !== this.field.value) this.external(text);
     this.field.setSelectionRange(selection[0], selection[0] + selection[1]);
-    if (!this.session.atCaret()) this.session.finish(true);
+    const active = this.session.active;
+    if (active && !this.selectionInside(active, range[0], range[1])) this.session.finish(true);
     this.resetCandidates();
     if (literal) this.literal(range[0], range[1], replacement, false);
     else this.replaceInput(range, replacement);
     if (this.session.active?.raw === '') this.session.finish();
     return this.snapshot();
+  }
+
+  reconcile(text, selection) {
+    const change = changedRange(this.field.value, text);
+    this.edit({ text: this.field.value, ...change, selection: change.range, literal: change.replacement.length > 1 });
+    return this.moveSelection(selection);
   }
 
   moveSelection([start, length]) {
@@ -49,15 +57,23 @@ export class JournalNativeSession {
   }
 
   selectionInside(active, start, length) {
-    if (!length) return start === active.end;
     return start >= active.start && start + length <= active.end;
   }
 
   replaceInput([start, length], replacement) {
-    if (/^[a-z'-]+$/i.test(replacement)) return this.session.append(replacement);
+    const punctuation = { '。': '.', '、': ',', '？': '?', '！': '!', '・': '/', 'ー': '-' };
+    const input = punctuation[replacement] ?? replacement;
+    if (/^[a-z0-9'.,?!/-]+$/i.test(input)) {
+      const active = this.session.active;
+      if (active && (start !== active.end || length)) return replaceCompositionRange(this.session, start, length, input);
+      return this.session.append(input);
+    }
     if (replacement === '\n' && this.session.active) return this.session.finish();
     const active = this.session.active;
-    if (!replacement && active && start >= active.start && start + length === active.end) return this.backspace();
+    if (!replacement && active) {
+      if (start + length === active.end && length === 1) return this.backspace();
+      return replaceCompositionRange(this.session, start, length, "");
+    }
     this.literal(start, length, replacement);
   }
 

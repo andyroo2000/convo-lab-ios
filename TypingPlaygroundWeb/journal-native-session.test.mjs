@@ -79,14 +79,16 @@ test('boundary adjustments keep whole-phrase reading for neural requests', () =>
 
 test('moving the caret outside composition clears stale suggestions without moving text', () => {
   const model = new JournalNativeSession(toHiragana);
+  model.external('前');
+  model.field.setSelectionRange(1, 1);
   type(model, 'ame');
   suggestions(model, ['雨']);
   const state = model.moveSelection([0, 0]);
-  assert.equal(state.text, 'あめ');
+  assert.equal(state.text, '前あめ');
   assert.equal(state.composition, null);
   assert.deepEqual(state.choices, []);
-  assert.equal(model.choose(0).text, 'あめ');
-  assert.equal(type(model, 'kono').text, 'このあめ');
+  assert.equal(model.choose(0).text, '前あめ');
+  assert.equal(type(model, 'kono').text, 'この前あめ');
 });
 
 test('Latin option survives editing kana and pending n resolves before punctuation', () => {
@@ -110,4 +112,56 @@ test('literal paste preserves single Latin characters, punctuation and URLs whil
   }
   assert.equal(model.snapshot().text, 'ほんa/https://example.com\n');
   assert.equal(model.snapshot().composition, null);
+});
+
+for (const [key, suffix] of [['.', '。'], [',', '、'], ['?', '？'], ['!', '！'], ['/', '・'], ['1', '1']]) {
+  test(`typing ${key} preserves the complete conversion phrase`, () => {
+    const model = new JournalNativeSession(toHiragana);
+    type(model, 'ame');
+    const state = type(model, key);
+    assert.equal(state.text, `あめ${suffix}`);
+    assert.deepEqual(state.composition, [0, 3]);
+    suggestions(model, [`雨${suffix}`, `飴${suffix}`]);
+    assert.equal(model.choose(0).text, `雨${suffix}`);
+    assert.equal(model.snapshot().composition, null);
+  });
+}
+
+test('punctuation can be deleted or followed by more kana without losing conversion', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'hon');
+  type(model, '.');
+  assert.equal(model.snapshot().reading, 'ほん。');
+  type(model, '', [2, 1]);
+  assert.equal(model.snapshot().reading, 'ほん');
+  type(model, 'wo');
+  assert.equal(model.snapshot().text, 'ほんを');
+  assert.notEqual(model.snapshot().composition, null);
+});
+
+test('cursor edits inside a phrase preserve the full reading and surrounding document', () => {
+  const model = new JournalNativeSession(toHiragana);
+  model.external('前後');
+  model.field.setSelectionRange(1, 1);
+  type(model, 'kyouhaiitenki');
+  model.moveSelection([8, 0]);
+  const state = model.edit({ text: model.snapshot().text, range: [7, 1], replacement: '', selection: [8, 0] });
+  assert.equal(state.text, '前きょうはいいんき後');
+  assert.equal(state.reading, 'きょうはいいんき');
+  assert.notEqual(state.composition, null);
+  type(model, 'te');
+  assert.equal(model.snapshot().text, '前きょうはいいてんき後');
+  assert.equal(model.snapshot().reading, 'きょうはいいてんき');
+});
+
+
+test('native deletion reconciles inside composition and allows continued typing', () => {
+  const model = new JournalNativeSession(toHiragana);
+  type(model, 'kyouhaiitenki');
+  let state = model.reconcile('きょうはいいてき', [7, 0]);
+  assert.equal(state.reading, 'きょうはいいてき');
+  assert.notEqual(state.composition, null);
+  state = type(model, "nn");
+  assert.equal(state.reading, 'きょうはいいてんき');
+  assert.notEqual(state.composition, null);
 });
