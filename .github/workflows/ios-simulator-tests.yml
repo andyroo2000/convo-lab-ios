@@ -16,7 +16,9 @@ jobs:
   test:
     name: Xcode 26.2 tests
     runs-on: macos-26
-    timeout-minutes: 60
+    # Full simulator runs can finish near an hour; allow result collection and
+    # runner cleanup to complete instead of canceling a successful test suite.
+    timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
 
