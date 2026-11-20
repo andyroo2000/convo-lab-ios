@@ -32,25 +32,30 @@ final class JournalBrandingUITests: XCTestCase {
         let password = app.secureTextFields["auth-register-password"]
         XCTAssertTrue(password.waitForExistence(timeout: 5))
         app.swipeUp()
-        password.tap()
-        if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
-            app.buttons["Close"].tap()
-        }
+        focusPasswordField(password, in: app)
         password.typeText("example")
         let hint = app.staticTexts["Use at least 8 characters for your password."]
-        XCTAssertTrue(hint.exists)
+        XCTAssertTrue(hint.waitForExistence(timeout: 5))
         capture(app, name: "Journal signup password requirement")
-        password.typeText("-password")
-        XCTAssertFalse(hint.exists)
+        password.typeText("s")
+        XCTAssertTrue(hint.waitForNonExistence(timeout: 5))
         let confirmation = app.secureTextFields["Confirm password"]
-        confirmation.tap()
-        if app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 3) {
-            app.buttons["Close"].tap()
-        }
+        focusPasswordField(confirmation, in: app)
         confirmation.typeText("different-password")
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["Passwords do not match."].exists)
         XCTAssertFalse(app.buttons["auth-register-submit"].isEnabled)
+    }
+
+    @MainActor
+    private func focusPasswordField(_ field: XCUIElement, in app: XCUIApplication) {
+        field.tap()
+        // A freshly booted simulator may load the system AutoFill sheet several seconds after focus.
+        let strongPassword = app.buttons["GenerateStrongPasswordButton"]
+        if strongPassword.waitForExistence(timeout: 15) {
+            app.buttons["Close"].tap()
+            XCTAssertTrue(strongPassword.waitForNonExistence(timeout: 5))
+        }
     }
 
     @MainActor
