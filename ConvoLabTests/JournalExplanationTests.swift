@@ -55,6 +55,13 @@ final class JournalExplanationTests: XCTestCase {
     }
 
     @MainActor
+    func testFullwidthLatinAndNumbersKeepTheEnglishSize() {
+        let text = JournalExplanationContent.attributed(example("映画（Ａ１）"), knownKanji: [], font: .systemFont(ofSize: 20))
+        let sizes = (0..<text.length).map { (text.attribute(.font, at: $0, effectiveRange: nil) as? UIFont)?.pointSize }
+        XCTAssertEqual(sizes, [20, 20, 20, 16, 16, 20])
+    }
+
+    @MainActor
     func testMixedLanguageSentenceSpacingPreservesEnglishAndNewlines() {
         let segment = example("Use 日本[にほん]. Next. **早め**. Another. 日本語.\nEnglish. English.")
         XCTAssertEqual(JournalExplanationContent.text(segment), "Use 日本[にほん].\u{2002}Next.\u{2002}**早め**.\u{2002}Another.\u{2002}日本語.\nEnglish. English.")

@@ -90,6 +90,20 @@ final class JournalEditingUITests: XCTestCase {
         preview.name = "Picker at largest accessibility text size"
         preview.lifetime = .keepAlways
         add(preview)
+        app.buttons["app-account-menu"].tap()
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let scroll = app.scrollViews["AppPaperMenuScroll"]
+        let logout = app.buttons["Log out"]
+        if scroll.exists { scroll.swipeUp() }
+        XCTAssertTrue(logout.isHittable)
+        XCTAssertTrue(settings.isHittable)
+        let menuPreview = XCTAttachment(screenshot: app.screenshot())
+        menuPreview.name = "Account menu at largest text size"
+        menuPreview.lifetime = .keepAlways
+        add(menuPreview)
+        logout.tap()
+        XCTAssertTrue(app.staticTexts["Log out of ConvoLab?"].waitForExistence(timeout: 5))
     }
 
     @MainActor

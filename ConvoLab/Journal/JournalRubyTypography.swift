@@ -32,8 +32,10 @@ enum JournalRubyTypography {
     }
 
     static func glyphBaseline(in view: UITextView, fragment: NSTextLayoutFragment, line: NSTextLineFragment, at index: Int) -> CGFloat {
-        let offset = view.attributedText.attribute(.baselineOffset, at: index, effectiveRange: nil) as? CGFloat ?? 0
-        return view.textContainerInset.top + fragment.layoutFragmentFrame.minY
-            + line.typographicBounds.minY + line.glyphOrigin.y - offset
+        let baseline = view.textContainerInset.top + fragment.layoutFragmentFrame.minY
+            + line.typographicBounds.minY + line.glyphOrigin.y
+        guard let text = view.attributedText, (0..<text.length).contains(index) else { return baseline }
+        let offset = text.attribute(.baselineOffset, at: index, effectiveRange: nil) as? CGFloat ?? 0
+        return baseline - offset
     }
 }
