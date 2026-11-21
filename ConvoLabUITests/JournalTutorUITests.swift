@@ -28,6 +28,11 @@ final class JournalTutorUITests: XCTestCase {
         app.buttons["Choose your tutor"].tap()
         let ren = app.buttons["Ren"]
         XCTAssertTrue(ren.waitForExistence(timeout: 5))
+        let heading = app.staticTexts["Choose your tutor"]
+        XCTAssertGreaterThan(heading.frame.minY, app.frame.height / 2)
+        XCTAssertLessThan(app.frame.maxY - ren.frame.maxY, 120)
+        XCTAssertTrue(app.buttons["Close tutor picker"].isHittable)
+        XCTAssertFalse(app.staticTexts["Ren"].exists)
         ren.tap()
         XCTAssertTrue(portrait.waitForExistence(timeout: 5))
         app.buttons["app-account-menu"].tap()

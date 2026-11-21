@@ -33,6 +33,7 @@ struct JournalOptionButton: View {
     let title: String
     let icon: String
     var detail: String? = nil
+    var destructive = false
     let action: () -> Void
     @Environment(\.journalMenuAction) private var perform
     @Environment(\.isEnabled) private var enabled
@@ -42,12 +43,12 @@ struct JournalOptionButton: View {
             if let perform { perform(action) } else { action() }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: icon).foregroundStyle(JournalToolbarButtonStyle.blue).frame(width: 23)
+                Image(systemName: icon).foregroundStyle(destructive ? JournalDialogStyle.destructive : JournalDialogStyle.green).frame(width: 23)
                 Text(title)
                 Spacer(minLength: 8)
                 if let detail { Text(detail).font(.custom("CrimsonPro-Regular", size: 16, relativeTo: .body)).foregroundStyle(.secondary) }
             }.font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
-                .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
+                .foregroundStyle(destructive ? JournalDialogStyle.destructive : JournalDialogStyle.ink)
                 .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 44)
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).opacity(enabled ? 1 : 0.45)

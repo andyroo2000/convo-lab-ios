@@ -26,7 +26,7 @@ final class JournalVoicePickerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Copy text"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Edit final"].exists)
         app.buttons["JournalVoicePicker"].tap()
-        let title = app.staticTexts["Choose your narration voice"]
+        let title = app.staticTexts["Narration voice"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         attach(app, "Narration voice modal")
         app.buttons["Cancel"].firstMatch.tap()
