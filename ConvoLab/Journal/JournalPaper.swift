@@ -62,7 +62,7 @@ private struct JournalPaperHeading: View {
     }
 }
 
-struct JournalPaperEdge: Shape {
+nonisolated struct JournalPaperEdge: Shape {
     var tornTop: Bool
     // Stable, shallow variations keep a soft tear at any sheet width.
     private let depths: [CGFloat] = [5, 3, 6, 2, 4, 1, 5, 3, 6, 2, 4, 0, 3, 1, 5, 3, 6, 2, 4, 1, 3]
@@ -83,7 +83,7 @@ struct JournalPaperEdge: Shape {
     }
 }
 
-private struct JournalPaperRules: Shape {
+private nonisolated struct JournalPaperRules: Shape {
     let spacing: CGFloat
     func path(in rect: CGRect) -> Path {
         var path = Path()
