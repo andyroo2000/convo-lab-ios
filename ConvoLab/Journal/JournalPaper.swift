@@ -83,7 +83,7 @@ nonisolated struct JournalPaperEdge: Shape {
     }
 }
 
-nonisolated private struct JournalPaperRules: Shape {
+private nonisolated struct JournalPaperRules: Shape {
     let spacing: CGFloat
     func path(in rect: CGRect) -> Path {
         var path = Path()
