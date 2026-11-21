@@ -6,24 +6,18 @@ struct JournalRowActions: View {
     var onDeleted: () -> Void = {}
     var onRenamed: () -> Void = {}
     @State private var renaming: JournalDraft?
-    @State private var showingDelete = false
-    @State private var isDeleting = false
+    @State private var deleting: JournalDraft?
 
     var body: some View {
         JournalOptionsMenu {
             JournalOptionButton(title: "Rename", icon: "pencil") { renaming = snapshot() }
-            JournalOptionButton(title: "Delete", icon: "trash", destructive: true) { showingDelete = true }
+            JournalOptionButton(title: "Delete", icon: "trash", destructive: true) { deleting = snapshot() }
         }
-        .disabled(isDeleting || store.busyEntryIDs.contains(row.id))
+        .disabled(store.busyEntryIDs.contains(row.id))
         .accessibilityLabel("Actions for \(row.title ?? "Untitled entry")")
         .accessibilityIdentifier("JournalRowActions-\(row.id)")
         .outsideDismissibleSheet(item: $renaming) { JournalRenameSheet(entry: $0, store: store, onSaved: onRenamed) }
-        .alert("Delete this entry?", isPresented: $showingDelete) {
-            Button("Delete entry", role: .destructive) { Task { await deleteEntry() } }
-            Button("Keep entry", role: .cancel) {}
-        } message: {
-            Text("“\(row.title ?? "Untitled entry")” will be permanently deleted. You can’t undo this action.")
-        }
+        .outsideDismissibleSheet(item: $deleting) { JournalDeleteSheet(entry: $0, store: store, onDeleted: onDeleted) }
     }
 
     private func snapshot() -> JournalDraft {
@@ -32,11 +26,4 @@ struct JournalRowActions: View {
         return draft
     }
 
-    private func deleteEntry() async {
-        guard !isDeleting else { return }
-        isDeleting = true
-        defer { isDeleting = false }
-        do { try await store.delete(id: row.id); onDeleted() }
-        catch { store.errorMessage = error.localizedDescription }
-    }
 }

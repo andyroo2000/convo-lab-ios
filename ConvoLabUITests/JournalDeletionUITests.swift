@@ -22,6 +22,7 @@ final class JournalDeletionUITests: XCTestCase {
         let title = app.textFields["JournalRenameTitle"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Save"].isEnabled)
+        capture(app, "Journal rename sheet")
         title.tap()
         title.typeText("Movie night")
         app.buttons["Cancel"].tap()
@@ -44,17 +45,26 @@ final class JournalDeletionUITests: XCTestCase {
         actions.tap()
         app.buttons["Delete"].tap()
         XCTAssertTrue(app.buttons["Keep entry"].waitForExistence(timeout: 5))
+        capture(app, "Journal delete confirmation")
         app.buttons["Keep entry"].tap()
         XCTAssertTrue(actions.exists)
         actions.tap()
         app.buttons["Delete"].tap()
-        let confirmation = app.alerts["Delete this entry?"]
+        let confirmation = app.buttons["Delete entry"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
-        confirmation.buttons["Delete entry"].tap()
+        app.buttons["Delete entry"].tap()
         XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textViews["Journal entry"].value as? String, "")
         app.buttons["Contents"].tap()
         XCTAssertFalse(app.buttons[actionID].exists)
+    }
+
+    @MainActor
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = name
+        image.lifetime = .keepAlways
+        add(image)
     }
 }

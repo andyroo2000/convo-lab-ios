@@ -59,7 +59,7 @@ struct JournalDraftButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     private var foreground: Color {
-        if destructive { return JournalDialogStyle.destructive }
+        if destructive { return sage ? JournalDialogStyle.paper : JournalDialogStyle.destructive }
         return sage ? JournalDialogStyle.paper : JournalDialogStyle.green
     }
 
@@ -67,7 +67,7 @@ struct JournalDraftButtonStyle: ButtonStyle {
         configuration.label.font(JournalDialogStyle.body)
             .foregroundStyle(foreground)
             .padding(.horizontal, 18).padding(.vertical, 10).frame(minHeight: 44)
-            .background(sage ? JournalDialogStyle.green : JournalDialogStyle.paper, in: Capsule())
+            .background(sage ? (destructive ? JournalDialogStyle.destructive : JournalDialogStyle.green) : JournalDialogStyle.paper, in: Capsule())
             .overlay(Capsule().stroke(destructive ? JournalDialogStyle.destructive.opacity(0.4) : JournalDialogStyle.green.opacity(0.5)))
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
