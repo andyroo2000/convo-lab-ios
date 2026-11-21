@@ -48,6 +48,10 @@ struct JournalDeleteSheet: View {
             try await store.delete(id: entry.id)
             dismiss()
             onDeleted()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            // The row can disappear after a server delete, before device cleanup fails.
+            store.errorMessage = error.localizedDescription
+        }
     }
 }
