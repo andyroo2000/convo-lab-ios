@@ -10,13 +10,10 @@ struct JournalRowActions: View {
     @State private var isDeleting = false
 
     var body: some View {
-        Menu {
-            Button("Rename", systemImage: "pencil") { renaming = snapshot() }
-            Button("Delete", systemImage: "trash", role: .destructive) { showingDelete = true }
-        } label: {
-            Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
+        JournalOptionsMenu {
+            JournalOptionButton(title: "Rename", icon: "pencil") { renaming = snapshot() }
+            JournalOptionButton(title: "Delete", icon: "trash", destructive: true) { showingDelete = true }
         }
-        .buttonStyle(.borderless)
         .disabled(isDeleting || store.busyEntryIDs.contains(row.id))
         .accessibilityLabel("Actions for \(row.title ?? "Untitled entry")")
         .accessibilityIdentifier("JournalRowActions-\(row.id)")

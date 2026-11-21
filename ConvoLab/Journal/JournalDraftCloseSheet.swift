@@ -10,18 +10,18 @@ struct JournalDraftCloseSheet: View {
     @State private var visible = true
 
     var body: some View {
-        VStack(spacing: 20) {
-            JournalAvatar(url: avatar).frame(width: 72, height: 72).clipShape(Circle()).accessibilityLabel("Your tutor")
-            Text("Keep this draft?").font(.custom("CrimsonPro-Regular", size: 28, relativeTo: .title2))
+        JournalDialogSheet {
+            HStack(spacing: 12) {
+                JournalAvatar(url: avatar).frame(width: 56, height: 56).clipShape(Circle()).accessibilityLabel("Your tutor")
+                JournalDialogHeading(title: "Keep this draft?", closeLabel: "Keep writing") { dismiss() }
+            }
             Text("Your writing is saved automatically. You can come back and finish it later.")
-                .font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body)).multilineTextAlignment(.center)
+                .font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body)).multilineTextAlignment(.leading)
             Button("Keep draft & close") { perform(delete: false) }.buttonStyle(JournalDraftButtonStyle())
-            Button("Delete draft", role: .destructive) { perform(delete: true) }.buttonStyle(JournalDraftButtonStyle(sage: false))
-            Button("Keep writing") { dismiss() }.frame(minHeight: 44)
+            Button("Delete draft", role: .destructive) { perform(delete: true) }.buttonStyle(JournalDraftButtonStyle(sage: false, destructive: true))
             if busy { ProgressView() }
             if let error { Text(error).foregroundStyle(.red).font(.footnote) }
-        }.padding(24).disabled(busy).interactiveDismissDisabled(busy)
-            .presentationDetents([.medium, .large]).presentationBackground(Color(red: 1, green: 0.992, blue: 0.965)).environment(\.colorScheme, .light)
+        }.disabled(busy).interactiveDismissDisabled(busy)
             .onAppear { visible = true }
             .onDisappear { visible = false }
             .task {
@@ -55,13 +55,20 @@ struct JournalDraftCloseSheet: View {
 
 struct JournalDraftButtonStyle: ButtonStyle {
     var sage = true
+    var destructive = false
     @Environment(\.isEnabled) private var isEnabled
+
+    private var foreground: Color {
+        if destructive { return JournalDialogStyle.destructive }
+        return sage ? JournalDialogStyle.paper : JournalDialogStyle.green
+    }
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
-            .foregroundStyle(sage ? Color(red: 0.278, green: 0.4, blue: 0.298) : Color(red: 0.459, green: 0.38, blue: 0.314))
+        configuration.label.font(JournalDialogStyle.body)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 18).padding(.vertical, 10).frame(minHeight: 44)
-            .background(sage ? Color(red: 0.929, green: 0.953, blue: 0.914) : Color(red: 0.984, green: 0.961, blue: 0.945), in: .rect(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(sage ? Color(red: 0.604, green: 0.702, blue: 0.616) : Color(red: 0.804, green: 0.741, blue: 0.682)))
+            .background(sage ? JournalDialogStyle.green : JournalDialogStyle.paper, in: Capsule())
+            .overlay(Capsule().stroke(destructive ? JournalDialogStyle.destructive.opacity(0.4) : JournalDialogStyle.green.opacity(0.5)))
             .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }

@@ -71,18 +71,14 @@ private struct JournalTutorPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Choose your tutor").font(.headline)
+                Text("Choose your tutor").font(JournalDialogStyle.heading)
                 Spacer()
-                if model.question?.tutor != nil { Button("Cancel") { model.choosing = false }.disabled(model.isBusy) }
+                if model.question?.tutor != nil { JournalDialogCloseButton(label: "Cancel") { model.choosing = false }.disabled(model.isBusy) }
             }
             HStack(spacing: 12) {
                 ForEach(model.preferences?.tutors ?? []) { tutor in
                     Button { Task { await model.choose(tutor) } } label: {
-                        VStack(spacing: 8) {
-                            JournalTutorPortrait(tutor: tutor).frame(width: 80, height: 80).clipShape(Circle()).accessibilityHidden(true)
-                            if model.preferences?.selectedId == tutor.id { Image(systemName: "checkmark").accessibilityHidden(true) }
-                        }.frame(maxWidth: .infinity).padding(12)
-                            .background(Color.blue.opacity(0.06), in: .rect(cornerRadius: 12))
+                        JournalAvatarChoice(url: tutor.avatarUrl, selected: model.preferences?.selectedId == tutor.id)
                     }.buttonStyle(.plain).disabled(model.isBusy)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(tutor.name)
@@ -90,7 +86,7 @@ private struct JournalTutorPicker: View {
                 }
             }
             if model.isBusy { ProgressView("Saving tutor…") }
-        }.padding(14).background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16))
+        }.modifier(JournalDialogCard())
     }
 }
 

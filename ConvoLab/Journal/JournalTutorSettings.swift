@@ -13,29 +13,22 @@ struct JournalTutorSettings: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                HStack(spacing: 16) {
-                    ForEach(preferences?.tutors ?? []) { tutor in
-                        Button { Task { await choose(tutor) } } label: {
-                            VStack(spacing: 8) {
-                                JournalAvatar(url: tutor.avatarUrl).frame(width: 88, height: 88).clipShape(Circle())
-                                if preferences?.selectedId == tutor.id { Image(systemName: "checkmark") }
-                            }.frame(maxWidth: .infinity).padding(12)
-                        }.buttonStyle(.plain).disabled(busy)
-                            .accessibilityLabel(tutor.name)
-                            .accessibilityAddTraits(preferences?.selectedId == tutor.id ? .isSelected : [])
-                    }
+        JournalDialogSheet {
+            JournalDialogHeading(title: "Choose your tutor", closeLabel: "Close tutor picker") { dismiss() }
+            HStack(spacing: 12) {
+                ForEach(preferences?.tutors ?? []) { tutor in
+                    Button { Task { await choose(tutor) } } label: {
+                        JournalAvatarChoice(url: tutor.avatarUrl, selected: preferences?.selectedId == tutor.id)
+                    }.buttonStyle(.plain).disabled(busy)
+                        .accessibilityLabel(tutor.name)
+                        .accessibilityAddTraits(preferences?.selectedId == tutor.id ? .isSelected : [])
                 }
-                if busy { ProgressView() }
-                if let error {
-                    Text(error).foregroundStyle(.red)
-                    Button("Retry") { Task { await load() } }
-                }
-                Spacer()
-            }.padding(20).navigationTitle("Choose your tutor")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            }
+            if busy { ProgressView() }
+            if let error {
+                Text(error).foregroundStyle(JournalDialogStyle.destructive)
+                Button("Retry") { Task { await load() } }.buttonStyle(JournalDraftButtonStyle())
+            }
         }.task { await load() }
     }
 

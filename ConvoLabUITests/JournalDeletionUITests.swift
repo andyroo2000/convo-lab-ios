@@ -48,7 +48,10 @@ final class JournalDeletionUITests: XCTestCase {
         XCTAssertTrue(actions.exists)
         actions.tap()
         app.buttons["Delete"].tap()
-        app.buttons["Delete entry"].tap()
+        let confirmation = app.alerts["Delete this entry?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Delete entry"].tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textViews["Journal entry"].value as? String, "")
         app.buttons["Contents"].tap()
