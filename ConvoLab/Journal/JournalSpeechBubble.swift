@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct JournalSpeechBubble: Shape {
+nonisolated struct JournalSpeechBubble: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path(roundedRect: rect, cornerRadius: 16)
         path.move(to: CGPoint(x: 1, y: 22))
