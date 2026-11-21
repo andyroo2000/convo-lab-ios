@@ -4,6 +4,7 @@ struct JournalRenameSheet: View {
     let entry: JournalDraft
     let store: JournalStore
     let onSaved: () -> Void
+    @AppStorage(JournalTypography.fontKey) private var font = JournalTypography.defaultFont
     @State private var title: String
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -23,30 +24,29 @@ struct JournalRenameSheet: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Rename entry").font(.title2.bold())
-                TextField("Untitled entry", text: $title)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Entry title")
-                    .accessibilityIdentifier("JournalRenameTitle")
-                    .focused($titleFocused)
-                    .submitLabel(.done)
-                    .onSubmit { Task { await save() } }
-                if title.unicodeScalars.count > 255 {
-                    Text("Use 255 characters or fewer.").font(.footnote).foregroundStyle(.red)
-                }
-                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
-                HStack {
-                    Spacer()
-                    Button("Cancel") { dismiss() }.buttonStyle(.bordered)
-                    Button(isSaving ? "Saving…" : "Save") { Task { await save() } }
-                        .buttonStyle(.borderedProminent).disabled(!valid)
-                }
-            }.padding(24).disabled(isSaving)
+        JournalDialogSheet {
+            Text("Rename entry").font(JournalDialogStyle.heading).accessibilityAddTraits(.isHeader)
+            TextField("Untitled entry", text: $title)
+                .font(JournalTypography(font: font, size: 23).font)
+                .textFieldStyle(.plain).padding(14)
+                .background(.white, in: .rect(cornerRadius: 12))
+                .overlay { RoundedRectangle(cornerRadius: 12).stroke(JournalDialogStyle.border) }
+                .accessibilityLabel("Entry title")
+                .accessibilityIdentifier("JournalRenameTitle")
+                .focused($titleFocused)
+                .submitLabel(.done)
+                .onSubmit { Task { await save() } }
+            if title.unicodeScalars.count > 255 {
+                Text("Use 255 characters or fewer.").foregroundStyle(JournalDialogStyle.destructive)
+            }
+            if let errorMessage { Text(errorMessage).foregroundStyle(JournalDialogStyle.destructive) }
+            JournalEntryDialogActions {
+                Button("Cancel") { dismiss() }.buttonStyle(JournalDraftButtonStyle(sage: false))
+                Button(isSaving ? "Saving…" : "Save") { Task { await save() } }
+                    .buttonStyle(JournalDraftButtonStyle()).disabled(!valid)
+            }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .disabled(isSaving)
         .interactiveDismissDisabled(isSaving)
         .task { titleFocused = true }
     }

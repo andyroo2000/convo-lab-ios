@@ -7,7 +7,8 @@ final class JournalAppearanceUITests: XCTestCase {
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
         openAppearance(app)
         XCTAssertFalse(app.buttons["Done"].exists)
-        XCTAssertTrue(app.staticTexts["JournalAppearancePreview"].exists)
+        XCTAssertEqual(app.staticTexts["JournalAppearancePreview"].label, "今日はいい一日でした。")
+        XCTAssertTrue(app.buttons["Close appearance"].isHittable)
         app.buttons["Serif"].tap()
         app.sliders["Font size"].adjust(toNormalizedSliderPosition: 0.85)
         let size = app.sliders["Font size"].value as? String
@@ -30,13 +31,15 @@ final class JournalAppearanceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
         openAppearance(app)
-        XCTAssertFalse(app.staticTexts["Journal appearance"].exists)
+        XCTAssertTrue(app.staticTexts["Journal appearance"].exists)
         XCTAssertFalse(app.staticTexts["Font"].exists)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         XCTAssertTrue(app.sliders["Font size"].waitForNonExistence(timeout: 5))
         app.buttons["app-account-menu"].tap()
         app.buttons["Appearance"].tap()
         XCTAssertTrue(app.sliders["Font size"].waitForExistence(timeout: 5))
+        app.buttons["Close appearance"].tap()
+        XCTAssertTrue(app.sliders["Font size"].waitForNonExistence(timeout: 5))
     }
 
     @MainActor
