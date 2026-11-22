@@ -98,8 +98,7 @@ final class JournalEntryModel {
             if submit { await submitSaved(entry) }
             return true
         } catch {
-            hasConflict = Self.isConflict(error)
-            errorMessage = error.localizedDescription
+            reportSaveFailure(error)
             return false
         }
     }
@@ -113,9 +112,16 @@ final class JournalEntryModel {
             UserDefaults.standard.set(JournalVersion.draft.rawValue, forKey: JournalVersion.preferenceKey(owner: store.storage.directory.lastPathComponent, entry: id))
             isEditing = false
         } catch {
-            hasConflict = Self.isConflict(error)
-            errorMessage = "Saved, but feedback could not be requested. Try Submit again."
+            reportSaveFailure(error, message: "Saved, but feedback could not be requested. Try Submit again.")
         }
+    }
+
+    private func reportSaveFailure(_ error: Error, message: String? = nil) {
+        hasConflict = Self.isConflict(error)
+        if case APIClientError.rejected(status: 404, message: _) = error {
+            hasConflict = true
+            errorMessage = "This entry is no longer available online. Your writing is still here; save it as a new entry."
+        } else { errorMessage = message ?? error.localizedDescription }
     }
 
     func refreshAnalysis() async throws {

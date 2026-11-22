@@ -8,6 +8,7 @@ struct JournalEntriesSheet: View {
     var create: () -> Void
     let select: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     private var rows: [JournalDraft] {
         var merged = Dictionary(store.entries.map { ($0.id, JournalDraft(entry: $0)) }, uniquingKeysWith: { _, newer in newer })
@@ -50,9 +51,15 @@ struct JournalEntriesSheet: View {
                         .accessibilityIdentifier("JournalNewEntry")
                 }
             }
-            .task { store.refreshDrafts(); if store.entries.isEmpty { await store.loadMore() } }
+            .task(id: scenePhase) { await refreshContents() }
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             .environment(\.colorScheme, .light).tint(JournalDeskStyle.green)
+    }
+
+    private func refreshContents() async {
+        guard scenePhase == .active else { return }
+        store.refreshDrafts()
+        await store.loadMore(refresh: true)
     }
 
 }

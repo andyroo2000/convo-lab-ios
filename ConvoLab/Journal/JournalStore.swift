@@ -10,6 +10,7 @@ final class JournalStore {
     private(set) var drafts: [JournalDraft] = []
     private(set) var nextCursor: String?
     private(set) var isLoading = false
+    private var refreshRequested = false
     private(set) var busyEntryIDs: Set<String> = []
     var errorMessage: String?
 
@@ -30,9 +31,12 @@ final class JournalStore {
     }
 
     func loadMore(refresh: Bool = false) async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            if refresh { refreshRequested = true }
+            return
+        }
         isLoading = true
-        defer { isLoading = false }
+        defer { finishLoading() }
         do {
             let result = try await service.archive(cursor: refresh ? nil : nextCursor)
             if refresh { entries = [] }
@@ -40,7 +44,17 @@ final class JournalStore {
             nextCursor = result.nextCursor
             errorMessage = nil
             refreshDrafts()
-        } catch { errorMessage = "Saved entries are unavailable. Device drafts are still here." }
+        } catch is CancellationError { }
+        catch let error as URLError where error.code == .cancelled { }
+        catch { errorMessage = "Saved entries are unavailable. Device drafts are still here." }
+    }
+
+    private func finishLoading() {
+        isLoading = false
+        guard refreshRequested else { return }
+        refreshRequested = false
+        // A foreground refresh must survive cancellation of the older sheet task.
+        Task { [weak self] in await self?.loadMore(refresh: true) }
     }
 
     func create() throws -> JournalDraft {
