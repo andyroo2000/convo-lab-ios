@@ -99,6 +99,11 @@ final class JournalEntryModel {
             return true
         } catch {
             hasConflict = Self.isConflict(error)
+            if case APIClientError.rejected(status: 404, message: _) = error {
+                hasConflict = true
+                errorMessage = "This entry is no longer available online. Your writing is still here; save it as a new entry."
+                return false
+            }
             errorMessage = error.localizedDescription
             return false
         }
