@@ -3,6 +3,7 @@ import SwiftUI
 struct JournalThinkingView: View {
     let service: JournalService
     var lastAnswer: String?
+    @State private var phrase = JournalThinkingPhrases.next()
     @State private var avatar: String?
     @State private var english = true
     @State private var openedAt = Date()
@@ -12,10 +13,11 @@ struct JournalThinkingView: View {
         VStack(spacing: 18) {
             Button(english ? "Hide English" : "Show English") { english.toggle() }
                 .font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
-            JournalAvatar(url: avatar).frame(width: 80, height: 80).clipShape(Circle()).accessibilityLabel("Your tutor")
-            Text("少し読ませてくださいね。").font(.custom("HiraMinProN-W3", size: 20, relativeTo: .body))
-            if english { Text("Let me read through it for a moment.").font(.custom("CrimsonPro-Regular", size: 19, relativeTo: .body)) }
-            ProgressView().accessibilityLabel("Your tutor is thinking")
+            JournalThinkingOrnament()
+            JournalAvatar(url: avatar).frame(width: 80, height: 80).clipShape(Circle()).accessibilityLabel("Your tutor").padding(.top, 10)
+            Text(phrase.japanese).font(.system(size: 21)).multilineTextAlignment(.center)
+            if english { Text(phrase.english).font(.custom("CrimsonPro-Regular", size: 19, relativeTo: .body)) }
+            JournalThinkingDots().padding(.top, 6)
             if let lastAnswer {
                 Divider().overlay(Color(red: 0.867, green: 0.847, blue: 0.788)).padding(.top, 18)
                 HStack(alignment: .top, spacing: 12) {
@@ -31,8 +33,9 @@ struct JournalThinkingView: View {
                     Button("Return to journal") { dismiss() }.frame(minHeight: 44)
                 }
             }
-        }.padding(24).frame(maxWidth: .infinity)
+        }.padding(.horizontal, 24).padding(.vertical, 32).frame(maxWidth: .infinity)
             .background(Color(red: 1, green: 0.992, blue: 0.965), in: .rect(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).stroke(Color(red: 0.847, green: 0.894, blue: 0.949)) }
             .foregroundStyle(Color(uiColor: JournalPopoverStyle.ink))
             .environment(\.colorScheme, .light)
             .accessibilityIdentifier("JournalFeedbackProgress")
@@ -41,6 +44,6 @@ struct JournalThinkingView: View {
 
     private func loadTutor() async {
         guard let preferences = try? await service.tutorPreferences() else { return }
-        avatar = preferences.tutors.first(where: { $0.id == preferences.selectedId })?.avatarUrl
+        avatar = (preferences.tutors.first(where: { $0.id == preferences.selectedId }) ?? preferences.tutors.first)?.avatarUrl
     }
 }
