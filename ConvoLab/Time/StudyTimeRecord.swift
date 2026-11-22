@@ -5,7 +5,7 @@ enum StudyTimeTab: String, CaseIterable {
 }
 
 enum StudyTimePaper {
-    private static func color(_ light: UInt32, _ dark: UInt32) -> Color {
+    static func color(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
             let rgb = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat(rgb >> 16) / 255, green: CGFloat((rgb >> 8) & 255) / 255,

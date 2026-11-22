@@ -57,6 +57,10 @@ struct StudyTimeView: View {
         store.editableSessions
     }
 
+    private var rhythmUnavailable: Bool {
+        store.analytics != nil || (store.syncErrorMessage ?? store.storageWriteErrorMessage ?? entryErrorMessage) != nil
+    }
+
     private var visibleError: String? {
         let rhythmShowsRetry = tab == .rhythm && selectedAnalytics == nil
         return entryErrorMessage ?? store.storageWriteErrorMessage ?? (rhythmShowsRetry ? nil : store.syncErrorMessage)
@@ -176,7 +180,7 @@ struct StudyTimeView: View {
                 swipeableAnalytics(analytics)
                 Text("Double-tap a category to filter it out or bring it back. In Week, Month, and Year, double-tap a bar to drill in.")
                     .font(.footnote).foregroundStyle(.secondary)
-            } else if store.syncErrorMessage != nil {
+            } else if rhythmUnavailable {
                 ContentUnavailableView {
                     Label("Study rhythm unavailable", systemImage: "chart.bar")
                 } description: {

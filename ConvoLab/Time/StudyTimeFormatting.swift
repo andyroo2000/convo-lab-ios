@@ -3,13 +3,13 @@ import SwiftUI
 extension StudyActivityCategory {
     var chartColor: Color {
         switch self {
-        case .review: Color(red: 54/255, green: 95/255, blue: 71/255)
-        case .listen: Color(red: 113/255, green: 155/255, blue: 177/255)
-        case .create: Color(red: 215/255, green: 174/255, blue: 86/255)
-        case .immerse: Color(red: 129/255, green: 164/255, blue: 114/255)
-        case .conversation: Color(red: 200/255, green: 121/255, blue: 97/255)
-        case .writing: Color(red: 180/255, green: 153/255, blue: 191/255)
-        case .wanikani: Color(red: 105/255, green: 103/255, blue: 142/255)
+        case .review: StudyTimePaper.color(0x365f47, 0x8fb99b)
+        case .listen: StudyTimePaper.color(0x62879c, 0x719bb1)
+        case .create: StudyTimePaper.color(0xab812e, 0xd7ae56)
+        case .immerse: StudyTimePaper.color(0x6a895e, 0x81a472)
+        case .conversation: StudyTimePaper.color(0xbc735d, 0xcf907c)
+        case .writing: StudyTimePaper.color(0x9d7fa7, 0xb499bf)
+        case .wanikani: StudyTimePaper.color(0x69678e, 0xaaa7cf)
         }
     }
 }

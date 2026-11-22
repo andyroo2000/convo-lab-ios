@@ -27,21 +27,22 @@ final class StudyTimeChartRenderingTests: XCTestCase {
                 onToggleCategory: { _ in },
                 onDrillDown: nil
             )
-            let renderer = ImageRenderer(
-                content: chart
-                    .frame(width: 390)
-                    .padding(20)
-                    .background(Color.white)
-            )
-            renderer.scale = 1
-
-            let image = try XCTUnwrap(renderer.uiImage?.cgImage)
-            XCTAssertGreaterThan(
-                pixelCount(in: image, matching: StudyActivityCategory.review.chartColor),
-                1_000,
-                "Expected visible bars for \(configuration.0.rawValue)"
-            )
+            for scheme in [ColorScheme.light, .dark] {
+                try assertVisibleBars(in: chart, range: range.key, scheme: scheme)
+            }
         }
+    }
+
+    private func assertVisibleBars(in chart: StudyRhythmChart, range: StudyTimeRange, scheme: ColorScheme) throws {
+        let renderer = ImageRenderer(content: chart.frame(width: 390).padding(20)
+            .background(StudyTimePaper.paper).environment(\.colorScheme, scheme))
+        renderer.scale = 1
+        var environment = EnvironmentValues()
+        environment.colorScheme = scheme
+        let expected = StudyActivityCategory.review.chartColor.resolve(in: environment)
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+        XCTAssertGreaterThan(pixelCount(in: image, matching: expected), 1_000,
+                             "Expected visible bars for \(range.rawValue) in \(scheme)")
     }
 
     private func makeRange(
@@ -77,8 +78,7 @@ final class StudyTimeChartRenderingTests: XCTestCase {
         )
     }
 
-    private func pixelCount(in image: CGImage, matching color: Color) -> Int {
-        let expected = color.resolve(in: EnvironmentValues())
+    private func pixelCount(in image: CGImage, matching expected: Color.Resolved) -> Int {
         let target = [expected.red, expected.green, expected.blue].map { Int(($0 * 255).rounded()) }
         let width = image.width
         let height = image.height
