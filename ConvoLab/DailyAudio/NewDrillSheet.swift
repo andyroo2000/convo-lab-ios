@@ -5,6 +5,8 @@ struct NewDrillSheet: View {
     let replacing: Bool
     let generate: (DailyAudioEditionDuration) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var edition: DailyAudioEditionDuration
     @State private var confirming = false
 
@@ -13,6 +15,11 @@ struct NewDrillSheet: View {
         self.replacing = replacing
         self.generate = generate
         _edition = State(initialValue: DailyAudioEditionDuration.preferred(for: capabilities))
+    }
+
+    private var columns: [GridItem] {
+        let count = typeSize.isAccessibilitySize ? 1 : (sizeClass == .regular ? 4 : 2)
+        return Array(repeating: GridItem(.flexible()), count: count)
     }
 
     var body: some View {
@@ -24,7 +31,7 @@ struct NewDrillSheet: View {
                     Text("This will replace today’s drill with a new recording.")
                 } else {
                     Text("Drill length").font(.subheadline)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 8) {
+                    LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(DailyAudioEditionDuration.available(for: capabilities)) { option in
                             Button { edition = option } label: {
                                 Text(option.label).frame(maxWidth: .infinity, minHeight: 44)

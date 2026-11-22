@@ -27,6 +27,21 @@ extension DailyAudioStoreTests {
         )
     }
 
+    func testFirstPageIncludesAnOlderPlayableDrillWithoutChangingPagination() throws {
+        let practice = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(compatibilityPracticeJSON().utf8)) as? [String: Any])
+        var older = practice
+        older["id"] = "older-ready-drill"
+        let response: [String: Any] = ["items": [practice], "total": 15, "limit": 1,
+            "nextCursor": "next", "latestPlayableDrill": older]
+        let data = try JSONSerialization.data(withJSONObject: response)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(ISO8601Milliseconds.decode)
+        let page = try decoder.decode(DailyAudioPracticePage.self, from: data)
+        XCTAssertEqual(page.items.count, 2)
+        XCTAssertEqual(page.items.last?.id, "older-ready-drill")
+        XCTAssertEqual(page.nextCursor, "next")
+    }
+
     func testPaginatedListAndDirectCreateDecodeLearningOSCompatibilityPayloads() async throws {
         let practiceJSON = compatibilityPracticeJSON()
         let client = makeClient { request in

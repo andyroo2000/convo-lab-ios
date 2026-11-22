@@ -45,6 +45,13 @@ struct DailyAudioView: View {
                     }
                 }
             }
+            if let track = drill(in: practice), player.isCurrent(track) {
+                Section("Playback") {
+                    Button("Back 15 seconds") { player.seek(to: max(0, player.elapsed - 15)) }
+                    Button("Forward 15 seconds") { player.seek(to: min(player.duration, player.elapsed + 15)) }
+                    Button(player.isRepeating ? "Turn repeat off" : "Repeat drill") { player.toggleRepeat() }
+                }
+            }
             if !store.isDownloaded(practice) {
                 Button("Download for offline listening") { Task { await store.download(practice) } }
                     .disabled(practice.tracks.contains(where: store.isDownloading))
@@ -80,17 +87,13 @@ struct DailyAudioView: View {
         .overlay { RoundedRectangle(cornerRadius: 14).stroke(DrillPaper.rule) }
         .task {
             await store.refreshIfNeeded(maxAge: .seconds(60))
-            while recording == nil, store.hasMore, !Task.isCancelled {
-                let before = store.practices.count
-                await store.loadMore()
-                if store.practices.count == before { break }
-            }
         }
         .onChange(of: store.practices.flatMap(\.tracks).map { DailyAudioPlaybackIdentity(track: $0) }) { _, _ in
             player.stopIfCurrentTrackWasSuperseded(by: store.practices.flatMap(\.tracks))
         }
         .outsideDismissibleSheet(isPresented: $creating) {
             NewDrillSheet(capabilities: capabilities, replacing: today?.status == "ready") { edition in
+                if today?.status == "ready" { player.stop() }
                 selectedID = nil
                 creating = false
                 Task { await store.create(edition: edition) }
@@ -148,6 +151,7 @@ struct DailyAudioView: View {
         if dayDifference == 1 {
             return "Tomorrow"
         }
+        if abs(dayDifference) > 7 { return date.formatted(date: .abbreviated, time: .omitted) }
         let relativeFormatter = RelativeDateTimeFormatter()
         relativeFormatter.dateTimeStyle = .named
         relativeFormatter.unitsStyle = .spellOut

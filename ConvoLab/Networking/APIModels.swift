@@ -1138,7 +1138,17 @@ struct DailyAudioPractice: nonisolated Codable, Identifiable, Sendable {
 }
 
 struct DailyAudioPracticePage: nonisolated Codable, Sendable {
-    let items: [DailyAudioPractice]
+    private let pageItems: [DailyAudioPractice]
+    private let latestPlayableDrill: DailyAudioPractice?
+    private enum CodingKeys: String, CodingKey {
+        case pageItems = "items"
+        case latestPlayableDrill, total, limit, nextCursor
+    }
+
+    var items: [DailyAudioPractice] {
+        guard let latestPlayableDrill, !pageItems.contains(where: { $0.id == latestPlayableDrill.id }) else { return pageItems }
+        return pageItems + [latestPlayableDrill]
+    }
     let total: Int
     let limit: Int
     let nextCursor: String?
@@ -1149,7 +1159,8 @@ struct DailyAudioPracticePage: nonisolated Codable, Sendable {
         limit: Int,
         nextCursor: String?
     ) {
-        self.items = items
+        self.pageItems = items
+        self.latestPlayableDrill = nil
         self.total = total
         self.limit = limit
         self.nextCursor = nextCursor
@@ -1161,7 +1172,8 @@ struct DailyAudioPracticePage: nonisolated Codable, Sendable {
             while !legacy.isAtEnd {
                 practices.append(try legacy.decode(DailyAudioPractice.self))
             }
-            items = practices
+            pageItems = practices
+            latestPlayableDrill = nil
             total = practices.count
             limit = practices.count
             nextCursor = nil
@@ -1169,7 +1181,8 @@ struct DailyAudioPracticePage: nonisolated Codable, Sendable {
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        items = try container.decode([DailyAudioPractice].self, forKey: .items)
+        pageItems = try container.decode([DailyAudioPractice].self, forKey: .pageItems)
+        latestPlayableDrill = try container.decodeIfPresent(DailyAudioPractice.self, forKey: .latestPlayableDrill)
         total = try container.decode(Int.self, forKey: .total)
         limit = try container.decode(Int.self, forKey: .limit)
         nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)

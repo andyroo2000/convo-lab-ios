@@ -48,7 +48,16 @@ struct DailyAudioPlayerView: View {
                 VStack(spacing: 0) {
                     Slider(value: Binding(get: { min(elapsed, max(playbackDuration, 1)) },
                         set: { player.seek(to: $0) }), in: 0...max(playbackDuration, 1))
-                        .accessibilityLabel("Seek in drill").tint(DrillPaper.accent)
+                        .accessibilityLabel("Seek in drill")
+                        .accessibilityValue("\(formatTime(elapsed)) of \(formatTime(playbackDuration))")
+                        .accessibilityAdjustableAction { direction in
+                            switch direction {
+                            case .increment: seek(by: 15)
+                            case .decrement: seek(by: -15)
+                            @unknown default: break
+                            }
+                        }
+                        .tint(DrillPaper.accent)
                         .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
                     HStack { Text(formatTime(elapsed)); Spacer(); Text(formatTime(playbackDuration)) }
                         .font(.caption.monospacedDigit())
@@ -108,6 +117,10 @@ struct DailyAudioPlayerView: View {
     private func togglePlayback() {
         if player.isCurrent(activeTrack) { player.toggle() }
         else { playRequest += 1 }
+    }
+
+    private func seek(by offset: Double) {
+        player.seek(to: min(max(0, elapsed + offset), playbackDuration))
     }
 
     private func formatTime(_ seconds: Double) -> String {
