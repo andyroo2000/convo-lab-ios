@@ -95,7 +95,7 @@ extension DailyAudioStoreTests {
         )
     }
 
-    func testPracticeDownloadReportsActivityThenResetsAsDownloaded() async throws {
+    func testPracticeDownloadOnlyFetchesDrillsAndReportsCompletion() async throws {
         let practice = twoTrackPractice()
         let firstTrack = try XCTUnwrap(practice.tracks.first)
         let secondTrack = try XCTUnwrap(practice.tracks.last)
@@ -148,12 +148,12 @@ extension DailyAudioStoreTests {
         XCTAssertNil(store.practiceDownloadProgress[practice.id])
         XCTAssertFalse(store.isPracticeDownloadInProgress)
         XCTAssertTrue(store.isDownloaded(firstTrack))
-        XCTAssertTrue(store.isDownloaded(secondTrack))
+        XCTAssertFalse(store.isDownloaded(secondTrack))
         XCTAssertTrue(store.isDownloaded(practice))
-        XCTAssertEqual(requestCounter.current, 2)
+        XCTAssertEqual(requestCounter.current, 1)
 
         await store.download(practice)
-        XCTAssertEqual(requestCounter.current, 2)
+        XCTAssertEqual(requestCounter.current, 1)
     }
 
     private func twoTrackPractice() -> DailyAudioPractice {

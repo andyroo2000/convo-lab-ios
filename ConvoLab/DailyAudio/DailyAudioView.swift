@@ -242,8 +242,9 @@ struct DailyAudioView: View {
     }
 
     private func generationProgress(_ practice: DailyAudioPractice) -> some View {
-        let completed = practice.tracks.filter { $0.status == "ready" }.count
-        let total = practice.tracks.count
+        let drills = practice.tracks.filter { $0.mode == "drill" }
+        let completed = drills.filter { $0.status == "ready" }.count
+        let total = drills.count
         return VStack(alignment: .leading, spacing: 6) {
             if total > 0 {
                 ProgressView(value: Double(completed), total: Double(total))
@@ -340,7 +341,7 @@ struct DailyAudioView: View {
                 }
             }
 
-            ForEach(practice.tracks.sorted { $0.sortOrder < $1.sortOrder }) { track in
+            ForEach(practice.tracks.filter { $0.mode == "drill" }.sorted { $0.sortOrder < $1.sortOrder }) { track in
                 trackRow(track)
             }
         }

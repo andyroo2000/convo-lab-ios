@@ -566,7 +566,7 @@ final class DailyAudioStore {
 
     private func downloadableTracks(in practice: DailyAudioPractice) -> [DailyAudioTrack] {
         practice.tracks.filter {
-            $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
+            $0.mode == "drill" && $0.status == "ready" && $0.audioUrl.flatMap(URL.init(string:)) != nil
         }
     }
 
