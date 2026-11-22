@@ -11,6 +11,7 @@ final class JournalBetaVisibilityUITests: XCTestCase {
         XCTAssertTrue(picker.label.contains("Journal"))
         XCTAssertFalse(picker.isEnabled)
         XCTAssertFalse(app.buttons["app-mode-journal"].exists)
+        XCTAssertFalse(app.buttons["app-mode-dailyAudio"].exists)
         XCTAssertFalse(app.buttons["app-mode-settings"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Journal-only beta menu"
@@ -32,9 +33,10 @@ final class JournalBetaVisibilityUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 15))
         picker.tap()
         XCTAssertTrue(app.buttons["app-mode-study"].waitForExistence(timeout: 5))
-        for mode in ["dailyAudio", "journal", "readings", "cards", "time"] {
+        for mode in ["journal", "readings", "cards", "time"] {
             XCTAssertTrue(app.buttons["app-mode-\(mode)"].exists)
         }
+        XCTAssertFalse(app.buttons["app-mode-dailyAudio"].exists)
         XCTAssertFalse(app.buttons["app-mode-settings"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Admin menu with all sections"

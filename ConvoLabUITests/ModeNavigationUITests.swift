@@ -122,7 +122,8 @@ final class ModeNavigationUITests: XCTestCase {
         app.buttons["app-mode-picker"].tap()
         let journal = app.buttons["app-mode-journal"]
         XCTAssertTrue(journal.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(journal.frame.minY, app.buttons["app-mode-dailyAudio"].frame.maxY)
+        XCTAssertFalse(app.buttons["app-mode-dailyAudio"].exists)
+        XCTAssertGreaterThan(journal.frame.minY, app.buttons["app-mode-study"].frame.maxY)
         XCTAssertLessThan(journal.frame.maxY, app.buttons["app-mode-readings"].frame.minY)
         journal.tap()
         XCTAssertTrue(app.textViews["Journal entry"].waitForExistence(timeout: 5))
