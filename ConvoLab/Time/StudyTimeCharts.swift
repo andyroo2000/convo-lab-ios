@@ -217,6 +217,7 @@ struct StudyRhythmChart: View {
     let availableWidth: CGFloat
     let onToggleCategory: (StudyActivityCategory) -> Void
     let onDrillDown: ((StudyTimeAnalyticsBucket) -> Void)?
+    @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 128
     @State private var measuredPlotWidth: CGFloat? = nil
 
     private var projection: StudyTimeAnalyticsProjection {
@@ -255,7 +256,7 @@ struct StudyRhythmChart: View {
             }
             Divider()
             Text("Study rhythm").font(StudyTimePaper.type(23, .title2)).accessibilityAddTraits(.isHeader)
-            analyticsChart.frame(height: 128)
+            analyticsChart.frame(height: chartHeight)
 
             LazyVGrid(
                 columns: [
@@ -429,7 +430,7 @@ struct StudyRhythmChart: View {
             Circle()
                 .fill(category.chartColor)
                 .frame(width: 10, height: 10)
-            Text(category.title)
+            Text(category.title).strikethrough(!included)
             Spacer(minLength: 2)
             Text(studyTimeCompactDuration(projection.duration(for: category)))
                 .monospacedDigit()

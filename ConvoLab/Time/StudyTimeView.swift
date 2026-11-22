@@ -89,6 +89,17 @@ struct StudyTimeView: View {
             .scrollContentBackground(.hidden).background(StudyTimePaper.desk)
             .foregroundStyle(StudyTimePaper.ink)
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: selectedRange) { previous, _ in
+                cancelAnalyticsNavigation()
+                store.stopAnalyticsPrefetching()
+                if suppressNextHistoricalRangeReset {
+                    suppressNextHistoricalRangeReset = false
+                    return
+                }
+                tab = .rhythm
+                let fallback = StudyTimeRangeSelection.fallback(preferred: previous, analytics: store.analytics)
+                scheduleAnalyticsLoad(anchorDate: .now, fallback: fallback)
+            }
             .onDisappear {
                 cancelAnalyticsNavigation()
                 store.stopAnalyticsPrefetching()
@@ -136,17 +147,6 @@ struct StudyTimeView: View {
     private var periodControls: some View {
         VStack(spacing: 4) {
             StudyTimeRangePicker(selection: $selectedRange)
-            .onChange(of: selectedRange) { previous, _ in
-                tab = .rhythm
-                cancelAnalyticsNavigation()
-                store.stopAnalyticsPrefetching()
-                if suppressNextHistoricalRangeReset {
-                    suppressNextHistoricalRangeReset = false
-                    return
-                }
-                let fallback = StudyTimeRangeSelection.fallback(preferred: previous, analytics: store.analytics)
-                scheduleAnalyticsLoad(anchorDate: .now, fallback: fallback)
-            }
             if let analytics = selectedAnalytics, selectedRange != .all {
                 HStack {
                     periodButton(-1, analytics: analytics)

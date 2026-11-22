@@ -65,7 +65,7 @@ struct StudyTimeRecordTabs: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 3) {
-            ForEach(StudyTimeTab.allCases, id: \.self) { tab in
+            ForEach(Array(StudyTimeTab.allCases.enumerated()), id: \.element) { index, tab in
                 Button {
                     selected = tab
                 } label: {
@@ -75,8 +75,9 @@ struct StudyTimeRecordTabs: View {
                         .background(selected == tab ? StudyTimePaper.green : StudyTimePaper.sage,
                                     in: UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
                 }.buttonStyle(.plain)
+                .accessibilityValue("\(index + 1) of \(StudyTimeTab.allCases.count)")
                 .accessibilityAddTraits(selected == tab ? .isSelected : [])
             }
-        }
+        }.accessibilityElement(children: .contain).accessibilityLabel("Study Time sections")
     }
 }
