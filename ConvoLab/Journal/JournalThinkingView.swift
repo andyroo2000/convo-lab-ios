@@ -7,6 +7,7 @@ struct JournalThinkingView: View {
     @State private var avatar: String?
     @State private var english = true
     @State private var openedAt = Date()
+    @ScaledMetric(relativeTo: .body) private var phraseSize = 21.0
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -15,7 +16,7 @@ struct JournalThinkingView: View {
                 .font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
             JournalThinkingOrnament()
             JournalAvatar(url: avatar).frame(width: 80, height: 80).clipShape(Circle()).accessibilityLabel("Your tutor").padding(.top, 10)
-            Text(phrase.japanese).font(.system(size: 21)).multilineTextAlignment(.center)
+            Text(phrase.japanese).font(.system(size: phraseSize)).multilineTextAlignment(.center)
             if english { Text(phrase.english).font(.custom("CrimsonPro-Regular", size: 19, relativeTo: .body)) }
             JournalThinkingDots().padding(.top, 6)
             if let lastAnswer {
