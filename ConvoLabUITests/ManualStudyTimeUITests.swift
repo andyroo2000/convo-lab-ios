@@ -56,6 +56,7 @@ final class ManualStudyTimeUITests: XCTestCase {
         app.buttons["Rhythm"].tap()
         XCTAssertTrue(app.buttons["Month"].isSelected)
         app.buttons["Week"].tap()
+        XCTAssertTrue(app.buttons["Week"].isSelected)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Study Time weekly record"
         screenshot.lifetime = .keepAlways

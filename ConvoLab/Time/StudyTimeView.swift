@@ -57,6 +57,11 @@ struct StudyTimeView: View {
         store.editableSessions
     }
 
+    private var visibleError: String? {
+        let rhythmShowsRetry = tab == .rhythm && selectedAnalytics == nil
+        return entryErrorMessage ?? store.storageWriteErrorMessage ?? (rhythmShowsRetry ? nil : store.syncErrorMessage)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -72,7 +77,7 @@ struct StudyTimeView: View {
                 }
                 .listRowBackground(StudyTimePaper.paper)
                 .listRowSeparator(.hidden)
-                if let message = entryErrorMessage ?? store.storageWriteErrorMessage ?? store.syncErrorMessage {
+                if let message = visibleError {
                     Label(message, systemImage: "exclamationmark.icloud")
                         .foregroundStyle(.red).listRowBackground(StudyTimePaper.paper)
                 }
@@ -171,6 +176,14 @@ struct StudyTimeView: View {
                 swipeableAnalytics(analytics)
                 Text("Double-tap a category to filter it out or bring it back. In Week, Month, and Year, double-tap a bar to drill in.")
                     .font(.footnote).foregroundStyle(.secondary)
+            } else if store.syncErrorMessage != nil {
+                ContentUnavailableView {
+                    Label("Study rhythm unavailable", systemImage: "chart.bar")
+                } description: {
+                    Text("Your study history couldn’t be loaded.")
+                } actions: {
+                    Button("Try again") { scheduleAnalyticsLoad(anchorDate: .now) }
+                }
             } else {
                 ProgressView("Loading study rhythm…").frame(maxWidth: .infinity, minHeight: 220)
             }

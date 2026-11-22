@@ -249,7 +249,7 @@ struct StudyRhythmChart: View {
             }
             HStack(alignment: .top, spacing: 20) {
                 metric("Daily average", value: studyTimeCompactDuration(projection.dailyAverageDurationMs))
-                metric("Best period", value: projection.bestBucket.map {
+                metric(analytics.key == .week ? "Best day" : "Best period", value: projection.bestBucket.map {
                     "\(bestBucketLabel($0)) · \(studyTimeCompactDuration(projection.bestBucketDurationMs))"
                 } ?? "—")
             }

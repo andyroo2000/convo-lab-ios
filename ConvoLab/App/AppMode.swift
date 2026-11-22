@@ -10,6 +10,7 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
     case settings = "Settings"
 
     var id: String { rawValue }
+    var headerTitle: String { self == .time ? "Study Time" : rawValue }
     var icon: String {
         switch self {
         case .study: "rectangle.stack.fill"
@@ -53,7 +54,7 @@ struct AppModePicker: View {
                 else if let mode = navigationModes.first { selection = mode }
             } label: {
                 HStack(spacing: 4) {
-                    Text(selection.rawValue).font(.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.85)
+                    Text(selection.headerTitle).font(.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.85)
                     if navigationModes.count > 1 {
                         Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                     }
@@ -66,7 +67,7 @@ struct AppModePicker: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(navigationModes.count > 1 ? "Switch mode, \(selection.rawValue)" : selection.rawValue)
+            .accessibilityLabel(navigationModes.count > 1 ? "Switch mode, \(selection.headerTitle)" : selection.headerTitle)
             .accessibilityIdentifier("app-mode-picker")
             .disabled(toolbar.preventsNavigation || (navigationModes.count == 1 && navigationModes.first == selection))
             .popover(isPresented: $showingDestinations, arrowEdge: .top) {
