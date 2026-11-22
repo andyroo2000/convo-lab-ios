@@ -37,7 +37,7 @@ final class StudyTimeChartRenderingTests: XCTestCase {
 
             let image = try XCTUnwrap(renderer.uiImage?.cgImage)
             XCTAssertGreaterThan(
-                bluePixelCount(in: image),
+                pixelCount(in: image, matching: StudyActivityCategory.review.chartColor),
                 1_000,
                 "Expected visible bars for \(configuration.0.rawValue)"
             )
@@ -77,11 +77,13 @@ final class StudyTimeChartRenderingTests: XCTestCase {
         )
     }
 
-    private func bluePixelCount(in image: CGImage) -> Int {
+    private func pixelCount(in image: CGImage, matching color: Color) -> Int {
+        let expected = color.resolve(in: EnvironmentValues())
+        let target = [expected.red, expected.green, expected.blue].map { Int(($0 * 255).rounded()) }
         let width = image.width
         let height = image.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return 0 }
         guard let context = CGContext(
             data: &pixels,
             width: width,
@@ -89,15 +91,15 @@ final class StudyTimeChartRenderingTests: XCTestCase {
             bitsPerComponent: 8,
             bytesPerRow: width * 4,
             space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return 0 }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         return stride(from: 0, to: pixels.count, by: 4).reduce(into: 0) { count, index in
-            let red = Int(pixels[index])
-            let green = Int(pixels[index + 1])
-            let blue = Int(pixels[index + 2])
-            if blue > 150, blue > red + 40, blue > green + 20 {
+            let matchesCategory = target.indices.allSatisfy { channel in
+                abs(Int(pixels[index + channel]) - target[channel]) <= 4
+            }
+            if matchesCategory {
                 count += 1
             }
         }
