@@ -203,12 +203,17 @@ extension StudyTimeView {
     }
 
     func scheduleAnalyticsLoad(
-        anchorDate: Date, selecting range: StudyTimeRange? = nil, fallback: StudyTimeRange? = nil
+        anchorDate: Date, selecting range: StudyTimeRange? = nil, fallback: StudyTimeRange? = nil,
+        retrySync: Bool = false
     ) {
         let target = range ?? selectedRange
         analyticsMotion.startNavigation { navigationGeneration in
+            analyticsMotion.isLoading = true
+            if retrySync { await store.synchronize() }
+            guard !Task.isCancelled else { return }
             let loaded = await store.loadAnalytics(anchorDate: anchorDate, range: target)
             guard !Task.isCancelled, analyticsMotion.isCurrentNavigation(navigationGeneration) else { return }
+            analyticsMotion.isLoading = false
             guard loaded else {
                 restoreAnalyticsRange(fallback)
                 return

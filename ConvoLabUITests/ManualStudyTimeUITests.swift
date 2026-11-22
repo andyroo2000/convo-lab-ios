@@ -55,7 +55,9 @@ final class ManualStudyTimeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["JLPT mastery"].exists)
         app.buttons["Rhythm"].tap()
         XCTAssertTrue(app.buttons["Month"].isSelected)
+        app.buttons["Entries"].tap()
         app.buttons["Week"].tap()
+        XCTAssertTrue(app.buttons["Rhythm"].isSelected)
         XCTAssertTrue(app.buttons["Week"].isSelected)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Study Time weekly record"

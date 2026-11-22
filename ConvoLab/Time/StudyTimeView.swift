@@ -57,13 +57,13 @@ struct StudyTimeView: View {
         store.editableSessions
     }
 
-    private var rhythmUnavailable: Bool {
-        store.analytics != nil || (store.syncErrorMessage ?? store.storageWriteErrorMessage ?? entryErrorMessage) != nil
+    private var statusMessage: String? {
+        entryErrorMessage ?? store.storageWriteErrorMessage ?? store.syncErrorMessage
     }
 
-    private var visibleError: String? {
-        let rhythmShowsRetry = tab == .rhythm && selectedAnalytics == nil
-        return entryErrorMessage ?? store.storageWriteErrorMessage ?? (rhythmShowsRetry ? nil : store.syncErrorMessage)
+    private var rhythmError: String? {
+        guard tab == .rhythm, selectedAnalytics == nil, !analyticsMotion.isLoading else { return nil }
+        return statusMessage
     }
 
     var body: some View {
@@ -81,7 +81,7 @@ struct StudyTimeView: View {
                 }
                 .listRowBackground(StudyTimePaper.paper)
                 .listRowSeparator(.hidden)
-                if let message = visibleError {
+                if rhythmError == nil, let message = statusMessage {
                     Label(message, systemImage: "exclamationmark.icloud")
                         .foregroundStyle(.red).listRowBackground(StudyTimePaper.paper)
                 }
@@ -180,13 +180,13 @@ struct StudyTimeView: View {
                 swipeableAnalytics(analytics)
                 Text("Double-tap a category to filter it out or bring it back. In Week, Month, and Year, double-tap a bar to drill in.")
                     .font(.footnote).foregroundStyle(.secondary)
-            } else if rhythmUnavailable {
+            } else if let message = rhythmError {
                 ContentUnavailableView {
                     Label("Study rhythm unavailable", systemImage: "chart.bar")
                 } description: {
-                    Text("Your study history couldn’t be loaded.")
+                    Text(message)
                 } actions: {
-                    Button("Try again") { scheduleAnalyticsLoad(anchorDate: .now) }
+                    Button("Try again") { scheduleAnalyticsLoad(anchorDate: .now, retrySync: true) }
                 }
             } else {
                 ProgressView("Loading study rhythm…").frame(maxWidth: .infinity, minHeight: 220)
