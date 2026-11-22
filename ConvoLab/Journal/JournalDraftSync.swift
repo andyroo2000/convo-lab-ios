@@ -42,6 +42,13 @@ final class JournalDraftSync {
 
     func wait(for id: String) async { _ = try? await running[id]?.value }
 
+    func settlePending(_ id: String) async throws {
+        await wait(for: id)
+        let checkpoint = try checkpointForSending(id)
+        guard let pending = checkpoint.pending, checkpoint.rejection == nil else { return }
+        _ = try await save(pending)
+    }
+
     func save(_ draft: JournalDraft) async throws -> JournalEntry {
         if let task = running[draft.id] { return try await task.value }
         let task = Task { try await self.send(draft) }
@@ -60,14 +67,15 @@ final class JournalDraftSync {
         throw JournalSyncStillChanging()
     }
 
-    func synchronize(excluding ids: Set<String>) async {
+    func synchronize(isBusy: (String) -> Bool) async {
         guard let listing = try? drafts.list() else { return }
-        for draft in listing.drafts where draft.rootEntryId == nil && !ids.contains(draft.id) {
+        for draft in listing.drafts where draft.rootEntryId == nil {
             guard !Task.isCancelled else { return }
+            guard !isBusy(draft.id), let local = try? drafts.load(id: draft.id) else { continue }
             guard retryAfter[draft.id, default: .distantPast] <= .now else { continue }
             guard !draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             do {
-                _ = try await save(draft)
+                _ = try await save(local)
                 failures[draft.id] = nil
                 retryAfter[draft.id] = nil
             } catch {
@@ -87,7 +95,7 @@ final class JournalDraftSync {
 
     private func send(_ draft: JournalDraft) async throws -> JournalEntry {
         try service.checkSession()
-        var checkpoint = try checkpoints.load(draft.id)
+        var checkpoint = try checkpointForSending(draft.id)
         if let status = checkpoint.rejection, status != 403 {
             blocked[draft.id] = status
             throw APIClientError.rejected(status: status, message: Self.message(status))
@@ -111,6 +119,15 @@ final class JournalDraftSync {
         return entry
     }
 
+    private func checkpointForSending(_ id: String) throws -> JournalSyncCheckpoint {
+        do { return try checkpoints.load(id) }
+        catch {
+            blocked[id] = 503
+            revision += 1
+            throw APIClientError.rejected(status: 503, message: Self.message(503))
+        }
+    }
+
     private func recordRejection(_ error: Error, checkpoint: JournalSyncCheckpoint, id: String) throws {
         guard case APIClientError.rejected(let status, _) = error,
               [400, 403, 404, 409, 422].contains(status) else { return }
@@ -122,6 +139,9 @@ final class JournalDraftSync {
     }
 
     static func message(_ status: Int) -> String {
+        if status == 503 {
+            return "Pending sync data could not be read. Your writing is saved on this device; save it as a new entry."
+        }
         if status == 404 || status == 409 {
             return "This entry changed or was deleted elsewhere. Your writing is saved on this device; save it as a new entry."
         }

@@ -213,6 +213,68 @@ final class JournalAutomaticSyncTests: XCTestCase {
         XCTAssertNil(try store.storage.load(id: draft.id))
     }
 
+    func testDeletionWhileAnotherDraftIsSendingSkipsTheRemovedDraft() async throws {
+        try await queuedMutation(delete: true)
+    }
+
+    func testBusyEntryIsCheckedAgainAfterAnEarlierRequestCompletes() async throws {
+        try await queuedMutation(delete: false)
+    }
+
+    private func queuedMutation(delete: Bool) async throws {
+        var first = try write("First request")
+        first.entryDate = "2026-11-24"
+        try store.write(first)
+        let second = try write("Do not send this queued draft")
+        let pending = LockedDeferredResponse()
+        let firstID = first.id
+        MockURLProtocol.deferredHandler = { request, completion in
+            guard request.url!.path.hasSuffix(firstID) else {
+                XCTFail("Deleted or busy draft must not start sending")
+                completion(.failure(URLError(.cancelled)))
+                return
+            }
+            pending.hold(completion)
+        }
+        let sync = Task { await store.synchronizeDrafts() }
+        await pending.waitUntilPending()
+        if delete { try await store.delete(id: second.id) }
+        else { try store.beginMutation(id: second.id) }
+        let response = HTTPURLResponse(url: URL(string: "https://journal.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        pending.succeed(with: (response, try JSONEncoder().encode(JournalResource(data: entry(first, version: 1)))))
+        await sync.value
+        store.endMutation(id: second.id)
+        XCTAssertEqual(store.entries.map(\.id), [first.id])
+        XCTAssertEqual(try store.storage.load(id: second.id) == nil, delete)
+    }
+
+    func testDeletingARemotelyMissingEntryClearsItsLocalCopy() async throws {
+        let original = entry(try write("Old local copy"), version: 1)
+        try store.write(JournalDraft(entry: original))
+        respond(["message": "Not found"], status: 404)
+        try await store.delete(id: original.id)
+        XCTAssertNil(try store.storage.load(id: original.id))
+    }
+
+    func testDeletionSettlesAnInterruptedCreateBeforeRemovingItsServerIdentity() async throws {
+        let draft = try write("Uncertain creation")
+        try JournalSyncStorage(drafts: store.storage).save(JournalSyncCheckpoint(pending: draft), id: draft.id)
+        let acknowledged = try JSONEncoder().encode(JournalResource(data: entry(draft, version: 1)))
+        let removed = expectation(description: "Delete acknowledged server entry")
+        MockURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                removed.fulfill()
+                return (HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            XCTAssertEqual(request.httpMethod, "PUT")
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, acknowledged)
+        }
+        try await store.delete(id: draft.id)
+        await fulfillment(of: [removed], timeout: 2)
+        XCTAssertNil(try store.storage.load(id: draft.id))
+        XCTAssertNil(try JournalSyncStorage(drafts: store.storage).load(draft.id).pending)
+    }
+
     private func write(_ body: String) throws -> JournalDraft {
         var draft = JournalDraft.new()
         draft.body = body

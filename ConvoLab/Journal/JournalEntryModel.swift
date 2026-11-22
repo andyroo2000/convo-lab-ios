@@ -109,7 +109,7 @@ final class JournalEntryModel {
 
     func reconcileSync() {
         if let status = store.synchronization.blocked[id] {
-            hasConflict = status == 404 || status == 409
+            hasConflict = [404, 409, 503].contains(status)
             errorMessage = JournalDraftSync.message(status)
             return
         }

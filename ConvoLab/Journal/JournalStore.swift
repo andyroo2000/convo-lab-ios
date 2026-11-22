@@ -84,7 +84,7 @@ final class JournalStore {
 
     func synchronizeDrafts() async {
         guard drafts.contains(where: { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return }
-        await synchronization.synchronize(excluding: busyEntryIDs)
+        await synchronization.synchronize(isBusy: { self.busyEntryIDs.contains($0) })
         applyReceipts(newerThan: acceptedVersions)
         refreshDrafts()
     }
@@ -116,12 +116,12 @@ final class JournalStore {
     func delete(id: String) async throws {
         try beginMutation(id: id)
         defer { endMutation(id: id) }
-        await synchronization.wait(for: id)
+        try await synchronization.settlePending(id)
         if let receipt = synchronization.receipts[id] { accept(receipt.entry) }
         if let entry = entries.first(where: { $0.id == id }) {
-            try await service.delete(id: id, version: entry.version)
+            try await deleteRemote(id: id, version: entry.version)
         } else if let draft = try storage.load(id: id), draft.expectedVersion > 0 {
-            try await service.delete(id: id, version: draft.expectedVersion)
+            try await deleteRemote(id: id, version: draft.expectedVersion)
         }
         entries.removeAll { $0.id == id }
         do {
@@ -130,6 +130,11 @@ final class JournalStore {
             throw APIClientError.rejected(status: 503, message: "Online deletion succeeded, but the device copy could not be removed. Retry to clear it.")
         }
         refreshDrafts()
+    }
+
+    private func deleteRemote(id: String, version: Int) async throws {
+        do { try await service.delete(id: id, version: version) }
+        catch APIClientError.rejected(status: 404, message: _) { }
     }
 
     private func discardDeviceCopies(id: String) throws {
