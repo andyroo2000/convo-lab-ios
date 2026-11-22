@@ -92,11 +92,7 @@ final class JournalEntryModel {
         do {
             try store.beginMutation(id: id)
             defer { store.endMutation(id: id) }
-            var entry = try await store.synchronization.save(sent)
-            // A joined background save may have acknowledged an older edit.
-            while let pending = try store.storage.load(id: id) {
-                entry = try await store.synchronization.save(pending)
-            }
+            let entry = try await store.synchronization.saveLatest(sent)
             store.accept(entry)
             store.refreshDrafts()
             draft = JournalDraft(entry: entry)
@@ -115,16 +111,21 @@ final class JournalEntryModel {
         if let status = store.synchronization.blocked[id] {
             hasConflict = status == 404 || status == 409
             errorMessage = JournalDraftSync.message(status)
+            return
         }
         guard let receipt = store.synchronization.receipts[id], let current = draft else { return }
         if current.editID == receipt.sent.editID {
             draft = JournalDraft(entry: receipt.entry)
             hasUnsavedChanges = false
             isSavedOnDevice = false
+            errorMessage = nil
+            hasConflict = false
         } else if let local = try? store.storage.load(id: id), local.editID == current.editID {
             draft = local
         }
     }
+
+    var canKeepOffline: Bool { isSavedOnDevice && store.synchronization.blocked[id] == nil }
 
     var syncStatus: String? {
         guard !isUnwritten else { return nil }

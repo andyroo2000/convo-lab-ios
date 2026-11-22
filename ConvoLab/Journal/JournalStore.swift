@@ -12,6 +12,7 @@ final class JournalStore {
     private(set) var nextCursor: String?
     private(set) var isLoading = false
     private var refreshRequested = false
+    private var acceptedVersions: [String: Int] = [:]
     private(set) var busyEntryIDs: Set<String> = []
     var errorMessage: String?
 
@@ -25,7 +26,8 @@ final class JournalStore {
     func refreshDrafts() {
         do {
             let listing = try storage.list()
-            drafts = listing.drafts.filter { $0.rootEntryId == nil }
+            let next = listing.drafts.filter { $0.rootEntryId == nil }
+            if drafts != next { drafts = next }
             if listing.unreadableCount > 0 {
                 errorMessage = "Some device drafts could not be opened. Their original files have been retained."
             }
@@ -39,10 +41,12 @@ final class JournalStore {
         }
         isLoading = true
         defer { finishLoading() }
+        let knownVersions = acceptedVersions
         do {
             let result = try await service.archive(cursor: refresh ? nil : nextCursor)
             if refresh { entries = [] }
             for entry in result.data { accept(entry) }
+            applyReceipts(newerThan: knownVersions)
             nextCursor = result.nextCursor
             errorMessage = nil
             refreshDrafts()
@@ -74,19 +78,27 @@ final class JournalStore {
             current.expectedVersion = max(current.expectedVersion, acknowledged)
         }
         try storage.save(current)
-        try synchronization.edited(current)
+        synchronization.edited(current)
         refreshDrafts()
     }
 
     func synchronizeDrafts() async {
+        guard drafts.contains(where: { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return }
         await synchronization.synchronize(excluding: busyEntryIDs)
-        for receipt in synchronization.receipts.values { accept(receipt.entry) }
+        applyReceipts(newerThan: acceptedVersions)
         refreshDrafts()
+    }
+
+    private func applyReceipts(newerThan versions: [String: Int]) {
+        for receipt in synchronization.receipts.values where receipt.entry.version > versions[receipt.entry.id, default: 0] {
+            accept(receipt.entry)
+        }
     }
 
     func accept(_ entry: JournalEntry) {
         guard entry.rootEntryId == nil else { return }
         if let current = entries.first(where: { $0.id == entry.id }), current.version > entry.version { return }
+        acceptedVersions[entry.id] = max(acceptedVersions[entry.id, default: 0], entry.version)
         entries.removeAll { $0.id == entry.id }
         entries.append(entry)
         entries.sort { ($0.entryDate, $0.id) > ($1.entryDate, $1.id) }

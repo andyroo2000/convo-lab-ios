@@ -129,6 +129,90 @@ final class JournalAutomaticSyncTests: XCTestCase {
         XCTAssertEqual(model.draft?.body, "Unsaved change")
     }
 
+    func testOldReceiptDoesNotReinsertAnEntryDeletedElsewhere() async throws {
+        let draft = try write("Disposable writing")
+        respond(entry(draft, version: 1))
+        await store.synchronizeDrafts()
+        let data = try JSONEncoder().encode(JournalArchivePage(data: [], nextCursor: nil))
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        await store.loadMore(refresh: true)
+        XCTAssertTrue(store.entries.isEmpty)
+        _ = try write("Other offline writing")
+        MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        await store.synchronizeDrafts()
+        XCTAssertTrue(store.entries.isEmpty)
+    }
+
+    func testRestartAfterAcknowledgementKeepsRebasedNewerWriting() async throws {
+        let first = try write("First acknowledged text")
+        var newer = first
+        newer.body = "Newer text"
+        newer.editID = UUID().uuidString
+        newer.expectedVersion = 1
+        try store.storage.save(newer)
+        try JournalSyncStorage(drafts: store.storage).save(JournalSyncCheckpoint(pending: first), id: first.id)
+        respond(entry(first, version: 1)) // The API returns this acknowledgement for an identical retry.
+        await store.synchronizeDrafts()
+        XCTAssertEqual(try store.storage.load(id: first.id), newer)
+        respond(entry(newer, version: 2))
+        await store.synchronizeDrafts()
+        XCTAssertNil(try store.storage.load(id: first.id))
+    }
+
+    func testPermissionFailureCanRecoverWithoutCopyingOrDiscardingWriting() async throws {
+        let draft = try write("Kept after permission failure")
+        respond(["message": "Forbidden"], status: 403)
+        await store.synchronizeDrafts()
+        store.synchronization.reconnect()
+        respond(entry(draft, version: 1))
+        await store.synchronizeDrafts()
+        XCTAssertNil(store.synchronization.blocked[draft.id])
+        XCTAssertNil(try store.storage.load(id: draft.id))
+    }
+
+    func testDamagedCheckpointDoesNotMisreportLocalWritingAsUnsaved() async throws {
+        let draft = try write("Original local writing")
+        let checkpoints = JournalSyncStorage(drafts: store.storage)
+        try checkpoints.save(JournalSyncCheckpoint(pending: draft), id: draft.id)
+        let file = checkpoints.directory.appending(path: draft.id + ".json")
+        try Data("damaged".utf8).write(to: file)
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        model.change { $0.body = "New writing stays safe" }
+        XCTAssertTrue(model.isSavedOnDevice)
+        XCTAssertEqual(model.syncStatus, "Saved on this device")
+        XCTAssertEqual(try store.storage.load(id: draft.id)?.body, "New writing stays safe")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "damaged")
+        XCTAssertFalse(model.canKeepOffline)
+    }
+
+    func testExplicitSaveJoinsTheBackgroundRequest() async throws {
+        let draft = try write("One request for this writing")
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        let pending = LockedDeferredResponse()
+        let requested = expectation(description: "Only one save request")
+        requested.assertForOverFulfill = true
+        MockURLProtocol.deferredHandler = { _, completion in
+            requested.fulfill()
+            pending.hold(completion)
+        }
+        let background = Task { try await store.synchronization.save(draft) }
+        await pending.waitUntilPending()
+        let explicit = Task { await model.save(submit: false) }
+        for _ in 0..<100 where !model.isBusy { await Task.yield() }
+        XCTAssertTrue(model.isBusy)
+        let response = HTTPURLResponse(url: URL(string: "https://journal.test")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        pending.succeed(with: (response, try JSONEncoder().encode(JournalResource(data: entry(draft, version: 1)))))
+        _ = try await background.value
+        let saved = await explicit.value
+        XCTAssertTrue(saved)
+        await fulfillment(of: [requested], timeout: 2)
+        XCTAssertNil(try store.storage.load(id: draft.id))
+    }
+
     private func write(_ body: String) throws -> JournalDraft {
         var draft = JournalDraft.new()
         draft.body = body

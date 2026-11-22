@@ -21,7 +21,12 @@ final class JournalDraftSync {
         checkpoints = JournalSyncStorage(drafts: drafts)
     }
 
-    func edited(_ draft: JournalDraft) throws {
+    func edited(_ draft: JournalDraft) {
+        do { try resetValidationRejection(draft) }
+        catch { blocked[draft.id] = 503; revision += 1 }
+    }
+
+    private func resetValidationRejection(_ draft: JournalDraft) throws {
         let checkpoint = try checkpoints.load(draft.id)
         guard let status = checkpoint.rejection, [400, 422].contains(status),
               checkpoint.pending?.editID != draft.editID else { return }
@@ -43,6 +48,16 @@ final class JournalDraftSync {
         running[draft.id] = task
         defer { running[draft.id] = nil }
         return try await task.value
+    }
+
+    func saveLatest(_ draft: JournalDraft) async throws -> JournalEntry {
+        var pending = draft
+        for _ in 0..<3 {
+            let entry = try await save(pending)
+            guard let newer = try drafts.load(id: draft.id) else { return entry }
+            pending = newer
+        }
+        throw JournalSyncStillChanging()
     }
 
     func synchronize(excluding ids: Set<String>) async {
@@ -73,7 +88,7 @@ final class JournalDraftSync {
     private func send(_ draft: JournalDraft) async throws -> JournalEntry {
         try service.checkSession()
         var checkpoint = try checkpoints.load(draft.id)
-        if let status = checkpoint.rejection {
+        if let status = checkpoint.rejection, status != 403 {
             blocked[draft.id] = status
             throw APIClientError.rejected(status: status, message: Self.message(status))
         }
@@ -90,6 +105,7 @@ final class JournalDraftSync {
         }
         try drafts.acknowledge(sent, version: entry.version)
         try checkpoints.remove(draft.id)
+        blocked.removeValue(forKey: draft.id)
         receipts[draft.id] = Receipt(sent: sent, entry: entry)
         revision += 1
         return entry
@@ -99,7 +115,7 @@ final class JournalDraftSync {
         guard case APIClientError.rejected(let status, _) = error,
               [400, 403, 404, 409, 422].contains(status) else { return }
         var rejected = checkpoint
-        rejected.rejection = status
+        rejected.rejection = status == 403 ? nil : status
         try checkpoints.save(rejected, id: id)
         blocked[id] = status
         revision += 1
@@ -111,4 +127,8 @@ final class JournalDraftSync {
         }
         return "This entry could not sync. Your writing is saved on this device."
     }
+}
+
+private struct JournalSyncStillChanging: LocalizedError {
+    var errorDescription: String? { "Writing is still changing. It is kept on this device; try Save again." }
 }
