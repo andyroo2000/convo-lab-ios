@@ -107,9 +107,9 @@ struct WeeklyStudyRecapView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("LAST WEEK")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(StudyTimePaper.green)
                     Text("Your weekly recap")
-                        .font(.title2.bold())
+                        .font(StudyTimePaper.type(26, .title2))
                     Text(period(for: week))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -117,7 +117,7 @@ struct WeeklyStudyRecapView: View {
                 Spacer()
                 Image(systemName: "calendar.badge.checkmark")
                     .font(.title2)
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(StudyTimePaper.green)
             }
 
             if WeeklyStudyRecapPresentation.isEmpty(week) {
@@ -129,7 +129,7 @@ struct WeeklyStudyRecapView: View {
             } else {
                 Text(WeeklyStudyRecapPresentation.headline(for: week))
                     .font(.headline)
-                    .foregroundStyle(ConvoLabTheme.navy)
+                    .foregroundStyle(StudyTimePaper.ink)
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     metric("Study time", compactDuration(week.totalMs), icon: "clock.fill")
@@ -150,11 +150,11 @@ struct WeeklyStudyRecapView: View {
     private func metric(_ label: String, _ value: String, icon: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundStyle(.purple)
+                .foregroundStyle(StudyTimePaper.green)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.caption).foregroundStyle(.secondary)
-                Text(value).font(.headline).foregroundStyle(ConvoLabTheme.navy)
+                Text(value).font(.headline).foregroundStyle(StudyTimePaper.ink)
             }
             Spacer(minLength: 0)
         }
@@ -209,7 +209,7 @@ struct WeeklyStudyRecapView: View {
         }
         .foregroundStyle(.white)
         .padding(14)
-        .background(ConvoLabTheme.navy, in: RoundedRectangle(cornerRadius: 14))
+        .background(StudyTimePaper.ink, in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .combine)
     }
 

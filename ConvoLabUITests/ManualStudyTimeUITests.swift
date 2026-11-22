@@ -45,6 +45,27 @@ final class ManualStudyTimeUITests: XCTestCase {
     }
 
     @MainActor
+    func testRecordTabsReturnToSelectedRhythmRange() {
+        let app = openManualEntrySection()
+        app.buttons["Rhythm"].tap()
+        app.buttons["Month"].tap()
+        app.buttons["Recap"].tap()
+        XCTAssertTrue(app.buttons["Recap"].isSelected)
+        app.buttons["Mastery"].tap()
+        XCTAssertTrue(app.staticTexts["JLPT mastery"].exists)
+        app.buttons["Rhythm"].tap()
+        XCTAssertTrue(app.buttons["Month"].isSelected)
+        app.buttons["Entries"].tap()
+        app.buttons["Week"].tap()
+        XCTAssertTrue(app.buttons["Rhythm"].isSelected)
+        XCTAssertTrue(app.buttons["Week"].isSelected)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Study Time weekly record"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     private func openManualEntrySection() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "login-restoration"]
@@ -54,7 +75,7 @@ final class ManualStudyTimeUITests: XCTestCase {
         XCTAssertTrue(modePicker.waitForExistence(timeout: 8))
         modePicker.tap()
         app.buttons["Time"].tap()
-        let section = app.buttons["ManualStudyTimeSection"]
+        let section = app.buttons["Entries"]
         reveal(section, in: app)
         section.tap()
         reveal(app.buttons["ManualStudyTimeAddButton"], in: app)

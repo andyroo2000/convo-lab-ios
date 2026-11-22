@@ -3,60 +3,13 @@ import SwiftUI
 struct StudyTimeManualEntrySection: View {
     let store: StudyTimeStore
     let sessions: [StudyActivitySession]
-    let reduceMotion: Bool
-    @Binding var isExpanded: Bool
-    let onAdd: () -> Void
     let onEdit: (StudyActivitySession) -> Void
     let onDelete: (StudyActivitySession) -> Void
 
-    var body: some View {
-        Section {
-            Button {
-                if reduceMotion {
-                    isExpanded.toggle()
-                } else {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                }
-            } label: {
-                HStack {
-                    Label("Manual Time Entry", systemImage: "clock.badge.plus")
-                        .font(.headline)
-                        .foregroundStyle(ConvoLabTheme.navy)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ManualStudyTimeSection")
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint(
-                isExpanded
-                    ? "Hides manual time entry and editable entries"
-                    : "Shows manual time entry and editable entries"
-            )
-
-            if isExpanded {
-                Button(action: onAdd) {
-                    Label("Add Study Time", systemImage: "plus")
-                }
-                .accessibilityIdentifier("ManualStudyTimeAddButton")
-                editableEntryRows
-            }
-        }
-    }
-
     @ViewBuilder
-    private var editableEntryRows: some View {
+    var body: some View {
         Text(StudyTimeEditableEntries.sectionTitle)
-            .font(.caption.weight(.semibold))
-            .textCase(.uppercase)
+            .font(StudyTimePaper.type(24, .title2))
             .foregroundStyle(.secondary)
             .accessibilityAddTraits(.isHeader)
 
