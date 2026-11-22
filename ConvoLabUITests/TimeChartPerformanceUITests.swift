@@ -30,9 +30,9 @@ final class TimeChartPerformanceUITests: XCTestCase {
             waitForAnchor(formatter.string(from: historical), element: anchor)
         }
         try finishMeasurement(app, phase: "previous-week-sequence")
-        app.segmentedControls.buttons["Month"].tap()
+        app.buttons["Month"].tap()
         waitForAnchor(original, element: anchor)
-        app.segmentedControls.buttons["Week"].tap()
+        app.buttons["Week"].tap()
 
         app.buttons["Start measurement"].tap()
         for _ in 0..<3 {
@@ -43,7 +43,7 @@ final class TimeChartPerformanceUITests: XCTestCase {
         }
         try finishMeasurement(app, phase: "adjacent-week-round-trips")
         try assertCategoryFiltering(app, anchor: anchor)
-        XCTAssertTrue(app.segmentedControls.buttons["Month"].isHittable)
+        XCTAssertTrue(app.buttons["Month"].isHittable)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Time chart after repeated swipes"
         attachment.lifetime = .keepAlways
@@ -67,7 +67,7 @@ final class TimeChartPerformanceUITests: XCTestCase {
         dragChart(app, right: true)
         let loading = app.activityIndicators["StudyTimeAnalyticsLoading"]
         XCTAssertTrue(loading.waitForExistence(timeout: 3))
-        app.segmentedControls.buttons["Month"].tap()
+        app.buttons["Month"].tap()
         waitForAnchor(original, element: anchor)
         XCTAssertTrue(loading.waitForNonExistence(timeout: 3))
         let staleNavigation = XCTNSPredicateExpectation(
@@ -75,7 +75,7 @@ final class TimeChartPerformanceUITests: XCTestCase {
         )
         staleNavigation.isInverted = true
         XCTAssertEqual(XCTWaiter.wait(for: [staleNavigation], timeout: 9), .completed)
-        app.segmentedControls.buttons["Week"].tap()
+        app.buttons["Week"].tap()
         waitForAnchor(original, element: anchor)
         try finishMeasurement(app, phase: "cancel-uncached-week")
     }

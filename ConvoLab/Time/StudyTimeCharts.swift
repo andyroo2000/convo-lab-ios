@@ -5,53 +5,14 @@ struct StudyTimeJLPTMasterySection: View {
     let mastery: StudyJLPTMastery?
     let isLoading: Bool
     let errorMessage: String?
-    let reduceMotion: Bool
-    @Binding var isExpanded: Bool
     let retry: () -> Void
 
     var body: some View {
-        Section {
-            Button {
-                if reduceMotion {
-                    isExpanded.toggle()
-                } else {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                }
-            } label: {
-                HStack {
-                    Label("JLPT Mastery", systemImage: "chart.bar.fill")
-                        .font(.headline)
-                        .foregroundStyle(ConvoLabTheme.navy)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint(
-                isExpanded
-                    ? "Hides JLPT mastery estimates"
-                    : "Shows JLPT mastery estimates"
-            )
-
-            if isExpanded {
-                masteryContent
-            }
-        } footer: {
-            if isExpanded {
-                Text(
-                    "Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. "
-                        + "A word found in both sources counts once. Matched in your cards remains a separate catalog estimate. "
-                        + "Grammar matching is conservative and may miss patterns you know, especially at N3–N1."
-                )
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("JLPT mastery").font(StudyTimePaper.type(26, .title2)).accessibilityAddTraits(.isHeader)
+            masteryContent
+            Text("Known combines Guru+ ConvoLab cards with vocabulary ever passed on WaniKani. A word found in both sources counts once. Matched in your cards remains a separate catalog estimate. Grammar matching is conservative and may miss patterns you know, especially at N3–N1.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -115,10 +76,10 @@ struct JLPTMasteryLevelBand: View {
                     Text("JLPT LEVEL")
                         .font(.caption2.weight(.bold))
                         .tracking(1.2)
-                        .foregroundStyle(ConvoLabTheme.coral)
+                        .foregroundStyle(StudyTimePaper.green)
                     Text(level)
-                        .font(.title2.monospaced().weight(.black))
-                        .foregroundStyle(ConvoLabTheme.navy)
+                        .font(StudyTimePaper.type(27, .title2))
+                        .foregroundStyle(StudyTimePaper.ink)
                 }
                 Spacer()
                 Text(caption.uppercased())
@@ -135,7 +96,7 @@ struct JLPTMasteryLevelBand: View {
                 level: level,
                 title: "Vocabulary",
                 metric: mastery.vocabulary,
-                tint: ConvoLabTheme.navy,
+                tint: StudyTimePaper.ink,
                 showSourceBreakdown: true
             )
             Divider()
@@ -144,14 +105,14 @@ struct JLPTMasteryLevelBand: View {
                 level: level,
                 title: "Grammar",
                 metric: mastery.grammar,
-                tint: ConvoLabTheme.coral
+                tint: StudyTimePaper.green
             )
         }
         .padding(16)
-        .background(ConvoLabTheme.navy.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
+        .background(StudyTimePaper.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
         .overlay {
             RoundedRectangle(cornerRadius: 20)
-                .stroke(ConvoLabTheme.navy.opacity(0.10), lineWidth: 1)
+                .stroke(StudyTimePaper.ink.opacity(0.10), lineWidth: 1)
         }
     }
 }
@@ -281,28 +242,20 @@ struct StudyRhythmChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                metric("Total", milliseconds: projection.totalDurationMs)
-                metric("Daily avg", milliseconds: projection.dailyAverageDurationMs)
-                VStack(spacing: 4) {
-                    Text("Best")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(projection.bestBucket.map(bestBucketLabel) ?? "—")
-                        .font(.headline)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(
-                        "\(studyTimeCompactDuration(projection.bestBucketDurationMs)) total"
-                    )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(analytics.key == .week ? "Week total" : "Total").font(.caption).foregroundStyle(.secondary)
+                Text(studyTimeCompactDuration(projection.totalDurationMs))
+                    .font(StudyTimePaper.type(46, .largeTitle))
             }
-
-            analyticsChart
-                .frame(height: 210)
+            HStack(alignment: .top, spacing: 20) {
+                metric("Daily average", value: studyTimeCompactDuration(projection.dailyAverageDurationMs))
+                metric("Best period", value: projection.bestBucket.map {
+                    "\(bestBucketLabel($0)) · \(studyTimeCompactDuration(projection.bestBucketDurationMs))"
+                } ?? "—")
+            }
+            Divider()
+            Text("Study rhythm").font(StudyTimePaper.type(23, .title2)).accessibilityAddTraits(.isHeader)
+            analyticsChart.frame(height: 128)
 
             LazyVGrid(
                 columns: [
@@ -485,19 +438,6 @@ struct StudyRhythmChart: View {
         .foregroundStyle(included ? Color.primary : Color.secondary)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(
-            included
-                ? Color(uiColor: .secondarySystemBackground)
-                : Color.secondary.opacity(0.08),
-            in: Capsule()
-        )
-        .overlay {
-            Capsule()
-                .stroke(
-                    included ? category.chartColor : Color.secondary.opacity(0.2),
-                    lineWidth: included ? 2 : 1
-                )
-        }
         .opacity(included ? 1 : 0.62)
         .contentShape(Capsule())
         .onTapGesture(count: 2) {
@@ -537,16 +477,11 @@ struct StudyRhythmChart: View {
         }
     }
 
-    private func metric(_ title: String, milliseconds: Int) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(studyTimeCompactDuration(milliseconds))
-                .font(.headline)
-                .monospacedDigit()
-        }
-        .frame(maxWidth: .infinity)
+    private func metric(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(StudyTimePaper.type(23, .headline))
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func bestBucketLabel(_ bucket: StudyTimeAnalyticsBucket) -> String {

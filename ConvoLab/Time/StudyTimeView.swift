@@ -46,8 +46,7 @@ struct StudyTimeView: View {
     @State var analyticsMotion = StudyTimeAnalyticsMotion()
     @State var analyticsCardWidth = CGFloat(360)
     @State var entryErrorMessage: String?
-    @State private var isJLPTMasteryExpanded = false
-    @State private var isManualTimeEntryExpanded = false
+    @State private var tab: StudyTimeTab = .rhythm
     @State private var hasRequestedEditableSessions = false
 
     private var selectedAnalytics: StudyTimeAnalyticsRange? {
@@ -61,82 +60,29 @@ struct StudyTimeView: View {
     var body: some View {
         NavigationStack {
             List {
+                VStack(spacing: 12) {
+                    StudyTimeRecordHeader { showingEntry = true }
+                    periodControls
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
                 Section {
-                    Picker("Time span", selection: $selectedRange) {
-                        ForEach(StudyTimeRange.allCases) { range in
-                            Text(range.title).tag(range)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityLabel("Time span")
-                    .onChange(of: selectedRange) { previous, _ in
-                        cancelAnalyticsNavigation()
-                        store.stopAnalyticsPrefetching()
-                        if suppressNextHistoricalRangeReset {
-                            suppressNextHistoricalRangeReset = false
-                            return
-                        }
-                        // Canonical cached ranges can be selected immediately. A
-                        // derived week intentionally has no invented hourly data.
-                        let fallback = StudyTimeRangeSelection.fallback(preferred: previous, analytics: store.analytics)
-                        scheduleAnalyticsLoad(anchorDate: .now, fallback: fallback)
-                    }
-
-                    if let analytics = selectedAnalytics {
-                        swipeableAnalytics(analytics)
-                    } else {
-                        ProgressView("Loading study rhythm…")
-                            .frame(maxWidth: .infinity, minHeight: 220)
-                    }
-                } footer: {
-                    Text(
-                        "Double-tap a category to filter it out or bring it back. In Week, Month, and Year, "
-                            + "double-tap a bar to drill in. Audio drills count as Listen; "
-                            + "iTalki and other lessons count as Conversation."
-                    )
+                    StudyTimeRecordTabs(selected: $tab)
+                    tabContent
                 }
-
-                Section {
-                    WeeklyStudyRecapView(
-                        recap: store.weeklyRecap,
-                        isLoading: store.weeklyRecapIsLoading,
-                        errorMessage: store.weeklyRecapErrorMessage
-                    ) {
-                        Task { await store.loadWeeklyRecap(force: true) }
-                    }
+                .listRowBackground(StudyTimePaper.paper)
+                .listRowSeparator(.hidden)
+                if let message = entryErrorMessage ?? store.storageWriteErrorMessage ?? store.syncErrorMessage {
+                    Label(message, systemImage: "exclamationmark.icloud")
+                        .foregroundStyle(.red).listRowBackground(StudyTimePaper.paper)
                 }
-
-                StudyTimeJLPTMasterySection(
-                    mastery: studyStore.overview?.jlptMastery,
-                    isLoading: studyStore.isRefreshingOverview,
-                    errorMessage: studyStore.overviewRefreshErrorMessage,
-                    reduceMotion: reduceMotion,
-                    isExpanded: $isJLPTMasteryExpanded
-                ) {
-                    Task { await studyStore.refreshOverview() }
-                }
-
-                if let message = entryErrorMessage
-                    ?? store.storageWriteErrorMessage
-                    ?? store.syncErrorMessage
-                {
-                    Section("Sync") {
-                        Label(message, systemImage: "exclamationmark.icloud")
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                StudyTimeManualEntrySection(
-                    store: store,
-                    sessions: editableSessions,
-                    reduceMotion: reduceMotion,
-                    isExpanded: $isManualTimeEntryExpanded,
-                    onAdd: { showingEntry = true },
-                    onEdit: { editingSession = $0 },
-                    onDelete: delete
-                )
             }
+            .listStyle(.insetGrouped)
+            .contentMargins(.horizontal, 14, for: .scrollContent)
+            .contentMargins(.top, 16, for: .scrollContent)
+            .listSectionSpacing(12)
+            .scrollContentBackground(.hidden).background(StudyTimePaper.desk)
+            .foregroundStyle(StudyTimePaper.ink)
             .toolbar(.hidden, for: .navigationBar)
             .onDisappear {
                 cancelAnalyticsNavigation()
@@ -159,7 +105,7 @@ struct StudyTimeView: View {
                 async let studyTime: Void = store.synchronize()
                 async let recap: Void = store.loadWeeklyRecap(force: true)
                 async let mastery: Void = studyStore.refreshOverview()
-                if isManualTimeEntryExpanded {
+                if tab == .entries {
                     async let entries: Void = store.loadEditableSessions()
                     _ = await (studyTime, recap, mastery, entries)
                 } else {
@@ -171,14 +117,77 @@ struct StudyTimeView: View {
                 async let mastery: Void = studyStore.refreshOverview()
                 _ = await (recap, mastery)
             }
-            .onChange(of: isManualTimeEntryExpanded) { _, isExpanded in
+            .onChange(of: tab) { _, selection in
                 guard StudyTimeManualEntryLoading.shouldRequestEntries(
-                    isExpanded: isExpanded,
+                    isExpanded: selection == .entries,
                     hasRequestedEntries: hasRequestedEditableSessions
                 ) else { return }
                 hasRequestedEditableSessions = true
                 Task { await store.loadEditableSessions() }
             }
+        }
+    }
+
+    private var periodControls: some View {
+        VStack(spacing: 4) {
+            StudyTimeRangePicker(selection: $selectedRange)
+            .onChange(of: selectedRange) { previous, _ in
+                tab = .rhythm
+                cancelAnalyticsNavigation()
+                store.stopAnalyticsPrefetching()
+                if suppressNextHistoricalRangeReset {
+                    suppressNextHistoricalRangeReset = false
+                    return
+                }
+                let fallback = StudyTimeRangeSelection.fallback(preferred: previous, analytics: store.analytics)
+                scheduleAnalyticsLoad(anchorDate: .now, fallback: fallback)
+            }
+            if let analytics = selectedAnalytics, selectedRange != .all {
+                HStack {
+                    periodButton(-1, analytics: analytics)
+                    Text(periodLabel(analytics)).font(StudyTimePaper.type(18))
+                    periodButton(1, analytics: analytics).disabled(!canNavigateLater(from: analytics))
+                }
+            }
+        }
+    }
+
+    private func periodButton(_ direction: Int, analytics: StudyTimeAnalyticsRange) -> some View {
+        Button {
+            tab = .rhythm
+            navigateAnalytics(by: direction, from: analytics)
+        } label: {
+            Image(systemName: direction < 0 ? "chevron.left" : "chevron.right")
+                .font(.caption).padding(7).background(StudyTimePaper.sage, in: Circle())
+                .frame(minWidth: 44, minHeight: 44)
+        }.buttonStyle(.plain).accessibilityLabel(direction < 0 ? "Previous period" : "Next period")
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch tab {
+        case .rhythm:
+            if let analytics = selectedAnalytics {
+                swipeableAnalytics(analytics)
+                Text("Double-tap a category to filter it out or bring it back. In Week, Month, and Year, double-tap a bar to drill in.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                ProgressView("Loading study rhythm…").frame(maxWidth: .infinity, minHeight: 220)
+            }
+        case .recap:
+            WeeklyStudyRecapView(recap: store.weeklyRecap, isLoading: store.weeklyRecapIsLoading,
+                                 errorMessage: store.weeklyRecapErrorMessage) {
+                Task { await store.loadWeeklyRecap(force: true) }
+            }
+        case .mastery:
+            StudyTimeJLPTMasterySection(mastery: studyStore.overview?.jlptMastery,
+                                        isLoading: studyStore.isRefreshingOverview,
+                                        errorMessage: studyStore.overviewRefreshErrorMessage) {
+                Task { await studyStore.refreshOverview() }
+            }
+        case .entries:
+            StudyTimeManualEntrySection(store: store, sessions: editableSessions,
+                                       onEdit: { editingSession = $0 }, onDelete: delete)
         }
     }
 

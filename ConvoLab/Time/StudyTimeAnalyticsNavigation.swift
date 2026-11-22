@@ -171,23 +171,14 @@ extension StudyTimeView {
                 { bucket in drillDown(bucket) }
             }
 
-        return VStack(alignment: .leading, spacing: 8) {
-            if selectedRange != .all {
-                Text(periodLabel(analytics))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-
-            StudyRhythmChart(
-                analytics: analytics,
-                generatedAt: generatedAt,
-                includedCategories: includedCategories,
-                availableWidth: analyticsCardWidth,
-                onToggleCategory: toggleCategory,
-                onDrillDown: drillDownAction
-            )
-        }
+        return StudyRhythmChart(
+            analytics: analytics,
+            generatedAt: generatedAt,
+            includedCategories: includedCategories,
+            availableWidth: analyticsCardWidth,
+            onToggleCategory: toggleCategory,
+            onDrillDown: drillDownAction
+        )
     }
 
     func toggleCategory(_ category: StudyActivityCategory) {
