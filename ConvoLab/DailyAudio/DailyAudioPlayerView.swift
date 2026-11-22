@@ -67,6 +67,13 @@ struct DailyAudioPlayerView: View {
                 Text("Audio could not play. Tap Play to retry.").font(.footnote)
             }
             HStack {
+                Menu {
+                    Button("Back 15 seconds") { seek(by: -15) }
+                    Button("Forward 15 seconds") { seek(by: 15) }
+                    Button(player.isRepeating ? "Turn repeat off" : "Repeat drill") { player.toggleRepeat() }
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+                }.accessibilityLabel("Playback options").disabled(!player.isCurrent(activeTrack))
                 Spacer()
                 Button { showText.toggle() } label: {
                     Label(showText ? "Hide text" : "Show text", systemImage: showText ? "chevron.up" : "chevron.down")

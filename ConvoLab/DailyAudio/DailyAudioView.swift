@@ -39,17 +39,10 @@ struct DailyAudioView: View {
         Menu {
             if recordings.count > 1 {
                 ForEach(recordings) { choice in
-                    Button(choice.practiceDate + " · \(choice.targetDurationMinutes) min") {
+                    Button(Self.relativePracticeDate(choice.practiceDate) + " · \(choice.targetDurationMinutes) min") {
                         if choice.id != practice.id { player.stop() }
                         selectedID = choice.id
                     }
-                }
-            }
-            if let track = drill(in: practice), player.isCurrent(track) {
-                Section("Playback") {
-                    Button("Back 15 seconds") { player.seek(to: max(0, player.elapsed - 15)) }
-                    Button("Forward 15 seconds") { player.seek(to: min(player.duration, player.elapsed + 15)) }
-                    Button(player.isRepeating ? "Turn repeat off" : "Repeat drill") { player.toggleRepeat() }
                 }
             }
             if !store.isDownloaded(practice) {
@@ -93,13 +86,20 @@ struct DailyAudioView: View {
         }
         .outsideDismissibleSheet(isPresented: $creating) {
             NewDrillSheet(capabilities: capabilities, replacing: today?.status == "ready") { edition in
-                if today?.status == "ready" { player.stop() }
-                selectedID = nil
                 creating = false
-                Task { await store.create(edition: edition) }
+                Task { await generate(edition) }
             }
             .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
+    }
+
+    private func generate(_ edition: DailyAudioEditionDuration) async {
+        let previous = today
+        let previousTrack = previous.flatMap { drill(in: $0) }
+        await store.create(edition: edition)
+        guard let updated = today, updated.updatedAt != previous?.updatedAt || updated.status != previous?.status else { return }
+        if let previousTrack, player.isCurrent(previousTrack) { player.stop() }
+        selectedID = nil
     }
 
     @ViewBuilder private func heading(at date: Date) -> some View {

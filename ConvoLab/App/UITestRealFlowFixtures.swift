@@ -419,7 +419,7 @@ private final class UITestRealFlowComposition: ObservableObject {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         return DailyAudioPractice(
             id: "ui-test-practice",
-            practiceDate: "2026-08-25",
+            practiceDate: JournalDates.storage.string(from: .now),
             status: "ready",
             targetDurationMinutes: 30,
             errorMessage: nil,

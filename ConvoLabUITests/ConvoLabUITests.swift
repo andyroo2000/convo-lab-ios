@@ -307,7 +307,9 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Drill length"].waitForExistence(timeout: 5))
         attachScreen(app, named: "New audio drill")
         app.buttons["45 min"].tap()
-        XCTAssertTrue(app.buttons["Generate 45-min drill"].exists)
+        app.buttons["Generate 45-min drill"].tap()
+        XCTAssertTrue(app.staticTexts["Replace today’s recording?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Replace recording"].exists)
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Show text"].exists)
     }
