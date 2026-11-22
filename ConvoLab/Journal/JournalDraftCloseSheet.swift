@@ -39,7 +39,7 @@ struct JournalDraftCloseSheet: View {
             do {
                 if delete { try await model.store.delete(id: model.id) }
                 else {
-                    guard await model.save(submit: false) else {
+                    guard await model.save(submit: false) || model.isSavedOnDevice else {
                         error = "Your writing remains on this device. " + (model.errorMessage ?? "The draft could not be saved online. Try again.")
                         return
                     }

@@ -6,6 +6,7 @@ final class JournalStore {
     nonisolated deinit {}
     let service: JournalService
     let storage: JournalDraftStorage
+    let synchronization: JournalDraftSync
     private(set) var entries: [JournalEntry] = []
     private(set) var drafts: [JournalDraft] = []
     private(set) var nextCursor: String?
@@ -17,6 +18,7 @@ final class JournalStore {
     init(api: APIClient, userID: Int, storageRoot: URL? = nil) {
         service = JournalService(api: api)
         storage = storageRoot.map { JournalDraftStorage(userID: userID, root: $0) } ?? JournalDraftStorage(userID: userID)
+        synchronization = JournalDraftSync(service: service, drafts: storage)
         refreshDrafts()
     }
 
@@ -67,7 +69,18 @@ final class JournalStore {
 
     func write(_ draft: JournalDraft) throws {
         try service.checkSession()
-        try storage.save(draft)
+        var current = draft
+        if let acknowledged = synchronization.receipts[draft.id]?.entry.version {
+            current.expectedVersion = max(current.expectedVersion, acknowledged)
+        }
+        try storage.save(current)
+        try synchronization.edited(current)
+        refreshDrafts()
+    }
+
+    func synchronizeDrafts() async {
+        await synchronization.synchronize(excluding: busyEntryIDs)
+        for receipt in synchronization.receipts.values { accept(receipt.entry) }
         refreshDrafts()
     }
 
@@ -91,6 +104,8 @@ final class JournalStore {
     func delete(id: String) async throws {
         try beginMutation(id: id)
         defer { endMutation(id: id) }
+        await synchronization.wait(for: id)
+        if let receipt = synchronization.receipts[id] { accept(receipt.entry) }
         if let entry = entries.first(where: { $0.id == id }) {
             try await service.delete(id: id, version: entry.version)
         } else if let draft = try storage.load(id: id), draft.expectedVersion > 0 {
@@ -98,12 +113,17 @@ final class JournalStore {
         }
         entries.removeAll { $0.id == id }
         do {
-            try storage.discardAnswers(id: id)
-            for child in try storage.list().drafts where child.rootEntryId == id { try storage.discard(child) }
-            if let draft = try storage.load(id: id) { try storage.discard(draft) }
+            try discardDeviceCopies(id: id)
         } catch {
             throw APIClientError.rejected(status: 503, message: "Online deletion succeeded, but the device copy could not be removed. Retry to clear it.")
         }
         refreshDrafts()
+    }
+
+    private func discardDeviceCopies(id: String) throws {
+        try synchronization.clear(id)
+        try storage.discardAnswers(id: id)
+        for child in try storage.list().drafts where child.rootEntryId == id { try storage.discard(child) }
+        if let draft = try storage.load(id: id) { try storage.discard(draft) }
     }
 }

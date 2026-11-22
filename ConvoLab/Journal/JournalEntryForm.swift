@@ -14,6 +14,9 @@ struct JournalEntryForm: View {
             JournalPaper(draft: model.draft, writing: true) {
                 JournalWritingField(text: writingBinding(), label: "Journal entry", requestChoice: model.draft != nil)
             }
+            if let status = model.syncStatus {
+                Text(status).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("JournalSyncStatus")
+            }
             if exceedsLimit {
                 Text("Keep the entry within 20,000 characters. Your full text is saved on this device.")
                     .font(.footnote).foregroundStyle(.red)

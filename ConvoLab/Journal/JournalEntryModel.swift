@@ -18,6 +18,7 @@ final class JournalEntryModel {
     var errorMessage: String?
     var hasConflict = false
     var isSavedOnDevice = false
+    private var hasUnsavedChanges = false
 
     init(id: String, store: JournalStore, initial: JournalConversationNode? = nil, initialDraft: JournalDraft? = nil) {
         clarification = JournalClarificationModel(service: store.service)
@@ -68,10 +69,13 @@ final class JournalEntryModel {
         edit(&updated)
         updated.editID = UUID().uuidString
         draft = updated
+        hasUnsavedChanges = true
         if isUnwritten(updated) { return }
         do {
             try store.write(updated)
+            draft = try store.storage.load(id: id) ?? updated
             isSavedOnDevice = true
+            hasUnsavedChanges = false
             errorMessage = nil
         } catch {
             isSavedOnDevice = false
@@ -88,11 +92,15 @@ final class JournalEntryModel {
         do {
             try store.beginMutation(id: id)
             defer { store.endMutation(id: id) }
-            let entry = try await store.service.save(sent)
-            try store.storage.acknowledge(sent, version: entry.version)
+            var entry = try await store.synchronization.save(sent)
+            // A joined background save may have acknowledged an older edit.
+            while let pending = try store.storage.load(id: id) {
+                entry = try await store.synchronization.save(pending)
+            }
             store.accept(entry)
             store.refreshDrafts()
             draft = JournalDraft(entry: entry)
+            hasUnsavedChanges = false
             isSavedOnDevice = false
             hasConflict = false
             if submit { await submitSaved(entry) }
@@ -101,6 +109,29 @@ final class JournalEntryModel {
             reportSaveFailure(error)
             return false
         }
+    }
+
+    func reconcileSync() {
+        if let status = store.synchronization.blocked[id] {
+            hasConflict = status == 404 || status == 409
+            errorMessage = JournalDraftSync.message(status)
+        }
+        guard let receipt = store.synchronization.receipts[id], let current = draft else { return }
+        if current.editID == receipt.sent.editID {
+            draft = JournalDraft(entry: receipt.entry)
+            hasUnsavedChanges = false
+            isSavedOnDevice = false
+        } else if let local = try? store.storage.load(id: id), local.editID == current.editID {
+            draft = local
+        }
+    }
+
+    var syncStatus: String? {
+        guard !isUnwritten else { return nil }
+        if store.synchronization.isSyncing(id) { return "Syncing…" }
+        if hasUnsavedChanges { return "Not saved on this device" }
+        if isSavedOnDevice { return "Saved on this device" }
+        return (draft?.expectedVersion ?? 0) > 0 ? "Synced" : nil
     }
 
     private func submitSaved(_ entry: JournalEntry) async {
