@@ -1,6 +1,7 @@
 import SwiftUI
 
 extension EnvironmentValues {
+    @Entry var openStudySettings: ((String) -> Void)?
     @Entry var appAccountName = ""
     @Entry var appAccountLogout: (() -> Void)?
 }
@@ -8,6 +9,7 @@ extension EnvironmentValues {
 struct AppAccountMenu: View {
     @Environment(\.appAccountName) private var name
     @Environment(\.appAccountLogout) private var logout
+    @Environment(\.openStudySettings) private var openStudySettings
     @Binding var selection: AppMode
     let journalActions: [AppModeToolbarAction]
     var preventsNavigation = false
@@ -53,6 +55,17 @@ struct AppAccountMenu: View {
                             .accessibilityIdentifier(item.id)
                     }
                 }
+                Divider().padding(.horizontal, 12)
+            }
+            if selection == .study, let openStudySettings {
+                AppPaperMenuGroup(title: "Study") {
+                    AppPaperMenuRow(title: "Study preferences", icon: "slider.horizontal.3") {
+                        choose { openStudySettings("Study preferences") }
+                    }
+                    AppPaperMenuRow(title: "Offline & sync", icon: "arrow.down.circle") {
+                        choose { openStudySettings("Offline & sync") }
+                    }
+                }.disabled(preventsNavigation)
                 Divider().padding(.horizontal, 12)
             }
             AppPaperMenuGroup(title: "Account") {

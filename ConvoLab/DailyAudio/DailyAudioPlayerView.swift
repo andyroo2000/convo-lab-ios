@@ -6,11 +6,9 @@ struct DailyAudioPlayerView: View {
     let player: AudioPlayer
 
     @State private var detailedTrack: DailyAudioTrack?
-    @State private var resolvedURL: URL?
-    @State private var isPreparing = true
+    @State private var isPreparing = false
     @State private var couldNotLoad = false
     @State private var showReadings = false
-    @State private var showTranslation = false
 
     private var latestTrack: DailyAudioTrack {
         DailyAudioTrack.latest(matching: track, in: store.practices)
@@ -36,291 +34,80 @@ struct DailyAudioPlayerView: View {
         )
     }
 
+    @State private var showText = false
+    @State private var playRequest = 0
+
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    ConvoLabTheme.cyan.opacity(0.22),
-                    ConvoLabTheme.cream,
-                    ConvoLabTheme.coral.opacity(0.08),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                trackHeader
-                spokenTextDisplay
-                    .frame(maxHeight: .infinity)
-                playbackControls
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button(action: togglePlayback) {
+                    Label(isPreparing ? "Loading…" : (playing ? "Pause" : "Play"), systemImage: playing ? "pause.fill" : "play.fill")
+                        .font(StudyTimePaper.type(18)).padding(.horizontal, 14).frame(minHeight: 44)
+                        .foregroundStyle(.white).background(DrillPaper.accent, in: Capsule())
+                }.buttonStyle(.plain).disabled(isPreparing)
+                VStack(spacing: 0) {
+                    Slider(value: Binding(get: { min(elapsed, max(playbackDuration, 1)) },
+                        set: { player.seek(to: $0) }), in: 0...max(playbackDuration, 1))
+                        .accessibilityLabel("Seek in drill").tint(DrillPaper.accent)
+                        .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
+                    HStack { Text(formatTime(elapsed)); Spacer(); Text(formatTime(playbackDuration)) }
+                        .font(.caption.monospacedDigit())
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 20)
+            if couldNotLoad {
+                Text("Audio could not play. Tap Play to retry.").font(.footnote)
+            }
+            HStack {
+                Spacer()
+                Button { showText.toggle() } label: {
+                    Label(showText ? "Hide text" : "Show text", systemImage: showText ? "chevron.up" : "chevron.down")
+                        .font(StudyTimePaper.type(17)).frame(minHeight: 44)
+                }.buttonStyle(.plain)
+            }
+            if showText { transcript }
         }
-        .navigationTitle("Now Playing")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(ConvoLabTheme.cream.opacity(0.94), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .task(id: DailyAudioPlaybackIdentity(track: latestTrack)) {
-            await prepareForPlayback(track: latestTrack)
+            let requested = latestTrack
+            let detail = await store.detailedTrack(for: requested)
+            guard !Task.isCancelled else { return }
+            detailedTrack = detail
+        }
+        .task(id: playRequest) {
+            guard playRequest > 0 else { return }
+            await startPlayback()
         }
     }
 
-    private var trackHeader: some View {
-        VStack(spacing: 6) {
-            Text(activeTrack.mode.uppercased())
-                .font(.caption.bold())
-                .tracking(2.4)
-                .foregroundStyle(ConvoLabTheme.coral)
-            Text(activeTrack.title)
-                .font(.title2.bold())
-                .foregroundStyle(ConvoLabTheme.navy)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-        }
-        .padding(.top, 22)
-    }
+    private var elapsed: Double { player.isCurrent(activeTrack) ? player.elapsed : 0 }
+    private var playing: Bool { player.isCurrent(activeTrack) && player.isPlaying }
 
-    private var spokenTextDisplay: some View {
-        VStack(spacing: 18) {
-            if isPreparing {
-                ProgressView("Preparing audio…")
-                    .tint(ConvoLabTheme.navy)
-            } else if couldNotLoad {
-                ContentUnavailableView(
-                    "Audio Unavailable",
-                    systemImage: "waveform.slash",
-                    description: Text("Connect to the internet and try this drill again.")
-                )
-            } else {
-                currentText
-                transcriptOptions
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 32)
-        .background(.white.opacity(0.58), in: .rect(cornerRadius: 32))
-        .overlay {
-            RoundedRectangle(cornerRadius: 32)
-                .stroke(ConvoLabTheme.navy.opacity(0.09), lineWidth: 1)
-        }
-        .shadow(color: ConvoLabTheme.navy.opacity(0.08), radius: 24, y: 12)
-        .padding(.vertical, 28)
-    }
-
-    @ViewBuilder
-    private var currentText: some View {
-        if let unit = currentUnit, let text = unit.text {
-            VStack(spacing: 18) {
-                StudyRubyText(
-                    showReadings ? unit.reading ?? text : text,
-                    knownKanji: [],
-                    pointSize: 34,
-                    weight: .semibold,
-                    color: UIColor(ConvoLabTheme.navy),
-                    alignment: .center
-                )
-                .id("\(unit.text ?? "")-\(showReadings)")
-                .transition(.opacity)
-
-                Text(showTranslation ? unit.translation ?? " " : " ")
-                    .font(.body.italic())
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(minHeight: 24)
-            }
-            .accessibilityElement(children: .combine)
+    @ViewBuilder private var transcript: some View {
+        Divider()
+        let unit = currentUnit ?? (elapsed == 0 ? activeTrack.scriptUnitsJson?.first { $0.type == "L2" } : nil)
+        if let unit, let text = unit.text {
+            StudyRubyText(showReadings ? unit.reading ?? text : text, knownKanji: [], pointSize: 22,
+                weight: .medium, color: UIColor(DrillPaper.ink), alignment: .natural)
+            if let translation = unit.translation { Text(translation).font(StudyTimePaper.type(18)) }
+            if unit.reading != nil { Toggle("Furigana", isOn: $showReadings).font(.footnote).fixedSize() }
         } else {
-            VStack(spacing: 12) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 42, weight: .medium))
-                    .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
-                Text(player.isPlaying ? "Listening…" : "Ready when you are")
-                    .font(.title3.bold())
-            }
-            .foregroundStyle(ConvoLabTheme.navy.opacity(0.48))
+            Text(activeTrack.scriptUnitsJson?.isEmpty == false ? "Listening…" : "No transcript available.").font(.footnote)
         }
     }
 
-    private var transcriptOptions: some View {
-        HStack(spacing: 12) {
-            optionButton(
-                title: "Furigana",
-                systemImage: "character.book.closed",
-                isOn: showReadings
-            ) {
-                showReadings.toggle()
-            }
-            optionButton(
-                title: "Translation",
-                systemImage: "text.bubble",
-                isOn: showTranslation
-            ) {
-                showTranslation.toggle()
-            }
-        }
-        .opacity(activeTrack.timingData?.isEmpty == false ? 1 : 0)
-        .accessibilityHidden(activeTrack.timingData?.isEmpty != false)
-    }
-
-    private func optionButton(
-        title: String,
-        systemImage: String,
-        isOn: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.bold())
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .foregroundStyle(isOn ? Color.white : ConvoLabTheme.navy)
-                .background(
-                    isOn ? ConvoLabTheme.navy : ConvoLabTheme.navy.opacity(0.08),
-                    in: .capsule
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
-
-    private var playbackControls: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 6) {
-                Slider(
-                    value: Binding(
-                        get: {
-                            min(
-                                player.isCurrent(activeTrack) ? player.elapsed : 0,
-                                max(playbackDuration, 1)
-                            )
-                        },
-                        set: { player.seek(to: $0) }
-                    ),
-                    in: 0...max(playbackDuration, 1)
-                )
-                .tint(ConvoLabTheme.navy)
-                .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
-
-                HStack {
-                    Text(formatTime(player.isCurrent(activeTrack) ? player.elapsed : 0))
-                    Spacer()
-                    Text("-\(formatTime(remainingTime))")
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 42) {
-                seekButton(offset: -15, systemImage: "gobackward.15")
-
-                Button {
-                    togglePlayback()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(ConvoLabTheme.navy)
-                            .frame(width: 76, height: 76)
-                        Image(systemName: player.isCurrent(activeTrack) && player.isPlaying
-                            ? "pause.fill"
-                            : "play.fill")
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundStyle(.white)
-                            .offset(x: player.isCurrent(activeTrack) && player.isPlaying ? 0 : 2)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparing || couldNotLoad)
-                .accessibilityLabel(
-                    player.isCurrent(activeTrack) && player.isPlaying ? "Pause" : "Play"
-                )
-
-                seekButton(offset: 15, systemImage: "goforward.15")
-            }
-
-            Button {
-                player.toggleRepeat()
-            } label: {
-                Label("Repeat", systemImage: "repeat")
-                    .font(.caption.bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .foregroundStyle(player.isRepeating ? .white : ConvoLabTheme.navy)
-                    .background(
-                        player.isRepeating
-                            ? ConvoLabTheme.navy
-                            : ConvoLabTheme.navy.opacity(0.08),
-                        in: .capsule
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(player.isRepeating ? "Disable Repeat" : "Repeat Track")
-            .accessibilityAddTraits(player.isRepeating ? .isSelected : [])
-        }
-    }
-
-    private var remainingTime: Double {
-        max(playbackDuration - (player.isCurrent(activeTrack) ? player.elapsed : 0), 0)
-    }
-
-    private func seekButton(offset: Double, systemImage: String) -> some View {
-        Button {
-            let target = min(max(player.elapsed + offset, 0), playbackDuration)
-            player.seek(to: target)
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 27, weight: .semibold))
-                .foregroundStyle(ConvoLabTheme.navy)
-                .frame(width: 48, height: 48)
-        }
-        .buttonStyle(.plain)
-        .disabled(!player.isCurrent(activeTrack) || playbackDuration <= 0)
-        .accessibilityLabel(offset < 0 ? "Back 15 Seconds" : "Forward 15 Seconds")
-    }
-
-    private func prepareForPlayback(track requestedTrack: DailyAudioTrack) async {
-        let requestedIdentity = DailyAudioPlaybackIdentity(track: requestedTrack)
+    private func startPlayback() async {
+        let requested = activeTrack
         isPreparing = true
         couldNotLoad = false
-        detailedTrack = nil
-        resolvedURL = nil
-        let detailed = await store.detailedTrack(for: requestedTrack) ?? requestedTrack
-        guard
-            !Task.isCancelled,
-            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
-        else {
-            return
-        }
-        detailedTrack = detailed
-        guard let url = await store.playableURL(for: detailed) else {
-            guard
-                !Task.isCancelled,
-                DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
-            else {
-                return
-            }
-            isPreparing = false
-            couldNotLoad = true
-            return
-        }
-        guard
-            !Task.isCancelled,
-            DailyAudioPlaybackIdentity(track: latestTrack) == requestedIdentity
-        else {
-            return
-        }
-        resolvedURL = url
-        isPreparing = false
+        defer { isPreparing = false }
+        let url = await store.playableURL(for: requested)
+        guard !Task.isCancelled, DailyAudioPlaybackIdentity(track: requested) == DailyAudioPlaybackIdentity(track: latestTrack) else { return }
+        if let url { player.play(url: url, track: requested) }
+        else { couldNotLoad = true }
     }
 
     private func togglePlayback() {
-        if player.isCurrent(activeTrack) {
-            player.toggle()
-        } else if let resolvedURL {
-            player.play(url: resolvedURL, track: activeTrack)
-        }
+        if player.isCurrent(activeTrack) { player.toggle() }
+        else { playRequest += 1 }
     }
 
     private func formatTime(_ seconds: Double) -> String {

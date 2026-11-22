@@ -81,13 +81,12 @@ struct MainModeView: View {
     // Five native slots avoid UIKit's automatic More navigation controller.
     // The four practice/library stacks retain their navigation when switching modes.
     private enum TabSlot: Hashable {
-        case study, dailyAudio, journal, readings, manage
+        case study, journal, readings, manage
 
         init(_ mode: AppMode) {
             switch mode {
             case .study: self = .study
             case .journal: self = .journal
-            case .dailyAudio: self = .dailyAudio
             case .readings: self = .readings
             case .cards, .time, .settings: self = .manage
             }
@@ -97,7 +96,6 @@ struct MainModeView: View {
             switch self {
             case .study: .study
             case .journal: .journal
-            case .dailyAudio: .dailyAudio
             case .readings: .readings
             case .manage: management
             }
@@ -110,6 +108,7 @@ struct MainModeView: View {
     @State private var availability = AppFeatureAvailability()
     @Environment(\.scenePhase) private var scenePhase
     @State private var managementMode: AppMode = .cards
+    @State private var settingsChapter = "Account"
     @State private var showingSettings = false
     @State private var journalVisit = 0
 
@@ -137,6 +136,7 @@ struct MainModeView: View {
             set: { newTab in
                 guard availability.flags.modes.contains(newTab), newTab != selectedTab else { return }
                 if newTab == .settings {
+                    settingsChapter = "Account"
                     showingSettings = true
                     return
                 }
@@ -169,6 +169,9 @@ struct MainModeView: View {
                         store: model.study,
                         player: model.studyAudioPlayer,
                         timeStore: model.studyTime,
+                        dailyAudio: model.dailyAudio,
+                        drillPlayer: model.audioPlayer,
+                        browseCards: { tabSelection.wrappedValue = .cards },
                         automaticSynchronization: model.refreshStudyIfNeeded
                     )
                     .id(user.id)
@@ -176,17 +179,6 @@ struct MainModeView: View {
                         model.audioPlayer.stop()
                         model.studyAudioPlayer.stop()
                     })
-                    .environment(\.colorScheme, .light)
-                    .toolbar(.hidden, for: .tabBar)
-                }
-            }
-            if availability.flags.modes.contains(.dailyAudio) {
-                Tab("Daily Audio", systemImage: "headphones", value: TabSlot.dailyAudio) {
-                    DailyAudioView(
-                        store: model.dailyAudio,
-                        player: model.audioPlayer,
-                        capabilities: model.study.capabilities.dailyAudio
-                    )
                     .environment(\.colorScheme, .light)
                     .toolbar(.hidden, for: .tabBar)
                 }
@@ -227,11 +219,15 @@ struct MainModeView: View {
         .toolbar(.hidden, for: .tabBar)
         .modifier(AppModeHeader(selection: tabSelection))
         .outsideDismissibleSheet(isPresented: $showingSettings) {
-            SettingsView(model: model, user: user)
+            SettingsView(model: model, user: user, initialChapter: settingsChapter)
                 .environment(\.availableAppModes, availability.flags.modes)
                 .presentationSizing(.form)
                 .presentationDragIndicator(.visible)
         }
+        .environment(\.openStudySettings, { chapter in
+            settingsChapter = chapter
+            showingSettings = true
+        })
         .environment(\.appAccountName, user.name)
         .environment(\.appAccountLogout, { Task { await model.logout() } })
         .environment(\.availableAppModes, availability.flags.modes)

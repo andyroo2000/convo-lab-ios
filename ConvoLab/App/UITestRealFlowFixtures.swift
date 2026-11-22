@@ -241,7 +241,7 @@ private final class UITestRealFlowComposition: ObservableObject {
         let container = try Persistence.makeContainer(inMemory: true)
         let timeContainer = try StudyTimePersistence.makeContainer(inMemory: true)
         _ = URLProtocol.registerClass(UITestURLProtocol.self)
-        let api = mockAPI()
+        let api = mockAPI(allowsFixtureAudio: true)
         let mediaCache = MediaCache(
             initialUserID: userID,
             api: api,
@@ -254,37 +254,22 @@ private final class UITestRealFlowComposition: ObservableObject {
             mediaCache: mediaCache
         )
         store.setOverview(fixtureStudyOverview)
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let nextLessonStart = DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: 2027,
-            month: 8,
-            day: 31,
-            hour: 14,
-            minute: 30
-        ).date!
-        let calendarService = UITestGoogleCalendarService(
-            connected: true,
-            nextLesson: GoogleCalendarNextLesson(
-                title: "iTalki with Yuki",
-                startsAt: nextLessonStart,
-                endsAt: nextLessonStart.addingTimeInterval(60 * 60)
-            )
-        )
-        let timeStore = StudyTimeStore(
-            api: api,
-            context: timeContainer.mainContext,
-            googleCalendar: calendarService
-        )
+        let timeStore = StudyTimeStore(api: api, context: timeContainer.mainContext)
+        let practice = fixtureDailyAudioPractice
+        container.mainContext.insert(LocalDailyAudioPractice(practice: practice, userID: userID,
+            payload: try StorageCodec.encoder.encode(practice)))
+        try container.mainContext.save()
+        let audio = DailyAudioStore(initialUserID: userID, api: api, context: container.mainContext, mediaCache: mediaCache)
+        let drillPlayer = AudioPlayer(deterministicUITestBackend: ())
         timeStore.activate(userID: userID)
         let player = StudyAudioPlayer(isLongFormAudioPlaying: { false })
         return (
             AnyView(StudyHomeView(
                 store: store,
                 player: player,
-                timeStore: timeStore
+                timeStore: timeStore,
+                dailyAudio: audio,
+                drillPlayer: drillPlayer
             ).modifier(AppModeHeader(selection: .constant(.study)))),
             [
                 container,
@@ -292,7 +277,8 @@ private final class UITestRealFlowComposition: ObservableObject {
                 api,
                 mediaCache,
                 store,
-                calendarService,
+                audio,
+                drillPlayer,
                 timeStore,
                 player,
             ]
@@ -352,6 +338,9 @@ private final class UITestRealFlowComposition: ObservableObject {
 
     private static func mockAPI(allowsFixtureAudio: Bool = false) -> APIClient {
         UITestURLProtocol.allowsFixtureAudio = allowsFixtureAudio
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        UITestURLProtocol.drills = try? encoder.encode([fixtureDailyAudioPractice])
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [UITestURLProtocol.self]
         return APIClient(
@@ -432,19 +421,19 @@ private final class UITestRealFlowComposition: ObservableObject {
             id: "ui-test-practice",
             practiceDate: "2026-08-25",
             status: "ready",
-            targetDurationMinutes: 5,
+            targetDurationMinutes: 30,
             errorMessage: nil,
             createdAt: now,
             updatedAt: now,
             tracks: [DailyAudioTrack(
                 id: "ui-test-track",
                 practiceId: "ui-test-practice",
-                mode: "shadowing",
+                mode: "drill",
                 status: "ready",
                 title: "Deterministic Daily Audio",
                 sortOrder: 0,
                 scriptUnitsJson: [.init(
-                    type: "line",
+                    type: "L2",
                     text: "今日は日本語を練習します。",
                     reading: "きょうはにほんごをれんしゅうします。",
                     translation: "Today I will practice Japanese."
@@ -461,10 +450,16 @@ private final class UITestRealFlowComposition: ObservableObject {
 private nonisolated final class UITestURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var allowsFixtureAudio = false
 
+    nonisolated(unsafe) static var drills: Data?
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if Self.allowsFixtureAudio, request.url?.path == "/api/daily-audio-practice", let data = Self.drills {
+            succeed(with: data)
+            return
+        }
         if request.url?.path == "/api/convolab/feature-availability" {
             succeed(with: Data(#"{"flashcardsEnabled":true,"readingsEnabled":true,"studyTimeEnabled":true}"#.utf8))
             return
