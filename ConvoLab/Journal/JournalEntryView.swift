@@ -135,7 +135,11 @@ private struct JournalEntryScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .onDisappear { model.clarification.cancel() }
-        .task { if model.draft == nil { await model.load() } }
+        .task {
+            if model.draft == nil { await model.load() }
+            model.reconcileSync()
+        }
+        .onChange(of: model.store.synchronization.revision) { _, _ in model.reconcileSync() }
         .task(id: pollingKey) { await model.poll() }
         .navigationDestination(item: $copiedID) { id in
             JournalEntryView(id: id, store: model.store, knownKanji: knownKanji)
