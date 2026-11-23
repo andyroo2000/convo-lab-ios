@@ -75,11 +75,12 @@ final class LessonAudioUITests: XCTestCase {
         XCTAssertEqual(speaker.label, "Play answer audio")
         speaker.tap()
         waitForPlayback("playing:other", in: app)
+        XCTAssertEqual(speaker.value as? String, "Playing")
         for title in ["Again", "Hard", "Good", "Easy"] {
             XCTAssertTrue(app.buttons[title].isHittable)
         }
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Washi flashcard answer"
+        screenshot.name = "Open journal flashcard answer"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
@@ -92,7 +93,7 @@ final class LessonAudioUITests: XCTestCase {
         }
         XCTAssertTrue(app.buttons["StudyAnswerAudioButton"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Washi flashcard large text"
+        screenshot.name = "Open journal flashcard large text"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }

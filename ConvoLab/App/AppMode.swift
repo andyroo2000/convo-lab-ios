@@ -163,14 +163,18 @@ struct AppModeHeader: ViewModifier {
     @Binding var selection: AppMode
     @State private var actions: [AppMode: AppModeHeaderAction] = [:]
     @State private var toolbars: [AppMode: AppModeToolbar] = [:]
+    @State private var focusedSessions: [AppMode: Bool] = [:]
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
-            AppModePicker(selection: $selection, action: actions[selection], toolbar: toolbars[selection] ?? .init())
+            if focusedSessions[selection] != true {
+                AppModePicker(selection: $selection, action: actions[selection], toolbar: toolbars[selection] ?? .init())
+            }
             content
         }
         .environment(\.hasAppModeHeader, true)
         .onPreferenceChange(AppModeActionKey.self) { actions = $0 }
         .onPreferenceChange(AppModeToolbarKey.self) { toolbars = $0 }
+        .onPreferenceChange(AppSessionFocusKey.self) { focusedSessions = $0 }
     }
 }
