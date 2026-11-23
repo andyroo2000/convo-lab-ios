@@ -19,6 +19,15 @@ struct DailyAudioView: View {
         store.practices.first { $0.practiceDate == Self.todayPracticeDate }
     }
 
+    private var generating: DailyAudioPractice? {
+        store.practices.first { practice in
+            guard practice.status == "generating" else { return false }
+            return practice.id == store.practices.first?.id || !Self.canRetryGeneration(
+                practice, startRequestWasInterrupted: store.generationStartWasInterrupted
+            )
+        }
+    }
+
     private var recordings: [DailyAudioPractice] {
         store.practices.filter { drill(in: $0) != nil }
     }
@@ -64,15 +73,15 @@ struct DailyAudioView: View {
                     .id(DailyAudioPlaybackIdentity(track: track))
             } else if store.isLoading {
                 ProgressView("Loading Daily Audio…")
-            } else if today?.status != "generating" {
+            } else if generating == nil && store.practices.first?.status != "error" {
                 Text("Create your first audio drill to start listening.").font(.subheadline)
             }
             if let error = store.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
                 Button("Retry loading drills") { Task { _ = await store.refresh() } }
             }
-            if today?.status == "error" {
-                Text(today?.errorMessage ?? "The drill could not be generated. Try again.").font(.footnote)
+            if let latest = store.practices.first, latest.status == "error" {
+                Text(latest.errorMessage ?? "The drill could not be generated. Try again.").font(.footnote)
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -103,7 +112,7 @@ struct DailyAudioView: View {
     }
 
     @ViewBuilder private func heading(at date: Date) -> some View {
-        let active = today.map { $0.status == "generating" && !Self.canRetryGeneration($0,
+        let active = generating.map { !Self.canRetryGeneration($0,
             startRequestWasInterrupted: store.generationStartWasInterrupted, relativeTo: date) } ?? false
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -118,8 +127,8 @@ struct DailyAudioView: View {
                     .background(StudyTimePaper.paper, in: Circle()).overlay { Circle().stroke(DrillPaper.rule) }
             }.buttonStyle(.plain).accessibilityLabel("New audio drill").disabled(store.isLoading || active)
         }
-        if active { Text("Preparing your audio drill…").font(.subheadline) }
-        else if today?.status == "generating" { Text("Generation has stalled. Use New audio drill to retry.").font(.subheadline) }
+        if active { DrillGenerationProgress(percent: generating?.progress) }
+        else if generating != nil { Text("Generation has stalled. Use New audio drill to retry.").font(.subheadline) }
     }
 
     static func relativePracticeDate(
@@ -181,5 +190,37 @@ struct DailyAudioView: View {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: .now)
+    }
+}
+
+private struct DrillGenerationProgress: View {
+    let percent: Int?
+
+    private var label: String {
+        switch percent ?? -1 {
+        case 0: "Waiting to start…"
+        case 10..<95: "Recording your drill…"
+        case 95...100: "Finishing audio…"
+        default: "Preparing your audio drill…"
+        }
+    }
+
+    var body: some View {
+        if let percent {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(label)
+                    Spacer()
+                    Text("\(percent)%").monospacedDigit()
+                }
+                ProgressView(value: Double(percent), total: 100).tint(DrillPaper.accent)
+            }
+            .font(.subheadline)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue("\(percent)%")
+        } else {
+            ProgressView(label).font(.subheadline).tint(DrillPaper.accent)
+        }
     }
 }

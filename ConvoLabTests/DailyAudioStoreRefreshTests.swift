@@ -74,6 +74,29 @@ extension DailyAudioStoreTests {
         XCTAssertNil(store.errorMessage)
     }
 
+    func testProgressUpdatesFromTheListAndSurvivesRestoringTheSameAccount() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        var practice = dailyAudioPractice(status: "generating", updatedAt: .now)
+        container.mainContext.insert(LocalDailyAudioPractice(
+            practice: practice, userID: 1, payload: try StorageCodec.encoder.encode(practice)
+        ))
+        try container.mainContext.save()
+        practice.progress = 47
+        let page = DailyAudioPracticePage(items: [practice], total: 1, limit: 14, nextCursor: nil)
+        let data = try StorageCodec.encoder.encode(page)
+        let client = makeClient { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let store = makeStore(client: client, container: container)
+        defer { store.deactivate() }
+        XCTAssertNil(store.practices.first?.progress)
+        await store.refresh()
+        XCTAssertEqual(store.practices.first?.progress, 47)
+        store.deactivate()
+        store.activate(userID: 1)
+        XCTAssertEqual(store.practices.first?.progress, 47)
+    }
+
     func testInterruptedOrStaleGenerationCanBeRetried() {
         let now = Date(timeIntervalSince1970: 10_000)
         let recent = dailyAudioPractice(
