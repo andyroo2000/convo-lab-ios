@@ -15,6 +15,7 @@ struct StudySessionView: View {
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
     @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @Environment(\.appModeDestination) private var appModeDestination
@@ -155,6 +156,8 @@ struct StudySessionView: View {
                     promptFace(presentation.front, cardID: card.id)
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Flashcard")
             .accessibilityValue("Session progress: \(Int(displayedProgress * 100)) percent")
 
             if showingAnswer {
@@ -905,7 +908,10 @@ struct StudySessionView: View {
     }
 
     private func gradeButtons(card: StudyCard) -> some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: Array(
+            repeating: GridItem(.flexible(), spacing: 8),
+            count: dynamicTypeSize.isAccessibilitySize ? 2 : 4
+        ), spacing: 8) {
             gradeButton("Again", rating: .again, color: Color(red: 149 / 255, green: 71 / 255, blue: 54 / 255), card: card)
             gradeButton("Hard", rating: .hard, color: Color(red: 117 / 255, green: 88 / 255, blue: 36 / 255), card: card)
             gradeButton("Good", rating: .good, color: StudyWashiStyle.good, card: card)

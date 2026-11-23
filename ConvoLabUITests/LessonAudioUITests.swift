@@ -68,13 +68,7 @@ final class LessonAudioUITests: XCTestCase {
 
     @MainActor
     func testQuizAnswerSpeakerPlaysWithAccessibleGradeControls() {
-        let app = launchLesson()
-        for number in 2...4 {
-            app.buttons["Next"].tap()
-            waitForCard(number, in: app)
-        }
-        app.buttons["Start Quiz"].tap()
-        app.buttons["Show Answer"].tap()
+        let app = openQuizAnswer()
         let speaker = app.buttons["StudyAnswerAudioButton"]
         XCTAssertTrue(speaker.waitForExistence(timeout: 5))
         XCTAssertTrue(speaker.isHittable)
@@ -91,9 +85,38 @@ final class LessonAudioUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchLesson() -> XCUIApplication {
+    func testQuizGradesRemainReachableAtLargestTextSize() {
+        let app = openQuizAnswer(contentSize: "UICTContentSizeCategoryAccessibilityXXXL")
+        for title in ["Again", "Hard", "Good", "Easy"] {
+            XCTAssertTrue(app.buttons[title].isHittable)
+        }
+        XCTAssertTrue(app.buttons["StudyAnswerAudioButton"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Washi flashcard large text"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    private func openQuizAnswer(contentSize: String? = nil) -> XCUIApplication {
+        let app = launchLesson(contentSize: contentSize)
+        for number in 2...4 {
+            app.buttons["Next"].tap()
+            waitForCard(number, in: app)
+        }
+        app.buttons["Start Quiz"].tap()
+        app.buttons["Show Answer"].tap()
+        XCTAssertTrue(app.buttons["Good"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    @MainActor
+    private func launchLesson(contentSize: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-lesson-audio"]
+        if let contentSize {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSize]
+        }
         app.launch()
         waitForCard(1, in: app)
         let play = app.buttons["StudyLessonAudioButton"]
