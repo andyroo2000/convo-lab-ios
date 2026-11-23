@@ -99,6 +99,7 @@ final class JournalEntryModel {
         do {
             try store.beginMutation(id: id)
             defer { store.endMutation(id: id) }
+            try preserveUnsavedWriting(sent)
             let entry = try await store.synchronization.saveLatest(sent)
             store.accept(entry)
             store.refreshDrafts()
@@ -112,6 +113,13 @@ final class JournalEntryModel {
             reportSaveFailure(error)
             return false
         }
+    }
+
+    private func preserveUnsavedWriting(_ sent: JournalDraft) throws {
+        guard hasUnsavedChanges else { return }
+        try store.write(sent)
+        isSavedOnDevice = true
+        hasUnsavedChanges = false
     }
 
     func reconcileSync() {

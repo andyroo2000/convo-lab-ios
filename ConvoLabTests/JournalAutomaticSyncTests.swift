@@ -292,6 +292,33 @@ final class JournalAutomaticSyncTests: XCTestCase {
         XCTAssertNil(try JournalSyncStorage(drafts: store.storage).load(draft.id).pending)
     }
 
+    func testManualSavePreservesMemoryOnlyTypingOverAnOlderDiskDraft() async throws {
+        let original = try write("Older disk draft")
+        let model = JournalEntryModel(id: original.id, store: store)
+        await model.load()
+        let directory = store.storage.directory
+        let backup = directory.appendingPathExtension("backup")
+        try FileManager.default.moveItem(at: directory, to: backup)
+        try Data().write(to: directory)
+        model.change { $0.body = "Latest memory-only typing" }
+        XCTAssertEqual(model.syncStatus, "Not saved on this device")
+        let failed = await model.save(submit: false)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(model.draft?.body, "Latest memory-only typing")
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.moveItem(at: backup, to: directory)
+        let response = try JSONEncoder().encode(JournalResource(data: entry(try XCTUnwrap(model.draft), version: 1)))
+        MockURLProtocol.handler = { request in
+            let payload = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            XCTAssertEqual(payload?["body"] as? String, "Latest memory-only typing")
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, response)
+        }
+        let saved = await model.save(submit: false)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.draft?.body, "Latest memory-only typing")
+        XCTAssertEqual(model.syncStatus, "Synced")
+    }
+
     private func write(_ body: String) throws -> JournalDraft {
         var draft = JournalDraft.new()
         draft.body = body
