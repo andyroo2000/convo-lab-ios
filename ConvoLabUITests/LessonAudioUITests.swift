@@ -67,6 +67,30 @@ final class LessonAudioUITests: XCTestCase {
     }
 
     @MainActor
+    func testQuizAnswerSpeakerPlaysWithAccessibleGradeControls() {
+        let app = launchLesson()
+        for number in 2...4 {
+            app.buttons["Next"].tap()
+            waitForCard(number, in: app)
+        }
+        app.buttons["Start Quiz"].tap()
+        app.buttons["Show Answer"].tap()
+        let speaker = app.buttons["StudyAnswerAudioButton"]
+        XCTAssertTrue(speaker.waitForExistence(timeout: 5))
+        XCTAssertTrue(speaker.isHittable)
+        XCTAssertEqual(speaker.label, "Play answer audio")
+        speaker.tap()
+        waitForPlayback("playing:other", in: app)
+        for title in ["Again", "Hard", "Good", "Easy"] {
+            XCTAssertTrue(app.buttons[title].isHittable)
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Washi flashcard answer"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     private func launchLesson() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-lesson-audio"]

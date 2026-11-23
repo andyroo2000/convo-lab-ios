@@ -114,7 +114,8 @@ struct StudySessionView: View {
             activeSessionContent
         }
         .padding()
-        .paperBackground()
+        .background(StudyWashiStyle.desk.ignoresSafeArea())
+        .tint(ConvoLabTheme.navy)
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
                 endReviewSession()
@@ -125,9 +126,6 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var sessionProgressContent: some View {
-        ProgressView(value: displayedProgress)
-            .tint(.green)
-            .accessibilityLabel(practiceMode ? "Practice progress" : "Session progress")
         masteryFeedbackLane
     }
 
@@ -150,16 +148,14 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyPracticeModeBanner")
             }
             let presentation = card.presentation
-            VStack {
-                Spacer()
+            StudyWashiCard {
                 if showingAnswer {
                     answerFace(presentation.back, card: card)
                 } else {
                     promptFace(presentation.front, cardID: card.id)
                 }
-                Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityValue("Session progress: \(Int(displayedProgress * 100)) percent")
 
             if showingAnswer {
                 gradeButtons(card: card)
@@ -226,7 +222,7 @@ struct StudySessionView: View {
         .accessibilityAction(named: Text("Undo Last Study Action")) {
             Task { await undoLastAction() }
         }
-        .navigationTitle(practiceMode ? "Toughest Practice" : "Practice")
+        .navigationTitle(practiceMode ? "Toughest Practice" : "")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(mode == .reviews)
         .preference(key: AppModeActionKey.self, value: headerActions)
@@ -234,7 +230,7 @@ struct StudySessionView: View {
             if !hasAppModeHeader {
                 HStack { Spacer(); endSessionControl }
                     .padding(.horizontal, 20)
-                    .background(ConvoLabTheme.cream)
+                    .background(StudyWashiStyle.desk)
             }
         }
         .toolbar { lessonDismissToolbar }
@@ -780,102 +776,112 @@ struct StudySessionView: View {
                 StudyRubyText(
                     heading,
                     knownKanji: store.knownKanji,
-                    pointSize: 38,
-                    weight: .semibold
+                    pointSize: 26,
+                    weight: .medium,
+                    color: UIColor(ConvoLabTheme.navy),
+                    alignment: .left,
+                    extraLineSpacing: 8
                 )
             }
             if let supportingText = face.supportingText {
                 Text(supportingText)
-                    .font(.title3)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .font(.custom("CrimsonPro-Regular", size: 24, relativeTo: .title2))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(StudyWashiStyle.muted)
             }
         }
     }
 
     @ViewBuilder
     private func answerFace(_ face: StudyCardPresentation.Face, card: StudyCard) -> some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                if let heading = face.heading {
-                    StudyRubyText(
-                        heading,
-                        knownKanji: store.knownKanji,
-                        pointSize: 34,
-                        weight: .semibold
-                    )
-                }
-
-                if face.audioURL != nil {
-                    Button {
-                        playAnswerAudio(cardID: card.id)
-                    } label: {
-                        Label("Play answer audio", systemImage: "play.circle.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(ConvoLabTheme.navy)
-                    .disabled(
-                        answerAudioLocalURL == nil || player.isBlockedByLongFormAudio
-                    )
-                    .accessibilityHint(answerAudioAccessibilityHint)
-                    .accessibilityIdentifier("StudyAnswerAudioButton")
-                }
-
-                Divider()
-
-                if let imageURL = face.imageURL {
-                    StudyCardImage(
-                        remoteURL: imageURL,
-                        accessibilityLabel: face.textBlocks.first {
-                            $0.role == .meaning
-                        }?.text ?? "Answer image",
-                        store: store
-                    )
-                }
-
-                ForEach(face.textBlocks) { block in
-                    answerTextBlock(block)
-                }
+        VStack(spacing: 24) {
+            if let heading = face.heading {
+                StudyRubyText(
+                    heading,
+                    knownKanji: store.knownKanji,
+                    pointSize: 26,
+                    weight: .medium,
+                    color: UIColor(ConvoLabTheme.navy),
+                    alignment: .left,
+                    extraLineSpacing: 8
+                )
             }
-            .frame(maxWidth: .infinity)
+
+            if face.audioURL != nil {
+                Button {
+                    playAnswerAudio(cardID: card.id)
+                } label: {
+                    Label("Play answer audio", systemImage: "speaker.wave.2.fill")
+                }
+                .buttonStyle(StudyWashiAudioButtonStyle())
+                .accessibilityLabel("Play answer audio")
+                .disabled(
+                    answerAudioLocalURL == nil || player.isBlockedByLongFormAudio
+                )
+                .accessibilityHint(answerAudioAccessibilityHint)
+                .accessibilityIdentifier("StudyAnswerAudioButton")
+            }
+
+            if let imageURL = face.imageURL {
+                StudyCardImage(
+                    remoteURL: imageURL,
+                    accessibilityLabel: face.textBlocks.first {
+                        $0.role == .meaning
+                    }?.text ?? "Answer image",
+                    store: store
+                )
+            }
+
+            ForEach(face.textBlocks) { block in
+                answerTextBlock(block)
+            }
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
     private func answerTextBlock(_ block: StudyCardPresentation.TextBlock) -> some View {
-        let text = block.role == .note ? "• \(block.text)" : block.text
+        let text = block.text
 
-        if block.role.supportsRuby {
-            StudyRubyText(
-                text,
-                knownKanji: store.knownKanji,
-                pointSize: pointSize(for: block.role),
-                color: uiColor(for: block.role)
-            )
-            .font(font(for: block.role))
-            .foregroundStyle(color(for: block.role))
-            .accessibilityElement(children: .combine)
-        } else {
-            Text(text)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+        Group {
+            if block.role.supportsRuby {
+                StudyRubyText(
+                    text,
+                    knownKanji: store.knownKanji,
+                    pointSize: pointSize(for: block.role),
+                    color: uiColor(for: block.role),
+                    alignment: .left,
+                    font: block.role == .note ? StudyWashiStyle.noteFont : nil
+                )
                 .font(font(for: block.role))
                 .foregroundStyle(color(for: block.role))
                 .accessibilityElement(children: .combine)
+            } else {
+                Text(text)
+                    .multilineTextAlignment(.leading)
+                    .textSelection(.enabled)
+                    .font(font(for: block.role))
+                    .foregroundStyle(color(for: block.role))
+                    .accessibilityElement(children: .combine)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(StudyWashiNoteStyle(isNote: block.role == .note))
     }
 
     private func font(for role: StudyCardPresentation.TextRole) -> Font {
         switch role {
-        case .restoredText, .meaning: .title2
+        case .restoredText, .meaning: .custom("CrimsonPro-Regular", size: 26, relativeTo: .title2)
         case .sentenceJapanese: .title3
-        case .sentenceEnglish, .note: .body
+        case .sentenceEnglish: .custom("CrimsonPro-Regular", size: 20, relativeTo: .body)
+        case .note: .custom("CrimsonPro-Regular", size: 17, relativeTo: .body).italic()
         }
     }
 
     private func pointSize(for role: StudyCardPresentation.TextRole) -> CGFloat {
         switch role {
-        case .restoredText, .meaning: 22
+        case .restoredText, .meaning: 26
         case .sentenceJapanese: 20
         case .sentenceEnglish, .note: 17
         }
@@ -883,26 +889,26 @@ struct StudySessionView: View {
 
     private func color(for role: StudyCardPresentation.TextRole) -> Color {
         switch role {
-        case .restoredText, .sentenceJapanese: .primary
+        case .restoredText, .sentenceJapanese: ConvoLabTheme.navy
         case .meaning: ConvoLabTheme.navy
-        case .sentenceEnglish, .note: .secondary
+        case .sentenceEnglish, .note: StudyWashiStyle.muted
         }
     }
 
     private func uiColor(for role: StudyCardPresentation.TextRole) -> UIColor {
         switch role {
-        case .restoredText, .sentenceJapanese: .label
+        case .restoredText, .sentenceJapanese: UIColor(ConvoLabTheme.navy)
         case .meaning: UIColor(ConvoLabTheme.navy)
-        case .sentenceEnglish, .note: .secondaryLabel
+        case .sentenceEnglish, .note: UIColor(StudyWashiStyle.muted)
         }
     }
 
     private func gradeButtons(card: StudyCard) -> some View {
         HStack(spacing: 8) {
-            gradeButton("Again", rating: .again, color: ConvoLabTheme.coral, card: card)
-            gradeButton("Hard", rating: .hard, color: .orange, card: card)
-            gradeButton("Good", rating: .good, color: ConvoLabTheme.cyan, card: card)
-            gradeButton("Easy", rating: .easy, color: .green, card: card)
+            gradeButton("Again", rating: .again, color: Color(red: 163 / 255, green: 80 / 255, blue: 64 / 255), card: card)
+            gradeButton("Hard", rating: .hard, color: Color(red: 128 / 255, green: 96 / 255, blue: 42 / 255), card: card)
+            gradeButton("Good", rating: .good, color: StudyWashiStyle.good, card: card)
+            gradeButton("Easy", rating: .easy, color: Color(red: 71 / 255, green: 115 / 255, blue: 65 / 255), card: card)
         }
     }
 
@@ -982,8 +988,7 @@ struct StudySessionView: View {
             Text(title)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(color)
+        .buttonStyle(StudyWashiGradeButtonStyle(color: color, isGood: rating == .good))
         .frame(maxWidth: .infinity)
         .disabled(
             !submittingReviewCardIDs.isEmpty
@@ -1208,10 +1213,10 @@ private struct StudyCardAudioButton: View {
             guard let localURL else { return }
             player.play(url: localURL, trackID: trackID)
         } label: {
-            Label(label, systemImage: "play.circle.fill")
+            Label(label, systemImage: "speaker.wave.2.fill")
         }
-        .buttonStyle(.bordered)
-        .tint(ConvoLabTheme.navy)
+        .buttonStyle(StudyWashiAudioButtonStyle())
+        .accessibilityLabel(label)
         .disabled(localURL == nil || player.isBlockedByLongFormAudio)
         .accessibilityHint(
             player.isBlockedByLongFormAudio
