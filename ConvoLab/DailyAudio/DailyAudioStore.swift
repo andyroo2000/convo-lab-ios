@@ -468,11 +468,7 @@ final class DailyAudioStore {
         if track.scriptUnitsJson != nil, track.timingData != nil {
             return track
         }
-        if let persisted = persistedTrack(
-            id: track.id,
-            practiceID: track.practiceId,
-            userID: userID
-        ), persisted.scriptUnitsJson != nil, persisted.timingData != nil {
+        if let persisted = persistedTrack(for: track, userID: userID), persisted.scriptUnitsJson != nil, persisted.timingData != nil {
             return persisted
         }
 
@@ -682,12 +678,8 @@ final class DailyAudioStore {
         try context.save()
     }
 
-    private func persistedTrack(
-        id: String,
-        practiceID: String,
-        userID: Int
-    ) -> DailyAudioTrack? {
-        persistedPractice(id: practiceID, userID: userID)?.tracks.first { $0.id == id }
+    private func persistedTrack(for track: DailyAudioTrack, userID: Int) -> DailyAudioTrack? {
+        persistedPractice(id: track.practiceId, userID: userID)?.tracks.first { $0.id == track.id }
     }
 
     private func persistedPractice(
@@ -848,15 +840,8 @@ private extension DailyAudioPractice {
                 updatedAt: track.updatedAt
             )
         }
-        return DailyAudioPractice(
-            id: id,
-            practiceDate: practiceDate,
-            status: status,
-            targetDurationMinutes: targetDurationMinutes,
-            errorMessage: errorMessage,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            tracks: mergedTracks
-        )
+        var practice = self
+        practice.tracks = mergedTracks
+        return practice
     }
 }

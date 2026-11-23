@@ -1134,7 +1134,8 @@ struct DailyAudioPractice: nonisolated Codable, Identifiable, Sendable {
     let errorMessage: String?
     let createdAt: Date
     let updatedAt: Date
-    let tracks: [DailyAudioTrack]
+    var tracks: [DailyAudioTrack]
+    var progress: Int?
 }
 
 struct DailyAudioPracticePage: nonisolated Codable, Sendable {
