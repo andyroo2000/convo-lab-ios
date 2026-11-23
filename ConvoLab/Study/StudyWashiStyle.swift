@@ -9,7 +9,7 @@ enum StudyWashiStyle {
     }
 
     static let desk = Color(red: 243 / 255, green: 237 / 255, blue: 223 / 255)
-    static let paper = Color(red: 236 / 255, green: 227 / 255, blue: 203 / 255)
+    static let paper = desk
     static let green = Color(red: 106 / 255, green: 148 / 255, blue: 92 / 255)
     static let good = Color(red: 120 / 255, green: 168 / 255, blue: 85 / 255)
     static let muted = Color(red: 92 / 255, green: 96 / 255, blue: 85 / 255)
@@ -18,29 +18,18 @@ enum StudyWashiStyle {
 }
 
 struct StudyWashiCard<Content: View>: View {
+    var centered = false
     @ViewBuilder var content: Content
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 content
-                    .padding(.horizontal, 25)
-                    .padding(.vertical, 30)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 13)
                     .frame(maxWidth: 720)
-                    .background {
-                        StudyWashiStyle.paper
-                            .overlay {
-                                Image("StudyWashiFibers")
-                                    .resizable(resizingMode: .tile)
-                                    .opacity(0.5)
-                                    .accessibilityHidden(true)
-                            }
-                    }
-                    .clipShape(.rect(cornerRadius: 1))
-                    .shadow(color: .brown.opacity(0.14), radius: 3, x: 1, y: 2)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 4)
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height,
+                           alignment: centered ? .center : .top)
             }
         }
         .environment(\.colorScheme, .light)
@@ -49,17 +38,29 @@ struct StudyWashiCard<Content: View>: View {
 
 struct StudyWashiAudioButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
-    @ScaledMetric(relativeTo: .body) private var iconSize = 34
-    @ScaledMetric(relativeTo: .body) private var buttonSize = 52
+    var playing = false
+    @ScaledMetric(relativeTo: .body) private var buttonSize = 60
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .labelStyle(.iconOnly)
-            .font(.system(size: iconSize, weight: .medium))
             .foregroundStyle(ConvoLabTheme.cream)
             .frame(width: buttonSize, height: buttonSize)
-            .background(StudyWashiStyle.green, in: .rect(cornerRadius: 9))
+            .background(playing ? Color(red: 72 / 255, green: 116 / 255, blue: 67 / 255) : StudyWashiStyle.green,
+                        in: .rect(cornerRadius: 13))
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
+    }
+}
+
+struct StudyWashiBackground: View {
+    var body: some View {
+        StudyWashiStyle.desk.overlay {
+            Image("StudyWashiFibers")
+                .resizable(resizingMode: .tile)
+                .opacity(0.18)
+                .accessibilityHidden(true)
+        }
+        .ignoresSafeArea()
     }
 }
 

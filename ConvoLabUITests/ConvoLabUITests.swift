@@ -244,13 +244,7 @@ final class ConvoLabUITests: XCTestCase {
         app.launch()
         let end = app.buttons["StudyEndSessionButton"]
         XCTAssertTrue(end.waitForExistence(timeout: 8))
-        app.buttons["app-mode-picker"].tap()
-        app.buttons["Readings"].tap()
-        XCTAssertTrue(app.staticTexts["Readings landing"].waitForExistence(timeout: 5))
-        XCTAssertFalse(end.exists)
-        app.buttons["app-mode-picker"].tap()
-        app.buttons["Study"].tap()
-        XCTAssertTrue(end.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["app-mode-picker"].exists)
         app.buttons["Show Answer"].tap()
         app.buttons["Good"].tap()
         XCTAssertTrue(app.staticTexts["Pending offline reviews: 1"].waitForExistence(timeout: 8))
@@ -261,6 +255,10 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Timer stopped"].exists)
         XCTAssertTrue(app.staticTexts["Time record saved"].exists)
         XCTAssertFalse(end.exists)
+        XCTAssertTrue(app.buttons["app-mode-picker"].waitForExistence(timeout: 5))
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["Readings"].tap()
+        XCTAssertTrue(app.staticTexts["Readings landing"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -274,10 +272,10 @@ final class ConvoLabUITests: XCTestCase {
         let picker = app.buttons["app-mode-picker"]
         XCTAssertTrue(end.waitForExistence(timeout: 8))
         XCTAssertTrue(end.isHittable)
-        XCTAssertTrue(picker.isHittable)
-        XCTAssertLessThanOrEqual(picker.frame.maxX, end.frame.minX)
+        XCTAssertFalse(picker.exists)
         end.tap()
         XCTAssertTrue(app.buttons["Review cards"].waitForExistence(timeout: 5))
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -289,6 +287,7 @@ final class ConvoLabUITests: XCTestCase {
         let end = app.buttons["StudyEndSessionButton"]
         XCTAssertTrue(end.waitForExistence(timeout: 8))
         XCTAssertTrue(end.isHittable)
+        XCTAssertFalse(app.buttons["app-mode-picker"].exists)
         end.tap()
         XCTAssertTrue(reviews.waitForExistence(timeout: 5))
         XCTAssertFalse(end.exists)

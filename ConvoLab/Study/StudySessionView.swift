@@ -17,10 +17,8 @@ struct StudySessionView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @Environment(\.appModeDestination) private var appModeDestination
 
-    @State private var headerActionID = UUID()
     @State private var showingAnswer = false
     @State private var cardTimer = StudySessionCardTimer(startedAt: .now)
     @State private var submittingReviewCardIDs: Set<String> = []
@@ -111,11 +109,11 @@ struct StudySessionView: View {
 
     private var sessionContent: some View {
         VStack(spacing: 10) {
-            sessionProgressContent
             activeSessionContent
         }
         .padding()
-        .background(StudyWashiStyle.desk.ignoresSafeArea())
+        .background { StudyWashiBackground() }
+        .overlay(alignment: .top) { masteryFeedbackLane }
         .tint(ConvoLabTheme.navy)
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
@@ -123,11 +121,6 @@ struct StudySessionView: View {
             }
                 .frame(width: 0, height: 0)
         }
-    }
-
-    @ViewBuilder
-    private var sessionProgressContent: some View {
-        masteryFeedbackLane
     }
 
     @ViewBuilder
@@ -149,7 +142,7 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyPracticeModeBanner")
             }
             let presentation = card.presentation
-            StudyWashiCard {
+            StudyWashiCard(centered: !showingAnswer && presentation.front.isMediaLed) {
                 if showingAnswer {
                     answerFace(presentation.back, card: card)
                 } else {
@@ -229,16 +222,12 @@ struct StudySessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.light)
         .navigationBarBackButtonHidden(mode == .reviews)
-        .preference(key: AppModeActionKey.self, value: headerActions)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !hasAppModeHeader {
-                HStack { Spacer(); endSessionControl }
-                    .padding(.horizontal, 20)
-                    .background(StudyWashiStyle.desk)
-            }
-        }
+        .preference(key: AppSessionFocusKey.self, value: [appModeDestination: !displayingCompletion])
+        .toolbarBackground(StudyWashiStyle.desk, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { lessonDismissToolbar }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { endSessionControl }
             if practiceMode {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Back to wrap-up") {
@@ -272,15 +261,6 @@ struct StudySessionView: View {
         }
     }
 
-    private var headerActions: [AppMode: AppModeHeaderAction] {
-        guard hasAppModeHeader, mode == .reviews, !displayingCompletion, !practiceMode else { return [:] }
-        return [appModeDestination: AppModeHeaderAction(
-            id: headerActionID,
-            isEnabled: canEndSession,
-            perform: endReviewSession
-        )]
-    }
-
     private var canEndSession: Bool {
         submittingReviewCardIDs.isEmpty && submittingCardActionIDs.isEmpty && store.masteryAnimation == nil
     }
@@ -291,6 +271,10 @@ struct StudySessionView: View {
             Button("End session") { endReviewSession() }
                 .frame(minHeight: 44)
                 .disabled(!canEndSession)
+                .accessibilityIdentifier("StudyEndSessionButton")
+        } else if mode == .lessons, !allowsLessonDismissal {
+            Button("End session") { player.stop(); dismiss() }
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("StudyEndSessionButton")
         }
     }
@@ -813,35 +797,46 @@ struct StudySessionView: View {
             }
 
             if face.audioURL != nil {
-                Button {
-                    playAnswerAudio(cardID: card.id)
-                } label: {
-                    Label("Play answer audio", systemImage: "speaker.wave.2.fill")
-                }
-                .buttonStyle(StudyWashiAudioButtonStyle())
-                .accessibilityLabel("Play answer audio")
-                .disabled(
-                    answerAudioLocalURL == nil || player.isBlockedByLongFormAudio
-                )
-                .accessibilityHint(answerAudioAccessibilityHint)
-                .accessibilityIdentifier("StudyAnswerAudioButton")
+                answerSpeaker(cardID: card.id)
             }
 
-            if let imageURL = face.imageURL {
-                StudyCardImage(
-                    remoteURL: imageURL,
-                    accessibilityLabel: face.textBlocks.first {
-                        $0.role == .meaning
-                    }?.text ?? "Answer image",
-                    store: store
-                )
-            }
-
-            ForEach(face.textBlocks) { block in
-                answerTextBlock(block)
+            if face.imageURL != nil || !face.textBlocks.isEmpty {
+                answerDetails(face)
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func answerSpeaker(cardID: String) -> some View {
+        let playing = player.isCurrent("study-answer-\(cardID)") && player.isPlaying
+        return Button {
+            playAnswerAudio(cardID: cardID)
+        } label: {
+            StudySpeakerIcon(playing: playing)
+        }
+        .buttonStyle(StudyWashiAudioButtonStyle(playing: playing))
+        .accessibilityLabel("Play answer audio")
+        .accessibilityValue(playing ? "Playing" : "Not playing")
+        .disabled(answerAudioLocalURL == nil || player.isBlockedByLongFormAudio)
+        .accessibilityHint(answerAudioAccessibilityHint)
+        .accessibilityIdentifier("StudyAnswerAudioButton")
+    }
+
+    private func answerDetails(_ face: StudyCardPresentation.Face) -> some View {
+        VStack(spacing: 23) {
+            if let imageURL = face.imageURL {
+                StudyCardImage(
+                    remoteURL: imageURL,
+                    accessibilityLabel: face.textBlocks.first { $0.role == .meaning }?.text ?? "Answer image",
+                    store: store
+                )
+            }
+            ForEach(face.textBlocks) { block in answerTextBlock(block) }
+        }
+        .padding(.leading, 16)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(StudyWashiStyle.green.opacity(0.4)).frame(width: 3)
+        }
     }
 
     @ViewBuilder
@@ -871,7 +866,6 @@ struct StudySessionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(StudyWashiNoteStyle(isNote: block.role == .note))
     }
 
     private func font(for role: StudyCardPresentation.TextRole) -> Font {
@@ -1064,26 +1058,23 @@ struct StudySessionView: View {
 
     @ViewBuilder
     private var masteryFeedbackLane: some View {
-        if !practiceMode, (mode == .reviews || !lessonPreview), card != nil {
-            ZStack {
-                Color.clear
-
-                if let animation = store.masteryAnimation {
-                    MasteryReviewAnimation(
-                        label: animation.label,
-                        fromLevel: animation.fromLevel,
-                        toLevel: animation.toLevel,
-                        passed: animation.passed
-                    ) {
-                        guard store.masteryAnimation?.id == animation.id else {
-                            return
-                        }
-                        store.dismissMasteryAnimation()
-                    }
-                    .id(animation.id)
+        if !practiceMode, let animation = store.masteryAnimation {
+            MasteryReviewAnimation(
+                label: animation.label,
+                fromLevel: animation.fromLevel,
+                toLevel: animation.toLevel,
+                passed: animation.passed
+            ) {
+                guard store.masteryAnimation?.id == animation.id else {
+                    return
                 }
+                store.dismissMasteryAnimation()
             }
+            .id(animation.id)
             .frame(height: MasteryReviewAnimation.feedbackLaneHeight)
+            .background(StudyWashiStyle.desk, in: .rect(cornerRadius: 16))
+            .padding(.horizontal, 16)
+            .allowsHitTesting(false)
         }
     }
 
@@ -1220,10 +1211,11 @@ private struct StudyCardAudioButton: View {
             guard let localURL else { return }
             player.play(url: localURL, trackID: trackID)
         } label: {
-            Label(label, systemImage: "speaker.wave.2.fill")
+            StudySpeakerIcon(playing: player.isCurrent(trackID) && player.isPlaying)
         }
-        .buttonStyle(StudyWashiAudioButtonStyle())
+        .buttonStyle(StudyWashiAudioButtonStyle(playing: player.isCurrent(trackID) && player.isPlaying))
         .accessibilityLabel(label)
+        .accessibilityValue(player.isCurrent(trackID) && player.isPlaying ? "Playing" : "Not playing")
         .disabled(localURL == nil || player.isBlockedByLongFormAudio)
         .accessibilityHint(
             player.isBlockedByLongFormAudio
