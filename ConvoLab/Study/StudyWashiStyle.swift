@@ -10,9 +10,9 @@ enum StudyWashiStyle {
 
     static let desk = Color(red: 243 / 255, green: 237 / 255, blue: 223 / 255)
     static let paper = Color(red: 236 / 255, green: 227 / 255, blue: 203 / 255)
-    static let green = Color(red: 120 / 255, green: 164 / 255, blue: 106 / 255)
+    static let green = Color(red: 111 / 255, green: 153 / 255, blue: 97 / 255)
     static let good = Color(red: 120 / 255, green: 168 / 255, blue: 85 / 255)
-    static let muted = Color(red: 105 / 255, green: 108 / 255, blue: 97 / 255)
+    static let muted = Color(red: 92 / 255, green: 96 / 255, blue: 85 / 255)
     static let line = Color(red: 204 / 255, green: 199 / 255, blue: 182 / 255)
     static let noteRule = Color(red: 174 / 255, green: 184 / 255, blue: 146 / 255)
 }

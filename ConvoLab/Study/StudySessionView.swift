@@ -224,6 +224,7 @@ struct StudySessionView: View {
         }
         .navigationTitle(practiceMode ? "Toughest Practice" : "")
         .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.light)
         .navigationBarBackButtonHidden(mode == .reviews)
         .preference(key: AppModeActionKey.self, value: headerActions)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -905,10 +906,10 @@ struct StudySessionView: View {
 
     private func gradeButtons(card: StudyCard) -> some View {
         HStack(spacing: 8) {
-            gradeButton("Again", rating: .again, color: Color(red: 163 / 255, green: 80 / 255, blue: 64 / 255), card: card)
-            gradeButton("Hard", rating: .hard, color: Color(red: 128 / 255, green: 96 / 255, blue: 42 / 255), card: card)
+            gradeButton("Again", rating: .again, color: Color(red: 149 / 255, green: 71 / 255, blue: 54 / 255), card: card)
+            gradeButton("Hard", rating: .hard, color: Color(red: 117 / 255, green: 88 / 255, blue: 36 / 255), card: card)
             gradeButton("Good", rating: .good, color: StudyWashiStyle.good, card: card)
-            gradeButton("Easy", rating: .easy, color: Color(red: 71 / 255, green: 115 / 255, blue: 65 / 255), card: card)
+            gradeButton("Easy", rating: .easy, color: Color(red: 64 / 255, green: 103 / 255, blue: 57 / 255), card: card)
         }
     }
 
