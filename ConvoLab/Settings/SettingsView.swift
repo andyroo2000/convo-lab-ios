@@ -24,7 +24,8 @@ struct SettingsView: View {
     @State private var calendarSettingsModel: GoogleCalendarSettingsModel?
     @State private var satoriReaderSnapshot: SatoriReaderTrackingSnapshot
 
-    init(model: AppModel, user: CurrentUser) {
+    init(model: AppModel, user: CurrentUser, initialChapter: String = "Account") {
+        _expandedChapter = State(initialValue: initialChapter)
         self.model = model
         self.user = user
         _newCardsPerDay = State(

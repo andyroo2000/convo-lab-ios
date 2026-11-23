@@ -197,6 +197,7 @@ struct StudyTimeView: View {
                 Task { await store.loadWeeklyRecap(force: true) }
             }
         case .mastery:
+            if let spread = studyStore.overview?.masterySpread { StudyMasterySpreadView(spread: spread) }
             StudyTimeJLPTMasterySection(mastery: studyStore.overview?.jlptMastery,
                                         isLoading: studyStore.isRefreshingOverview,
                                         errorMessage: studyStore.overviewRefreshErrorMessage) {

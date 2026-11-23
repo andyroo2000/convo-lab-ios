@@ -8,7 +8,7 @@ final class AppFeatureAvailabilityTests: XCTestCase {
 
     func testEachSwitchControlsItsOwnDestinations() {
         let study = AppFeatureFlags(flashcardsEnabled: true, readingsEnabled: false, studyTimeEnabled: false)
-        XCTAssertEqual(study.modes, [.journal, .settings, .study, .cards, .dailyAudio])
+        XCTAssertEqual(study.modes, [.journal, .settings, .study, .cards])
         let readingAndTime = AppFeatureFlags(flashcardsEnabled: false, readingsEnabled: true, studyTimeEnabled: true)
         XCTAssertEqual(readingAndTime.modes, [.journal, .settings, .readings, .time])
     }

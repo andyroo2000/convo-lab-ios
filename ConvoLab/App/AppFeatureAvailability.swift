@@ -9,7 +9,7 @@ nonisolated struct AppFeatureFlags: Codable, Equatable, Sendable {
 
     var modes: Set<AppMode> {
         var result: Set<AppMode> = [.journal, .settings]
-        if flashcardsEnabled { result.formUnion([.study, .cards, .dailyAudio]) }
+        if flashcardsEnabled { result.formUnion([.study, .cards]) }
         if readingsEnabled { result.insert(.readings) }
         if studyTimeEnabled { result.insert(.time) }
         return result

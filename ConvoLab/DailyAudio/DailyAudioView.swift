@@ -1,676 +1,125 @@
 import SwiftUI
 
-struct DailyAudioView: View {
-    private enum SwipeDirection {
-        case earlier
-        case later
-    }
+enum DrillPaper {
+    static let surface = Color(red: 0.91, green: 0.94, blue: 0.94)
+    static let ink = Color(red: 0.15, green: 0.28, blue: 0.32)
+    static let accent = Color(red: 0.22, green: 0.40, blue: 0.46)
+    static let rule = Color(red: 0.67, green: 0.77, blue: 0.79)
+}
 
+struct DailyAudioView: View {
     let store: DailyAudioStore
     let player: AudioPlayer
     let capabilities: StudyCapabilities.DailyAudio
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selectedPracticeID: String?
-    @State private var confirmingRegeneration = false
-    @State private var dragOffset = CGFloat.zero
-    @State private var cardWidth = CGFloat(360)
-    @State private var isSettlingSwipe = false
-    @State private var preparingTrackID: String?
-    @State private var suppressTrackInteractions = false
-    @State private var trackInteractionResetTask: Task<Void, Never>?
-    @State private var selectedPlayerTrack: DailyAudioTrack?
-    @State private var selectedEdition: DailyAudioEditionDuration
-    @State private var selectedEditionWasUserSelected = false
-
-    private let dayCardSpacing = CGFloat(16)
+    @State private var selectedID: String?
+    @State private var creating = false
     private static let staleGenerationRetryInterval: TimeInterval = 90 * 60
 
-    init(
-        store: DailyAudioStore,
-        player: AudioPlayer,
-        capabilities: StudyCapabilities.DailyAudio = StudyCapabilities.fallback.dailyAudio
-    ) {
-        self.store = store
-        self.player = player
-        self.capabilities = capabilities
-        _selectedEdition = State(
-            initialValue: DailyAudioEditionDuration.preferred(for: capabilities)
-        )
-    }
-
-    private var availableEditions: [DailyAudioEditionDuration] {
-        DailyAudioEditionDuration.available(for: capabilities)
-    }
-
-    private var selectedPractice: DailyAudioPractice? {
-        guard let selectedPracticeID else { return store.practices.first }
-        return store.practices.first { $0.id == selectedPracticeID }
-            ?? store.practices.first
-    }
-
-    private var todayPractice: DailyAudioPractice? {
+    private var today: DailyAudioPractice? {
         store.practices.first { $0.practiceDate == Self.todayPracticeDate }
     }
 
-    private var todayIsGenerating: Bool {
-        todayPractice?.status == "generating"
+    private var recordings: [DailyAudioPractice] {
+        store.practices.filter { drill(in: $0) != nil }
     }
 
-    private var todayGenerationCanRetry: Bool {
-        guard let todayPractice else { return false }
-        return Self.canRetryGeneration(
-            todayPractice,
-            startRequestWasInterrupted: store.generationStartWasInterrupted
-        )
+    private func drill(in practice: DailyAudioPractice) -> DailyAudioTrack? {
+        practice.tracks.first { $0.mode == "drill" && $0.status == "ready" && $0.audioUrl != nil }
     }
 
-    private var todayGenerationIsActivelyWorking: Bool {
-        todayIsGenerating && !todayGenerationCanRetry
+    private var recording: (DailyAudioPractice, DailyAudioTrack)? {
+        let choices = recordings
+        guard let practice = choices.first(where: { $0.id == selectedID }) ?? choices.first,
+              let track = drill(in: practice) else { return nil }
+        return (practice, track)
     }
 
-    private var createButtonTitle: String {
-        if store.isLoading || todayGenerationIsActivelyWorking {
-            return "Working…"
-        }
-        if todayGenerationCanRetry && todayPractice?.status == "generating" {
-            return "Retry Today’s Audio"
-        }
-        return todayPractice == nil
-            ? "Generate Today’s Audio"
-            : "Regenerate Today’s Audio"
-    }
-
-    private var selectedPracticeIndex: Int? {
-        guard let selectedPractice else { return nil }
-        return store.practices.firstIndex { $0.id == selectedPractice.id }
-    }
-
-    private var earlierPractice: DailyAudioPractice? {
-        guard
-            let selectedPracticeIndex,
-            store.practices.indices.contains(selectedPracticeIndex + 1)
-        else {
-            return nil
-        }
-        return store.practices[selectedPracticeIndex + 1]
-    }
-
-    private var laterPractice: DailyAudioPractice? {
-        guard let selectedPracticeIndex, selectedPracticeIndex > 0 else {
-            return nil
-        }
-        return store.practices[selectedPracticeIndex - 1]
+    @ViewBuilder private func dateLabel(_ practice: DailyAudioPractice) -> some View {
+        let label = "\(Self.relativePracticeDate(practice.practiceDate)) · \(practice.targetDurationMinutes) min"
+        Menu {
+            if recordings.count > 1 {
+                ForEach(recordings) { choice in
+                    Button(Self.relativePracticeDate(choice.practiceDate) + " · \(choice.targetDurationMinutes) min") {
+                        if choice.id != practice.id { player.stop() }
+                        selectedID = choice.id
+                    }
+                }
+            }
+            if !store.isDownloaded(practice) {
+                Button("Download for offline listening") { Task { await store.download(practice) } }
+                    .disabled(practice.tracks.contains(where: store.isDownloading))
+            } else { Text("Available offline") }
+            if store.hasMore { Button("Load earlier drills") { Task { await store.loadMore() } } }
+        } label: { Label(label, systemImage: "chevron.down") }
+        .accessibilityLabel("Recording date, " + label)
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    createPanel
-
-                    if let error = store.errorMessage {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                            .padding()
-                    }
-
-                    if store.practices.isEmpty, !store.isLoading {
-                        ContentUnavailableView(
-                            "No Daily Audio yet",
-                            systemImage: "waveform",
-                            description: Text("Creation requires a connection. Finished tracks can be downloaded and played offline.")
-                        )
-                        .padding(.vertical, 40)
-                    }
-
-                    if let practice = selectedPractice {
-                        swipeablePracticeStack(practice)
-                    }
-
-                }
-                .padding()
-            }
-            .paperBackground()
-            .refreshable {
-                _ = await store.refresh()
-            }
-            .onChange(of: store.practices.map(\.id), initial: true) { _, ids in
-                if selectedPracticeID == nil || !ids.contains(selectedPracticeID ?? "") {
-                    selectedPracticeID = ids.first
-                }
-            }
-            .onChange(of: capabilities) { _, updatedCapabilities in
-                selectedEdition = DailyAudioEditionDuration.reconciling(
-                    selectedEdition,
-                    userSelected: selectedEditionWasUserSelected,
-                    with: updatedCapabilities
-                )
-            }
-            .onChange(
-                of: store.practices.flatMap(\.tracks).map {
-                    DailyAudioPlaybackIdentity(track: $0)
-                }
-            ) { _, _ in
-                player.stopIfCurrentTrackWasSuperseded(
-                    by: store.practices.flatMap(\.tracks)
-                )
-            }
-            .confirmationDialog(
-                "Regenerate today’s audio?",
-                isPresented: $confirmingRegeneration,
-                titleVisibility: .visible
-            ) {
-                Button("Regenerate Audio", role: .destructive) {
-                    Task { await store.create(edition: selectedEdition) }
-                }
-                Button("Keep Existing Audio", role: .cancel) {}
-            } message: {
-                Text("This will overwrite today’s existing audio. The finished tracks will download automatically.")
-            }
-            .navigationDestination(
-                isPresented: Binding(
-                    get: { selectedPlayerTrack != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            selectedPlayerTrack = nil
-                        }
-                    }
-                )
-            ) {
-                if let selectedPlayerTrack {
-                    DailyAudioPlayerView(
-                        track: selectedPlayerTrack,
-                        store: store,
-                        player: player
-                    )
-                }
-            }
-        }
-    }
-
-    private var createPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("STUDY AUDIO")
-                .font(.caption2.bold())
-                .tracking(2)
-                .foregroundStyle(ConvoLabTheme.coral)
-            Text("Practice beyond the screen.")
-                .font(.title2.bold())
-                .foregroundStyle(ConvoLabTheme.navy)
-            Text("Generate audio drills based on words and grammar structures you are currently working on.")
-                .foregroundStyle(.secondary)
-            Picker(
-                "Edition Length",
-                selection: Binding(
-                    get: { selectedEdition },
-                    set: { edition in
-                        selectedEdition = edition
-                        selectedEditionWasUserSelected = true
-                    }
-                )
-            ) {
-                ForEach(availableEditions) { edition in
-                    Text(edition.label).tag(edition)
-                }
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                heading(at: context.date)
             }
-            .pickerStyle(.segmented)
-            .disabled(store.isLoading || todayGenerationIsActivelyWorking)
-            if let todayPractice, todayPractice.status == "generating" {
-                generationProgress(todayPractice)
+            if let (_, track) = recording {
+                DailyAudioPlayerView(track: track, store: store, player: player)
+                    .id(DailyAudioPlaybackIdentity(track: track))
+            } else if store.isLoading {
+                ProgressView("Loading Daily Audio…")
+            } else if today?.status != "generating" {
+                Text("Create your first audio drill to start listening.").font(.subheadline)
             }
-            Button {
-                if todayPractice == nil
-                    || (todayGenerationCanRetry && todayPractice?.status == "generating")
-                {
-                    Task { await store.create(edition: selectedEdition) }
-                } else {
-                    confirmingRegeneration = true
-                }
-            } label: {
-                Label(
-                    createButtonTitle,
-                    systemImage: "waveform.badge.plus"
-                )
-                .frame(maxWidth: .infinity)
+            if let error = store.errorMessage {
+                Text(error).font(.footnote).foregroundStyle(.red)
+                Button("Retry loading drills") { Task { _ = await store.refresh() } }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(ConvoLabTheme.navy)
-            .disabled(store.isLoading || todayGenerationIsActivelyWorking)
-        }
-        .padding()
-        .background(ConvoLabTheme.cyan.opacity(0.16), in: .rect(cornerRadius: 20))
-    }
-
-    private func generationProgress(_ practice: DailyAudioPractice) -> some View {
-        let drills = practice.tracks.filter { $0.mode == "drill" }
-        let completed = drills.filter { $0.status == "ready" }.count
-        let total = drills.count
-        return VStack(alignment: .leading, spacing: 6) {
-            if total > 0 {
-                ProgressView(value: Double(completed), total: Double(total))
-            } else {
-                ProgressView()
-            }
-            Text(total > 0
-                ? "Generating audio… \(completed) of \(total) tracks ready"
-                : "Preparing today’s audio…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func swipeablePracticeStack(_ practice: DailyAudioPractice) -> some View {
-        ZStack {
-            if let earlierPractice {
-                practiceCard(earlierPractice)
-                    .offset(x: displayedDragOffset - cardTravelDistance)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-
-            if let laterPractice {
-                practiceCard(laterPractice)
-                    .offset(x: displayedDragOffset + cardTravelDistance)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-
-            practiceCard(practice)
-                .offset(x: displayedDragOffset)
-                .zIndex(1)
-        }
-        .background {
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear {
-                        cardWidth = max(geometry.size.width, 1)
-                    }
-                    .onChange(of: geometry.size.width) { _, width in
-                        cardWidth = max(width, 1)
-                    }
+            if today?.status == "error" {
+                Text(today?.errorMessage ?? "The drill could not be generated. Try again.").font(.footnote)
             }
         }
-        .clipped()
-        .simultaneousGesture(daySwipeGesture)
-    }
-
-    private func practiceCard(_ practice: DailyAudioPractice) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(Self.relativePracticeDate(practice.practiceDate))
-                        .font(.headline)
-                        .accessibilityLabel(
-                            "\(Self.relativePracticeDate(practice.practiceDate)), \(practice.practiceDate)"
-                        )
-                    Text(practice.status.capitalized)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if practice.status == "ready" {
-                    Button {
-                        guard
-                            !suppressTrackInteractions,
-                            !store.isDownloaded(practice)
-                        else {
-                            return
-                        }
-                        Task { await store.download(practice) }
-                    } label: {
-                        practiceDownloadButton(practice)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(
-                        store.isPracticeDownloadInProgress
-                            || store.isDownloaded(practice)
-                    )
-                    .allowsHitTesting(!suppressTrackInteractions)
-                    .accessibilityLabel(
-                        store.isDownloaded(practice)
-                            ? "Downloaded for Offline"
-                            : store.practiceDownloadProgress[practice.id] != nil
-                                ? "Downloading for Offline"
-                                : store.isPracticeDownloadInProgress
-                                    ? "Another Offline Download is in Progress"
-                                    : "Download for Offline"
-                    )
-                } else if practice.status == "generating" {
-                    ProgressView()
-                }
-            }
-
-            ForEach(practice.tracks.filter { $0.mode == "drill" }.sorted { $0.sortOrder < $1.sortOrder }) { track in
-                trackRow(track)
-            }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(DrillPaper.ink).background(DrillPaper.surface, in: .rect(cornerRadius: 14))
+        .overlay { RoundedRectangle(cornerRadius: 14).stroke(DrillPaper.rule) }
+        .task {
+            await store.refreshIfNeeded(maxAge: .seconds(60))
         }
-        .padding()
-        .background(.white.opacity(0.76), in: .rect(cornerRadius: 20))
-        .contentShape(.rect)
-        .accessibilityAction(named: Text("Show Earlier Day")) {
-            showEarlierPractice()
+        .onChange(of: store.practices.flatMap(\.tracks).map { DailyAudioPlaybackIdentity(track: $0) }) { _, _ in
+            player.stopIfCurrentTrackWasSuperseded(by: store.practices.flatMap(\.tracks))
         }
-        .accessibilityAction(named: Text("Show Later Day")) {
-            showLaterPractice()
+        .outsideDismissibleSheet(isPresented: $creating) {
+            NewDrillSheet(capabilities: capabilities, replacing: today?.status == "ready") { edition in
+                creating = false
+                Task { await generate(edition) }
+            }
+            .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
     }
 
-    @ViewBuilder
-    private func practiceDownloadButton(_ practice: DailyAudioPractice) -> some View {
-        if let progress = store.practiceDownloadProgress[practice.id] {
-            ZStack {
-                Circle()
-                    .stroke(ConvoLabTheme.navy.opacity(0.16), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: max(progress, 0.04))
-                    .stroke(
-                        ConvoLabTheme.cyan,
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: 26, height: 26)
-        } else if store.isDownloaded(practice) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.green)
-        } else {
-            Image(systemName: "arrow.down.circle")
-                .font(.title3)
-        }
+    private func generate(_ edition: DailyAudioEditionDuration) async {
+        let previous = today
+        let previousTrack = previous.flatMap { drill(in: $0) }
+        await store.create(edition: edition)
+        guard let updated = today, updated.updatedAt != previous?.updatedAt || updated.status != previous?.status else { return }
+        if let previousTrack, player.isCurrent(previousTrack) { player.stop() }
+        selectedID = nil
     }
 
-    private func trackRow(_ track: DailyAudioTrack) -> some View {
-        HStack(spacing: 14) {
-            if track.audioUrl != nil, track.status == "ready" {
-                Button {
-                    guard !suppressTrackInteractions else { return }
-                    Task { await toggleTrackPlayback(track) }
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(ConvoLabTheme.cyan.opacity(0.16))
-                            .frame(width: 44, height: 44)
-                        if preparingTrackID == track.id {
-                            ProgressView()
-                                .tint(ConvoLabTheme.navy)
-                        } else {
-                            Image(systemName: player.isCurrent(track) && player.isPlaying
-                                ? "pause.fill"
-                                : "play.fill")
-                                .foregroundStyle(ConvoLabTheme.navy)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(preparingTrackID != nil)
-                .allowsHitTesting(!suppressTrackInteractions)
-                .accessibilityLabel(
-                    player.isCurrent(track) && player.isPlaying
-                        ? "Pause \(track.title)"
-                        : "Play \(track.title)"
-                )
-
-                Button {
-                    guard !suppressTrackInteractions else { return }
-                    selectedPlayerTrack = track
-                } label: {
-                    trackNavigationLabel(track)
-                }
-                .buttonStyle(.plain)
-                .allowsHitTesting(!suppressTrackInteractions)
-                .accessibilityHint("Opens Now Playing")
-            } else {
-                unavailableTrackRow(track)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(.rect)
-    }
-
-    private func trackNavigationLabel(_ track: DailyAudioTrack) -> some View {
+    @ViewBuilder private func heading(at date: Date) -> some View {
+        let active = today.map { $0.status == "generating" && !Self.canRetryGeneration($0,
+            startRequestWasInterrupted: store.generationStartWasInterrupted, relativeTo: date) } ?? false
         HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(track.title)
-                    .font(.headline)
-                    .foregroundStyle(ConvoLabTheme.navy)
-                Text(track.formattedDuration)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Daily Audio").font(StudyTimePaper.type(27, .title2)).accessibilityAddTraits(.isHeader)
+                if let (practice, _) = recording {
+                    dateLabel(practice).font(.footnote)
+                }
             }
             Spacer()
-            if store.isDownloading(track) {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Downloading")
-            } else if store.isDownloaded(track) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .accessibilityLabel("Downloaded")
-            }
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundStyle(.tertiary)
+            Button { creating = true } label: {
+                Image(systemName: "plus").frame(width: 44, height: 44)
+                    .background(StudyTimePaper.paper, in: Circle()).overlay { Circle().stroke(DrillPaper.rule) }
+            }.buttonStyle(.plain).accessibilityLabel("New audio drill").disabled(store.isLoading || active)
         }
-        .contentShape(.rect)
-    }
-
-    private func unavailableTrackRow(_ track: DailyAudioTrack) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(ConvoLabTheme.cyan.opacity(0.16))
-                    .frame(width: 44, height: 44)
-                Image(systemName: "waveform.slash")
-                    .foregroundStyle(ConvoLabTheme.navy)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(track.title)
-                    .font(.headline)
-                    .foregroundStyle(ConvoLabTheme.navy)
-                Text(track.formattedDuration)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-
-            if track.status == "generating" || track.status == "draft" {
-                ProgressView()
-            } else {
-                Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .contentShape(.rect)
-    }
-
-    private func toggleTrackPlayback(_ track: DailyAudioTrack) async {
-        if player.isCurrent(track) {
-            player.toggle()
-            return
-        }
-
-        let requestedIdentity = DailyAudioPlaybackIdentity(track: track)
-        preparingTrackID = track.id
-        defer {
-            if preparingTrackID == track.id {
-                preparingTrackID = nil
-            }
-        }
-        let detailedTrack = await store.detailedTrack(for: track) ?? track
-        guard
-            preparingTrackID == track.id,
-            DailyAudioPlaybackIdentity(
-                track: DailyAudioTrack.latest(matching: track, in: store.practices)
-            ) == requestedIdentity,
-            let url = await store.playableURL(for: detailedTrack)
-        else {
-            return
-        }
-        guard
-            preparingTrackID == track.id,
-            DailyAudioPlaybackIdentity(
-                track: DailyAudioTrack.latest(matching: track, in: store.practices)
-            ) == requestedIdentity
-        else {
-            return
-        }
-        player.play(url: url, track: detailedTrack)
-    }
-
-    private var displayedDragOffset: CGFloat {
-        if dragOffset > 0, earlierPractice == nil {
-            return Self.rubberBand(dragOffset)
-        }
-        if dragOffset < 0, laterPractice == nil {
-            return Self.rubberBand(dragOffset)
-        }
-        return dragOffset
-    }
-
-    private var cardTravelDistance: CGFloat {
-        cardWidth + dayCardSpacing
-    }
-
-    private var daySwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard
-                    !isSettlingSwipe,
-                    abs(value.translation.width) > abs(value.translation.height)
-                else {
-                    return
-                }
-                trackInteractionResetTask?.cancel()
-                trackInteractionResetTask = nil
-                suppressTrackInteractions = true
-                dragOffset = value.translation.width
-            }
-            .onEnded { value in
-                guard !isSettlingSwipe else { return }
-                restoreTrackInteractionsAfterSwipe()
-                let horizontal = value.translation.width
-                let predicted = value.predictedEndTranslation.width
-                guard abs(horizontal) > abs(value.translation.height) else {
-                    snapCardBack()
-                    return
-                }
-
-                if max(horizontal, predicted) > 70 {
-                    if let earlierPractice {
-                        completeSwipe(to: earlierPractice.id, direction: .earlier)
-                    } else if store.hasMore {
-                        showEarlierPractice()
-                    } else {
-                        snapCardBack()
-                    }
-                } else if min(horizontal, predicted) < -70, let laterPractice {
-                    completeSwipe(to: laterPractice.id, direction: .later)
-                } else {
-                    snapCardBack()
-                }
-            }
-    }
-
-    private func completeSwipe(to id: String, direction: SwipeDirection) {
-        guard !isSettlingSwipe else { return }
-        if player.isPlaying {
-            player.toggle()
-        }
-        if reduceMotion {
-            selectedPracticeID = id
-            dragOffset = 0
-            return
-        }
-
-        isSettlingSwipe = true
-        let destination = direction == .earlier ? cardTravelDistance : -cardTravelDistance
-        withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.9)) {
-            dragOffset = destination
-        } completion: {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                if store.practices.contains(where: { $0.id == id }) {
-                    selectedPracticeID = id
-                }
-                dragOffset = 0
-                isSettlingSwipe = false
-            }
-        }
-    }
-
-    private func restoreTrackInteractionsAfterSwipe() {
-        trackInteractionResetTask?.cancel()
-        trackInteractionResetTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            suppressTrackInteractions = false
-            trackInteractionResetTask = nil
-        }
-    }
-
-    private func snapCardBack() {
-        guard dragOffset != 0 else { return }
-        if reduceMotion {
-            dragOffset = 0
-        } else {
-            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.72)) {
-                dragOffset = 0
-            }
-        }
-    }
-
-    private func showEarlierPractice() {
-        guard !isSettlingSwipe else { return }
-        guard let selectedPractice,
-              let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id })
-        else {
-            return
-        }
-        if store.practices.indices.contains(index + 1) {
-            completeSwipe(to: store.practices[index + 1].id, direction: .earlier)
-        } else if store.hasMore {
-            isSettlingSwipe = true
-            Task {
-                await store.loadMore()
-                guard let currentIndex = store.practices.firstIndex(where: {
-                    $0.id == selectedPractice.id
-                }), store.practices.indices.contains(currentIndex + 1)
-                else {
-                    isSettlingSwipe = false
-                    snapCardBack()
-                    return
-                }
-                isSettlingSwipe = false
-                completeSwipe(
-                    to: store.practices[currentIndex + 1].id,
-                    direction: .earlier
-                )
-            }
-        } else {
-            snapCardBack()
-        }
-    }
-
-    private func showLaterPractice() {
-        guard !isSettlingSwipe else { return }
-        guard let selectedPractice,
-              let index = store.practices.firstIndex(where: { $0.id == selectedPractice.id }),
-              index > 0
-        else {
-            snapCardBack()
-            return
-        }
-        completeSwipe(to: store.practices[index - 1].id, direction: .later)
-    }
-
-    private static func rubberBand(_ offset: CGFloat) -> CGFloat {
-        let direction: CGFloat = offset < 0 ? -1 : 1
-        return direction * min(pow(abs(offset), 0.72) * 1.8, 42)
+        if active { Text("Preparing your audio drill…").font(.subheadline) }
+        else if today?.status == "generating" { Text("Generation has stalled. Use New audio drill to retry.").font(.subheadline) }
     }
 
     static func relativePracticeDate(
@@ -702,6 +151,7 @@ struct DailyAudioView: View {
         if dayDifference == 1 {
             return "Tomorrow"
         }
+        if abs(dayDifference) > 7 { return date.formatted(date: .abbreviated, time: .omitted) }
         let relativeFormatter = RelativeDateTimeFormatter()
         relativeFormatter.dateTimeStyle = .named
         relativeFormatter.unitsStyle = .spellOut

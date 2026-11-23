@@ -165,8 +165,11 @@ final class ConvoLabUITests: XCTestCase {
     func testDailyAudioPlaybackUsesProductionControls() {
         let app = launchFixture("daily-audio-playback", reset: true)
         XCTAssertTrue(
-            app.staticTexts["Deterministic Daily Audio"].waitForExistence(timeout: 8)
+            app.buttons["Show text"].waitForExistence(timeout: 8)
         )
+        app.buttons["Show text"].tap()
+        XCTAssertTrue(app.staticTexts["Today I will practice Japanese."].exists)
+        app.buttons["Hide text"].tap()
         let play = app.buttons["Play"]
         XCTAssertTrue(play.waitForExistence(timeout: 8))
         play.tap()
@@ -294,21 +297,29 @@ final class ConvoLabUITests: XCTestCase {
     @MainActor
     func testStudyDashboardUsesCompactSourceDrivenPresentation() {
         let app = launchFixture("study-dashboard", reset: true)
-        XCTAssertTrue(app.staticTexts["Ready to learn"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.navigationBars["Study"].exists)
-        XCTAssertFalse(app.staticTexts["Today"].exists)
-        XCTAssertFalse(app.staticTexts["ConvoLab reviews"].exists)
-        XCTAssertFalse(app.staticTexts["Learning readiness"].exists)
-        XCTAssertFalse(app.staticTexts["Steady pace"].exists)
-        XCTAssertTrue(app.staticTexts["Tue"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Aug 31"].exists)
+        XCTAssertTrue(app.staticTexts["Review"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Learn"].exists)
+        XCTAssertTrue(app.staticTexts["Daily Audio"].exists)
+        XCTAssertTrue(app.buttons["Show text"].exists)
+        XCTAssertFalse(app.staticTexts["Item Spread"].exists)
+        attachScreen(app, named: "Study home")
+        app.buttons["New audio drill"].tap()
+        XCTAssertTrue(app.staticTexts["Drill length"].waitForExistence(timeout: 5))
+        attachScreen(app, named: "New audio drill")
+        app.buttons["45 min"].tap()
+        app.buttons["Generate 45-min drill"].tap()
+        XCTAssertTrue(app.staticTexts["Replace today’s recording?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Replace recording"].exists)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Show text"].exists)
+    }
 
-        let itemSpread = app.staticTexts["Item Spread"]
-        app.swipeUp()
-        XCTAssertTrue(itemSpread.waitForExistence(timeout: 8))
-        XCTAssertFalse(app.staticTexts["846 cards total"].exists)
-
-
+    @MainActor
+    private func attachScreen(_ app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
