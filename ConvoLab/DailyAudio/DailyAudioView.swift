@@ -20,7 +20,12 @@ struct DailyAudioView: View {
     }
 
     private var generating: DailyAudioPractice? {
-        store.practices.first { $0.status == "generating" }
+        store.practices.first { practice in
+            guard practice.status == "generating" else { return false }
+            return practice.id == store.practices.first?.id || !Self.canRetryGeneration(
+                practice, startRequestWasInterrupted: store.generationStartWasInterrupted
+            )
+        }
     }
 
     private var recordings: [DailyAudioPractice] {
@@ -68,15 +73,15 @@ struct DailyAudioView: View {
                     .id(DailyAudioPlaybackIdentity(track: track))
             } else if store.isLoading {
                 ProgressView("Loading Daily Audio…")
-            } else if generating == nil {
+            } else if generating == nil && store.practices.first?.status != "error" {
                 Text("Create your first audio drill to start listening.").font(.subheadline)
             }
             if let error = store.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
                 Button("Retry loading drills") { Task { _ = await store.refresh() } }
             }
-            if today?.status == "error" {
-                Text(today?.errorMessage ?? "The drill could not be generated. Try again.").font(.footnote)
+            if let latest = store.practices.first, latest.status == "error" {
+                Text(latest.errorMessage ?? "The drill could not be generated. Try again.").font(.footnote)
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -123,7 +128,7 @@ struct DailyAudioView: View {
             }.buttonStyle(.plain).accessibilityLabel("New audio drill").disabled(store.isLoading || active)
         }
         if active { DrillGenerationProgress(percent: generating?.progress) }
-        else if today?.status == "generating" { Text("Generation has stalled. Use New audio drill to retry.").font(.subheadline) }
+        else if generating != nil { Text("Generation has stalled. Use New audio drill to retry.").font(.subheadline) }
     }
 
     static func relativePracticeDate(
