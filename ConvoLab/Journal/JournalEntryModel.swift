@@ -83,9 +83,16 @@ final class JournalEntryModel {
         }
     }
 
+    private func canCloseWithoutSaving(submit: Bool) -> Bool {
+        guard !submit, !hasUnsavedChanges, !isSavedOnDevice else { return false }
+        return (draft?.expectedVersion ?? 0) > 0
+    }
+
     @discardableResult
     func save(submit: Bool) async -> Bool {
         guard let sent = draft, !isBusy else { return false }
+        // Closing an acknowledged snapshot must not resend stale text from another device.
+        if canCloseWithoutSaving(submit: submit) { return true }
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }

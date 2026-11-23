@@ -275,6 +275,23 @@ final class JournalAutomaticSyncTests: XCTestCase {
         XCTAssertNil(try JournalSyncStorage(drafts: store.storage).load(draft.id).pending)
     }
 
+    func testClosingAcknowledgedWritingDoesNotResendAStaleSnapshot() async throws {
+        let draft = try write("Already saved on iOS")
+        let model = JournalEntryModel(id: draft.id, store: store)
+        await model.load()
+        respond(entry(draft, version: 1))
+        await store.synchronizeDrafts()
+        model.reconcileSync()
+        MockURLProtocol.handler = { _ in
+            XCTFail("Closing clean writing must not overwrite or conflict with a newer remote edit")
+            throw URLError(.cancelled)
+        }
+        let closed = await model.save(submit: false)
+        XCTAssertTrue(closed)
+        XCTAssertNil(try store.storage.load(id: draft.id))
+        XCTAssertNil(try JournalSyncStorage(drafts: store.storage).load(draft.id).pending)
+    }
+
     private func write(_ body: String) throws -> JournalDraft {
         var draft = JournalDraft.new()
         draft.body = body
