@@ -15,6 +15,8 @@ struct StudySessionView: View {
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appModeDestination) private var appModeDestination
@@ -330,7 +332,9 @@ struct StudySessionView: View {
         }
         .task(id: selectedGrade) {
             guard selectedGrade != nil else { return }
-            do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
+            if !reduceMotion && !voiceOverEnabled {
+                do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
+            }
             gradeFeedback = nil
         }
         .onChange(of: card?.id) { _, newCardID in
@@ -870,7 +874,6 @@ struct StudySessionView: View {
             gradeButton("Easy", rating: .easy, color: StudyWashiStyle.good, card: card)
         }
         .frame(maxWidth: 360)
-
     }
 
     private func reviewActionsMenu(card: StudyCard) -> some View {
