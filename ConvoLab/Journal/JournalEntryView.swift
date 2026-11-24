@@ -31,7 +31,10 @@ struct JournalEntryView: View {
                 JournalEntriesSheet(store: store, selectedID: selection.id, deleted: { id in
                     if id == selection.id { showBlank() }
                 }, renamed: { id in
-                    if id == selection.id { renameRevision += 1 }
+                    if id == selection.id {
+                        selection = JournalSelection(id: id)
+                        renameRevision += 1
+                    }
                 }, create: showBlank, select: open)
             }
     }

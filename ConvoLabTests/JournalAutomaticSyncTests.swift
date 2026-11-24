@@ -225,7 +225,9 @@ final class JournalAutomaticSyncTests: XCTestCase {
         var first = try write("First request")
         first.entryDate = "2026-11-24"
         try store.write(first)
-        let second = try write("Do not send this queued draft")
+        var second = try write("Do not send this queued draft")
+        second.entryDate = "2026-11-23"
+        try store.write(second)
         let pending = LockedDeferredResponse()
         let firstID = first.id
         MockURLProtocol.deferredHandler = { request, completion in
