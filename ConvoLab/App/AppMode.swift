@@ -74,6 +74,8 @@ struct AppModePicker: View {
             if !stacksHeader { Spacer(minLength: 0) }
             if let action {
                 Button("End session", action: action.perform)
+                    .buttonStyle(.plain)
+                    .font(StudyWashiStyle.actionFont)
                     .frame(minHeight: 44)
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("StudyEndSessionButton")

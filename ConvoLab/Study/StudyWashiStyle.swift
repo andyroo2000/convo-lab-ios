@@ -2,12 +2,16 @@ import SwiftUI
 import UIKit
 
 enum StudyWashiStyle {
+    static let actionFont = Font.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)
+
     static var noteFont: UIFont {
         let base = UIFont(name: "CrimsonPro-Regular", size: 17) ?? .systemFont(ofSize: 17)
         let descriptor = base.fontDescriptor.withSymbolicTraits(.traitItalic) ?? base.fontDescriptor
         return UIFontMetrics.default.scaledFont(for: UIFont(descriptor: descriptor, size: 17))
     }
 
+    static let ink = JournalBrandStyle.ink
+    static let secondaryInk = ink.opacity(0.72)
     static let desk = Color(red: 243 / 255, green: 237 / 255, blue: 223 / 255)
     static let paper = desk
     static let green = Color(red: 106 / 255, green: 148 / 255, blue: 92 / 255)
@@ -36,6 +40,18 @@ struct StudyWashiCard<Content: View>: View {
     }
 }
 
+extension View {
+    func studySpeakerTile(size: CGFloat, playing: Bool) -> some View {
+        let glyphSize = size * 44 / 60
+        let fill = playing ? Color(red: 72 / 255, green: 116 / 255, blue: 67 / 255) : StudyWashiStyle.green
+        return self
+            .frame(width: glyphSize, height: glyphSize)
+            .foregroundStyle(ConvoLabTheme.cream)
+            .frame(width: size, height: size)
+            .background(fill, in: .rect(cornerRadius: size * 13 / 60))
+    }
+}
+
 struct StudyWashiAudioButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var playing = false
@@ -44,10 +60,7 @@ struct StudyWashiAudioButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .labelStyle(.iconOnly)
-            .foregroundStyle(ConvoLabTheme.cream)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(playing ? Color(red: 72 / 255, green: 116 / 255, blue: 67 / 255) : StudyWashiStyle.green,
-                        in: .rect(cornerRadius: 13))
+            .studySpeakerTile(size: buttonSize, playing: playing)
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
     }
 }
@@ -64,21 +77,34 @@ struct StudyWashiBackground: View {
     }
 }
 
+struct StudyRevealButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StudyWashiStyle.actionFont.weight(.semibold))
+            .foregroundStyle(StudyWashiStyle.ink)
+            .padding(.horizontal, 25)
+            .padding(.vertical, 9)
+            .frame(minWidth: 150, minHeight: 48)
+            .background(Color(red: 0.898, green: 0.933, blue: 0.984), in: .capsule)
+            .overlay { Capsule().strokeBorder(Color(red: 0.44, green: 0.52, blue: 0.63)) }
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
 struct StudyWashiGradeButtonStyle: ButtonStyle {
     let color: Color
-    let isGood: Bool
+    let selected: Bool
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
-            .foregroundStyle(isGood ? Color(red: 19 / 255, green: 44 / 255, blue: 12 / 255) : color)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(isGood ? StudyWashiStyle.good : StudyWashiStyle.paper, in: .rect(cornerRadius: 5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(isGood ? .clear : StudyWashiStyle.line, lineWidth: 1)
-            }
+            .font(StudyWashiStyle.actionFont)
+            .foregroundStyle(selected ? .white : StudyWashiStyle.ink)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(selected ? StudyWashiStyle.ink : color, in: .capsule)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
     }
 }

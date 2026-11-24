@@ -37,6 +37,14 @@ final class LessonAudioUITests: XCTestCase {
         waitForPlayback("playing:last", in: app)
         app.buttons["Start Quiz"].tap()
         XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 5))
+        let progress = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@ AND value == %@", "Session progress", "0 of 4 complete"
+        )).firstMatch
+        XCTAssertTrue(progress.exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Flashcard prompt and session controls"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         waitForPlayback("idle", in: app)
         XCTAssertFalse(play.exists)
     }
@@ -83,6 +91,19 @@ final class LessonAudioUITests: XCTestCase {
         screenshot.name = "Open journal flashcard answer"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    @MainActor
+    func testQuizGradeSurvivesLeavingTheApp() {
+        let app = openQuizAnswer()
+        app.buttons["Good"].tap()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 8))
+        let progress = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@ AND value == %@", "Session progress", "1 of 4 complete")
+        )
+        XCTAssertTrue(progress.firstMatch.exists)
     }
 
     @MainActor
