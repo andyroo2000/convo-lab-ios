@@ -94,6 +94,19 @@ final class LessonAudioUITests: XCTestCase {
     }
 
     @MainActor
+    func testQuizGradeSurvivesLeavingTheApp() {
+        let app = openQuizAnswer()
+        app.buttons["Good"].tap()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 8))
+        let progress = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@ AND value == %@", "Session progress", "1 of 4 complete")
+        )
+        XCTAssertTrue(progress.firstMatch.exists)
+    }
+
+    @MainActor
     func testQuizGradesRemainReachableAtLargestTextSize() {
         let app = openQuizAnswer(contentSize: "UICTContentSizeCategoryAccessibilityXXXL")
         for title in ["Again", "Hard", "Good", "Easy"] {

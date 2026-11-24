@@ -20,7 +20,7 @@ struct StudySessionView: View {
     @Environment(\.appModeDestination) private var appModeDestination
 
     @State private var showingAnswer = false
-    @State private var selectedGrade: ReviewRating?
+    @State private var gradeFeedback: (card: StudyCard, rating: ReviewRating)?
     @State private var promptFile: (recording: StudyPromptRecording, file: URL)?
     @State private var cardTimer = StudySessionCardTimer(startedAt: .now)
     @State private var submittingReviewCardIDs: Set<String> = []
@@ -68,7 +68,10 @@ struct StudySessionView: View {
         _wrapUpSummary = State(initialValue: StudySessionWrapUpSummary.build(from: []))
     }
 
+    private var selectedGrade: ReviewRating? { gradeFeedback?.rating }
+
     private var card: StudyCard? {
+        if let gradeFeedback { return gradeFeedback.card }
         if let practiceCards {
             return practiceCards.first
         }
@@ -77,7 +80,7 @@ struct StudySessionView: View {
 
     private var practiceMode: Bool { practiceCards != nil }
 
-    private var practiceComplete: Bool { practiceCards?.isEmpty == true }
+    private var practiceComplete: Bool { selectedGrade == nil && practiceCards?.isEmpty == true }
 
     @ToolbarContentBuilder
     private var lessonDismissToolbar: some ToolbarContent {
@@ -92,6 +95,7 @@ struct StudySessionView: View {
     private var reviewSessionComplete: Bool {
         mode == .reviews
             && !practiceMode
+            && selectedGrade == nil
             && !sessionReviewRecords.isEmpty
             && store.masteryAnimation == nil
             && store.cards.isEmpty
@@ -152,7 +156,7 @@ struct StudySessionView: View {
             }
             let presentation = card.presentation
             StudyWashiCard(centered: true) {
-                if showingAnswer {
+                if showingAnswer || selectedGrade != nil {
                     StudySessionAnswer(face: presentation.back, store: store)
                 } else {
                     promptFace(presentation.front)
@@ -161,7 +165,7 @@ struct StudySessionView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Flashcard")
 
-            if showingAnswer {
+            if showingAnswer || selectedGrade != nil {
                 gradeButtons(card: card)
             } else {
                 Button("Show Answer") { revealAnswer(card) }
@@ -324,8 +328,12 @@ struct StudySessionView: View {
         .onChange(of: sessionReviewRecords) { _, records in
             wrapUpSummary = StudySessionWrapUpSummary.build(from: records)
         }
+        .task(id: selectedGrade) {
+            guard selectedGrade != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
+            gradeFeedback = nil
+        }
         .onChange(of: card?.id) { _, newCardID in
-            selectedGrade = nil
             player.stop()
             if let restoredCardID = answerRestoredByUndoCardID {
                 if newCardID?.lowercased() == restoredCardID.lowercased() {
@@ -359,6 +367,7 @@ struct StudySessionView: View {
             }
         }
         .onDisappear {
+            gradeFeedback = nil
             timeStore?.stop(activity: .cardReview, source: .automatic)
             player.stop()
             store.dismissMasteryAnimation()
@@ -747,6 +756,7 @@ struct StudySessionView: View {
     }
 
     private func exitPracticeMode() {
+        gradeFeedback = nil
         player.stop()
         showingAnswer = false
         practiceCards = nil
@@ -860,14 +870,6 @@ struct StudySessionView: View {
             gradeButton("Easy", rating: .easy, color: StudyWashiStyle.good, card: card)
         }
         .frame(maxWidth: 360)
-        .task(id: selectedGrade) {
-            guard let rating = selectedGrade else { return }
-            do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
-            guard self.card?.id == card.id, showingAnswer else { return }
-            submitGrade(rating, card: card)
-            selectedGrade = nil
-        }
-        .onDisappear { selectedGrade = nil }
 
     }
 
@@ -942,8 +944,7 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
-            guard selectedGrade == nil else { return }
-            selectedGrade = rating
+            submitGrade(rating, card: card)
         } label: {
             HStack(spacing: 3) {
                 Text(title)
@@ -952,6 +953,7 @@ struct StudySessionView: View {
             .frame(maxWidth: .infinity)
         }
         .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(selectedGrade == rating ? .isSelected : [])
         .buttonStyle(StudyWashiGradeButtonStyle(color: color, selected: selectedGrade == rating))
         .frame(maxWidth: .infinity)
         .disabled(
@@ -963,7 +965,8 @@ struct StudySessionView: View {
     }
 
     private func submitGrade(_ rating: ReviewRating, card: StudyCard) {
-        guard showingAnswer else { return }
+        guard showingAnswer, selectedGrade == nil, submittingReviewCardIDs.isEmpty else { return }
+        gradeFeedback = (card, rating)
         if practiceMode {
             player.stop()
             didAutoplayAnswerForCardID = nil
@@ -983,7 +986,7 @@ struct StudySessionView: View {
             resetCardTimer()
             return
         }
-        guard submittingReviewCardIDs.insert(card.id).inserted else { return }
+        submittingReviewCardIDs.insert(card.id)
         let reviewedAt = Date.now
         if rating == .again {
             didAutoplayAnswerForCardID = nil
@@ -1087,6 +1090,7 @@ struct StudySessionView: View {
             !practiceMode,
             !displayingCompletion,
             !isUndoing,
+            selectedGrade == nil,
             submittingReviewCardIDs.isEmpty,
             submittingCardActionIDs.isEmpty,
             store.masteryAnimation == nil,
