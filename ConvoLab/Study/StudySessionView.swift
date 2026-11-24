@@ -116,10 +116,7 @@ struct StudySessionView: View {
         if mode == .lessons {
             return .batch(total: store.sessionInitialCardCount, remaining: store.cards.count)
         }
-        let counts = store.sessionCounts
-        let reviewed = Set(sessionReviewRecords.map { $0.cardBefore.reviewCardID.lowercased() })
-        let queued = Set(store.cards.map { $0.reviewCardID.lowercased() })
-        return .review(reviewed: reviewed, queued: queued, due: counts.reviewRemaining + counts.failedDue)
+        return store.reviewProgress(for: sessionReviewRecords)
     }
 
     private var showsCardHeader: Bool {
@@ -1036,11 +1033,12 @@ struct StudySessionView: View {
                 reviewedAt: reviewedAt
             )
             if let stagedReview {
+                let wasBatchRetry = batchRetryIDs.remove(card.id) != nil
                 pushUndo(
                     .grade(
                         eventID: stagedReview.eventID,
                         cardBefore: stagedReview.cardBefore,
-                        wasBatchRetry: batchRetryIDs.remove(card.id) != nil
+                        wasBatchRetry: wasBatchRetry
                     )
                 )
                 sessionReviewRecords.append(

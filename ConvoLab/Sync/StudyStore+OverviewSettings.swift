@@ -25,6 +25,7 @@ extension StudyStore {
     func refreshOverview(timeZone: TimeZone = .autoupdatingCurrent) async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
+        let scheduledReviewRevision = reviewOutboxRevision
         let settingsMutationRevision = studySettingsMutationRevision
         let refreshID = UUID()
         overviewRefreshID = refreshID
@@ -44,7 +45,10 @@ extension StudyStore {
                 query: [URLQueryItem(name: "time_zone", value: timeZone.identifier)]
             )
             guard isCurrentActivation(userID, generation: activationGeneration),
-                  overviewRefreshID == refreshID else { return }
+                  overviewRefreshID == refreshID,
+                  reviewOutboxRevision == scheduledReviewRevision else { return }
+            // Pair the fresh server totals with events that are still pending on this device.
+            restorePendingReviewState()
             let responseSettings = StudySettingsPolicy.settings(
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget(),

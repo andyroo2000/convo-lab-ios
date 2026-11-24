@@ -387,6 +387,37 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(offline.remaining, 1)
     }
 
+    func testProgressFollowsDelayedRetryPassAndUndoWithTheSameLoadedPage() {
+        let cache = StudyReviewQueueCache()
+        let card = makeCard(id: "retry", queueState: "review")
+        func attempt(_ id: String, _ rating: ReviewRating) -> StudySessionReviewRecord {
+            .init(id: id, cardBefore: card, cardAfter: card, rating: rating, durationMilliseconds: 10, reviewedAt: .now)
+        }
+        let again = attempt("first", .again)
+        let good = attempt("second", .good)
+        XCTAssertEqual(cache.progress(records: [again], cards: [], outstanding: 1), .init(completed: 0, total: 1))
+        XCTAssertEqual(cache.progress(records: [again, good], cards: [], outstanding: 0), .init(completed: 1, total: 1))
+        XCTAssertEqual(cache.progress(records: [again], cards: [], outstanding: 1), .init(completed: 0, total: 1))
+        cache.invalidate(pageChanged: true)
+        XCTAssertEqual(cache.progress(records: [good], cards: [card], outstanding: 1), .init(completed: 0, total: 1))
+    }
+
+    func testCachedHeaderReadPerformanceForALargeReviewQueue() {
+        let cards = (0..<470).map { makeCard(id: String($0), queueState: "review") }
+        let cache = StudyReviewQueueCache()
+        let overview = makeOverview(.init(dueCount: 470))
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+        measure(metrics: [XCTClockMetric()], options: options) {
+            var total = 0
+            for _ in 0..<10_000 {
+                let counts = cache.counts(cards: cards, overview: overview, newlyFailed: [], retained: [], resolved: [])
+                total += cache.progress(records: [], cards: cards, outstanding: counts.remaining).total
+            }
+            XCTAssertEqual(total, 4_700_000)
+        }
+    }
+
     private func makeCard(
         id: String,
         queueState: String,

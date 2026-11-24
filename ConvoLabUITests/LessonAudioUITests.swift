@@ -98,6 +98,31 @@ final class LessonAudioUITests: XCTestCase {
     }
 
     @MainActor
+    func testLessonAgainMovesOneCardFromRemainingToRetriesUntilItPasses() {
+        let app = openQuizAnswer()
+        func waitForCounts(_ failed: Int, _ remaining: Int) {
+            let label = "\(failed) failed, \(remaining) remaining"
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@", label
+            )).firstMatch.waitForExistence(timeout: 8))
+        }
+        waitForCounts(0, 4)
+        app.buttons["Again"].tap()
+        waitForCounts(1, 3)
+        for remaining in [2, 1, 0] {
+            app.buttons["Reveal answer"].tap()
+            app.buttons["Good"].tap()
+            waitForCounts(1, remaining)
+        }
+        app.buttons["Reveal answer"].tap()
+        app.buttons["Again"].tap()
+        waitForCounts(1, 0)
+        app.buttons["Reveal answer"].tap()
+        app.buttons["Good"].tap()
+        XCTAssertTrue(app.staticTexts["Lesson complete"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
     func testQuizGradeSurvivesLeavingTheApp() {
         let app = openQuizAnswer()
         app.buttons["Good"].tap()

@@ -88,9 +88,15 @@ final class StudyStore {
     @ObservationIgnored var studySettingsRefreshID: UUID?
     @ObservationIgnored var studySettingsUpdateID: UUID?
     @ObservationIgnored var overviewRefreshID: UUID?
-    var newlyFailedCardIDs: Set<String> = []
-    var retainedFailedCardIDs: Set<String> = []
-    var resolvedFailedCardIDs: Set<String> = []
+    var newlyFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
+    var retainedFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
+    var resolvedFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
     @ObservationIgnored var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored var overviewSnapshot: LocalStudyOverviewSnapshot?
     @ObservationIgnored var overviewSnapshotSaveTask: Task<Void, Never>?
@@ -104,15 +110,20 @@ final class StudyStore {
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored var cardActionCardIDs: Set<String> = []
 
-    private var loadedReviewQueue = LoadedStudyReviewQueue()
+    private let reviewQueueCache = StudyReviewQueueCache()
     var cards: [StudyCard] = [] {
-        didSet { loadedReviewQueue = LoadedStudyReviewQueue(cards) }
+        didSet { reviewQueueCache.invalidate(pageChanged: true) }
     }
 
     var reviewQueueCounts: (failed: Int, remaining: Int) {
-        loadedReviewQueue.counts(overview: overview, newlyFailed: newlyFailedCardIDs,
-                                 retained: retainedFailedCardIDs, resolved: resolvedFailedCardIDs)
+        reviewQueueCache.counts(cards: cards, overview: overview, newlyFailed: newlyFailedCardIDs,
+                                retained: retainedFailedCardIDs, resolved: resolvedFailedCardIDs)
     }
+    func reviewProgress(for records: [StudySessionReviewRecord]) -> StudyCardProgress {
+        let counts = reviewQueueCounts
+        return reviewQueueCache.progress(records: records, cards: cards, outstanding: counts.failed + counts.remaining)
+    }
+
     var libraryCards: [StudyCard] = []
     var allCards: [StudyCard] = []
     var allCardsNextCursor: String?
@@ -131,7 +142,9 @@ final class StudyStore {
     var isLoadingMoreNewCardQueue = false
     var storageWriteErrorMessage: String?
     var failedStudyChanges: [FailedStudyChange] = []
-    var overview: StudyOverview?
+    var overview: StudyOverview? {
+        didSet { reviewQueueCache.invalidate() }
+    }
     var offlineReserveMetadata: StudyOfflineReserveMetadata?
     var isRefreshingOverview = false
     var overviewRefreshErrorMessage: String?

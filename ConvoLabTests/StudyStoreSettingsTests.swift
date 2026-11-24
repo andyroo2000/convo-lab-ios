@@ -217,6 +217,38 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testOverviewRefreshDropsAcknowledgedFailureAdjustments() async throws {
+        let container = try Persistence.makeContainer(inMemory: true)
+        let client = makeClient { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"dueCount":5,"newCount":0,"reviewCount":7,"failedCount":2,"newCardsPerDay":20}"#.utf8))
+        }
+        let store = makeSettingsStore(in: container, client: client)
+        store.resolvedFailedCardIDs = ["already-acknowledged"]
+        await store.refreshOverview()
+        XCTAssertTrue(store.resolvedFailedCardIDs.isEmpty)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 2)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 5)
+    }
+
+    @MainActor
+    func testOverviewInFlightCannotUndoALaterLocalGrade() async throws {
+        let deferred = LockedDeferredResponse()
+        let client = makeDeferredClient { _, completion in deferred.hold(completion) }
+        let store = makeSettingsStore(in: try Persistence.makeContainer(inMemory: true), client: client)
+        let refresh = Task { await store.refreshOverview() }
+        await deferred.waitUntilPending()
+        store.reviewOutboxRevision &+= 1
+        store.newlyFailedCardIDs.insert("graded-while-refreshing")
+        deferred.succeed(with: Self.response(data: Data(
+            #"{"dueCount":8,"newCount":0,"reviewCount":8,"failedCount":0,"newCardsPerDay":20}"#.utf8
+        )))
+        await refresh.value
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 0)
+    }
+
+    @MainActor
     func testOverviewRefreshSendsDeviceTimeZone() async throws {
         let container = try Persistence.makeContainer(inMemory: true)
         let expectedTimeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
