@@ -15,8 +15,6 @@ struct StudySessionView: View {
     let lessonCohortID: String?
     let allowsLessonDismissal: Bool
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appModeDestination) private var appModeDestination
@@ -71,7 +69,7 @@ struct StudySessionView: View {
         _wrapUpSummary = State(initialValue: StudySessionWrapUpSummary.build(from: []))
     }
 
-    private var selectedGrade: ReviewRating? { gradeFeedback?.rating }
+    private var selectedGrade: ReviewRating? { gradeFeedback?.rating ?? store.masteryAnimation?.rating }
 
     private var card: StudyCard? {
         if let gradeFeedback { return gradeFeedback.card }
@@ -144,7 +142,6 @@ struct StudySessionView: View {
                 .padding()
         }
         .background { StudyWashiBackground() }
-        .overlay(alignment: .top) { masteryFeedbackLane }
         .tint(StudyWashiStyle.ink)
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
@@ -185,6 +182,7 @@ struct StudySessionView: View {
 
             if showingAnswer || selectedGrade != nil {
                 gradeButtons(card: card)
+                    .overlay(alignment: .top) { masteryFeedbackLane }
             } else {
                 Button("Reveal answer") { revealAnswer(card) }
                     .buttonStyle(StudyRevealButtonStyle())
@@ -374,13 +372,6 @@ struct StudySessionView: View {
         }
         .onChange(of: reviewHistory.revision) {
             wrapUpSummary = StudySessionWrapUpSummary.build(from: reviewHistory.records)
-        }
-        .task(id: selectedGrade) {
-            guard selectedGrade != nil else { return }
-            if !reduceMotion && !voiceOverEnabled {
-                do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
-            }
-            gradeFeedback = nil
         }
         .onChange(of: card?.id) { _, newCardID in
             player.stop()
@@ -917,7 +908,6 @@ struct StudySessionView: View {
 
     private func submitGrade(_ rating: ReviewRating, card: StudyCard) {
         guard showingAnswer, selectedGrade == nil, submittingReviewCardIDs.isEmpty else { return }
-        gradeFeedback = (card, rating)
         player.stop()
         if rating == .again, practiceMode || mode == .lessons { batchRetryIDs.insert(card.id) }
         if practiceMode {
@@ -938,6 +928,7 @@ struct StudySessionView: View {
             resetCardTimer()
             return
         }
+        gradeFeedback = (card, rating)
         submittingReviewCardIDs.insert(card.id)
         let reviewedAt = Date.now
         if rating == .again {
@@ -972,6 +963,7 @@ struct StudySessionView: View {
                     )
                 )
             }
+            gradeFeedback = nil
             submittingReviewCardIDs.remove(card.id)
         }
     }
@@ -982,18 +974,17 @@ struct StudySessionView: View {
             MasteryReviewAnimation(
                 label: animation.label,
                 fromLevel: animation.fromLevel,
-                toLevel: animation.toLevel,
-                passed: animation.passed
+                toLevel: animation.toLevel
             ) {
                 guard store.masteryAnimation?.id == animation.id else {
                     return
                 }
+                showingAnswer = false
+                gradeFeedback = nil
                 store.dismissMasteryAnimation()
             }
             .id(animation.id)
-            .frame(height: MasteryReviewAnimation.feedbackLaneHeight)
-            .background(StudyWashiStyle.desk, in: .rect(cornerRadius: 16))
-            .padding(.horizontal, 16)
+            .alignmentGuide(.top) { $0[.bottom] + 8 }
             .allowsHitTesting(false)
         }
     }

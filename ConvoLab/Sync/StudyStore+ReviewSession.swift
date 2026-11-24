@@ -359,9 +359,9 @@ extension StudyStore {
             label: currentCard.presentation.back.heading
                 ?? currentCard.presentation.front.heading
                 ?? "This item",
-            fromLevel: oldLevel.rawValue,
-            toLevel: newLevel.rawValue,
-            passed: rating != .again
+            fromLevel: oldLevel,
+            toLevel: newLevel,
+            rating: rating
         )
         sessionFailureWasPresentByEventID[staged.eventID] = sessionFailedCardIDs.contains(
             currentCard.id

@@ -992,9 +992,9 @@ extension StudyStoreTests {
         expected: MasteryAnimationExpectation
     ) {
         XCTAssertEqual(store.masteryAnimation?.card.id, card.id)
-        XCTAssertEqual(store.masteryAnimation?.fromLevel, expected.from.rawValue)
-        XCTAssertEqual(store.masteryAnimation?.toLevel, expected.to.rawValue)
-        XCTAssertEqual(store.masteryAnimation?.passed, expected.passed)
+        XCTAssertEqual(store.masteryAnimation?.fromLevel, expected.from)
+        XCTAssertEqual(store.masteryAnimation?.toLevel, expected.to)
+        XCTAssertEqual(store.masteryAnimation.map { $0.rating != .again }, expected.passed)
     }
 
     @MainActor
