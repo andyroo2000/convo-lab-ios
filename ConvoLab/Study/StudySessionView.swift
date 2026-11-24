@@ -45,6 +45,7 @@ struct StudySessionView: View {
     @State private var sessionWasEnded = false
     @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
+    @State private var batchRetryIDs: Set<String> = []
     @State private var practiceInitialCount = 0
     @State private var lessonPresentationID = UUID()
 
@@ -121,11 +122,34 @@ struct StudySessionView: View {
         return .review(reviewed: reviewed, queued: queued, due: counts.reviewRemaining + counts.failedDue)
     }
 
-    private var sessionContent: some View {
-        VStack(spacing: 10) {
-            activeSessionContent
+    private var showsCardHeader: Bool {
+        card != nil && !lessonPreview && !practiceComplete && (practiceMode || !displayingCompletion)
+    }
+
+    private var queueCounts: StudyQueueCountsView {
+        if practiceMode || mode == .lessons {
+            let batch = practiceCards ?? store.cards
+            let retries = batch.count { batchRetryIDs.contains($0.id) }
+            return StudyQueueCountsView(failed: retries, remaining: batch.count - retries)
         }
-        .padding()
+        let counts = store.sessionCounts
+        let totalFailed = (store.overview?.failedCount ?? 0)
+            + store.newlyFailedCardIDs.count - store.resolvedFailedCardIDs.count
+        let failed = max(totalFailed, counts.failedDue, store.sessionFailedCardIDs.count)
+        let queued = store.cards.count { $0.state.failedAt == nil }
+        return StudyQueueCountsView(failed: failed, remaining: max(counts.reviewRemaining, queued))
+    }
+
+    private var sessionContent: some View {
+        VStack(spacing: 0) {
+            if showsCardHeader, let card {
+                StudyCardProgressView(progress: sessionProgress)
+                cardHeader(card)
+                    .padding(.horizontal, 12)
+            }
+            VStack(spacing: 10) { activeSessionContent }
+                .padding()
+        }
         .background { StudyWashiBackground() }
         .overlay(alignment: .top) { masteryFeedbackLane }
         .tint(StudyWashiStyle.ink)
@@ -146,7 +170,6 @@ struct StudySessionView: View {
         } else if practiceComplete {
             practiceCompleteContent
         } else if let card {
-            StudyCardProgressView(progress: sessionProgress)
             if practiceMode {
                 Text("Practice only · results won’t affect your review schedule")
                     .font(.caption.bold())
@@ -170,7 +193,7 @@ struct StudySessionView: View {
             if showingAnswer || selectedGrade != nil {
                 gradeButtons(card: card)
             } else {
-                Button("Show Answer") { revealAnswer(card) }
+                Button("Reveal answer") { revealAnswer(card) }
                     .buttonStyle(StudyRevealButtonStyle())
             }
         } else if mode == .lessons {
@@ -230,6 +253,7 @@ struct StudySessionView: View {
         .preference(key: AppSessionFocusKey.self, value: [appModeDestination: !displayingCompletion])
         .toolbarBackground(StudyWashiStyle.desk, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar(showsCardHeader ? .hidden : .visible, for: .navigationBar)
         .toolbar { lessonDismissToolbar }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -243,39 +267,59 @@ struct StudySessionView: View {
                     }
                 }
             }
-            if let card,
-               showingAnswer,
-               store.masteryAnimation == nil,
-               !practiceMode,
-               !displayingCompletion
-            {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
-                        Button {
-                            player.stop()
-                            editingCard = card
-                        } label: {
-                            Image(systemName: "pencil").foregroundStyle(StudyWashiStyle.ink)
-                        }
-                        .accessibilityLabel("Edit card")
-                        .accessibilityIdentifier("StudyAnswerEditButton")
-                        .disabled(selectedGrade != nil || submittingCardActionIDs.contains(card.id))
+        }
+    }
+
+    private func cardHeader(_ card: StudyCard) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                sessionNavigation
+                queueCounts
+                Spacer(minLength: 2)
+                answerActions(card)
+            }.fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                HStack { sessionNavigation; Spacer(); answerActions(card) }
+                queueCounts.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var sessionNavigation: some View {
+        if practiceMode {
+            Button("Back to wrap-up") { exitPracticeMode() }
+        } else if mode == .lessons && allowsLessonDismissal {
+            Button("Close") { dismiss() }
+                .accessibilityIdentifier("StudyCloseLessonButton")
+        } else {
+            endSessionControl
+        }
+    }
+
+    @ViewBuilder
+    private func answerActions(_ card: StudyCard) -> some View {
+        if showingAnswer, store.masteryAnimation == nil {
+            if !practiceMode {
+                if StudyCardDraft.CardType(rawValue: card.cardType) != nil {
+                    Button {
+                        player.stop()
+                        editingCard = card
+                    } label: {
+                        Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
                     }
-                    if mode == .reviews {
-                        reviewActionsMenu(card: card)
-                            .disabled(selectedGrade != nil)
-                    }
+                    .accessibilityLabel("Edit card")
+                    .accessibilityIdentifier("StudyAnswerEditButton")
+                    .disabled(selectedGrade != nil || submittingCardActionIDs.contains(card.id))
+                }
+                if mode == .reviews {
+                    reviewActionsMenu(card: card).disabled(selectedGrade != nil)
                 }
             }
-            if let card, !lessonPreview, !displayingCompletion, !practiceComplete, store.masteryAnimation == nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    toolbarReplay(card)
-                        .disabled(selectedGrade != nil)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(StudyWashiStyle.ink)
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
+            toolbarReplay(card)
+                .buttonStyle(.plain)
+                .disabled(selectedGrade != nil)
         }
     }
 
@@ -295,6 +339,9 @@ struct StudySessionView: View {
                     .foregroundStyle(JournalBrandStyle.spine)
                     .lineLimit(1)
                     .fixedSize()
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 3)
+                    .overlay { Capsule().strokeBorder(StudyWashiStyle.green.opacity(0.65)) }
                     .frame(minHeight: 44)
                     .contentShape(.rect)
             }
@@ -334,7 +381,7 @@ struct StudySessionView: View {
         .task(id: selectedGrade) {
             guard selectedGrade != nil else { return }
             if !reduceMotion && !voiceOverEnabled {
-                do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
             }
             gradeFeedback = nil
         }
@@ -576,6 +623,7 @@ struct StudySessionView: View {
     @MainActor
     private func loadLessonBatch() async {
         guard !loadingLessons else { return }
+        batchRetryIDs.removeAll()
         loadingLessons = true
         lessonPreview = true
         lessonPreviewIndex = 0
@@ -754,6 +802,7 @@ struct StudySessionView: View {
         guard !cards.isEmpty else { return }
         player.stop()
         showingAnswer = false
+        batchRetryIDs.removeAll()
         practiceInitialCount = cards.count
         practiceCards = cards
         resetCardTimer()
@@ -776,8 +825,8 @@ struct StudySessionView: View {
             if let imageURL = face.imageURL {
                 StudyCardImage(remoteURL: imageURL, accessibilityLabel: face.supportingText ?? "Study prompt image", store: store)
             }
-            if face.isMediaLed, face.imageURL == nil, let recording = promptRecording {
-                promptReplay(recording, prominent: true)
+            if face.isMediaLed, let recording = promptRecording {
+                promptReplay(recording)
             } else {
                 if let heading = face.heading {
                     StudyReadingHeading(text: heading, knownKanji: store.knownKanji)
@@ -794,8 +843,8 @@ struct StudySessionView: View {
     }
 
     private var promptRecording: StudyPromptRecording? {
-        guard selectedGrade == nil, !showingAnswer, !lessonPreview, !displayingCompletion,
-              let card, let url = card.presentation.front.audioURL else { return nil }
+        guard selectedGrade == nil, !showingAnswer, !lessonPreview, (practiceMode || !displayingCompletion),
+              let card, card.shouldAutoplayPromptAudio, let url = card.presentation.front.audioURL else { return nil }
         return StudyPromptRecording(cardID: card.id, url: url)
     }
 
@@ -818,45 +867,30 @@ struct StudySessionView: View {
         autoplayAnswerAudioIfReady(cardID: card.id)
     }
 
-    @ViewBuilder
-    private func promptReplay(_ recording: StudyPromptRecording, prominent: Bool) -> some View {
+    private func promptReplay(_ recording: StudyPromptRecording) -> some View {
         let playing = player.isCurrent(recording.trackID) && player.isPlaying
-        let replay = Button {
+        return Button {
             guard let promptFile, promptFile.recording == recording else { return }
             player.play(url: promptFile.file, trackID: recording.trackID)
         } label: {
-            if prominent { StudySpeakerIcon(playing: playing) }
-            else {
-                StudyReplayGlyph(playing: playing)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(.rect)
-            }
+            StudySpeakerIcon(playing: playing)
         }
-        .accessibilityLabel(prominent ? "Play prompt audio" : "Replay prompt audio")
+        .accessibilityLabel("Play prompt audio")
         .accessibilityValue(playing ? "Playing" : "Not playing")
         .disabled(promptFile?.recording != recording || player.isBlockedByLongFormAudio)
-        if prominent { replay.buttonStyle(StudyWashiAudioButtonStyle(playing: playing)) }
-        else { replay }
+        .buttonStyle(StudyWashiAudioButtonStyle(playing: playing))
     }
 
     @ViewBuilder
     private func toolbarReplay(_ card: StudyCard) -> some View {
-        if let recording = promptRecording {
-            promptReplay(recording, prominent: false)
-        } else if card.presentation.back.audioURL != nil {
+        if card.presentation.back.audioURL != nil {
             let playing = player.isCurrent("study-answer-\(card.id)") && player.isPlaying
-            Button {
-                if showingAnswer { playAnswerAudio(cardID: card.id) }
-                else { revealAnswer(card) }
-            } label: {
-                HStack(spacing: 4) {
-                    StudyReplayGlyph(playing: playing)
-                    if !showingAnswer { Text("Hear answer").font(.caption) }
-                }
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(.rect)
+            Button { playAnswerAudio(cardID: card.id) } label: {
+                StudyReplayGlyph(playing: playing)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(.rect)
             }
-            .accessibilityLabel(showingAnswer ? "Play answer audio" : "Hear answer")
+            .accessibilityLabel("Play answer audio")
             .accessibilityValue(playing ? "Playing" : "Not playing")
             .accessibilityIdentifier("StudyAnswerAudioButton")
             .accessibilityHint(answerAudioAccessibilityHint)
@@ -869,12 +903,12 @@ struct StudySessionView: View {
             repeating: GridItem(.flexible(), spacing: 8),
             count: dynamicTypeSize.isAccessibilitySize ? 2 : 4
         ), spacing: 8) {
-            gradeButton("Again", rating: .again, color: ConvoLabTheme.coral, card: card)
-            gradeButton("Hard", rating: .hard, color: .orange, card: card)
-            gradeButton("Good", rating: .good, color: ConvoLabTheme.cyan, card: card)
-            gradeButton("Easy", rating: .easy, color: StudyWashiStyle.good, card: card)
+            gradeButton("Again", rating: .again, card: card)
+            gradeButton("Hard", rating: .hard, card: card)
+            gradeButton("Good", rating: .good, card: card)
+            gradeButton("Easy", rating: .easy, card: card)
         }
-        .frame(maxWidth: 360)
+        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? 480 : 316)
     }
 
     private func reviewActionsMenu(card: StudyCard) -> some View {
@@ -944,21 +978,16 @@ struct StudySessionView: View {
     private func gradeButton(
         _ title: String,
         rating: ReviewRating,
-        color: Color,
         card: StudyCard
     ) -> some View {
         Button {
             submitGrade(rating, card: card)
         } label: {
-            HStack(spacing: 3) {
-                Text(title)
-                if selectedGrade == rating { Image(systemName: "checkmark").font(.caption.bold()) }
-            }
-            .frame(maxWidth: .infinity)
+            Text(title).frame(maxWidth: .infinity)
         }
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(selectedGrade == rating ? .isSelected : [])
-        .buttonStyle(StudyWashiGradeButtonStyle(color: color, selected: selectedGrade == rating))
+        .buttonStyle(StudyWashiGradeButtonStyle(rating: rating, selected: selectedGrade == rating))
         .frame(maxWidth: .infinity)
         .disabled(
             !submittingReviewCardIDs.isEmpty
@@ -972,6 +1001,7 @@ struct StudySessionView: View {
         guard showingAnswer, selectedGrade == nil, submittingReviewCardIDs.isEmpty else { return }
         gradeFeedback = (card, rating)
         player.stop()
+        if rating == .again, practiceMode || mode == .lessons { batchRetryIDs.insert(card.id) }
         if practiceMode {
             didAutoplayAnswerForCardID = nil
             practiceCards = StudySessionPracticeQueue.applying(

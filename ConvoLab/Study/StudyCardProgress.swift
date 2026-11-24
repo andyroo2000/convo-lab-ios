@@ -19,21 +19,31 @@ struct StudyCardProgressView: View {
 
     var body: some View {
         if progress.total > 0 {
-            HStack(spacing: 12) {
-                ProgressView(value: Double(progress.completed), total: Double(progress.total))
-                    .progressViewStyle(.linear)
-                    .tint(StudyWashiStyle.green)
-                Text("\(progress.completed) of \(progress.total) complete")
-                    .font(.custom("CrimsonPro-Regular", size: 16, relativeTo: .subheadline))
-                    .monospacedDigit()
-                    .foregroundStyle(StudyWashiStyle.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-            }
-            .frame(maxWidth: 680)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Session progress")
-            .accessibilityValue("\(progress.completed) of \(progress.total) complete")
+            ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                .progressViewStyle(.linear)
+                .tint(JournalBrandStyle.spine)
+                .accessibilityLabel("Session progress")
+                .accessibilityValue("\(progress.completed) of \(progress.total) complete")
         }
+    }
+}
+
+struct StudyQueueCountsView: View {
+    let failed: Int
+    let remaining: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Label(String(failed), systemImage: "arrow.counterclockwise")
+                .foregroundStyle(Color(red: 0.62, green: 0.25, blue: 0.23))
+            Text("·")
+            Label(String(remaining), systemImage: "square.2.layers.3d")
+        }
+        .labelStyle(.titleAndIcon)
+        .font(StudyWashiStyle.actionFont.weight(.semibold))
+        .foregroundStyle(JournalBrandStyle.spine)
+        .monospacedDigit()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(failed) failed, \(remaining) remaining")
     }
 }
