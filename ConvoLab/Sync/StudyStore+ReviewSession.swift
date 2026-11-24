@@ -39,9 +39,16 @@ extension StudyStore {
         masteryAnimation = nil
     }
 
+    private func loadCurrentStudySession(_ kind: StudySessionLoadKind) async throws -> StudySessionLoad? {
+        let revision = reviewOutboxRevision
+        let load = try await sessionLoadingService.load(kind)
+        // A grade or acknowledgement changed the queue while the request was in flight.
+        return revision == reviewOutboxRevision ? load : nil
+    }
+
     @discardableResult
     func refreshSession(preparesMedia: Bool = true) async throws -> Bool {
-        guard let load = try await sessionLoadingService.load(.reviews) else { return false }
+        guard let load = try await loadCurrentStudySession(.reviews) else { return false }
         try await applyReviewSessionLoad(
             load, resettingSessionProgress: true, preparesMedia: preparesMedia
         )
@@ -53,7 +60,7 @@ extension StudyStore {
     ) async throws {
         guard sessionKind == "reviews", !lessonSessionIsPresented else { return }
         guard expectedStudySurfaceRevision.map({ $0 == studySurfaceRevision }) ?? true else { return }
-        guard let load = try await sessionLoadingService.load(.reviews) else { return }
+        guard let load = try await loadCurrentStudySession(.reviews) else { return }
         guard expectedStudySurfaceRevision.map({ $0 == studySurfaceRevision }) ?? true else { return }
         try await applyReviewSessionLoad(load, resettingSessionProgress: false)
     }
@@ -78,7 +85,7 @@ extension StudyStore {
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,
-            to: session.overview,
+            to: reconcileReviewOverview(session.overview, pending: pendingReviewState),
             preservingJLPTMasteryFrom: overview
         ))
         studySettings = resolvedSettings
@@ -95,7 +102,6 @@ extension StudyStore {
                 sessionCompletedCardIDs.count + activeCards.count
             )
         }
-        apply(pendingReviewState)
         try localCardRepository.replaceActiveSession(with: activeCards, userID: userID)
         loadLibraryCards(userID: userID)
         scheduleNextOfflineActivation()
@@ -125,7 +131,7 @@ extension StudyStore {
         } else {
             .lessons
         }
-        guard let load = try await sessionLoadingService.load(loadKind) else { return false }
+        guard let load = try await loadCurrentStudySession(loadKind) else { return false }
         let userID = load.userID
         let session = load.response.session
         // Both ordinary and introduction-cohort lesson endpoints are bounded by
@@ -146,7 +152,7 @@ extension StudyStore {
         )
         setOverview(StudySettingsPolicy.applying(
             resolvedSettings,
-            to: session.overview,
+            to: reconcileReviewOverview(session.overview, pending: pendingReviewState),
             preservingJLPTMasteryFrom: overview
         ))
         studySettings = resolvedSettings
@@ -375,7 +381,7 @@ extension StudyStore {
             rating: rating
         )
         apply(pendingState)
-        consumeOverviewCount(for: currentCard)
+        adjustOverviewQueue(for: currentCard, by: -1, persistImmediately: false)
         cards.removeAll { StudyCardIdentity.matches($0, any: identifiers) }
         if let index = libraryCards.firstIndex(where: {
             StudyCardIdentity.matches($0, any: identifiers)
@@ -386,6 +392,11 @@ extension StudyStore {
         }
         scheduleNextOfflineActivation()
         return currentCard
+    }
+
+    private func adjustOverviewQueue(for card: StudyCard, by delta: Int, persistImmediately: Bool) {
+        guard let overview else { return }
+        setOverview(overview.adjustingQueue(for: card, by: delta), persistImmediately: persistImmediately)
     }
 
     private func scheduleProgressionRevalidation(
@@ -475,6 +486,7 @@ extension StudyStore {
                 presentationRevision: presentationRevision,
                 undoingPresentedLesson: undoingPresentedLesson
             )
+            adjustOverviewQueue(for: restoredCard, by: 1, persistImmediately: true)
             apply(try reviewOutbox.pendingState())
             restoreSessionFailure(
                 for: restoredCard.id,
@@ -501,11 +513,11 @@ extension StudyStore {
             undoingPresentedLesson: undoingPresentedLesson
         )
         let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: response.overview)
-        setOverview(response.overview.updatingReviewTimeBudget(
+        let reconciled = try reconcileReviewOverview(response.overview, pending: reviewOutbox.pendingState())
+        setOverview(reconciled.updatingReviewTimeBudget(
             to: reviewTimeBudgetMinutes,
             fallbackJLPTMastery: overview?.jlptMastery
         ))
-        apply(try reviewOutbox.pendingState())
         restoreSessionFailure(
             for: restoredCard.id,
             before: eventID,

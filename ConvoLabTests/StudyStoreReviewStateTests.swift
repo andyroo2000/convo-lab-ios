@@ -418,6 +418,162 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testAgainAcknowledgementAndOverviewRefreshCountTheSameFailureOnce() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let client = makeClient { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            if request.url?.path == "/api/card-review-events/batch" {
+                return (response, Data(#"{"data":[]}"#.utf8))
+            }
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            return (response, Data(#"{"dueCount":26,"newCount":0,"reviewCount":27,"failedCount":1,"failedDueCount":0,"newCardsPerDay":20}"#.utf8))
+        }
+        let store = makeReviewStateStore(container: fixture.container, client: client)
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        await store.recordReview(card: fixture.card, rating: .again, duration: nil)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 0)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+        await store.refreshOverview()
+        XCTAssertTrue(store.newlyFailedCardIDs.isEmpty)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+    }
+
+    @MainActor
+    func testOfflineAgainReconcilesStaleAndFreshOverviewsAcrossDelivery() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let uploads = LockedCounter()
+        let reads = LockedCounter()
+        let client = makeClient { request in
+            if request.url?.path == "/api/card-review-events/batch" {
+                guard uploads.next() > 1 else { throw URLError(.notConnectedToInternet) }
+                return Self.response(data: Data(#"{"data":[]}"#.utf8))
+            }
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            // One unrelated review was completed on another device before the second read.
+            let responses = [(27, 0), (26, 0), (25, 1)]
+            let (due, failed) = responses[reads.next() - 1]
+            return Self.response(data: Data("""
+                {"dueCount":\(due),"failedCount":\(failed),"newCount":0,"reviewCount":27,"newCardsPerDay":20}
+                """.utf8))
+        }
+        let store = makeReviewStateStore(container: fixture.container, client: client)
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        await store.recordReview(card: fixture.card, rating: .again, duration: nil)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 1)
+        for expectedRemaining in [26, 25] {
+            await store.refreshOverview()
+            XCTAssertNil(store.overviewRefreshErrorMessage)
+            XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+            XCTAssertEqual(store.reviewQueueCounts.remaining, expectedRemaining)
+        }
+        try await store.flushSchedulingOutboxes()
+        await store.refreshOverview()
+        XCTAssertEqual(store.pendingOfflineReviewCount, 0)
+        XCTAssertTrue(store.newlyFailedCardIDs.isEmpty)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 25)
+    }
+
+    @MainActor
+    func testOutboxCountsOriginalQueueOnceAcrossRetriesAndKinds() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let store = makeReviewStateStore(container: fixture.container, client: makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        let fresh = makeCard(id: "new", expression: "猫", queueState: "new")
+        let steps: [(StudyCard, ReviewRating)] = [(fixture.card, .again), (fixture.card, .again), (fresh, .good)]
+        for (index, step) in steps.enumerated() {
+            let instant = Date(timeIntervalSince1970: Double(index + 1))
+            let event = ReviewBatchRequest.Event(
+                id: "event-\(index)", cardID: step.0.id, rating: step.1, reviewedAt: instant,
+                durationMilliseconds: nil, clientEventID: "event-\(index)", deviceID: "phone", clientCreatedAt: instant
+            )
+            try store.reviewOutbox.stageEnqueue(event: event, cardBefore: step.0)
+        }
+        let state = try store.reviewOutbox.pendingState()
+        XCTAssertEqual(state.cardIDs.count, 2)
+        XCTAssertEqual(state.newlyFailedCardIDs, [fixture.card.id])
+        let baseline = StudyOverview(dueCount: 27, newCount: 5, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 3)
+        let adjusted = baseline.reconcilingPendingReviews(state, with: nil)
+        XCTAssertEqual(adjusted.dueCount, 26)
+        XCTAssertEqual(adjusted.newCount, 4)
+        XCTAssertEqual(adjusted.newCardsAvailableToday, 2)
+    }
+
+    @MainActor
+    func testSessionReadStartedBeforeGradeCannotRestoreOldQueue() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let deferred = LockedDeferredResponse()
+        let client = makeDeferredClient { request, completion in
+            if request.url?.path == "/api/study/session/start" {
+                deferred.hold(completion)
+            } else {
+                completion(.success(Self.response(data: Data(#"{"data":[]}"#.utf8))))
+            }
+        }
+        let store = makeReviewStateStore(container: fixture.container, client: client)
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        let response = try sessionResponseData(cards: [fixture.card])
+        let load = Task { try await store.refreshSession(preparesMedia: false) }
+        await deferred.waitUntilPending()
+        await store.recordReview(card: fixture.card, rating: .again, duration: nil)
+        deferred.succeed(with: Self.response(data: response))
+        let published = try await load.value
+        XCTAssertFalse(published)
+        XCTAssertTrue(store.cards.isEmpty)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+    }
+
+    @MainActor
+    func testMixedLegacyAndCurrentPendingCardsUseBoundedSavedCounts() throws {
+        let old = try StorageCodec.decoder.decode(PendingReviewCardState.self, from: Data(#"{"id":"legacy"}"#.utf8))
+        let review = PendingReviewCardState(id: "review", failedAt: nil, queueState: "review")
+        let lesson = PendingReviewCardState(id: "lesson", failedAt: nil, queueState: "new")
+        var state = PendingReviewState(cardIDs: [old.id, review.id, lesson.id])
+        for card in [old, review, lesson] { state.recordOriginalQueue(card) }
+        let remote = StudyOverview(dueCount: 27, newCount: 5, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 3)
+        let cached = StudyOverview(dueCount: 12, newCount: 5, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 3)
+        let adjusted = remote.reconcilingPendingReviews(state, with: cached)
+        XCTAssertEqual(adjusted.dueCount, 25)
+        XCTAssertEqual(adjusted.newCount, 4)
+        XCTAssertEqual(adjusted.newCardsAvailableToday, 2)
+        let withoutSnapshot = remote.reconcilingPendingReviews(state, with: nil)
+        XCTAssertEqual(withoutSnapshot.dueCount, 26)
+        XCTAssertEqual(withoutSnapshot.newCount, 4)
+    }
+
+    @MainActor
+    func testOfflineUndoRestoresOrdinaryCountBeyondLoadedPage() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let store = makeReviewStateStore(container: fixture.container, client: makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        let grade = await store.recordReviewResult(card: fixture.card, rating: .again, duration: nil)
+        let staged = try XCTUnwrap(grade)
+        try await store.undoReview(eventID: staged.eventID, cardBefore: fixture.card)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 0)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 27)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 0)
+    }
+
+    @MainActor
+    func testReplacingCardStateInPlaceInvalidatesCountIndex() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let store = makeReviewStateStore(container: fixture.container, client: makeClient { _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        store.overview = StudyOverview(dueCount: 3, newCount: 1, reviewCount: 3, newCardsPerDay: 20, newCardsAvailableToday: 1)
+        store.cards = [fixture.card]
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 3)
+        store.cards[0] = makeCard(id: fixture.card.id, expression: "鳥", queueState: "new")
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 4)
+    }
+
+    @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let fixture = try makeReviewStateFixture(.init(
             id: "01J00000000000000000000018",
@@ -430,7 +586,11 @@ extension StudyStoreTests {
         }
         let store = makeReviewStateStore(container: fixture.container, client: client)
 
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 27)
         await store.recordReview(card: fixture.card, rating: .good, duration: .milliseconds(750))
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 0)
         XCTAssertEqual(deliveryAttempts.current, 1)
         XCTAssertEqual(store.pendingOfflineReviewCount, 1)
         let relaunchedStore = makeReviewStateStore(container: fixture.container, client: client)

@@ -36,11 +36,15 @@ final class LessonAudioUITests: XCTestCase {
         play.tap()
         waitForPlayback("playing:last", in: app)
         app.buttons["Start Quiz"].tap()
-        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Reveal answer"].waitForExistence(timeout: 5))
         let progress = app.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@ AND value == %@", "Session progress", "0 of 4 complete"
         )).firstMatch
         XCTAssertTrue(progress.exists)
+        XCTAssertFalse(app.buttons["StudyAnswerAudioButton"].exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "0 failed, 4 remaining")
+        ).firstMatch.exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Flashcard prompt and session controls"
         screenshot.lifetime = .keepAlways
@@ -56,7 +60,7 @@ final class LessonAudioUITests: XCTestCase {
         app.typeKey(" ", modifierFlags: [])
         waitForPlayback("playing:first", in: app)
         XCTAssertTrue(app.staticTexts["Preview this lesson"].exists)
-        XCTAssertFalse(app.buttons["Show Answer"].exists)
+        XCTAssertFalse(app.buttons["Reveal answer"].exists)
 
         app.buttons["Next"].tap()
         waitForCard(2, in: app)
@@ -94,16 +98,44 @@ final class LessonAudioUITests: XCTestCase {
     }
 
     @MainActor
+    func testLessonAgainMovesOneCardFromRemainingToRetriesUntilItPasses() {
+        let app = openQuizAnswer()
+        func waitForCounts(_ failed: Int, _ remaining: Int) {
+            let label = "\(failed) failed, \(remaining) remaining"
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@", label
+            )).firstMatch.waitForExistence(timeout: 8))
+        }
+        waitForCounts(0, 4)
+        app.buttons["Again"].tap()
+        waitForCounts(1, 3)
+        for remaining in [2, 1, 0] {
+            app.buttons["Reveal answer"].tap()
+            app.buttons["Good"].tap()
+            waitForCounts(1, remaining)
+        }
+        app.buttons["Reveal answer"].tap()
+        app.buttons["Again"].tap()
+        waitForCounts(1, 0)
+        app.buttons["Reveal answer"].tap()
+        app.buttons["Good"].tap()
+        XCTAssertTrue(app.staticTexts["Lesson complete"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
     func testQuizGradeSurvivesLeavingTheApp() {
         let app = openQuizAnswer()
         app.buttons["Good"].tap()
         XCUIDevice.shared.press(.home)
         app.activate()
-        XCTAssertTrue(app.buttons["Show Answer"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Reveal answer"].waitForExistence(timeout: 8))
         let progress = app.descendants(matching: .any).matching(
             NSPredicate(format: "label == %@ AND value == %@", "Session progress", "1 of 4 complete")
         )
         XCTAssertTrue(progress.firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "0 failed, 3 remaining")
+        ).firstMatch.exists)
     }
 
     @MainActor
@@ -127,7 +159,7 @@ final class LessonAudioUITests: XCTestCase {
             waitForCard(number, in: app)
         }
         app.buttons["Start Quiz"].tap()
-        app.buttons["Show Answer"].tap()
+        app.buttons["Reveal answer"].tap()
         XCTAssertTrue(app.buttons["Good"].waitForExistence(timeout: 5))
         return app
     }

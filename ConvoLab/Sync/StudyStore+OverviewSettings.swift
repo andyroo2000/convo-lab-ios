@@ -25,6 +25,7 @@ extension StudyStore {
     func refreshOverview(timeZone: TimeZone = .autoupdatingCurrent) async {
         guard let userID = activeUserID else { return }
         let activationGeneration = accountActivationGeneration
+        let scheduledReviewRevision = reviewOutboxRevision
         let settingsMutationRevision = studySettingsMutationRevision
         let refreshID = UUID()
         overviewRefreshID = refreshID
@@ -56,11 +57,15 @@ extension StudyStore {
             let appliedSettings = canPublishResponseSettings
                 ? responseSettings
                 : studySettings ?? responseSettings
-            setOverview(StudySettingsPolicy.applying(
-                appliedSettings,
-                to: refreshed,
-                preservingJLPTMasteryFrom: overview
-            ))
+            let countsAreCurrent = reviewOutboxRevision == scheduledReviewRevision
+            let source = countsAreCurrent
+                ? try reconcileReviewOverview(refreshed, pending: reviewOutbox.pendingState())
+                : overview
+            if let source {
+                setOverview(StudySettingsPolicy.applying(
+                    appliedSettings, to: source, preservingJLPTMasteryFrom: overview
+                ))
+            }
             if canPublishResponseSettings {
                 studySettings = responseSettings
             }
@@ -69,6 +74,14 @@ extension StudyStore {
                   overviewRefreshID == refreshID else { return }
             overviewRefreshErrorMessage = error.localizedDescription
         }
+    }
+
+    func reconcileReviewOverview(
+        _ server: StudyOverview,
+        pending: PendingReviewState
+    ) -> StudyOverview {
+        apply(pending)
+        return server.reconcilingPendingReviews(pending, with: overview)
     }
 
     func refreshStudySettings() async {

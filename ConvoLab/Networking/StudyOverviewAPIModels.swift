@@ -1,14 +1,14 @@
 import Foundation
 
 struct StudyOverview: nonisolated Codable, Sendable {
-    let dueCount: Int
+    private(set) var dueCount: Int
     let failedCount: Int?
     let failedDueCount: Int?
-    let newCount: Int
+    private(set) var newCount: Int
     let reviewCount: Int
     let totalCards: Int
     let newCardsPerDay: Int
-    let newCardsAvailableToday: Int?
+    private(set) var newCardsAvailableToday: Int?
     let lessonBatchSize: Int
     let reviewTimeBudgetMinutes: Int?
     let masterySpread: StudyMasterySpread?
@@ -117,6 +117,34 @@ struct StudyOverview: nonisolated Codable, Sendable {
         try container.encodeIfPresent(masterySpread, forKey: .masterySpread)
         try container.encodeIfPresent(jlptMastery, forKey: .jlptMastery)
         try container.encodeIfPresent(learningReadiness, forKey: .learningReadiness)
+    }
+
+    func adjustingQueue(for card: StudyCard, by delta: Int) -> Self {
+        var result = self
+        if card.state.queueState == "new" {
+            result.newCount = max(0, newCount + delta)
+            result.newCardsAvailableToday = newCardsAvailableToday.map { max(0, $0 + delta) }
+        } else if card.state.failedAt == nil {
+            result.dueCount = max(0, dueCount + delta)
+        }
+        return result
+    }
+
+    func reconcilingPendingReviews(_ pending: PendingReviewState, with local: Self?) -> Self {
+        guard !pending.cardIDs.isEmpty else { return self }
+        // New payloads identify the exact original queue. For legacy rows, bound
+        // the saved local projection by the number of still-unclassified cards.
+        func reconciled(_ remote: Int, consumed: Int, local: Int?) -> Int {
+            let known = max(0, remote - consumed)
+            return min(known, max(local ?? known, known - pending.unknownQueue))
+        }
+        var result = self
+        result.dueCount = reconciled(dueCount, consumed: pending.consumedOrdinary, local: local?.dueCount)
+        result.newCount = reconciled(newCount, consumed: pending.consumedNew, local: local?.newCount)
+        result.newCardsAvailableToday = newCardsAvailableToday.map {
+            reconciled($0, consumed: pending.consumedNew, local: local?.newCardsAvailableToday)
+        }
+        return result
     }
 
     func updatingReviewTimeBudget(

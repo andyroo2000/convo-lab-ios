@@ -136,3 +136,81 @@ struct StudySessionCounts: Equatable {
         )
     }
 }
+
+/// Partition the loaded review page once when it changes. The overview covers the unloaded pages.
+struct LoadedStudyReviewQueue {
+    private(set) var reviewIDs = Set<String>()
+    private var ordinary = Set<String>()
+    private var newCards = Set<String>()
+    private var failed = Set<String>()
+
+    init(_ cards: [StudyCard] = []) {
+        for card in cards {
+            reviewIDs.insert(card.reviewCardID.lowercased())
+            if card.state.failedAt != nil {
+                failed.insert(card.id)
+            } else if card.state.queueState == "new" {
+                newCards.insert(card.id)
+            } else {
+                ordinary.insert(card.id)
+            }
+        }
+    }
+
+    func counts(overview: StudyOverview?, newlyFailed: Set<String>, retained: Set<String>,
+                resolved: Set<String>) -> (failed: Int, remaining: Int) {
+        let knownExisting = failed.union(retained).subtracting(resolved).subtracting(newlyFailed)
+        let serverFailures = overview?.failedCount ?? overview?.failedDueCount ?? 0
+        let failures = max(knownExisting.count, serverFailures - resolved.count) + newlyFailed.count
+        let pendingFailures = newlyFailed.union(retained)
+        let due = max(ordinary.subtracting(pendingFailures).count, overview?.dueCount ?? 0)
+        return (failures, due + newCards.subtracting(pendingFailures).count)
+    }
+}
+
+struct StudyReviewHistory {
+    private(set) var revision = UUID()
+    var records: [StudySessionReviewRecord] = [] {
+        didSet { revision = UUID() }
+    }
+}
+
+/// Rebuild the partition only on the next read after the loaded page changes.
+/// Playback, accessibility, and grading animations can then read the same totals in constant time.
+@MainActor
+struct StudyReviewQueueCache {
+    private var loaded: LoadedStudyReviewQueue?
+    private var totals: (failed: Int, remaining: Int)?
+    private var progressSnapshot: (revision: UUID, outstanding: Int, value: StudyCardProgress)?
+
+    mutating func invalidate(pageChanged: Bool = false) {
+        totals = nil
+        progressSnapshot = nil
+        if pageChanged { loaded = nil }
+    }
+
+    mutating func progress(history: StudyReviewHistory, cards: [StudyCard], outstanding: Int) -> StudyCardProgress {
+        if let snapshot = progressSnapshot, snapshot.revision == history.revision,
+           snapshot.outstanding == outstanding { return snapshot.value }
+        var passed = Set<String>()
+        for record in history.records {
+            let id = record.cardBefore.reviewCardID.lowercased()
+            if record.rating == .again { passed.remove(id) } else { passed.insert(id) }
+        }
+        let page = loaded ?? LoadedStudyReviewQueue(cards)
+        loaded = page
+        let value = StudyCardProgress.review(reviewed: passed, queued: page.reviewIDs, due: outstanding)
+        progressSnapshot = (history.revision, outstanding, value)
+        return value
+    }
+
+    mutating func counts(indexPage: () -> LoadedStudyReviewQueue, overview: StudyOverview?, newlyFailed: Set<String>,
+                retained: Set<String>, resolved: Set<String>) -> (failed: Int, remaining: Int) {
+        if let totals { return totals }
+        let page = loaded ?? indexPage()
+        loaded = page
+        let result = page.counts(overview: overview, newlyFailed: newlyFailed, retained: retained, resolved: resolved)
+        totals = result
+        return result
+    }
+}

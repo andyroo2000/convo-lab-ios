@@ -88,9 +88,15 @@ final class StudyStore {
     @ObservationIgnored var studySettingsRefreshID: UUID?
     @ObservationIgnored var studySettingsUpdateID: UUID?
     @ObservationIgnored var overviewRefreshID: UUID?
-    @ObservationIgnored var newlyFailedCardIDs: Set<String> = []
-    @ObservationIgnored var retainedFailedCardIDs: Set<String> = []
-    @ObservationIgnored var resolvedFailedCardIDs: Set<String> = []
+    var newlyFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
+    var retainedFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
+    var resolvedFailedCardIDs: Set<String> = [] {
+        didSet { reviewQueueCache.invalidate() }
+    }
     @ObservationIgnored var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored var overviewSnapshot: LocalStudyOverviewSnapshot?
     @ObservationIgnored var overviewSnapshotSaveTask: Task<Void, Never>?
@@ -104,7 +110,22 @@ final class StudyStore {
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored var cardActionCardIDs: Set<String> = []
 
-    var cards: [StudyCard] = []
+    @ObservationIgnored private var reviewQueueCache = StudyReviewQueueCache()
+    var cards: [StudyCard] = [] {
+        didSet { reviewQueueCache.invalidate(pageChanged: true) }
+    }
+
+    var reviewQueueCounts: (failed: Int, remaining: Int) {
+        let page = cards
+        return reviewQueueCache.counts(indexPage: { LoadedStudyReviewQueue(page) }, overview: overview,
+                                       newlyFailed: newlyFailedCardIDs, retained: retainedFailedCardIDs,
+                                       resolved: resolvedFailedCardIDs)
+    }
+    func reviewProgress(for history: StudyReviewHistory) -> StudyCardProgress {
+        let counts = reviewQueueCounts
+        return reviewQueueCache.progress(history: history, cards: cards, outstanding: counts.failed + counts.remaining)
+    }
+
     var libraryCards: [StudyCard] = []
     var allCards: [StudyCard] = []
     var allCardsNextCursor: String?
@@ -123,7 +144,9 @@ final class StudyStore {
     var isLoadingMoreNewCardQueue = false
     var storageWriteErrorMessage: String?
     var failedStudyChanges: [FailedStudyChange] = []
-    var overview: StudyOverview?
+    var overview: StudyOverview? {
+        didSet { reviewQueueCache.invalidate() }
+    }
     var offlineReserveMetadata: StudyOfflineReserveMetadata?
     var isRefreshingOverview = false
     var overviewRefreshErrorMessage: String?
@@ -846,33 +869,6 @@ final class StudyStore {
         try context.save()
     }
 
-    func consumeOverviewCount(for card: StudyCard) {
-        guard let current = overview else { return }
-        setOverview(StudyOverview(
-            dueCount: card.state.failedAt == nil && card.state.queueState != "new"
-                ? max(0, current.dueCount - 1)
-                : current.dueCount,
-            newCount: card.state.queueState == "new"
-                ? max(0, current.newCount - 1)
-                : current.newCount,
-            reviewCount: current.reviewCount,
-            totalCards: current.totalCards,
-            newCardsPerDay: current.newCardsPerDay,
-            newCardsAvailableToday: card.state.queueState == "new"
-                ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
-                : current.newCardsAvailableToday,
-            failedCount: current.failedCount,
-            // Pending-review state adjusts failedDueCount until the next authoritative
-            // refresh. Mutating it here as well would decrement a failed card twice.
-            failedDueCount: current.failedDueCount,
-            lessonBatchSize: current.lessonBatchSize,
-            reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
-            masterySpread: current.masterySpread,
-            jlptMastery: current.jlptMastery,
-            learningReadiness: current.learningReadiness
-        ), persistImmediately: false)
-    }
-
     func dismissMasteryAnimation() {
         masteryAnimation = nil
     }
@@ -1118,7 +1114,8 @@ final class StudyStore {
 
         if let responseOverview {
             let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: responseOverview)
-            setOverview(responseOverview.updatingReviewTimeBudget(
+            let reconciled = try reconcileReviewOverview(responseOverview, pending: reviewOutbox.pendingState())
+            setOverview(reconciled.updatingReviewTimeBudget(
                 to: reviewTimeBudgetMinutes,
                 fallbackJLPTMastery: overview?.jlptMastery
             ))
