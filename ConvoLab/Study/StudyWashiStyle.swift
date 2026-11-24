@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 enum StudyWashiStyle {
+    static let actionFont = Font.custom("CrimsonPro-Regular", size: 18, relativeTo: .body)
+
     static var noteFont: UIFont {
         let base = UIFont(name: "CrimsonPro-Regular", size: 17) ?? .systemFont(ofSize: 17)
         let descriptor = base.fontDescriptor.withSymbolicTraits(.traitItalic) ?? base.fontDescriptor
@@ -64,21 +66,34 @@ struct StudyWashiBackground: View {
     }
 }
 
+struct StudyRevealButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StudyWashiStyle.actionFont.weight(.semibold))
+            .foregroundStyle(DrillPaper.ink)
+            .padding(.horizontal, 25)
+            .padding(.vertical, 9)
+            .frame(minWidth: 150, minHeight: 48)
+            .background(Color(red: 0.898, green: 0.933, blue: 0.984), in: .capsule)
+            .overlay { Capsule().strokeBorder(Color(red: 0.44, green: 0.52, blue: 0.63)) }
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
 struct StudyWashiGradeButtonStyle: ButtonStyle {
     let color: Color
-    let isGood: Bool
+    let selected: Bool
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.custom("CrimsonPro-Regular", size: 20, relativeTo: .body))
-            .foregroundStyle(isGood ? Color(red: 19 / 255, green: 44 / 255, blue: 12 / 255) : color)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(isGood ? StudyWashiStyle.good : StudyWashiStyle.paper, in: .rect(cornerRadius: 5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(isGood ? .clear : StudyWashiStyle.line, lineWidth: 1)
-            }
+            .font(StudyWashiStyle.actionFont)
+            .foregroundStyle(selected ? .white : Color(red: 0.10, green: 0.15, blue: 0.13))
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(selected ? ConvoLabTheme.navy : color, in: .capsule)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
     }
 }

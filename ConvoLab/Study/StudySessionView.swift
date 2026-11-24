@@ -20,10 +20,11 @@ struct StudySessionView: View {
     @Environment(\.appModeDestination) private var appModeDestination
 
     @State private var showingAnswer = false
+    @State private var selectedGrade: ReviewRating?
+    @State private var promptFile: (recording: StudyPromptRecording, file: URL)?
     @State private var cardTimer = StudySessionCardTimer(startedAt: .now)
     @State private var submittingReviewCardIDs: Set<String> = []
-    @State private var answerAudioLocalURL: URL?
-    @State private var didAttemptAnswerAudioLoad = false
+    @State private var answerFile: (source: URL, local: URL?)?
     @State private var didAutoplayAnswerForCardID: String?
     @State private var editingCard: StudyCard?
     @State private var undoActions: [StudyUndoAction] = []
@@ -101,10 +102,17 @@ struct StudySessionView: View {
         sessionWasEnded || reviewSessionComplete
     }
 
-    private var displayedProgress: Double {
-        guard let practiceCards else { return store.sessionProgress }
-        guard practiceInitialCount > 0 else { return 1 }
-        return Double(practiceInitialCount - practiceCards.count) / Double(practiceInitialCount)
+    private var sessionProgress: StudyCardProgress {
+        if let practiceCards {
+            return .batch(total: practiceInitialCount, remaining: practiceCards.count)
+        }
+        if mode == .lessons {
+            return .batch(total: store.sessionInitialCardCount, remaining: store.cards.count)
+        }
+        let counts = store.sessionCounts
+        let reviewed = Set(sessionReviewRecords.map { $0.cardBefore.reviewCardID.lowercased() })
+        let queued = Set(store.cards.map { $0.reviewCardID.lowercased() })
+        return .review(reviewed: reviewed, queued: queued, due: counts.reviewRemaining + counts.failedDue)
     }
 
     private var sessionContent: some View {
@@ -132,6 +140,7 @@ struct StudySessionView: View {
         } else if practiceComplete {
             practiceCompleteContent
         } else if let card {
+            StudyCardProgressView(progress: sessionProgress)
             if practiceMode {
                 Text("Practice only · results won’t affect your review schedule")
                     .font(.caption.bold())
@@ -142,31 +151,21 @@ struct StudySessionView: View {
                     .accessibilityIdentifier("StudyPracticeModeBanner")
             }
             let presentation = card.presentation
-            StudyWashiCard(centered: !showingAnswer && presentation.front.isMediaLed) {
+            StudyWashiCard(centered: true) {
                 if showingAnswer {
-                    answerFace(presentation.back, card: card)
+                    StudySessionAnswer(face: presentation.back, store: store)
                 } else {
-                    promptFace(presentation.front, cardID: card.id)
+                    promptFace(presentation.front)
                 }
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Flashcard")
-            .accessibilityValue("Session progress: \(Int(displayedProgress * 100)) percent")
 
             if showingAnswer {
                 gradeButtons(card: card)
             } else {
-                Button("Show Answer") {
-                    player.stop()
-                    if !practiceMode {
-                        pushUndo(.reveal(cardID: card.id))
-                    }
-                    showingAnswer = true
-                    autoplayAnswerAudioIfReady(cardID: card.id)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(ConvoLabTheme.navy)
-                .controlSize(.large)
+                Button("Show Answer") { revealAnswer(card) }
+                    .buttonStyle(StudyRevealButtonStyle())
             }
         } else if mode == .lessons {
             ContentUnavailableView {
@@ -227,7 +226,10 @@ struct StudySessionView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { lessonDismissToolbar }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { endSessionControl }
+            ToolbarItem(placement: .topBarLeading) {
+                HStack(spacing: 0) { endSessionControl }.fixedSize()
+            }
+                .sharedBackgroundVisibility(.hidden)
             if practiceMode {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Back to wrap-up") {
@@ -251,31 +253,42 @@ struct StudySessionView: View {
                         }
                         .accessibilityLabel("Edit card")
                         .accessibilityIdentifier("StudyAnswerEditButton")
-                        .disabled(submittingCardActionIDs.contains(card.id))
+                        .disabled(selectedGrade != nil || submittingCardActionIDs.contains(card.id))
                     }
                     if mode == .reviews {
                         reviewActionsMenu(card: card)
+                            .disabled(selectedGrade != nil)
                     }
                 }
+            }
+            if let card, !lessonPreview, !displayingCompletion, !practiceComplete, store.masteryAnimation == nil {
+                ToolbarItem(placement: .topBarTrailing) { toolbarReplay(card) }
             }
         }
     }
 
     private var canEndSession: Bool {
-        submittingReviewCardIDs.isEmpty && submittingCardActionIDs.isEmpty && store.masteryAnimation == nil
+        selectedGrade == nil && submittingReviewCardIDs.isEmpty && submittingCardActionIDs.isEmpty && store.masteryAnimation == nil
     }
 
     @ViewBuilder
     private var endSessionControl: some View {
-        if mode == .reviews, !displayingCompletion, !practiceMode {
-            Button("End session") { endReviewSession() }
-                .frame(minHeight: 44)
-                .disabled(!canEndSession)
-                .accessibilityIdentifier("StudyEndSessionButton")
-        } else if mode == .lessons, !allowsLessonDismissal {
-            Button("End session") { player.stop(); dismiss() }
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("StudyEndSessionButton")
+        if mode == .reviews ? !displayingCompletion && !practiceMode : !allowsLessonDismissal {
+            Button {
+                if mode == .reviews { endReviewSession() }
+                else { player.stop(); dismiss() }
+            } label: {
+                Text("End session")
+                    .font(StudyWashiStyle.actionFont)
+                    .foregroundStyle(JournalBrandStyle.spine)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(minHeight: 44)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canEndSession)
+            .accessibilityIdentifier("StudyEndSessionButton")
         }
     }
 
@@ -307,6 +320,7 @@ struct StudySessionView: View {
             wrapUpSummary = StudySessionWrapUpSummary.build(from: records)
         }
         .onChange(of: card?.id) { _, newCardID in
+            selectedGrade = nil
             player.stop()
             if let restoredCardID = answerRestoredByUndoCardID {
                 if newCardID?.lowercased() == restoredCardID.lowercased() {
@@ -328,14 +342,13 @@ struct StudySessionView: View {
                 timeStore?.stop(activity: .cardReview, source: .automatic)
             }
         }
+        .task(id: promptRecording) { await loadPromptRecording(promptRecording) }
         .task(id: card?.presentation.back.audioURL) {
-            answerAudioLocalURL = nil
-            didAttemptAnswerAudioLoad = false
+            answerFile = nil
             guard let remoteURL = card?.presentation.back.audioURL else { return }
             let resolvedURL = await store.playableMediaURL(for: remoteURL)
             guard !Task.isCancelled else { return }
-            answerAudioLocalURL = resolvedURL
-            didAttemptAnswerAudioLoad = true
+            answerFile = (remoteURL, resolvedURL)
             if let cardID = card?.id {
                 autoplayAnswerAudioIfReady(cardID: cardID)
             }
@@ -736,168 +749,90 @@ struct StudySessionView: View {
     }
 
     @ViewBuilder
-    private func promptFace(_ face: StudyCardPresentation.Face, cardID: String) -> some View {
+    private func promptFace(_ face: StudyCardPresentation.Face) -> some View {
         VStack(spacing: 18) {
             if let imageURL = face.imageURL {
-                StudyCardImage(
-                    remoteURL: imageURL,
-                    accessibilityLabel: face.supportingText ?? "Study prompt image",
-                    store: store
-                )
+                StudyCardImage(remoteURL: imageURL, accessibilityLabel: face.supportingText ?? "Study prompt image", store: store)
             }
-            if let audioURL = face.audioURL {
-                StudyCardAudioButton(
-                    remoteURL: audioURL,
-                    trackID: "study-prompt-\(cardID)",
-                    label: face.isMediaLed ? "Replay prompt audio" : "Play prompt audio",
-                    autoplay: Self.shouldAutoplayPromptAudio(
-                        cardID: cardID,
-                        currentCardID: card?.id,
-                        cardAllowsAutoplay: card?.shouldAutoplayPromptAudio == true,
-                        hasMasteryAnimation: store.masteryAnimation != nil
-                    ),
-                    store: store,
-                    player: player
-                )
-            }
-            if let heading = face.heading {
-                StudyRubyText(
-                    heading,
-                    knownKanji: store.knownKanji,
-                    pointSize: 26,
-                    weight: .medium,
-                    color: UIColor(ConvoLabTheme.navy),
-                    alignment: .left,
-                    extraLineSpacing: 8
-                )
-            }
-            if let supportingText = face.supportingText {
-                Text(supportingText)
-                    .font(.custom("CrimsonPro-Regular", size: 24, relativeTo: .title2))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(StudyWashiStyle.muted)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func answerFace(_ face: StudyCardPresentation.Face, card: StudyCard) -> some View {
-        VStack(spacing: 24) {
-            if let heading = face.heading {
-                StudyRubyText(
-                    heading,
-                    knownKanji: store.knownKanji,
-                    pointSize: 26,
-                    weight: .medium,
-                    color: UIColor(ConvoLabTheme.navy),
-                    alignment: .left,
-                    extraLineSpacing: 8
-                )
-            }
-
-            if face.audioURL != nil {
-                answerSpeaker(cardID: card.id)
-            }
-
-            if face.imageURL != nil || !face.textBlocks.isEmpty {
-                answerDetails(face)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func answerSpeaker(cardID: String) -> some View {
-        let playing = player.isCurrent("study-answer-\(cardID)") && player.isPlaying
-        return Button {
-            playAnswerAudio(cardID: cardID)
-        } label: {
-            StudySpeakerIcon(playing: playing)
-        }
-        .buttonStyle(StudyWashiAudioButtonStyle(playing: playing))
-        .accessibilityLabel("Play answer audio")
-        .accessibilityValue(playing ? "Playing" : "Not playing")
-        .disabled(answerAudioLocalURL == nil || player.isBlockedByLongFormAudio)
-        .accessibilityHint(answerAudioAccessibilityHint)
-        .accessibilityIdentifier("StudyAnswerAudioButton")
-    }
-
-    private func answerDetails(_ face: StudyCardPresentation.Face) -> some View {
-        VStack(spacing: 23) {
-            if let imageURL = face.imageURL {
-                StudyCardImage(
-                    remoteURL: imageURL,
-                    accessibilityLabel: face.textBlocks.first { $0.role == .meaning }?.text ?? "Answer image",
-                    store: store
-                )
-            }
-            ForEach(face.textBlocks) { block in answerTextBlock(block) }
-        }
-        .padding(.leading, 16)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(StudyWashiStyle.green.opacity(0.4)).frame(width: 3)
-        }
-    }
-
-    @ViewBuilder
-    private func answerTextBlock(_ block: StudyCardPresentation.TextBlock) -> some View {
-        let text = block.text
-
-        Group {
-            if block.role.supportsRuby {
-                StudyRubyText(
-                    text,
-                    knownKanji: store.knownKanji,
-                    pointSize: pointSize(for: block.role),
-                    color: uiColor(for: block.role),
-                    alignment: .left,
-                    font: block.role == .note ? StudyWashiStyle.noteFont : nil
-                )
-                .font(font(for: block.role))
-                .foregroundStyle(color(for: block.role))
-                .accessibilityElement(children: .combine)
+            if face.isMediaLed, face.imageURL == nil, let recording = promptRecording {
+                promptReplay(recording, prominent: true)
             } else {
-                Text(text)
-                    .multilineTextAlignment(.leading)
-                    .textSelection(.enabled)
-                    .font(font(for: block.role))
-                    .foregroundStyle(color(for: block.role))
-                    .accessibilityElement(children: .combine)
+                if let heading = face.heading {
+                    StudyReadingHeading(text: heading, knownKanji: store.knownKanji)
+                }
+                if let supportingText = face.supportingText {
+                    Text(supportingText)
+                        .font(.custom("CrimsonPro-Regular", size: 24, relativeTo: .title2))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(StudyWashiStyle.muted)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func font(for role: StudyCardPresentation.TextRole) -> Font {
-        switch role {
-        case .restoredText, .meaning: .custom("CrimsonPro-Regular", size: 26, relativeTo: .title2)
-        case .sentenceJapanese: .title3
-        case .sentenceEnglish: .custom("CrimsonPro-Regular", size: 20, relativeTo: .body)
-        case .note: .custom("CrimsonPro-Regular", size: 17, relativeTo: .body).italic()
+    private var promptRecording: StudyPromptRecording? {
+        guard !showingAnswer, !lessonPreview, !displayingCompletion,
+              let card, let url = card.presentation.front.audioURL else { return nil }
+        return StudyPromptRecording(cardID: card.id, url: url)
+    }
+
+    private func loadPromptRecording(_ recording: StudyPromptRecording?) async {
+        promptFile = nil
+        guard let recording, let file = await store.playableMediaURL(for: recording.url),
+              !Task.isCancelled, recording == promptRecording else { return }
+        promptFile = (recording, file)
+        if Self.shouldAutoplayPromptAudio(cardID: recording.cardID, currentCardID: card?.id,
+                                         cardAllowsAutoplay: card?.shouldAutoplayPromptAudio == true,
+                                         hasMasteryAnimation: store.masteryAnimation != nil) {
+            player.play(url: file, trackID: recording.trackID)
         }
     }
 
-    private func pointSize(for role: StudyCardPresentation.TextRole) -> CGFloat {
-        switch role {
-        case .restoredText, .meaning: 26
-        case .sentenceJapanese: 20
-        case .sentenceEnglish, .note: 17
-        }
+    private func revealAnswer(_ card: StudyCard) {
+        player.stop()
+        if !practiceMode { pushUndo(.reveal(cardID: card.id)) }
+        showingAnswer = true
+        autoplayAnswerAudioIfReady(cardID: card.id)
     }
 
-    private func color(for role: StudyCardPresentation.TextRole) -> Color {
-        switch role {
-        case .restoredText, .sentenceJapanese: ConvoLabTheme.navy
-        case .meaning: ConvoLabTheme.navy
-        case .sentenceEnglish, .note: StudyWashiStyle.muted
+    @ViewBuilder
+    private func promptReplay(_ recording: StudyPromptRecording, prominent: Bool) -> some View {
+        let playing = player.isCurrent(recording.trackID) && player.isPlaying
+        let replay = Button {
+            guard let promptFile, promptFile.recording == recording else { return }
+            player.play(url: promptFile.file, trackID: recording.trackID)
+        } label: {
+            if prominent { StudySpeakerIcon(playing: playing) }
+            else { StudyReplayGlyph(playing: playing) }
         }
+        .accessibilityLabel(prominent ? "Play prompt audio" : "Replay prompt audio")
+        .accessibilityValue(playing ? "Playing" : "Not playing")
+        .disabled(promptFile?.recording != recording || player.isBlockedByLongFormAudio)
+        if prominent { replay.buttonStyle(StudyWashiAudioButtonStyle(playing: playing)) }
+        else { replay }
     }
 
-    private func uiColor(for role: StudyCardPresentation.TextRole) -> UIColor {
-        switch role {
-        case .restoredText, .sentenceJapanese: UIColor(ConvoLabTheme.navy)
-        case .meaning: UIColor(ConvoLabTheme.navy)
-        case .sentenceEnglish, .note: UIColor(StudyWashiStyle.muted)
+    @ViewBuilder
+    private func toolbarReplay(_ card: StudyCard) -> some View {
+        if let recording = promptRecording {
+            promptReplay(recording, prominent: false)
+        } else if card.presentation.back.audioURL != nil {
+            let playing = player.isCurrent("study-answer-\(card.id)") && player.isPlaying
+            Button {
+                if showingAnswer { playAnswerAudio(cardID: card.id) }
+                else { revealAnswer(card) }
+            } label: {
+                HStack(spacing: 4) {
+                    StudyReplayGlyph(playing: playing)
+                    if !showingAnswer { Text("Hear answer").font(.caption) }
+                }
+            }
+            .accessibilityLabel(showingAnswer ? "Play answer audio" : "Hear answer")
+            .accessibilityValue(playing ? "Playing" : "Not playing")
+            .accessibilityIdentifier("StudyAnswerAudioButton")
+            .accessibilityHint(answerAudioAccessibilityHint)
+            .disabled(answerAudioLocalURL == nil || player.isBlockedByLongFormAudio)
         }
     }
 
@@ -906,11 +841,21 @@ struct StudySessionView: View {
             repeating: GridItem(.flexible(), spacing: 8),
             count: dynamicTypeSize.isAccessibilitySize ? 2 : 4
         ), spacing: 8) {
-            gradeButton("Again", rating: .again, color: Color(red: 149 / 255, green: 71 / 255, blue: 54 / 255), card: card)
-            gradeButton("Hard", rating: .hard, color: Color(red: 117 / 255, green: 88 / 255, blue: 36 / 255), card: card)
-            gradeButton("Good", rating: .good, color: StudyWashiStyle.good, card: card)
-            gradeButton("Easy", rating: .easy, color: Color(red: 64 / 255, green: 103 / 255, blue: 57 / 255), card: card)
+            gradeButton("Again", rating: .again, color: ConvoLabTheme.coral, card: card)
+            gradeButton("Hard", rating: .hard, color: .orange, card: card)
+            gradeButton("Good", rating: .good, color: ConvoLabTheme.cyan, card: card)
+            gradeButton("Easy", rating: .easy, color: StudyWashiStyle.good, card: card)
         }
+        .frame(maxWidth: 360)
+        .task(id: selectedGrade) {
+            guard let rating = selectedGrade else { return }
+            do { try await Task.sleep(for: .milliseconds(420)) } catch { return }
+            guard self.card?.id == card.id, showingAnswer else { return }
+            submitGrade(rating, card: card)
+            selectedGrade = nil
+        }
+        .onDisappear { selectedGrade = nil }
+
     }
 
     private func reviewActionsMenu(card: StudyCard) -> some View {
@@ -984,12 +929,17 @@ struct StudySessionView: View {
         card: StudyCard
     ) -> some View {
         Button {
-            submitGrade(rating, card: card)
+            guard selectedGrade == nil else { return }
+            selectedGrade = rating
         } label: {
-            Text(title)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 3) {
+                Text(title)
+                if selectedGrade == rating { Image(systemName: "checkmark").font(.caption.bold()) }
+            }
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(StudyWashiGradeButtonStyle(color: color, isGood: rating == .good))
+        .accessibilityLabel(Text(title))
+        .buttonStyle(StudyWashiGradeButtonStyle(color: color, selected: selectedGrade == rating))
         .frame(maxWidth: .infinity)
         .disabled(
             !submittingReviewCardIDs.isEmpty
@@ -1078,6 +1028,11 @@ struct StudySessionView: View {
         }
     }
 
+    private var answerAudioLocalURL: URL? {
+        guard let answerFile, answerFile.source == card?.presentation.back.audioURL else { return nil }
+        return answerFile.local
+    }
+
     private func playAnswerAudio(cardID: String) {
         guard let answerAudioLocalURL else { return }
         player.play(url: answerAudioLocalURL, trackID: "study-answer-\(cardID)")
@@ -1161,7 +1116,7 @@ struct StudySessionView: View {
         if player.isBlockedByLongFormAudio {
             return "Pause Daily Audio before playing a study card."
         }
-        if didAttemptAnswerAudioLoad, answerAudioLocalURL == nil {
+        if let answerFile, answerFile.source == card?.presentation.back.audioURL, answerFile.local == nil {
             return "Audio is not available offline."
         }
         return "Plays downloaded study audio."
@@ -1184,95 +1139,4 @@ struct StudySessionView: View {
 private enum StudyUndoAction {
     case reveal(cardID: String)
     case grade(eventID: String, cardBefore: StudyCard)
-}
-
-private extension StudyCardPresentation.TextRole {
-    var supportsRuby: Bool {
-        switch self {
-        case .restoredText, .sentenceJapanese, .note: true
-        case .meaning, .sentenceEnglish: false
-        }
-    }
-}
-
-private struct StudyCardAudioButton: View {
-    let remoteURL: URL
-    let trackID: String
-    let label: String
-    let autoplay: Bool
-    let store: StudyStore
-    let player: StudyAudioPlayer
-
-    @State private var localURL: URL?
-    @State private var didAttemptLoad = false
-
-    var body: some View {
-        Button {
-            guard let localURL else { return }
-            player.play(url: localURL, trackID: trackID)
-        } label: {
-            StudySpeakerIcon(playing: player.isCurrent(trackID) && player.isPlaying)
-        }
-        .buttonStyle(StudyWashiAudioButtonStyle(playing: player.isCurrent(trackID) && player.isPlaying))
-        .accessibilityLabel(label)
-        .accessibilityValue(player.isCurrent(trackID) && player.isPlaying ? "Playing" : "Not playing")
-        .disabled(localURL == nil || player.isBlockedByLongFormAudio)
-        .accessibilityHint(
-            player.isBlockedByLongFormAudio
-                ? "Pause Daily Audio before playing a study card."
-                : didAttemptLoad && localURL == nil
-                ? "Audio is not available offline."
-                : "Plays downloaded study audio."
-        )
-        .task(id: "\(trackID)|autoplay:\(autoplay)") {
-            didAttemptLoad = false
-            localURL = nil
-            let resolvedURL = await store.playableMediaURL(for: remoteURL)
-            guard !Task.isCancelled else { return }
-            localURL = resolvedURL
-            didAttemptLoad = true
-            if autoplay, let resolvedURL {
-                player.play(url: resolvedURL, trackID: trackID)
-            }
-        }
-    }
-}
-
-private struct StudyCardImage: View {
-    let remoteURL: URL
-    let accessibilityLabel: String
-    let store: StudyStore
-
-    @State private var image: UIImage?
-    @State private var didAttemptLoad = false
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 280)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .accessibilityLabel(accessibilityLabel)
-            } else if !didAttemptLoad {
-                ProgressView()
-                    .accessibilityLabel("Loading study image")
-            } else {
-                Label("Image unavailable offline", systemImage: "photo.badge.exclamationmark")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .task(id: remoteURL) {
-            didAttemptLoad = false
-            image = nil
-            let localURL = await store.playableMediaURL(for: remoteURL)
-            guard !Task.isCancelled else { return }
-            image = localURL.flatMap {
-                UIImage(contentsOfFile: $0.path)
-            }
-            didAttemptLoad = true
-        }
-    }
 }

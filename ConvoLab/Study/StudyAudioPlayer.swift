@@ -20,6 +20,7 @@ final class StudyAudioPlayer {
     private let isLongFormAudioPlaying: @MainActor () -> Bool
     private var currentTrackID: String?
     private var ownsAudioSession = false
+    @ObservationIgnored private var playbackObservation: NSKeyValueObservation?
     @ObservationIgnored private var completionObserver: StudyAudioNotificationToken?
     @ObservationIgnored private var interruptionObserver: StudyAudioNotificationToken?
     @ObservationIgnored private var routeChangeObserver: StudyAudioNotificationToken?
@@ -41,6 +42,12 @@ final class StudyAudioPlayer {
         }
         let player = AVPlayer()
         self.player = player
+        playbackObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isPlaying = self.player?.timeControlStatus == .playing
+            }
+        }
         completionObserver = StudyAudioNotificationToken(
             NotificationCenter.default.addObserver(
                 forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -78,7 +85,6 @@ final class StudyAudioPlayer {
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         player.seek(to: .zero)
         player.play()
-        isPlaying = true
     }
 
     func stop() {
