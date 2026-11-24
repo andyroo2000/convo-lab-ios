@@ -45,10 +45,7 @@ extension StudyStore {
                 query: [URLQueryItem(name: "time_zone", value: timeZone.identifier)]
             )
             guard isCurrentActivation(userID, generation: activationGeneration),
-                  overviewRefreshID == refreshID,
-                  reviewOutboxRevision == scheduledReviewRevision else { return }
-            // Pair the fresh server totals with events that are still pending on this device.
-            restorePendingReviewState()
+                  overviewRefreshID == refreshID else { return }
             let responseSettings = StudySettingsPolicy.settings(
                 from: refreshed,
                 fallbackReviewTimeBudget: resolvedReviewTimeBudget(),
@@ -60,11 +57,14 @@ extension StudyStore {
             let appliedSettings = canPublishResponseSettings
                 ? responseSettings
                 : studySettings ?? responseSettings
-            setOverview(StudySettingsPolicy.applying(
-                appliedSettings,
-                to: refreshed,
-                preservingJLPTMasteryFrom: overview
-            ))
+            let countsAreCurrent = reviewOutboxRevision == scheduledReviewRevision
+            if countsAreCurrent { restorePendingReviewState() }
+            // Preserve a newer local grade, even when this response still owns the settings.
+            if let source = countsAreCurrent ? refreshed : overview {
+                setOverview(StudySettingsPolicy.applying(
+                    appliedSettings, to: source, preservingJLPTMasteryFrom: overview
+                ))
+            }
             if canPublishResponseSettings {
                 studySettings = responseSettings
             }

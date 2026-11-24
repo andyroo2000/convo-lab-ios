@@ -110,18 +110,20 @@ final class StudyStore {
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored var cardActionCardIDs: Set<String> = []
 
-    private let reviewQueueCache = StudyReviewQueueCache()
+    @ObservationIgnored private var reviewQueueCache = StudyReviewQueueCache()
     var cards: [StudyCard] = [] {
         didSet { reviewQueueCache.invalidate(pageChanged: true) }
     }
 
     var reviewQueueCounts: (failed: Int, remaining: Int) {
-        reviewQueueCache.counts(cards: cards, overview: overview, newlyFailed: newlyFailedCardIDs,
-                                retained: retainedFailedCardIDs, resolved: resolvedFailedCardIDs)
+        let page = cards
+        return reviewQueueCache.counts(indexPage: { LoadedStudyReviewQueue(page) }, overview: overview,
+                                       newlyFailed: newlyFailedCardIDs, retained: retainedFailedCardIDs,
+                                       resolved: resolvedFailedCardIDs)
     }
-    func reviewProgress(for records: [StudySessionReviewRecord]) -> StudyCardProgress {
+    func reviewProgress(for history: StudyReviewHistory) -> StudyCardProgress {
         let counts = reviewQueueCounts
-        return reviewQueueCache.progress(records: records, cards: cards, outstanding: counts.failed + counts.remaining)
+        return reviewQueueCache.progress(history: history, cards: cards, outstanding: counts.failed + counts.remaining)
     }
 
     var libraryCards: [StudyCard] = []

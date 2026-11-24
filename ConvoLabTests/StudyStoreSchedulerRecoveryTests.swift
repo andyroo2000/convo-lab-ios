@@ -404,6 +404,7 @@ extension StudyStoreTests {
         )
         try await store.refreshSession()
         XCTAssertEqual(store.sessionCounts.failedDue, 3)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 3)
 
         await store.recordReview(card: failedCard, rating: .good, duration: nil)
 
@@ -411,6 +412,8 @@ extension StudyStoreTests {
             store.sessionCounts,
             StudySessionCounts(failedDue: 2, reviewRemaining: 0, newRemaining: 0)
         )
+        XCTAssertEqual(store.reviewQueueCounts.failed, 2)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 0)
         XCTAssertTrue(store.cards.isEmpty)
         XCTAssertTrue(
             try container.mainContext.fetch(FetchDescriptor<PendingMutation>()).isEmpty

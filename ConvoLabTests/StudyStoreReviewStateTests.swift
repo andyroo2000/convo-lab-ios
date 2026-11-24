@@ -430,7 +430,11 @@ extension StudyStoreTests {
         }
         let store = makeReviewStateStore(container: fixture.container, client: client)
 
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 27)
         await store.recordReview(card: fixture.card, rating: .good, duration: .milliseconds(750))
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 0)
         XCTAssertEqual(deliveryAttempts.current, 1)
         XCTAssertEqual(store.pendingOfflineReviewCount, 1)
         let relaunchedStore = makeReviewStateStore(container: fixture.container, client: client)

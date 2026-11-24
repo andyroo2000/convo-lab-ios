@@ -246,6 +246,7 @@ extension StudyStoreTests {
         await refresh.value
         XCTAssertEqual(store.reviewQueueCounts.failed, 1)
         XCTAssertEqual(store.reviewQueueCounts.remaining, 0)
+        XCTAssertEqual(store.studySettings?.newCardsPerDay, 20)
     }
 
     @MainActor

@@ -41,7 +41,7 @@ struct StudySessionView: View {
     @State private var cardPendingForget: StudyCard?
     @State private var cardPendingSetDue: StudyCard?
     @State private var cardActionErrorMessage: String?
-    @State private var sessionReviewRecords: [StudySessionReviewRecord] = []
+    @State private var reviewHistory = StudyReviewHistory()
     @State private var sessionWasEnded = false
     @State private var wrapUpSummary: StudySessionWrapUpSummary
     @State private var practiceCards: [StudyCard]?
@@ -99,7 +99,7 @@ struct StudySessionView: View {
         mode == .reviews
             && !practiceMode
             && selectedGrade == nil
-            && !sessionReviewRecords.isEmpty
+            && !reviewHistory.records.isEmpty
             && store.masteryAnimation == nil
             && store.cards.isEmpty
             && !store.sessionCounts.hasRemainingReviews
@@ -116,7 +116,7 @@ struct StudySessionView: View {
         if mode == .lessons {
             return .batch(total: store.sessionInitialCardCount, remaining: store.cards.count)
         }
-        return store.reviewProgress(for: sessionReviewRecords)
+        return store.reviewProgress(for: reviewHistory)
     }
 
     private var showsCardHeader: Bool {
@@ -352,7 +352,7 @@ struct StudySessionView: View {
         sessionViewWithChrome
         .task {
             startTimeTracking()
-            sessionReviewRecords = []
+            reviewHistory.records = []
             practiceCards = nil
             practiceInitialCount = 0
             resetCardTimer()
@@ -372,8 +372,8 @@ struct StudySessionView: View {
             guard isComplete, !sessionWasEnded else { return }
             prepareSessionCompletion()
         }
-        .onChange(of: sessionReviewRecords) { _, records in
-            wrapUpSummary = StudySessionWrapUpSummary.build(from: records)
+        .onChange(of: reviewHistory.revision) {
+            wrapUpSummary = StudySessionWrapUpSummary.build(from: reviewHistory.records)
         }
         .task(id: selectedGrade) {
             guard selectedGrade != nil else { return }
@@ -1041,7 +1041,7 @@ struct StudySessionView: View {
                         wasBatchRetry: wasBatchRetry
                     )
                 )
-                sessionReviewRecords.append(
+                reviewHistory.records.append(
                     StudySessionReviewRecord(
                         id: stagedReview.eventID,
                         cardBefore: stagedReview.cardBefore,
@@ -1150,7 +1150,7 @@ struct StudySessionView: View {
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
                 if wasBatchRetry { batchRetryIDs.insert(cardBefore.id) }
-                sessionReviewRecords.removeAll { $0.id == eventID }
+                reviewHistory.records.removeAll { $0.id == eventID }
                 showingAnswer = true
                 resetCardTimer()
                 didAutoplayAnswerForCardID = nil
