@@ -637,23 +637,23 @@ struct StudySessionView: View {
     private var wrapUpContent: some View {
         ScrollView {
             VStack(spacing: 14) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .background(ConvoLabTheme.cyan, in: .circle)
+                Image("ReviewTutorHana")
+                    .resizable().scaledToFit()
+                    .frame(width: 96, height: 96)
+                    .background(.white, in: Circle()).clipShape(Circle())
+                    .accessibilityHidden(true)
 
-                VStack(spacing: 4) {
+                VStack(spacing: 6) {
+                    Text("おつかれさまでした！")
+                        .font(.custom("Georgia", size: 30, relativeTo: .title))
+                        .accessibilityAddTraits(.isHeader)
                     Text("Nice work")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(StudyWashiStyle.ink)
-                    Text(
-                        reviewSessionComplete
-                            ? "You’re caught up for today."
-                            : "Here’s what you reviewed this session."
-                    )
-                        .foregroundStyle(.secondary)
+                        .font(StudyWashiStyle.actionFont.italic())
+                        .foregroundStyle(StudyWashiStyle.muted)
                 }
+                Text(reviewSessionComplete ? "You’re caught up for today." : "Here’s what you reviewed this session.")
+                    .font(StudyWashiStyle.actionFont)
+                Divider()
 
                 HStack(spacing: 12) {
                     wrapUpMetric(
@@ -668,79 +668,17 @@ struct StudySessionView: View {
                     )
                 }
 
-                HStack(spacing: 12) {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background(.green, in: .circle)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Newly stabilized")
-                            .font(.headline)
-                        Text(stabilizedCardDescription)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    Text(String(wrapUpSummary.newlyStabilizedCards.count))
-                        .font(.title.bold())
-                        .foregroundStyle(.green)
-                }
-                .padding()
-                .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
-
-                if !wrapUpSummary.toughestCards.isEmpty {
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text("Toughest this session")
-                                .font(.headline)
-                            Spacer()
-                            Button("Practice \(wrapUpSummary.toughestCards.count)") {
-                                startToughestPractice()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(StudyWashiStyle.ink)
-                            .accessibilityIdentifier("StudyToughestPracticeButton")
-                        }
-                        .padding(.bottom, 6)
-
-                        ForEach(wrapUpSummary.toughestCards) { item in
-                            Divider()
-                            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.card.promptText)
-                                        .font(.body.bold())
-                                        .lineLimit(1)
-                                    Text(item.card.answerText)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 8)
-                                Text(toughCardReason(item))
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(ConvoLabTheme.coral)
-                                    .monospacedDigit()
-                            }
-                            .padding(.vertical, 10)
-                        }
-                    }
-                    .padding()
-                    .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
-                    .accessibilityIdentifier("StudyToughestSection")
-                }
+                Divider()
 
                 Button("Done") {
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(StudyWashiStyle.ink)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(StudyRevealButtonStyle())
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
             }
-            .frame(maxWidth: 560)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(StudyWashiStyle.ink)
+            .frame(maxWidth: 480)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
         }
@@ -750,33 +688,15 @@ struct StudySessionView: View {
     private func wrapUpMetric(value: String, label: String) -> some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(.largeTitle.bold())
+                .font(.custom("CrimsonPro-Regular", size: 36, relativeTo: .largeTitle))
                 .foregroundStyle(StudyWashiStyle.ink)
                 .monospacedDigit()
-            Text(label.uppercased())
-                .font(.caption2.bold())
-                .tracking(1.2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            Text(label)
+                .font(StudyWashiStyle.actionFont)
+                .foregroundStyle(StudyWashiStyle.secondaryInk)
         }
-        .frame(maxWidth: .infinity, minHeight: 82)
-        .padding(.horizontal, 8)
-        .background(.white.opacity(0.85), in: .rect(cornerRadius: 18))
-    }
-
-    private var stabilizedCardDescription: String {
-        let cards = wrapUpSummary.newlyStabilizedCards
-        if cards.isEmpty {
-            return "No cards crossed into week-plus stability this time."
-        }
-        return cards.map(\.promptText).joined(separator: " · ")
-    }
-
-    private func toughCardReason(_ item: StudySessionToughCard) -> String {
-        let seconds = max(1, Int((Double(item.durationMilliseconds) / 1_000).rounded()))
-        if item.missCount == 0 { return "\(seconds) sec" }
-        let missLabel = item.missCount == 1 ? "1 miss" : "\(item.missCount) misses"
-        return "\(missLabel) · \(seconds) sec"
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
     private var practiceCompleteContent: some View {

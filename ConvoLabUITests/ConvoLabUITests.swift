@@ -48,6 +48,9 @@ final class ConvoLabUITests: XCTestCase {
         XCTAssertTrue(app.buttons["StudyEndSessionButton"].isHittable)
         app.buttons["Good"].tap()
         XCTAssertTrue(app.staticTexts["Nice work"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["おつかれさまでした！"].exists)
+        XCTAssertFalse(app.staticTexts["Newly stabilized"].exists)
+        XCTAssertFalse(app.staticTexts["Toughest this session"].exists)
         let pendingCount = app.staticTexts["pending-offline-review-count"]
         XCTAssertEqual(
             XCTWaiter.wait(
