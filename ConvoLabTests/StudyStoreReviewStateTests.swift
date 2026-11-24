@@ -528,15 +528,21 @@ extension StudyStoreTests {
     }
 
     @MainActor
-    func testLegacyPendingCardUsesBoundedSavedCounts() throws {
+    func testMixedLegacyAndCurrentPendingCardsUseBoundedSavedCounts() throws {
         let old = try StorageCodec.decoder.decode(PendingReviewCardState.self, from: Data(#"{"id":"legacy"}"#.utf8))
-        var state = PendingReviewState(cardIDs: [old.id])
-        state.recordOriginalQueue(old)
+        let review = PendingReviewCardState(id: "review", failedAt: nil, queueState: "review")
+        let lesson = PendingReviewCardState(id: "lesson", failedAt: nil, queueState: "new")
+        var state = PendingReviewState(cardIDs: [old.id, review.id, lesson.id])
+        for card in [old, review, lesson] { state.recordOriginalQueue(card) }
         let remote = StudyOverview(dueCount: 27, newCount: 5, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 3)
         let cached = StudyOverview(dueCount: 12, newCount: 5, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 3)
         let adjusted = remote.reconcilingPendingReviews(state, with: cached)
-        XCTAssertEqual(adjusted.dueCount, 26)
-        XCTAssertEqual(adjusted.newCount, 5)
+        XCTAssertEqual(adjusted.dueCount, 25)
+        XCTAssertEqual(adjusted.newCount, 4)
+        XCTAssertEqual(adjusted.newCardsAvailableToday, 2)
+        let withoutSnapshot = remote.reconcilingPendingReviews(state, with: nil)
+        XCTAssertEqual(withoutSnapshot.dueCount, 26)
+        XCTAssertEqual(withoutSnapshot.newCount, 4)
     }
 
     @MainActor
