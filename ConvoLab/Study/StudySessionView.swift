@@ -122,7 +122,7 @@ struct StudySessionView: View {
         .padding()
         .background { StudyWashiBackground() }
         .overlay(alignment: .top) { masteryFeedbackLane }
-        .tint(ConvoLabTheme.navy)
+        .tint(StudyWashiStyle.ink)
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
                 endReviewSession()
@@ -144,7 +144,7 @@ struct StudySessionView: View {
             if practiceMode {
                 Text("Practice only · results won’t affect your review schedule")
                     .font(.caption.bold())
-                    .foregroundStyle(ConvoLabTheme.navy)
+                    .foregroundStyle(StudyWashiStyle.ink)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .background(ConvoLabTheme.cyan.opacity(0.16), in: .capsule)
@@ -189,7 +189,7 @@ struct StudySessionView: View {
                     Task { await store.loadNextReviewBatch() }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(ConvoLabTheme.navy)
+                .tint(StudyWashiStyle.ink)
                 .disabled(store.syncStatus == .syncing)
             }
         } else {
@@ -249,7 +249,7 @@ struct StudySessionView: View {
                             player.stop()
                             editingCard = card
                         } label: {
-                            Image(systemName: "pencil")
+                            Image(systemName: "pencil").foregroundStyle(StudyWashiStyle.ink)
                         }
                         .accessibilityLabel("Edit card")
                         .accessibilityIdentifier("StudyAnswerEditButton")
@@ -262,7 +262,12 @@ struct StudySessionView: View {
                 }
             }
             if let card, !lessonPreview, !displayingCompletion, !practiceComplete, store.masteryAnimation == nil {
-                ToolbarItem(placement: .topBarTrailing) { toolbarReplay(card) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    toolbarReplay(card)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(StudyWashiStyle.ink)
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }
@@ -485,14 +490,16 @@ struct StudySessionView: View {
                                     heading,
                                     knownKanji: store.knownKanji,
                                     pointSize: 28,
-                                    weight: .semibold
+                                    weight: .semibold,
+                                    color: UIColor(StudyWashiStyle.ink),
+                                    readingColor: UIColor(StudyWashiStyle.secondaryInk)
                                 )
                             }
                             lessonAudioButton(for: previewCard)
                             ForEach(previewCard.presentation.back.textBlocks.prefix(2)) { block in
                                 Text(block.text)
                                     .multilineTextAlignment(.center)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(StudyWashiStyle.ink)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -580,7 +587,7 @@ struct StudySessionView: View {
                 VStack(spacing: 4) {
                     Text("Nice work")
                         .font(.largeTitle.bold())
-                        .foregroundStyle(ConvoLabTheme.navy)
+                        .foregroundStyle(StudyWashiStyle.ink)
                     Text(
                         reviewSessionComplete
                             ? "You’re caught up for today."
@@ -634,7 +641,7 @@ struct StudySessionView: View {
                                 startToughestPractice()
                             }
                             .buttonStyle(.borderedProminent)
-                            .tint(ConvoLabTheme.navy)
+                            .tint(StudyWashiStyle.ink)
                             .accessibilityIdentifier("StudyToughestPracticeButton")
                         }
                         .padding(.bottom, 6)
@@ -669,7 +676,7 @@ struct StudySessionView: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(ConvoLabTheme.navy)
+                .tint(StudyWashiStyle.ink)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("StudyWrapUpDoneButton")
@@ -685,7 +692,7 @@ struct StudySessionView: View {
         VStack(spacing: 4) {
             Text(value)
                 .font(.largeTitle.bold())
-                .foregroundStyle(ConvoLabTheme.navy)
+                .foregroundStyle(StudyWashiStyle.ink)
                 .monospacedDigit()
             Text(label.uppercased())
                 .font(.caption2.bold())
@@ -723,7 +730,7 @@ struct StudySessionView: View {
                 exitPracticeMode()
             }
             .buttonStyle(.borderedProminent)
-            .tint(ConvoLabTheme.navy)
+            .tint(StudyWashiStyle.ink)
         }
         .accessibilityIdentifier("StudyPracticeComplete")
     }
@@ -765,7 +772,7 @@ struct StudySessionView: View {
                         .font(.custom("CrimsonPro-Regular", size: 24, relativeTo: .title2))
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundStyle(StudyWashiStyle.muted)
+                        .foregroundStyle(StudyWashiStyle.ink)
                 }
             }
         }
@@ -804,7 +811,11 @@ struct StudySessionView: View {
             player.play(url: promptFile.file, trackID: recording.trackID)
         } label: {
             if prominent { StudySpeakerIcon(playing: playing) }
-            else { StudyReplayGlyph(playing: playing) }
+            else {
+                StudyReplayGlyph(playing: playing)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(.rect)
+            }
         }
         .accessibilityLabel(prominent ? "Play prompt audio" : "Replay prompt audio")
         .accessibilityValue(playing ? "Playing" : "Not playing")
@@ -827,6 +838,8 @@ struct StudySessionView: View {
                     StudyReplayGlyph(playing: playing)
                     if !showingAnswer { Text("Hear answer").font(.caption) }
                 }
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(.rect)
             }
             .accessibilityLabel(showingAnswer ? "Play answer audio" : "Hear answer")
             .accessibilityValue(playing ? "Playing" : "Not playing")
@@ -879,7 +892,7 @@ struct StudySessionView: View {
             if submittingCardActionIDs.contains(card.id) {
                 ProgressView()
             } else {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis.circle").foregroundStyle(StudyWashiStyle.ink)
             }
         }
         .disabled(

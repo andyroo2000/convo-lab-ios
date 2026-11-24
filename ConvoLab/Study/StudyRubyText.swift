@@ -188,6 +188,7 @@ struct StudyRubyText: UIViewRepresentable {
     let alignment: NSTextAlignment
     let extraLineSpacing: CGFloat
     var font: UIFont?
+    let readingColor: UIColor
 
     init(
         _ text: String,
@@ -197,7 +198,8 @@ struct StudyRubyText: UIViewRepresentable {
         color: UIColor = .label,
         alignment: NSTextAlignment = .center,
         extraLineSpacing: CGFloat = 0,
-        font: UIFont? = nil
+        font: UIFont? = nil,
+        readingColor: UIColor = .secondaryLabel
     ) {
         self.text = text
         self.knownKanji = knownKanji
@@ -207,6 +209,7 @@ struct StudyRubyText: UIViewRepresentable {
         self.alignment = alignment
         self.extraLineSpacing = extraLineSpacing
         self.font = font
+        self.readingColor = readingColor
     }
 
     func makeCoordinator() -> StudyRubyLineBreakDelegate {
@@ -242,7 +245,8 @@ struct StudyRubyText: UIViewRepresentable {
             color: color,
             alignment: alignment,
             extraLineSpacing: extraLineSpacing,
-            font: font
+            font: font,
+            readingColor: readingColor
         )
         context.coordinator.updateRubyRanges(in: attributedText)
         view.attributedText = attributedText
@@ -270,7 +274,8 @@ extension StudyRubyDocument {
         color: UIColor,
         alignment: NSTextAlignment,
         extraLineSpacing: CGFloat = 0,
-        font: UIFont? = nil
+        font: UIFont? = nil,
+        readingColor: UIColor = .secondaryLabel
     ) -> NSAttributedString {
         let baseFont = UIFont.systemFont(ofSize: pointSize, weight: weight)
         let roundedDescriptor = baseFont.fontDescriptor.withDesign(.rounded)
@@ -312,7 +317,7 @@ extension StudyRubyDocument {
                     reading as CFString,
                     [
                         kCTRubyAnnotationSizeFactorAttributeName: NSNumber(value: 0.42),
-                        kCTForegroundColorAttributeName: UIColor.secondaryLabel.cgColor,
+                        kCTForegroundColorAttributeName: readingColor.cgColor,
                     ] as CFDictionary
                 )
                 annotated.addAttribute(

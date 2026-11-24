@@ -17,7 +17,6 @@ enum StudySpeakerRhythm {
 struct StudySpeakerIcon: View {
     let playing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .body) private var size = 44
     @State private var startedAt = Date.now
 
     var body: some View {
@@ -37,7 +36,7 @@ struct StudySpeakerIcon: View {
                 }
             }
         }
-        .frame(width: size, height: size)
+        .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
         .onChange(of: playing) { _, active in
             if active { startedAt = .now }

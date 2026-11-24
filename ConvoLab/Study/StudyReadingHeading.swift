@@ -43,12 +43,13 @@ struct StudyReadingHeading: View {
         if size == .phrase {
             Text(text)
                 .font(.custom("CrimsonPro-Regular", size: size.points, relativeTo: .title))
-                .foregroundStyle(ConvoLabTheme.navy)
+                .foregroundStyle(StudyWashiStyle.ink)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         } else {
             StudyRubyText(text, knownKanji: knownKanji, pointSize: size.points,
-                          weight: .medium, color: UIColor(ConvoLabTheme.navy), alignment: size.alignment)
+                          weight: .medium, color: UIColor(StudyWashiStyle.ink), alignment: size.alignment,
+                          readingColor: UIColor(StudyWashiStyle.secondaryInk))
         }
     }
 }
@@ -65,10 +66,7 @@ struct StudyReplayGlyph: View {
 
     var body: some View {
         StudySpeakerIcon(playing: playing)
-            .scaleEffect(0.53)
-            .frame(width: 32, height: 32)
-            .foregroundStyle(ConvoLabTheme.cream)
-            .background(playing ? StudyWashiStyle.green : ConvoLabTheme.navy, in: .circle)
+            .studySpeakerTile(size: 32, playing: playing)
             .accessibilityHidden(true)
     }
 }

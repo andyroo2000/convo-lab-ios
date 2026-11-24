@@ -58,7 +58,8 @@ struct StudySessionAnswer: View {
                     pointSize: pointSize(for: block.role),
                     color: UIColor(color(for: block.role)),
                     alignment: .left,
-                    font: block.role == .note ? StudyWashiStyle.noteFont : nil
+                    font: block.role == .note ? StudyWashiStyle.noteFont : nil,
+                    readingColor: UIColor(StudyWashiStyle.secondaryInk)
                 )
                 .font(font(for: block.role))
                 .foregroundStyle(color(for: block.role))
@@ -94,9 +95,8 @@ struct StudySessionAnswer: View {
 
     private func color(for role: StudyCardPresentation.TextRole) -> Color {
         switch role {
-        case .restoredText, .sentenceJapanese: ConvoLabTheme.navy
-        case .meaning: ConvoLabTheme.navy
-        case .sentenceEnglish, .note: StudyWashiStyle.muted
+        case .restoredText, .sentenceJapanese, .meaning, .sentenceEnglish: StudyWashiStyle.ink
+        case .note: StudyWashiStyle.secondaryInk
         }
     }
 }
