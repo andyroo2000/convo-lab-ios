@@ -12,6 +12,7 @@ final class JournalDeletionUITests: XCTestCase {
         app.textViews["Journal entry"].tap()
         app.textViews["Journal entry"].typeText("A new draft.")
         if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+        XCTAssertTrue(app.staticTexts["Synced"].waitForExistence(timeout: 35))
         for _ in 0..<5 where !app.buttons["Contents"].isHittable { app.swipeDown() }
         app.buttons["Contents"].tap()
         let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "JournalRowActions-")).firstMatch
@@ -37,6 +38,7 @@ final class JournalDeletionUITests: XCTestCase {
         app.buttons["Close"].firstMatch.tap()
         let body = app.textViews["Journal entry"]
         XCTAssertTrue(body.waitForExistence(timeout: 5))
+        XCTAssertEqual(body.value as? String, "A new draft.")
         body.tap()
         body.typeText("Keep the renamed title.")
         if app.buttons["Done"].exists { app.buttons["Done"].tap() }
