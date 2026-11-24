@@ -200,9 +200,9 @@ final class StudyStore {
         id: UUID,
         card: StudyCard,
         label: String,
-        fromLevel: String,
-        toLevel: String,
-        passed: Bool
+        fromLevel: StudyMasteryLevel,
+        toLevel: StudyMasteryLevel,
+        rating: ReviewRating
     )?
 
     var sessionProgress: Double {

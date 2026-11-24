@@ -71,7 +71,7 @@ struct StudySessionView: View {
         _wrapUpSummary = State(initialValue: StudySessionWrapUpSummary.build(from: []))
     }
 
-    private var selectedGrade: ReviewRating? { gradeFeedback?.rating }
+    private var selectedGrade: ReviewRating? { gradeFeedback?.rating ?? store.masteryAnimation?.rating }
 
     private var card: StudyCard? {
         if let gradeFeedback { return gradeFeedback.card }
@@ -144,7 +144,6 @@ struct StudySessionView: View {
                 .padding()
         }
         .background { StudyWashiBackground() }
-        .overlay(alignment: .top) { masteryFeedbackLane }
         .tint(StudyWashiStyle.ink)
         .overlay {
             InteractivePopGestureGuard(isDisabled: mode == .reviews) {
@@ -185,6 +184,7 @@ struct StudySessionView: View {
 
             if showingAnswer || selectedGrade != nil {
                 gradeButtons(card: card)
+                    .overlay(alignment: .top) { masteryFeedbackLane }
             } else {
                 Button("Reveal answer") { revealAnswer(card) }
                     .buttonStyle(StudyRevealButtonStyle())
@@ -982,8 +982,7 @@ struct StudySessionView: View {
             MasteryReviewAnimation(
                 label: animation.label,
                 fromLevel: animation.fromLevel,
-                toLevel: animation.toLevel,
-                passed: animation.passed
+                toLevel: animation.toLevel
             ) {
                 guard store.masteryAnimation?.id == animation.id else {
                     return
@@ -991,9 +990,7 @@ struct StudySessionView: View {
                 store.dismissMasteryAnimation()
             }
             .id(animation.id)
-            .frame(height: MasteryReviewAnimation.feedbackLaneHeight)
-            .background(StudyWashiStyle.desk, in: .rect(cornerRadius: 16))
-            .padding(.horizontal, 16)
+            .alignmentGuide(.top) { $0[.bottom] + 8 }
             .allowsHitTesting(false)
         }
     }
