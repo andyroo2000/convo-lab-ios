@@ -418,6 +418,29 @@ extension StudyStoreTests {
     }
 
     @MainActor
+    func testAgainAcknowledgementAndOverviewRefreshCountTheSameFailureOnce() async throws {
+        let fixture = try makeReviewStateFixture(.init(id: "01J00000000000000000000018", expression: "鳥"))
+        let client = makeClient { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            if request.url?.path == "/api/card-review-events/batch" {
+                return (response, Data(#"{"data":[]}"#.utf8))
+            }
+            XCTAssertEqual(request.url?.path, "/api/study/overview")
+            return (response, Data(#"{"dueCount":26,"newCount":0,"reviewCount":27,"failedCount":1,"failedDueCount":0,"newCardsPerDay":20}"#.utf8))
+        }
+        let store = makeReviewStateStore(container: fixture.container, client: client)
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
+        await store.recordReview(card: fixture.card, rating: .again, duration: nil)
+        XCTAssertEqual(store.pendingOfflineReviewCount, 0)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+        await store.refreshOverview()
+        XCTAssertTrue(store.newlyFailedCardIDs.isEmpty)
+        XCTAssertEqual(store.reviewQueueCounts.failed, 1)
+        XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
+    }
+
+    @MainActor
     func testOfflineReviewedCardStaysOutOfQueueAfterRelaunch() async throws {
         let fixture = try makeReviewStateFixture(.init(
             id: "01J00000000000000000000018",
@@ -430,7 +453,7 @@ extension StudyStoreTests {
         }
         let store = makeReviewStateStore(container: fixture.container, client: client)
 
-        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20)
+        store.overview = StudyOverview(dueCount: 27, newCount: 0, reviewCount: 27, newCardsPerDay: 20, newCardsAvailableToday: 0)
         XCTAssertEqual(store.reviewQueueCounts.remaining, 27)
         await store.recordReview(card: fixture.card, rating: .good, duration: .milliseconds(750))
         XCTAssertEqual(store.reviewQueueCounts.remaining, 26)
