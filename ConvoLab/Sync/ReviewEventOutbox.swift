@@ -4,15 +4,18 @@ import SwiftData
 struct PendingReviewCardState: Codable {
     let id: String
     let failedAt: Date?
+    let queueState: String?
 
     init(card: StudyCard) {
         id = card.id
         failedAt = card.state.failedAt
+        queueState = card.state.queueState
     }
 
-    init(id: String, failedAt: Date?) {
+    init(id: String, failedAt: Date?, queueState: String? = nil) {
         self.id = id
         self.failedAt = failedAt
+        self.queueState = queueState
     }
 }
 
@@ -28,26 +31,43 @@ private struct LegacyPendingReviewPayload: Codable {
 
 struct PendingReviewState {
     var cardIDs: Set<String> = []
+    var consumedOrdinary = 0
+    var consumedNew = 0
+    var unknownQueue = 0
+
+    mutating func recordOriginalQueue(_ card: PendingReviewCardState?) {
+        if card?.queueState == "new" {
+            consumedNew += 1
+        } else if card?.failedAt != nil {
+            return
+        } else if card?.queueState != nil {
+            consumedOrdinary += 1
+        } else {
+            // Older compact payloads did not store their original queue.
+            unknownQueue += 1
+        }
+    }
+
     var newlyFailedCardIDs: Set<String> = []
     var retainedFailedCardIDs: Set<String> = []
     var resolvedFailedCardIDs: Set<String> = []
 
     mutating func record(card: PendingReviewCardState, rating: ReviewRating) {
-        if rating == .again {
-            let wasResolved = resolvedFailedCardIDs.remove(card.id) != nil
-            if newlyFailedCardIDs.contains(card.id) {
-                retainedFailedCardIDs.remove(card.id)
-            } else if wasResolved || card.failedAt != nil {
-                retainedFailedCardIDs.insert(card.id)
-            } else {
-                newlyFailedCardIDs.insert(card.id)
-            }
-        } else {
+        guard rating == .again else {
             let wasNewlyFailed = newlyFailedCardIDs.remove(card.id) != nil
             retainedFailedCardIDs.remove(card.id)
             if card.failedAt != nil, !wasNewlyFailed {
                 resolvedFailedCardIDs.insert(card.id)
             }
+            return
+        }
+        let wasResolved = resolvedFailedCardIDs.remove(card.id) != nil
+        if newlyFailedCardIDs.contains(card.id) {
+            retainedFailedCardIDs.remove(card.id)
+        } else if wasResolved || card.failedAt != nil {
+            retainedFailedCardIDs.insert(card.id)
+        } else {
+            newlyFailedCardIDs.insert(card.id)
         }
     }
 }
@@ -205,26 +225,9 @@ final class ReviewEventOutbox {
                 sortBy: [SortDescriptor(\.createdAt)]
             )
         )
-        let pendingCardIDs = pending.map(\.resourceID)
-        let records = try context.fetch(
-            FetchDescriptor<LocalCardRecord>(
-                predicate: #Predicate {
-                    $0.userID == userID && pendingCardIDs.contains($0.id)
-                }
-            )
-        )
-        let cardsByID = Dictionary(
-            records.compactMap { record in
-                (try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload))
-                    .map { ($0.id, $0) }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        guard !pending.isEmpty else { return PendingReviewState() }
         var state = PendingReviewState()
-
-        for mutation in pending {
-            state.cardIDs.insert(mutation.resourceID)
-        }
+        state.cardIDs = Set(pending.map(\.resourceID))
         let decodedPending = pending.compactMap { mutation in
             (try? decode(mutation.payload)).map { (mutation, $0) }
         }
@@ -235,7 +238,15 @@ final class ReviewEventOutbox {
             return left.1.event.id < right.1.event.id
         }
 
+        let legacyIDs = decodedPending.compactMap { mutation, decoded in
+            decoded.cardBefore == nil ? mutation.resourceID : nil
+        }
+        let cardsByID = try legacyIDs.isEmpty ? [:] : legacyCards(for: legacyIDs, userID: userID)
+        var countedIDs = Set<String>()
         for (mutation, decoded) in decodedPending {
+            if countedIDs.insert(mutation.resourceID.lowercased()).inserted {
+                state.recordOriginalQueue(decoded.cardBefore)
+            }
             guard let card = decoded.cardBefore
                 ?? cardsByID[mutation.resourceID].map(PendingReviewCardState.init)
             else {
@@ -244,6 +255,23 @@ final class ReviewEventOutbox {
             state.record(card: card, rating: decoded.event.rating)
         }
         return state
+    }
+
+    private func legacyCards(for pendingCardIDs: [String], userID: Int) throws -> [String: StudyCard] {
+        let records = try context.fetch(
+            FetchDescriptor<LocalCardRecord>(
+                predicate: #Predicate {
+                    $0.userID == userID && pendingCardIDs.contains($0.id)
+                }
+            )
+        )
+        return Dictionary(
+            records.compactMap { record in
+                (try? StorageCodec.decoder.decode(StudyCard.self, from: record.payload))
+                    .map { ($0.id, $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     func hasPendingReview(for cardID: String) throws -> Bool {
@@ -320,7 +348,8 @@ final class ReviewEventOutbox {
                 event: canonicalEvent,
                 cardBefore: PendingReviewCardState(
                     id: cardID,
-                    failedAt: cardBefore.failedAt
+                    failedAt: cardBefore.failedAt,
+                    queueState: cardBefore.queueState
                 )
             )
         )
@@ -334,87 +363,11 @@ final class ReviewEventOutbox {
         var result = ReviewEventFlushResult()
         do {
             while true {
-            try ensureActive(userID: userID, generation: generation)
-            let descriptor = FetchDescriptor<PendingMutation>(
-                predicate: #Predicate {
-                    $0.userID == userID && $0.kind == "review" && $0.lastError == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt)]
-            )
-            let pending = try context.fetch(descriptor)
-            let ready = try pending.filter {
-                try !hasPendingCardCreate(for: $0.resourceID, userID: userID)
-                    && !hasEarlierCardAction(than: $0, userID: userID)
-            }
-            let batch = Array(ready.prefix(Self.uploadBatchSize))
-            guard !batch.isEmpty else { break }
-
-            let events = try batch.map { try decode($0.payload).event }
-            do {
-                try await api.request(
-                    "/api/card-review-events/batch",
-                    method: "POST",
-                    body: ReviewBatchRequest(events: events)
-                )
-                // A switch here deliberately leaves the event for an idempotent retry
-                // under its original account, using the same event and client IDs.
                 try ensureActive(userID: userID, generation: generation)
-                batch.forEach(context.delete)
-                try context.save()
-            } catch let APIClientError.rejected(status, _)
-                where [400, 404, 409, 410, 422].contains(status)
-            {
-                try ensureActive(userID: userID, generation: generation)
-                for (mutation, event) in zip(batch, events) {
-                    do {
-                        try await api.request(
-                            "/api/card-review-events/batch",
-                            method: "POST",
-                            body: ReviewBatchRequest(events: [event])
-                        )
-                        try ensureActive(userID: userID, generation: generation)
-                        context.delete(mutation)
-                        try context.save()
-                    } catch let APIClientError.rejected(individualStatus, individualMessage)
-                        where [400, 404, 409, 410, 422].contains(individualStatus)
-                    {
-                        try ensureActive(userID: userID, generation: generation)
-                        if Self.isProgressionLocked(
-                            status: individualStatus,
-                            message: individualMessage
-                        ) {
-                            result.progressionLockedEventIDs.insert(event.id)
-                            try localCardRepository.markProgressionLocked(
-                                matching: [mutation.resourceID, event.cardID],
-                                userID: userID
-                            )
-                            context.delete(mutation)
-                        } else {
-                            mutation.attemptCount += 1
-                            mutation.lastAttemptAt = .now
-                            mutation.lastError = "HTTP \(individualStatus): \(individualMessage)"
-                            quarantinedCount += 1
-                        }
-                        try context.save()
-                    } catch {
-                        try ensureActive(userID: userID, generation: generation)
-                        mutation.attemptCount += 1
-                        mutation.lastAttemptAt = .now
-                        mutation.lastError = nil
-                        try context.save()
-                        throw error
-                    }
-                }
-            } catch {
-                try ensureActive(userID: userID, generation: generation)
-                for mutation in batch {
-                    mutation.attemptCount += 1
-                    mutation.lastAttemptAt = .now
-                    mutation.lastError = nil
-                }
-                try context.save()
-                throw error
-            }
+                let batch = try nextBatch(userID: userID)
+                guard !batch.isEmpty else { break }
+                try await deliver(batch, userID: userID, generation: generation,
+                                  result: &result, quarantinedCount: &quarantinedCount)
             }
 
             if quarantinedCount > 0 {
@@ -425,6 +378,101 @@ final class ReviewEventOutbox {
             guard !result.isEmpty else { throw error }
             throw ReviewEventFlushFailure(result: result, underlyingError: error)
         }
+    }
+
+    private func deliver(
+        _ batch: [PendingMutation], userID: Int, generation: Int,
+        result: inout ReviewEventFlushResult, quarantinedCount: inout Int
+    ) async throws {
+        let events = try batch.map { try decode($0.payload).event }
+        do {
+            try await send(events, removing: batch, userID: userID, generation: generation)
+        } catch let APIClientError.rejected(status, _) where Self.isPermanentRejection(status) {
+            for (mutation, event) in zip(batch, events) {
+                switch try await retryIndividually(mutation, event, userID: userID, generation: generation) {
+                case .accepted: break
+                case .locked: result.progressionLockedEventIDs.insert(event.id)
+                case .quarantined: quarantinedCount += 1
+                }
+            }
+        } catch {
+            try ensureActive(userID: userID, generation: generation)
+            try recordRetryableFailure(batch)
+            throw error
+        }
+    }
+
+    private func nextBatch(userID: Int) throws -> [PendingMutation] {
+        let pending = try context.fetch(FetchDescriptor<PendingMutation>(
+            predicate: #Predicate {
+                $0.userID == userID && $0.kind == "review" && $0.lastError == nil
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        ))
+        var ready: [PendingMutation] = []
+        for mutation in pending {
+            if try !hasPendingCardCreate(for: mutation.resourceID, userID: userID)
+                && !hasEarlierCardAction(than: mutation, userID: userID) {
+                ready.append(mutation)
+            }
+            if ready.count == Self.uploadBatchSize { break }
+        }
+        return ready
+    }
+
+    private func send(
+        _ events: [ReviewBatchRequest.Event], removing mutations: [PendingMutation],
+        userID: Int, generation: Int
+    ) async throws {
+        try ensureActive(userID: userID, generation: generation)
+        try await api.request(
+            "/api/card-review-events/batch", method: "POST", body: ReviewBatchRequest(events: events)
+        )
+        // Switching accounts leaves events on the original account for an idempotent retry.
+        try ensureActive(userID: userID, generation: generation)
+        mutations.forEach(context.delete)
+        try context.save()
+    }
+
+    private enum DeliveryResult { case accepted, locked, quarantined }
+
+    private static func isPermanentRejection(_ status: Int) -> Bool {
+        [400, 404, 409, 410, 422].contains(status)
+    }
+
+    private func retryIndividually(
+        _ mutation: PendingMutation, _ event: ReviewBatchRequest.Event, userID: Int, generation: Int
+    ) async throws -> DeliveryResult {
+        do {
+            try await send([event], removing: [mutation], userID: userID, generation: generation)
+            return .accepted
+        } catch let APIClientError.rejected(status, message) where Self.isPermanentRejection(status) {
+            try ensureActive(userID: userID, generation: generation)
+            if Self.isProgressionLocked(status: status, message: message) {
+                try localCardRepository.markProgressionLocked(matching: [mutation.resourceID, event.cardID], userID: userID)
+                context.delete(mutation)
+                try context.save()
+                return .locked
+            }
+            mutation.attemptCount += 1
+            mutation.lastAttemptAt = .now
+            mutation.lastError = "HTTP \(status): \(message)"
+            try context.save()
+            return .quarantined
+        } catch {
+            try ensureActive(userID: userID, generation: generation)
+            try recordRetryableFailure([mutation])
+            throw error
+        }
+    }
+
+    private func recordRetryableFailure(_ mutations: [PendingMutation]) throws {
+        for mutation in mutations {
+            mutation.attemptCount += 1
+            mutation.lastAttemptAt = .now
+            mutation.lastError = nil
+        }
+        try context.save()
     }
 
     // The API does not expose a machine-readable error code for this conflict.

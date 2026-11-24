@@ -58,9 +58,10 @@ extension StudyStore {
                 ? responseSettings
                 : studySettings ?? responseSettings
             let countsAreCurrent = reviewOutboxRevision == scheduledReviewRevision
-            if countsAreCurrent { restorePendingReviewState() }
-            // Preserve a newer local grade, even when this response still owns the settings.
-            if let source = countsAreCurrent ? refreshed : overview {
+            let source = countsAreCurrent
+                ? try reconcileReviewOverview(refreshed, pending: reviewOutbox.pendingState())
+                : overview
+            if let source {
                 setOverview(StudySettingsPolicy.applying(
                     appliedSettings, to: source, preservingJLPTMasteryFrom: overview
                 ))
@@ -73,6 +74,14 @@ extension StudyStore {
                   overviewRefreshID == refreshID else { return }
             overviewRefreshErrorMessage = error.localizedDescription
         }
+    }
+
+    func reconcileReviewOverview(
+        _ server: StudyOverview,
+        pending: PendingReviewState
+    ) -> StudyOverview {
+        apply(pending)
+        return server.reconcilingPendingReviews(pending, with: overview)
     }
 
     func refreshStudySettings() async {

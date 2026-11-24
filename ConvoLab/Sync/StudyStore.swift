@@ -869,33 +869,6 @@ final class StudyStore {
         try context.save()
     }
 
-    func consumeOverviewCount(for card: StudyCard) {
-        guard let current = overview else { return }
-        setOverview(StudyOverview(
-            dueCount: card.state.failedAt == nil && card.state.queueState != "new"
-                ? max(0, current.dueCount - 1)
-                : current.dueCount,
-            newCount: card.state.queueState == "new"
-                ? max(0, current.newCount - 1)
-                : current.newCount,
-            reviewCount: current.reviewCount,
-            totalCards: current.totalCards,
-            newCardsPerDay: current.newCardsPerDay,
-            newCardsAvailableToday: card.state.queueState == "new"
-                ? current.newCardsAvailableToday.map { max(0, $0 - 1) }
-                : current.newCardsAvailableToday,
-            failedCount: current.failedCount,
-            // Pending-review state adjusts failedDueCount until the next authoritative
-            // refresh. Mutating it here as well would decrement a failed card twice.
-            failedDueCount: current.failedDueCount,
-            lessonBatchSize: current.lessonBatchSize,
-            reviewTimeBudgetMinutes: current.reviewTimeBudgetMinutes,
-            masterySpread: current.masterySpread,
-            jlptMastery: current.jlptMastery,
-            learningReadiness: current.learningReadiness
-        ), persistImmediately: false)
-    }
-
     func dismissMasteryAnimation() {
         masteryAnimation = nil
     }
@@ -1141,7 +1114,8 @@ final class StudyStore {
 
         if let responseOverview {
             let reviewTimeBudgetMinutes = resolvedReviewTimeBudget(from: responseOverview)
-            setOverview(responseOverview.updatingReviewTimeBudget(
+            let reconciled = try reconcileReviewOverview(responseOverview, pending: reviewOutbox.pendingState())
+            setOverview(reconciled.updatingReviewTimeBudget(
                 to: reviewTimeBudgetMinutes,
                 fallbackJLPTMastery: overview?.jlptMastery
             ))
