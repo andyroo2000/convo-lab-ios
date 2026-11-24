@@ -4,6 +4,22 @@ import UIKit
 
 @MainActor
 final class JournalHighlightLayoutTests: XCTestCase {
+    func testAdjacentHighlightPaintIsSeparatedWithoutChangingText() {
+        let view = JournalHighlightTextView()
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        view.textContainer.lineFragmentPadding = 0
+        let segment = JournalSegment(text: "日曜いそのこと", reading: "日曜[にちよう]いそのこと", kind: .correction,
+            suggestion: nil, suggestionReading: nil, explanation: nil, explanationReading: nil)
+        view.attributedText = JournalEditText.attributed(segment, knownKanji: [])
+        let text = view.attributedText.string
+        view.highlights = [(NSRange(location: 0, length: 3), .correction), (NSRange(location: 3, length: 4), .optional)]
+        view.layoutIfNeeded()
+        let rectangles = backgroundRects(view).sorted { $0.minX < $1.minX }
+        XCTAssertEqual(rectangles.count, 2)
+        if rectangles.count == 2 { XCTAssertEqual(rectangles[1].minX - rectangles[0].maxX, 6, accuracy: 0.5) }
+        XCTAssertEqual(view.attributedText.string, text)
+    }
+
     func testWrappedHighlightsLeaveSpaceBetweenRowsAndClearWhenRemoved() {
         let view = JournalHighlightTextView()
         XCTAssertNotNil(view.textLayoutManager)
