@@ -979,6 +979,7 @@ struct StudySessionView: View {
                 guard store.masteryAnimation?.id == animation.id else {
                     return
                 }
+                showingAnswer = false
                 gradeFeedback = nil
                 store.dismissMasteryAnimation()
             }

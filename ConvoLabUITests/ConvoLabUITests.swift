@@ -39,6 +39,23 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testDemotionKeepsFailedRatingSelectedUntilNextCard() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-review-navigation"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let reveal = app.buttons["Reveal answer"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 8))
+        reveal.tap()
+        let again = app.buttons["Again"]
+        again.tap()
+        XCTAssertTrue(again.isSelected)
+        XCTAssertFalse(again.isEnabled)
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        XCTAssertFalse(again.exists)
+    }
+
+    @MainActor
     func testOfflineReviewRemainsQueuedAcrossRelaunch() {
         let app = launchFixture("offline-review", reset: true)
         XCTAssertTrue(app.textViews["復習する"].waitForExistence(timeout: 8))
