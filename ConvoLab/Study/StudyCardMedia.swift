@@ -12,15 +12,16 @@ struct StudyCardAudioButton: View {
     @State private var didAttemptLoad = false
 
     var body: some View {
+        let playing = player.isCurrent(trackID) && player.isPlaying
         Button {
             guard let localURL else { return }
             player.play(url: localURL, trackID: trackID)
         } label: {
-            Image(systemName: "speaker.wave.2.fill")
+            StudySpeakerIcon(playing: playing)
         }
-        .buttonStyle(StudyWashiAudioButtonStyle(playing: player.isCurrent(trackID) && player.isPlaying))
+        .buttonStyle(StudyWashiAudioButtonStyle(playing: playing))
         .accessibilityLabel(label)
-        .accessibilityValue(player.isCurrent(trackID) && player.isPlaying ? "Playing" : "Not playing")
+        .accessibilityValue(playing ? "Playing" : "Not playing")
         .disabled(localURL == nil || player.isBlockedByLongFormAudio)
         .accessibilityHint(
             player.isBlockedByLongFormAudio

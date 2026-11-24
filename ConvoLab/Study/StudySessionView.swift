@@ -270,6 +270,7 @@ struct StudySessionView: View {
             if let card, !lessonPreview, !displayingCompletion, !practiceComplete, store.masteryAnimation == nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     toolbarReplay(card)
+                        .disabled(selectedGrade != nil)
                         .buttonStyle(.plain)
                         .foregroundStyle(StudyWashiStyle.ink)
                 }
@@ -793,7 +794,7 @@ struct StudySessionView: View {
     }
 
     private var promptRecording: StudyPromptRecording? {
-        guard !showingAnswer, !lessonPreview, !displayingCompletion,
+        guard selectedGrade == nil, !showingAnswer, !lessonPreview, !displayingCompletion,
               let card, let url = card.presentation.front.audioURL else { return nil }
         return StudyPromptRecording(cardID: card.id, url: url)
     }
@@ -970,8 +971,8 @@ struct StudySessionView: View {
     private func submitGrade(_ rating: ReviewRating, card: StudyCard) {
         guard showingAnswer, selectedGrade == nil, submittingReviewCardIDs.isEmpty else { return }
         gradeFeedback = (card, rating)
+        player.stop()
         if practiceMode {
-            player.stop()
             didAutoplayAnswerForCardID = nil
             practiceCards = StudySessionPracticeQueue.applying(
                 rating,
@@ -982,7 +983,6 @@ struct StudySessionView: View {
             return
         }
         if mode == .lessons, rating == .again {
-            player.stop()
             didAutoplayAnswerForCardID = nil
             store.retryLessonCard(card)
             showingAnswer = false
