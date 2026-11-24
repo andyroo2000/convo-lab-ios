@@ -88,9 +88,9 @@ final class StudyStore {
     @ObservationIgnored var studySettingsRefreshID: UUID?
     @ObservationIgnored var studySettingsUpdateID: UUID?
     @ObservationIgnored var overviewRefreshID: UUID?
-    @ObservationIgnored var newlyFailedCardIDs: Set<String> = []
-    @ObservationIgnored var retainedFailedCardIDs: Set<String> = []
-    @ObservationIgnored var resolvedFailedCardIDs: Set<String> = []
+    var newlyFailedCardIDs: Set<String> = []
+    var retainedFailedCardIDs: Set<String> = []
+    var resolvedFailedCardIDs: Set<String> = []
     @ObservationIgnored var sessionFailureWasPresentByEventID: [String: Bool] = [:]
     @ObservationIgnored var overviewSnapshot: LocalStudyOverviewSnapshot?
     @ObservationIgnored var overviewSnapshotSaveTask: Task<Void, Never>?
@@ -104,7 +104,15 @@ final class StudyStore {
     @ObservationIgnored var failedStudyChangeOperationIDs: Set<String> = []
     @ObservationIgnored var cardActionCardIDs: Set<String> = []
 
-    var cards: [StudyCard] = []
+    private var loadedReviewQueue = LoadedStudyReviewQueue()
+    var cards: [StudyCard] = [] {
+        didSet { loadedReviewQueue = LoadedStudyReviewQueue(cards) }
+    }
+
+    var reviewQueueCounts: (failed: Int, remaining: Int) {
+        loadedReviewQueue.counts(overview: overview, newlyFailed: newlyFailedCardIDs,
+                                 retained: retainedFailedCardIDs, resolved: resolvedFailedCardIDs)
+    }
     var libraryCards: [StudyCard] = []
     var allCards: [StudyCard] = []
     var allCardsNextCursor: String?

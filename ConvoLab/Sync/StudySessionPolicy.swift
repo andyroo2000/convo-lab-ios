@@ -136,3 +136,32 @@ struct StudySessionCounts: Equatable {
         )
     }
 }
+
+/// Partition the loaded review page once when it changes. The overview covers the unloaded pages.
+struct LoadedStudyReviewQueue {
+    private var ordinary = Set<String>()
+    private var newCards = Set<String>()
+    private var failed = Set<String>()
+
+    init(_ cards: [StudyCard] = []) {
+        for card in cards {
+            if card.state.failedAt != nil {
+                failed.insert(card.id)
+            } else if card.state.queueState == "new" {
+                newCards.insert(card.id)
+            } else {
+                ordinary.insert(card.id)
+            }
+        }
+    }
+
+    func counts(overview: StudyOverview?, newlyFailed: Set<String>, retained: Set<String>,
+                resolved: Set<String>) -> (failed: Int, remaining: Int) {
+        let knownExisting = failed.union(retained).subtracting(resolved).subtracting(newlyFailed)
+        let serverFailures = overview?.failedCount ?? overview?.failedDueCount ?? 0
+        let failures = max(knownExisting.count, serverFailures - resolved.count) + newlyFailed.count
+        let pendingFailures = newlyFailed.union(retained)
+        let due = max(ordinary.subtracting(pendingFailures).count, overview?.dueCount ?? 0)
+        return (failures, due + newCards.subtracting(pendingFailures).count)
+    }
+}

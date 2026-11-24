@@ -364,6 +364,29 @@ final class StudySessionCountsTests: XCTestCase {
         XCTAssertEqual(counts.failedDue, 1)
     }
 
+    func testHeaderCountsDelayedAndLoadedFailuresOnceAndRemovesResolvedFailures() {
+        let initial = makeCard(id: "initial", queueState: "review", failedAt: .now)
+        let recent = makeCard(id: "recent", queueState: "relearning", failedAt: .now)
+        let ordinary = makeCard(id: "due", queueState: "review")
+        let queue = LoadedStudyReviewQueue([initial, recent, ordinary])
+        let overview = makeOverview(.init(dueCount: 7, failedCount: 3))
+        let pending = queue.counts(overview: overview, newlyFailed: [recent.id], retained: [initial.id], resolved: [])
+        XCTAssertEqual(pending.failed, 4)
+        XCTAssertEqual(pending.remaining, 7)
+        let resolved = queue.counts(overview: overview, newlyFailed: [], retained: [], resolved: [initial.id, recent.id])
+        XCTAssertEqual(resolved.failed, 1)
+        XCTAssertEqual(resolved.remaining, 7)
+    }
+
+    func testHeaderCountsWithoutAnOverviewIncludeUnloadedRetriesAndOnlyUnfailedNewCards() {
+        let newCard = makeCard(id: "new", queueState: "new")
+        let retry = makeCard(id: "retry", queueState: "review")
+        let queue = LoadedStudyReviewQueue([newCard, retry])
+        let offline = queue.counts(overview: nil, newlyFailed: [retry.id], retained: ["delayed"], resolved: [])
+        XCTAssertEqual(offline.failed, 2)
+        XCTAssertEqual(offline.remaining, 1)
+    }
+
     private func makeCard(
         id: String,
         queueState: String,

@@ -132,12 +132,8 @@ struct StudySessionView: View {
             let retries = batch.count { batchRetryIDs.contains($0.id) }
             return StudyQueueCountsView(failed: retries, remaining: batch.count - retries)
         }
-        let counts = store.sessionCounts
-        let totalFailed = (store.overview?.failedCount ?? 0)
-            + store.newlyFailedCardIDs.count - store.resolvedFailedCardIDs.count
-        let failed = max(totalFailed, counts.failedDue, store.sessionFailedCardIDs.count)
-        let queued = store.cards.count { $0.state.failedAt == nil }
-        return StudyQueueCountsView(failed: failed, remaining: max(counts.reviewRemaining, queued))
+        let counts = store.reviewQueueCounts
+        return StudyQueueCountsView(failed: counts.failed, remaining: counts.remaining)
     }
 
     private var sessionContent: some View {
@@ -289,9 +285,13 @@ struct StudySessionView: View {
     @ViewBuilder
     private var sessionNavigation: some View {
         if practiceMode {
-            Button("Back to wrap-up") { exitPracticeMode() }
+            Button { exitPracticeMode() } label: {
+                Text("Back to wrap-up").frame(minHeight: 44)
+            }
         } else if mode == .lessons && allowsLessonDismissal {
-            Button("Close") { dismiss() }
+            Button { dismiss() } label: {
+                Text("Close").frame(minWidth: 44, minHeight: 44)
+            }
                 .accessibilityIdentifier("StudyCloseLessonButton")
         } else {
             endSessionControl
@@ -814,6 +814,7 @@ struct StudySessionView: View {
         player.stop()
         showingAnswer = false
         practiceCards = nil
+        batchRetryIDs.removeAll()
         practiceInitialCount = 0
         resetCardTimer()
         didAutoplayAnswerForCardID = nil
@@ -1003,6 +1004,7 @@ struct StudySessionView: View {
         player.stop()
         if rating == .again, practiceMode || mode == .lessons { batchRetryIDs.insert(card.id) }
         if practiceMode {
+            if rating != .again { batchRetryIDs.remove(card.id) }
             didAutoplayAnswerForCardID = nil
             practiceCards = StudySessionPracticeQueue.applying(
                 rating,
@@ -1037,7 +1039,8 @@ struct StudySessionView: View {
                 pushUndo(
                     .grade(
                         eventID: stagedReview.eventID,
-                        cardBefore: stagedReview.cardBefore
+                        cardBefore: stagedReview.cardBefore,
+                        wasBatchRetry: batchRetryIDs.remove(card.id) != nil
                     )
                 )
                 sessionReviewRecords.append(
@@ -1140,7 +1143,7 @@ struct StudySessionView: View {
             showingAnswer = false
             didAutoplayAnswerForCardID = nil
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case let .grade(eventID, cardBefore):
+        case let .grade(eventID, cardBefore, wasBatchRetry):
             isUndoing = true
             defer { isUndoing = false }
             if card?.id.lowercased() != cardBefore.id.lowercased() {
@@ -1148,6 +1151,7 @@ struct StudySessionView: View {
             }
             do {
                 try await store.undoReview(eventID: eventID, cardBefore: cardBefore)
+                if wasBatchRetry { batchRetryIDs.insert(cardBefore.id) }
                 sessionReviewRecords.removeAll { $0.id == eventID }
                 showingAnswer = true
                 resetCardTimer()
@@ -1188,5 +1192,5 @@ struct StudySessionView: View {
 
 private enum StudyUndoAction {
     case reveal(cardID: String)
-    case grade(eventID: String, cardBefore: StudyCard)
+    case grade(eventID: String, cardBefore: StudyCard, wasBatchRetry: Bool)
 }
