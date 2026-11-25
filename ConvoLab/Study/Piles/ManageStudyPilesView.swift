@@ -9,7 +9,7 @@ struct ManageStudyPilesView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("Study piles").font(StudyTimePaper.type(34, .largeTitle))
+                    Text("Study piles").font(StudyTimePaper.type(34, .largeTitle)).accessibilityAddTraits(.isHeader)
                     Spacer()
                     Button("Add source", systemImage: "plus") { addingBook = true }
                 }
@@ -29,7 +29,7 @@ struct ManageStudyPilesView: View {
         .font(StudyTimePaper.type(18))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.refreshPiles() }
-        .task { await store.refreshPiles() }
+        .task { if !store.piles.isRefreshing { await store.refreshPiles() } }
         .outsideDismissibleSheet(isPresented: $addingBook) {
             StudyPileEditView(store: store, position: nextBookPosition)
         }

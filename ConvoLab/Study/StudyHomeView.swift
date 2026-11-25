@@ -66,7 +66,7 @@ struct StudyHomeView: View {
             Text(review ? "Review" : "Learn").font(StudyTimePaper.type(26, .title2)).accessibilityAddTraits(.isHeader)
             layout {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
+                    layout {
                         Text(count.formatted()).font(StudyTimePaper.type(32, .title))
                         Text(review ? (count == 1 ? "card due" : "cards due") : (count == 1 ? "new card" : "new cards"))
                     }

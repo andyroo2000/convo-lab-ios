@@ -31,7 +31,7 @@ struct StudyPileShelf: View {
             }
         }
 
-        .task { await store.refreshPiles() }
+        .task { if !store.piles.isRefreshing { await store.refreshPiles() } }
     }
 
     private func tile(id: String, title: String, count: Int, icon: String) -> some View {
@@ -55,7 +55,7 @@ struct StudyPileShelf: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(count) ready")
-        .disabled(count == 0 || store.piles.errorMessage != nil)
+        .disabled(count == 0)
         .opacity(count == 0 ? 0.5 : 1)
     }
 }
