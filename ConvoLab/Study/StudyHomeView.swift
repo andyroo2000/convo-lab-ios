@@ -10,7 +10,7 @@ struct StudyHomeView: View {
     var automaticSynchronization: (() async -> Void)?
     @Environment(\.hasAppModeHeader) private var hasAppModeHeader
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var choosingPile = false
+    @State private var viewingQueue = false
     @State private var visible = false
 
     var body: some View {
@@ -23,7 +23,8 @@ struct StudyHomeView: View {
                         Text(Date.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    spread
+                    leaf(review: true)
+                    leaf(review: false)
                     DailyAudioView(store: dailyAudio, player: drillPlayer, capabilities: store.capabilities.dailyAudio)
                     if store.cards.isEmpty, store.sessionCounts.hasRemainingReviews {
                         Button("Load Next Study Batch") { Task { await store.loadNextReviewBatch() } }
@@ -36,9 +37,10 @@ struct StudyHomeView: View {
             .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
             .preference(key: AppModeToolbarKey.self, value: visible ? [.study: syncToolbar] : [:])
             .onAppear { visible = true }.onDisappear { visible = false }
-            .navigationDestination(isPresented: $choosingPile) {
-                ScrollView { StudyPileShelf(store: store, player: player, timeStore: timeStore).padding() }
-                    .navigationTitle("Choose a pile")
+            .outsideDismissibleSheet(isPresented: $viewingQueue) {
+                CardLibraryView(store: store, player: player, timeStore: timeStore)
+                    .environment(\.hasAppModeHeader, false)
+                    .presentationDragIndicator(.visible)
             }
             .refreshable {
                 await store.synchronize()
@@ -57,41 +59,40 @@ struct StudyHomeView: View {
             isLoading: store.syncStatus == .syncing) { Task { await store.synchronize() } }])
     }
 
-    private var spread: some View {
-        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
-        return layout {
-            leaf(review: true)
-            Divider()
-            leaf(review: false)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .background(StudyTimePaper.paper, in: .rect(cornerRadius: 13))
-        .overlay { RoundedRectangle(cornerRadius: 13).stroke(StudyTimePaper.ink.opacity(0.18)) }
-    }
-
     private func leaf(review: Bool) -> some View {
         let count = review ? store.sessionCounts.failedDue + store.sessionCounts.reviewRemaining : store.sessionCounts.newRemaining
-        return VStack(alignment: .leading, spacing: 6) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+        return VStack(alignment: .leading, spacing: 10) {
             Text(review ? "Review" : "Learn").font(StudyTimePaper.type(26, .title2)).accessibilityAddTraits(.isHeader)
-            Text(count.formatted()).font(StudyTimePaper.type(38, .largeTitle))
-            Text(review ? (count == 1 ? "card due" : "cards due") : (count == 1 ? "new card" : "new cards"))
-                .font(StudyTimePaper.type(18))
-            Text(review ? StudyTodayPresentation.reviewTimeText(reviewCount: count) : "My usual mix")
-                .font(.footnote).foregroundStyle(.secondary)
-            NavigationLink {
-                StudySessionView(store: store, player: player, mode: review ? .reviews : .lessons, timeStore: timeStore)
-            } label: {
-                Text(review ? "Start review" : "Start lesson")
-                    .font(StudyTimePaper.type(18)).padding(.horizontal, 11).frame(minHeight: 44)
-                    .foregroundStyle(review ? .white : StudyTimePaper.green)
-                    .background(review ? StudyTimePaper.green : .clear, in: Capsule())
-                    .overlay { Capsule().stroke(StudyTimePaper.green) }
+            layout {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(count.formatted()).font(StudyTimePaper.type(32, .title))
+                        Text(review ? (count == 1 ? "card due" : "cards due") : (count == 1 ? "new card" : "new cards"))
+                    }
+                    if review {
+                        Text(StudyTodayPresentation.reviewTimeText(reviewCount: count)).font(.footnote)
+                    } else {
+                        Button("View queue") { viewingQueue = true }.frame(minHeight: 44)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack {
+                    NavigationLink {
+                        StudySessionView(store: store, player: player, mode: review ? .reviews : .lessons, timeStore: timeStore)
+                    } label: {
+                        Text(review ? "Start review" : "Start lesson").padding(.horizontal, 14).frame(minHeight: 44)
+                            .foregroundStyle(.white).background(StudyTimePaper.green, in: Capsule())
+                    }.buttonStyle(.plain).disabled(count == 0).opacity(count == 0 ? 0.55 : 1)
+                    .accessibilityLabel(review ? "Reviews, \(StudyTodayPresentation.reviewCountText(count))" : "Start lesson, \(count) new cards")
+                    if review { Button("Browse cards ›", action: browseCards).frame(minHeight: 44) }
+                }
             }
-            .buttonStyle(.plain).disabled(count == 0).opacity(count == 0 ? 0.55 : 1)
-            .accessibilityLabel(review ? "Reviews, \(StudyTodayPresentation.reviewCountText(count))" : "Start lesson, \(count) new cards")
-            Button(review ? "Browse cards ›" : "Choose a pile ›") {
-                if review { browseCards() } else { choosingPile = true }
-            }.font(StudyTimePaper.type(17)).frame(minHeight: 44)
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            if !review {
+                Divider()
+                StudyPileShelf(store: store, player: player, timeStore: timeStore)
+            }
+        }.font(StudyTimePaper.type(18)).padding(16)
+        .background(StudyTimePaper.paper, in: .rect(cornerRadius: 13))
+        .overlay { RoundedRectangle(cornerRadius: 13).stroke(StudyTimePaper.ink.opacity(0.15)) }
     }
 }

@@ -13,15 +13,16 @@ struct StudyPileToggleRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(isOn: Binding(get: { pendingActive ?? item.isActive }, set: { active in save(active) })) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title).font(.headline)
-                    Text("\(item.readyCount) ready · \(item.newCount) remaining · \(item.introducedCount) introduced")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(item.title).font(StudyTimePaper.type(21, .headline))
                 }
             }
             .disabled(saving)
-            .tint(ConvoLabTheme.cyan)
+            .tint(StudyTimePaper.green)
             .accessibilityLabel("Include \(item.title) in new cards")
             .accessibilityHint("\(item.readyCount) ready, \(item.newCount) remaining")
+            DisclosureGroup("\(item.readyCount) ready") {
+                Text("\(item.newCount) remaining · \(item.introducedCount) introduced").font(.caption)
+            }.font(.subheadline)
             Button("Edit title and order") { editing = true }
                 .font(.caption).frame(minHeight: 44)
             if saving { ProgressView() }
