@@ -17,12 +17,7 @@ struct StudyHomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Study").font(StudyTimePaper.type(36, .largeTitle)).accessibilityAddTraits(.isHeader)
-                        Spacer()
-                        Text(Date.now, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
+                    Text("Study").font(StudyTimePaper.type(36, .largeTitle)).accessibilityAddTraits(.isHeader)
                     leaf(review: true)
                     leaf(review: false)
                     DailyAudioView(store: dailyAudio, player: drillPlayer, capabilities: store.capabilities.dailyAudio)
@@ -93,6 +88,8 @@ struct StudyHomeView: View {
             }
         }.font(StudyTimePaper.type(18)).padding(16)
         .background(StudyTimePaper.paper, in: .rect(cornerRadius: 13))
+        .overlay(alignment: .top) { Rectangle().fill(StudyTimePaper.green.opacity(0.65)).frame(height: 4) }
+        .clipShape(.rect(cornerRadius: 13))
         .overlay { RoundedRectangle(cornerRadius: 13).stroke(StudyTimePaper.ink.opacity(0.15)) }
     }
 }
