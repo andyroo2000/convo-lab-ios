@@ -16,11 +16,19 @@ nonisolated enum StudyTodayPresentation {
     }
 
     static func reviewTimeText(reviewCount: Int) -> String {
-        guard reviewCount > 0 else { return "All caught up" }
         guard let minutes = estimatedReviewMinutes(reviewCount: reviewCount) else {
             return "All caught up"
         }
-        return "About \(minutes) min"
+        if minutes < 60 {
+            let duration = Duration.seconds(minutes * 60)
+            return "About " + duration.formatted(.units(allowed: [.minutes], width: .wide).locale(Locale(identifier: "en")))
+        }
+        let hours = (Double(minutes) / 30).rounded() / 2
+        switch hours {
+        case 1: return "About an hour"
+        case 1.5: return "About an hour and a half"
+        default: return "About \(hours.formatted()) hours"
+        }
     }
 
     static func reviewCountText(_ count: Int) -> String {

@@ -15,13 +15,10 @@ struct StudyTodayPresentationTests {
         )
     }
 
-    @Test func distinguishesCaughtUpReviewsFromAnEstimate() {
-        #expect(
-            StudyTodayPresentation.reviewTimeText(reviewCount: 0) == "All caught up"
-        )
-        #expect(
-            StudyTodayPresentation.reviewTimeText(reviewCount: 14) == "About 6 min"
-        )
+    @Test(arguments: [(0, "All caught up"), (1, "About 1 minute"), (14, "About 6 minutes"),
+                      (259, "About an hour and a half"), (300, "About 2 hours")])
+    func describesReviewTime(count: Int, expected: String) {
+        #expect(StudyTodayPresentation.reviewTimeText(reviewCount: count) == expected)
     }
 
     @Test func formatsSingularAndPluralCounts() {
