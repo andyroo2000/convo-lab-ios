@@ -314,6 +314,17 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testViewQueueOpensQueueWithoutStartingLesson() {
+        let app = launchFixture("study-dashboard", reset: true)
+        let queue = app.buttons["View queue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 8))
+        queue.tap()
+        let selected = app.segmentedControls.buttons["Queue"]
+        XCTAssertTrue(selected.waitForExistence(timeout: 5))
+        XCTAssertTrue(selected.isSelected)
+    }
+
+    @MainActor
     func testStudyDashboardUsesCompactSourceDrivenPresentation() {
         let app = launchFixture("study-dashboard", reset: true)
         XCTAssertTrue(app.staticTexts["Review"].waitForExistence(timeout: 8))
