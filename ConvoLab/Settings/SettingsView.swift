@@ -222,20 +222,15 @@ struct SettingsView: View {
                     DisclosureGroup("WaniKani") {
                         VStack(alignment: .leading, spacing: 16) {
                             if model.study.wanikaniConnected {
-                                LabeledContent("WaniKani", value: "Connected")
+                                HStack {
+                                    connectedBadge
+                                    Text("via API key").foregroundStyle(.secondary)
+                                }.accessibilityElement(children: .combine)
+                                lastSyncRow(model.study.wanikaniLastSyncedAt)
                                 LabeledContent(
                                     "Known kanji",
                                     value: model.study.knownKanji.count.formatted()
                                 )
-                                if let lastSyncedAt = model.study.wanikaniLastSyncedAt {
-                                    LabeledContent(
-                                        "WaniKani synced",
-                                        value: lastSyncedAt.formatted(
-                                            date: .abbreviated,
-                                            time: .shortened
-                                        )
-                                    )
-                                }
                                 if availableAppModes.contains(.study) {
                                     Toggle(
                                         "Daily vocabulary transfer",
@@ -293,14 +288,7 @@ struct SettingsView: View {
                                     }
                                 }
 
-                                Button("Sync WaniKani") {
-                                    Task { await model.study.syncWaniKani() }
-                                }
-                                .disabled(model.study.isWaniKaniWorking)
-                                Button("Disconnect WaniKani", role: .destructive) {
-                                    confirmingWaniKaniDisconnect = true
-                                }
-                                .disabled(model.study.isWaniKaniWorking)
+                                waniKaniActions
                             } else {
                                 SecureField("WaniKani API token", text: $wanikaniAPIToken)
                                     .textInputAutocapitalization(.never)
@@ -498,7 +486,44 @@ struct SettingsView: View {
         )
     }
 
-    @ViewBuilder
+    private var connectedBadge: some View {
+        Text("Connected")
+            .font(.custom("CrimsonPro-Regular", size: 16, relativeTo: .callout))
+            .foregroundStyle(JournalBrandStyle.spine)
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .background(JournalBrandStyle.spine.opacity(0.1), in: Capsule())
+    }
+
+    private func lastSyncRow(_ date: Date?) -> some View {
+        LabeledContent("Last sync") {
+            if let date {
+                Text(date, format: .dateTime.month(.abbreviated).day().hour().minute())
+            } else {
+                Text("Waiting for first sync")
+            }
+        }
+    }
+
+    private var waniKaniActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { waniKaniButtons }
+            VStack(alignment: .leading) { waniKaniButtons }
+        }
+        .buttonBorderShape(.capsule)
+        .tint(JournalBrandStyle.spine)
+        .disabled(model.study.isWaniKaniWorking)
+    }
+
+    @ViewBuilder private var waniKaniButtons: some View {
+        Button("Sync now") { Task { await model.study.syncWaniKani() } }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel("Sync WaniKani now")
+        Button("Disconnect", role: .destructive) { confirmingWaniKaniDisconnect = true }
+            .accessibilityLabel("Disconnect WaniKani")
+            .buttonStyle(.bordered)
+            .overlay { Capsule().strokeBorder(JournalBrandStyle.spine.opacity(0.4)).allowsHitTesting(false) }
+    }
+
     private var googleCalendarSection: some View {
         DisclosureGroup("Google Calendar") {
             VStack(alignment: .leading, spacing: 16) {
@@ -510,22 +535,11 @@ struct SettingsView: View {
                         Text("Checking connection…")
                     }
                 } else if model.studyTime.googleCalendarStatus?.connected == true {
-                    Label("Connected", systemImage: "checkmark.circle.fill")
-                        .font(.headline)
-                        .foregroundStyle(.green)
+                    connectedBadge
                     if let email = model.studyTime.googleCalendarStatus?.accountEmail {
                         LabeledContent("Account", value: email)
                     }
-                    if let lastSync = model.studyTime.googleCalendarStatus?.lastSyncedAt {
-                        LabeledContent("Last sync") {
-                            Text(
-                                lastSync,
-                                format: .dateTime.month(.abbreviated).day().hour().minute()
-                            )
-                        }
-                    } else {
-                        LabeledContent("Last sync", value: "Waiting for first sync")
-                    }
+                    lastSyncRow(model.studyTime.googleCalendarStatus?.lastSyncedAt)
                     if model.studyTime.googleCalendarIsWorking {
                         HStack {
                             ProgressView()
