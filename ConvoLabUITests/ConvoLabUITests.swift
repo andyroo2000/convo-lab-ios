@@ -39,6 +39,24 @@ final class ConvoLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testRatingConfirmationForUnchangedMasteryAndPromotion() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-review-navigation"]
+        app.launchEnvironment["UI_TEST_RESET"] = "1"
+        app.launch()
+        let reveal = app.buttons["Reveal answer"]
+        for rating in ["Good", "Easy"] {
+            XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+            reveal.tap()
+            let grade = app.buttons[rating]
+            grade.tap()
+            XCTAssertTrue(grade.isSelected)
+            XCTAssertFalse(grade.isEnabled)
+        }
+        XCTAssertTrue(app.staticTexts["Nice work"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testDemotionKeepsFailedRatingSelectedUntilNextCard() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-test-fixture", "offline-review", "-ui-test-review-navigation"]

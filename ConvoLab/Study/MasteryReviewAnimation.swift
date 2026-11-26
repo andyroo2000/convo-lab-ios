@@ -30,7 +30,7 @@ struct MasteryReviewAnimation: View {
         Group {
             if let change {
                 Text(toLevel.rawValue.capitalized)
-                    .font(StudyWashiStyle.actionFont)
+                    .font(.custom("CrimsonPro-Regular", size: 21, relativeTo: .body).weight(.semibold))
                     .foregroundStyle(change == .promotion ? Color(red: 0.21, green: 0.42, blue: 0.25) : Color(red: 0.63, green: 0.24, blue: 0.22))
                     .opacity(leaving || (appearing && change == .demotion) ? 0 : 1)
                     .offset(y: leaving ? change.exitOffset(reduceMotion: reduceMotion) : 0)
