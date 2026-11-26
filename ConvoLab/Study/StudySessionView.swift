@@ -182,7 +182,13 @@ struct StudySessionView: View {
 
             if showingAnswer || selectedGrade != nil {
                 gradeButtons(card: card)
-                    .overlay(alignment: .top) { masteryFeedbackLane }
+                    .overlay(alignment: .top) {
+                        masteryFeedbackLane
+                            .fixedSize()
+                            .padding(.bottom, 12)
+                            .frame(height: 0, alignment: .bottom)
+                            .allowsHitTesting(false)
+                    }
             } else {
                 Button("Reveal answer") { revealAnswer(card) }
                     .buttonStyle(StudyRevealButtonStyle())
@@ -845,7 +851,8 @@ struct StudySessionView: View {
             }
         }
         .disabled(
-            !submittingReviewCardIDs.isEmpty
+            selectedGrade != nil
+                || !submittingReviewCardIDs.isEmpty
                 || !submittingCardActionIDs.isEmpty
                 || isUndoing
                 || editingCard != nil
@@ -899,7 +906,8 @@ struct StudySessionView: View {
         .buttonStyle(StudyWashiGradeButtonStyle(rating: rating, selected: selectedGrade == rating))
         .frame(maxWidth: .infinity)
         .disabled(
-            !submittingReviewCardIDs.isEmpty
+            selectedGrade != nil
+                || !submittingReviewCardIDs.isEmpty
                 || submittingCardActionIDs.contains(card.id)
                 || isUndoing
                 || store.masteryAnimation != nil
@@ -910,25 +918,16 @@ struct StudySessionView: View {
         guard showingAnswer, selectedGrade == nil, submittingReviewCardIDs.isEmpty else { return }
         player.stop()
         if rating == .again, practiceMode || mode == .lessons { batchRetryIDs.insert(card.id) }
-        if practiceMode {
-            if rating != .again { batchRetryIDs.remove(card.id) }
-            didAutoplayAnswerForCardID = nil
-            practiceCards = StudySessionPracticeQueue.applying(
-                rating,
-                to: practiceCards ?? []
-            )
-            showingAnswer = false
-            resetCardTimer()
-            return
-        }
-        if mode == .lessons, rating == .again {
-            didAutoplayAnswerForCardID = nil
-            store.retryLessonCard(card)
-            showingAnswer = false
-            resetCardTimer()
-            return
-        }
         gradeFeedback = (card, rating)
+        let confirmationEnds = ContinuousClock.now + .milliseconds(650)
+        let repeatingLesson = mode == .lessons && rating == .again
+        if practiceMode || repeatingLesson {
+            Task {
+                try await Task.sleep(until: confirmationEnds, clock: .continuous)
+                advanceLocalBatch(card: card, rating: rating)
+            }
+            return
+        }
         submittingReviewCardIDs.insert(card.id)
         let reviewedAt = Date.now
         if rating == .again {
@@ -963,14 +962,29 @@ struct StudySessionView: View {
                     )
                 )
             }
+            try await Task.sleep(until: confirmationEnds, clock: .continuous)
             gradeFeedback = nil
             submittingReviewCardIDs.remove(card.id)
         }
     }
 
+    private func advanceLocalBatch(card: StudyCard, rating: ReviewRating) {
+        guard gradeFeedback?.card.id == card.id else { return }
+        if practiceMode {
+            if rating != .again { batchRetryIDs.remove(card.id) }
+            practiceCards = StudySessionPracticeQueue.applying(rating, to: practiceCards ?? [])
+        } else {
+            store.retryLessonCard(card)
+        }
+        didAutoplayAnswerForCardID = nil
+        showingAnswer = false
+        gradeFeedback = nil
+        resetCardTimer()
+    }
+
     @ViewBuilder
     private var masteryFeedbackLane: some View {
-        if !practiceMode, let animation = store.masteryAnimation {
+        if gradeFeedback == nil, !practiceMode, let animation = store.masteryAnimation {
             MasteryReviewAnimation(
                 label: animation.label,
                 fromLevel: animation.fromLevel,
@@ -984,8 +998,6 @@ struct StudySessionView: View {
                 store.dismissMasteryAnimation()
             }
             .id(animation.id)
-            .alignmentGuide(.top) { $0[.bottom] + 8 }
-            .allowsHitTesting(false)
         }
     }
 

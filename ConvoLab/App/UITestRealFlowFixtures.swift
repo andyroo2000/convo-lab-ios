@@ -117,7 +117,7 @@ private final class UITestRealFlowComposition: ObservableObject {
                 payload: try StorageCodec.encoder.encode(card)
             ))
             if ProcessInfo.processInfo.arguments.contains("-ui-test-review-navigation") {
-                let second = fixtureReviewCard(id: "01JUITESTOFFLINEREVIEW0001")
+                let second = fixtureReviewCard(id: "01JUITESTOFFLINEREVIEW0001", stability: 6.5)
                 container.mainContext.insert(LocalCardRecord(
                     card: second, userID: userID, queueIndex: 1,
                     payload: try StorageCodec.encoder.encode(second)
@@ -389,7 +389,7 @@ private final class UITestRealFlowComposition: ObservableObject {
         emailVerifiedAt: nil
     )
 
-    private static func fixtureReviewCard(id: String = "01JUITESTOFFLINEREVIEW0000") -> StudyCard {
+    private static func fixtureReviewCard(id: String = "01JUITESTOFFLINEREVIEW0000", stability: Double = 45) -> StudyCard {
         StudyCard(
             id: id,
             noteId: nil,
@@ -402,7 +402,7 @@ private final class UITestRealFlowComposition: ObservableObject {
                 failedAt: nil,
                 queueState: "review",
                 scheduler: .object([
-                    "stability": .number(45),
+                    "stability": .number(stability),
                     "difficulty": .number(4),
                     "reps": .number(8),
                     "state": .number(2),
