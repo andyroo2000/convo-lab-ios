@@ -486,7 +486,6 @@ struct SettingsView: View {
         )
     }
 
-    @ViewBuilder
     private var connectedBadge: some View {
         Text("Connected")
             .font(.custom("CrimsonPro-Regular", size: 16, relativeTo: .callout))
@@ -518,7 +517,9 @@ struct SettingsView: View {
     @ViewBuilder private var waniKaniButtons: some View {
         Button("Sync now") { Task { await model.study.syncWaniKani() } }
             .buttonStyle(.borderedProminent)
-        Button("Disconnect") { confirmingWaniKaniDisconnect = true }
+            .accessibilityLabel("Sync WaniKani now")
+        Button("Disconnect", role: .destructive) { confirmingWaniKaniDisconnect = true }
+            .accessibilityLabel("Disconnect WaniKani")
             .buttonStyle(.bordered)
             .overlay { Capsule().strokeBorder(JournalBrandStyle.spine.opacity(0.4)).allowsHitTesting(false) }
     }
