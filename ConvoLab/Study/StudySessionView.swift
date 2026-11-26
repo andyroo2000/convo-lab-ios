@@ -867,7 +867,7 @@ struct StudySessionView: View {
         mode: StudyCardSetDueMode? = nil,
         dueAt: Date? = nil
     ) {
-        guard submittingCardActionIDs.insert(card.id).inserted else { return }
+        guard selectedGrade == nil, submittingCardActionIDs.insert(card.id).inserted else { return }
         player.stop()
         Task {
             do {
@@ -923,7 +923,7 @@ struct StudySessionView: View {
         let repeatingLesson = mode == .lessons && rating == .again
         if practiceMode || repeatingLesson {
             Task {
-                try await Task.sleep(until: confirmationEnds, clock: .continuous)
+                try? await Task.sleep(until: confirmationEnds, clock: .continuous)
                 advanceLocalBatch(card: card, rating: rating)
             }
             return
@@ -962,7 +962,7 @@ struct StudySessionView: View {
                     )
                 )
             }
-            try await Task.sleep(until: confirmationEnds, clock: .continuous)
+            try? await Task.sleep(until: confirmationEnds, clock: .continuous)
             gradeFeedback = nil
             submittingReviewCardIDs.remove(card.id)
         }
