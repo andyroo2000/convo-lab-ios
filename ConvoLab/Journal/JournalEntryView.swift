@@ -113,14 +113,18 @@ private struct JournalEntryScreen: View {
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
                 }
-            }.padding(.horizontal, 14).padding(.vertical, 22)
+            }.frame(maxWidth: 720)
+                .padding(.horizontal, 14).padding(.vertical, 22)
+                .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if keyboardDock.visible && isWriting {
                 JournalDraftActions(model: model, requestClose: {
                     if model.isUnwritten { close() } else { closingDraft = true }
                 })
+                    .frame(maxWidth: 720)
                     .padding(.horizontal, 20).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
                     .background(.white)
             }
         }

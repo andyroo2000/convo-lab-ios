@@ -41,11 +41,12 @@ struct AppModePicker: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 6))
         return layout {
             if !dynamicTypeSize.isAccessibilitySize {
-                Text("CONVO-LAB").font(.custom("Anton-Regular", fixedSize: 30))
-                    .tracking(-0.5).foregroundStyle(JournalBrandStyle.yellow).fixedSize()
-                    .accessibilityHidden(true)
-                Rectangle().fill(.white.opacity(0.4)).frame(width: 1, height: 32)
-                    .padding(.horizontal, 3).accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    brandMark(size: 30)
+                    brandMark(size: 20)
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .accessibilityHidden(true)
             }
             Button {
                 if navigationModes.count > 1 { showingDestinations = true }
@@ -64,6 +65,7 @@ struct AppModePicker: View {
                     transaction.disablesAnimations = true
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .buttonStyle(.plain)
             .accessibilityLabel(navigationModes.count > 1 ? "Switch mode, \(selection.headerTitle)" : selection.headerTitle)
             .accessibilityIdentifier("app-mode-picker")
@@ -91,10 +93,20 @@ struct AppModePicker: View {
         .padding(.leading, 14)
         .padding(.trailing, 10)
         .frame(minHeight: 72)
+        .containerCornerOffset(.horizontal, sizeToFit: true)
         .foregroundStyle(.white)
         .background(JournalBrandStyle.green)
         .overlay(alignment: .leading) { JournalBrandStyle.spine.frame(width: 7) }
         .environment(\.colorScheme, .light)
+    }
+
+    private func brandMark(size: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            Text("CONVO-LAB").font(.custom("Anton-Regular", fixedSize: size))
+                .tracking(-0.5).foregroundStyle(JournalBrandStyle.yellow)
+            Rectangle().fill(.white.opacity(0.4)).frame(width: 1, height: 32)
+                .padding(.horizontal, 3)
+        }.fixedSize()
     }
 
     private var destinationPicker: some View {
