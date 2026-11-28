@@ -8,7 +8,7 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 8))
         XCTAssertFalse(confirm.isEnabled)
         XCTAssertFalse(app.staticTexts["Saved on this device."].exists)
-        capture(app, "Keyboard onboarding with two miniature screens")
+        capture("Keyboard onboarding with two miniature screens")
         app.buttons["JournalKeyboard-device"].tap()
         confirm.tap()
         let field = app.textViews["Journal entry"]
@@ -22,7 +22,7 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(reopened.textViews["Journal entry"].exists)
         openSettings(reopened)
         XCTAssertTrue(reopened.buttons["JournalKeyboard-device"].isSelected)
-        capture(reopened, "Remembered keyboard preference")
+        capture("Remembered keyboard preference")
     }
 
     func testBuiltInConversionCandidatesAndSwitchingKeepDraftText() {
@@ -45,13 +45,13 @@ final class JournalKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Close"].isHittable)
         XCTAssertTrue(app.buttons["Submit"].isHittable)
         XCTAssertLessThanOrEqual(app.buttons["Submit"].frame.maxY, strip.frame.minY)
-        capture(app, "01 Kana stays in notebook with native candidate strip")
+        capture("01 Kana stays in notebook with native candidate strip")
         let compactHeight = strip.frame.height
         app.buttons["JournalExpandCandidates"].tap()
         XCTAssertGreaterThan(strip.frame.height, compactHeight)
         XCTAssertTrue(app.buttons["Submit"].isHittable)
         XCTAssertLessThanOrEqual(app.buttons["Submit"].frame.maxY, strip.frame.minY)
-        capture(app, "Expanded candidates keep notebook actions above keyboard")
+        capture("Expanded candidates keep notebook actions above keyboard")
         assertPanelFitsRotationRequest(app, strip: strip)
         candidate.tap()
         XCTAssertEqual(field.value as? String, "今日は楽しかった")
@@ -61,17 +61,17 @@ final class JournalKeyboardUITests: XCTestCase {
         field.typeText("ta\n")
         XCTAssertEqual(field.value as? String, "今日は楽しかった")
         XCTAssertFalse(app.buttons["変換"].exists)
-        capture(app, "02 Committed text with working native Delete")
+        capture("02 Committed text with working native Delete")
         field.typeText("\name")
         let latin = strip.cells["ame"]
         XCTAssertTrue(latin.waitForExistence(timeout: 10))
         for _ in 0..<3 where !latin.isHittable { strip.swipeLeft() }
-        capture(app, "04 Kana katakana and Latin spellings in the candidate strip")
+        capture("04 Kana katakana and Latin spellings in the candidate strip")
         latin.tap()
         XCTAssertEqual(field.value as? String, "今日は楽しかった\name")
         let converted = field.value as? String
         dismissKeyboard(app)
-        capture(app, "03 Notebook with Close and Submit unobstructed")
+        capture("03 Notebook with Close and Submit unobstructed")
         openSettings(app)
         app.buttons["JournalKeyboard-device"].tap()
         app.buttons["JournalKeyboardConfirm"].tap()
@@ -119,7 +119,7 @@ final class JournalKeyboardUITests: XCTestCase {
         openFinalEditor(app)
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, edited)
-        capture(app, "Saved final text with built-in input")
+        capture("Saved final text with built-in input")
     }
 
     private func assertPanelFitsRotationRequest(_ app: XCUIApplication, strip: XCUIElement) {
@@ -134,8 +134,8 @@ final class JournalKeyboardUITests: XCTestCase {
         }, object: strip)
         XCTAssertEqual(XCTWaiter.wait(for: [fittingPanel], timeout: 5), .completed)
         XCTAssertTrue(app.buttons["JournalExpandCandidates"].isHittable)
-        XCTAssertTrue(app.buttons["Submit"].isHittable)
-        capture(app, "Candidates fit the current window after a rotation request")
+        XCTAssertTrue(app.buttons["Submit"].wait(for: \.isHittable, toEqual: true, timeout: 5))
+        capture("Candidates fit the current window after a rotation request")
         XCUIDevice.shared.orientation = .portrait
         let portraitPanel = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in strip.frame.height > 100 }, object: strip)
         XCTAssertEqual(XCTWaiter.wait(for: [portraitPanel], timeout: 5), .completed)
@@ -165,17 +165,18 @@ final class JournalKeyboardUITests: XCTestCase {
     private func openSettings(_ app: XCUIApplication) {
         app.buttons["app-account-menu"].tap()
         XCTAssertTrue(app.buttons["JournalKeyboard"].waitForExistence(timeout: 5))
-        capture(app, "Keyboard in the account menu Journal section")
+        capture("Keyboard in the account menu Journal section")
         app.buttons["JournalKeyboard"].tap()
         XCTAssertTrue(app.buttons["JournalKeyboardConfirm"].waitForExistence(timeout: 5))
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {
-        if app.buttons["Hide keyboard"].exists { app.buttons["Hide keyboard"].tap() }
+        let accessory = app.buttons["JournalExpandCandidates"]
+        if accessory.exists && accessory.label == "Hide keyboard" { accessory.tap() }
     }
 
-    private func capture(_ app: XCUIApplication, _ name: String) {
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
+    private func capture(_ name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = name
         screenshot.lifetime = .keepAlways
         add(screenshot)

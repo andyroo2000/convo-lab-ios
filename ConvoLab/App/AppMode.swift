@@ -25,6 +25,12 @@ enum AppMode: String, CaseIterable, Hashable, Identifiable {
     static let manage: [Self] = [.cards, .time]
 }
 
+@MainActor
+func dismissKeyboardForIPadMenu() {
+    guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
 struct AppModePicker: View {
     @Environment(\.availableAppModes) private var availableModes
     @Binding var selection: AppMode
@@ -49,7 +55,10 @@ struct AppModePicker: View {
                 .accessibilityHidden(true)
             }
             Button {
-                if navigationModes.count > 1 { showingDestinations = true }
+                if navigationModes.count > 1 {
+                    dismissKeyboardForIPadMenu()
+                    showingDestinations = true
+                }
                 else if let mode = navigationModes.first { selection = mode }
             } label: {
                 HStack(spacing: 4) {

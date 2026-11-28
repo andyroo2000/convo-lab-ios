@@ -20,6 +20,7 @@ struct AppAccountMenu: View {
 
     var body: some View {
         Button {
+            dismissKeyboardForIPadMenu()
             showingMenu = true
         } label: {
             Text(name.first.map { String($0).uppercased() } ?? "?")
