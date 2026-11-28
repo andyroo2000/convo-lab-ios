@@ -26,7 +26,9 @@ struct StudyHomeView: View {
                             .disabled(store.syncStatus == .syncing)
                     }
                     if let error = store.storageWriteErrorMessage { Text(error).foregroundStyle(.red) }
-                }.padding()
+                }.frame(maxWidth: 960)
+                    .padding()
+                    .frame(maxWidth: .infinity)
             }
             .background(StudyTimePaper.desk).foregroundStyle(StudyTimePaper.ink)
             .toolbar(hasAppModeHeader ? .hidden : .visible, for: .navigationBar)
