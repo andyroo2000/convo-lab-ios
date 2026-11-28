@@ -69,17 +69,8 @@ private struct JournalEntryScreen: View {
     @AppStorage(JournalTypography.fontKey) private var journalFont = JournalTypography.defaultFont
     @AppStorage(JournalTypography.sizeKey) private var journalSize = 20.0
     @State private var copiedID: String?
-    @AppStorage(JournalKeyboardMode.key) private var keyboardMode = ""
     @State private var keyboardDock = JournalKeyboardDock()
     @State private var closingDraft = false
-
-    private var actionDock: VerticalEdge? {
-        if keyboardDock.visible { return .bottom }
-        // iPad can put the system keyboard outside the writing window while keeping suggestions inside.
-        guard keyboardDock.focusedWindow != nil, UIDevice.current.userInterfaceIdiom == .pad,
-              keyboardMode == JournalKeyboardMode.builtIn.rawValue else { return nil }
-        return .top
-    }
 
     init(selection: JournalSelection, store: JournalStore, knownKanji: Set<Character>, close: @escaping () -> Void, select: @escaping (String) -> Void) {
         _model = State(initialValue: JournalEntryModel(id: selection.id, store: store, initialDraft: selection.draft))
@@ -116,8 +107,9 @@ private struct JournalEntryScreen: View {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
                     if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
-                    JournalEntryForm(model: model, onClose: close, showActions: actionDock == nil)
+                    JournalEntryForm(model: model, onClose: close, showActions: keyboardDock.actionEdge == nil)
                         .environment(\.journalWritingFocus, { keyboardDock.focusedWindow = $0 })
+                        .environment(\.journalCandidateBarVisibility, { keyboardDock.showsIPadCandidates = $0 })
                 }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
@@ -126,8 +118,8 @@ private struct JournalEntryScreen: View {
                 .padding(.horizontal, 14).padding(.vertical, 22)
                 .frame(maxWidth: .infinity)
         }
-        .safeAreaInset(edge: actionDock ?? .bottom, spacing: 0) {
-            if actionDock != nil && isWriting {
+        .safeAreaInset(edge: keyboardDock.actionEdge ?? .bottom, spacing: 0) {
+            if keyboardDock.actionEdge != nil && isWriting {
                 JournalDraftActions(model: model, requestClose: {
                     if model.isUnwritten { close() } else { closingDraft = true }
                 })

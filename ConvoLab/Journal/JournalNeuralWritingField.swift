@@ -3,6 +3,7 @@ import UIKit
 
 struct JournalNeuralWritingField: UIViewRepresentable {
     @Environment(\.journalWritingFocus) private var focusChanged
+    @Environment(\.journalCandidateBarVisibility) private var candidateBarVisibility
     @Binding var text: String
     let label: String
     let placeholder: String
@@ -24,6 +25,7 @@ struct JournalNeuralWritingField: UIViewRepresentable {
     func updateUIView(_ view: JournalNativeTextView, context: Context) {
         context.coordinator.text = $text
         context.coordinator.focusChanged = focusChanged
+        view.candidates.visibilityChanged = candidateBarVisibility
         context.coordinator.unavailable = unavailable
         view.placeholderText = placeholder
         context.coordinator.configure(text: text, font: typography.unscaledFont.withSize(typography.size * scale))

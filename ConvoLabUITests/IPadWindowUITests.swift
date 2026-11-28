@@ -88,7 +88,7 @@ final class IPadWindowUITests: XCTestCase {
         handle.press(forDuration: 0.2, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.28)))
         defer { maximizeWindow(app) }
         let resized = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in window.frame.height < 550 }, object: window)
-        XCTAssertEqual(XCTWaiter.wait(for: [resized], timeout: 5), .completed)
+        try XCTSkipUnless(XCTWaiter.wait(for: [resized], timeout: 5) == .completed, "Requires a small resizable iPad window")
         XCTAssertLessThan(window.frame.width, window.frame.height)
         XCTAssertLessThan(window.frame.height, 550)
         app.buttons["app-mode-picker"].tap()
@@ -97,7 +97,14 @@ final class IPadWindowUITests: XCTestCase {
         app.buttons["JournalKeyboardConfirm"].tap()
         let field = app.textViews["Journal entry"]
         field.tap()
-        field.typeText("kyouhatanoshikatta")
+        field.typeText("hon")
+        app.buttons["Close"].tap()
+        let resume = app.buttons["Keep writing"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        resume.tap()
+        XCTAssertEqual(field.value as? String, "ほん")
+        field.tap()
+        field.typeText("\nkyouhatanoshikatta")
         let strip = app.collectionViews["JournalCandidates"]
         XCTAssertTrue(strip.cells["今日は楽しかった"].waitForExistence(timeout: 120))
         let submit = app.buttons["Submit"]
