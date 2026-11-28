@@ -8,6 +8,7 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
     private let expand = UIButton(type: .system)
     private(set) var expanded = false
     private var highlighted = -1
+    var visibilityChanged: ((Bool) -> Void)?
     var sizeChanged: (() -> Void)?
     private var landscapeWindow = false
     private var expandedHeight: CGFloat { landscapeWindow || traitCollection.verticalSizeClass == .compact ? 96 : 216 }
@@ -56,6 +57,15 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
         ])
     }
     required init?(coder: NSCoder) { nil }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Report after UIKit finishes reparenting the input accessory during a keyboard transition.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            visibilityChanged?(window != nil && traitCollection.userInterfaceIdiom == .pad)
+        }
+    }
 
     func toggleExpanded() {
         guard !choices.isEmpty else { dismissKeyboard?(); return }

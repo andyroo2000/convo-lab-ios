@@ -107,8 +107,9 @@ private struct JournalEntryScreen: View {
                     JournalThinkingView(service: model.store.service, lastAnswer: model.clarification.lastAnswer)
                 } else if isReviewing { JournalConversationView(root: model, knownKanji: knownKanji).id(model.id) } else {
                     if isNew && model.isUnwritten { JournalResumeView(store: model.store, select: select) }
-                    JournalEntryForm(model: model, onClose: close, showActions: !keyboardDock.visible)
+                    JournalEntryForm(model: model, onClose: close, showActions: keyboardDock.actionEdge == nil)
                         .environment(\.journalWritingFocus, { keyboardDock.focusedWindow = $0 })
+                        .environment(\.journalCandidateBarVisibility, { keyboardDock.showsIPadCandidates = $0 })
                 }
                 if model.analysis?.status == .failed {
                     Text(model.analysis?.error ?? "Feedback could not be prepared. Try Submit again.").foregroundStyle(.red)
@@ -117,8 +118,8 @@ private struct JournalEntryScreen: View {
                 .padding(.horizontal, 14).padding(.vertical, 22)
                 .frame(maxWidth: .infinity)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if keyboardDock.visible && isWriting {
+        .safeAreaInset(edge: keyboardDock.actionEdge ?? .bottom, spacing: 0) {
+            if keyboardDock.actionEdge != nil && isWriting {
                 JournalDraftActions(model: model, requestClose: {
                     if model.isUnwritten { close() } else { closingDraft = true }
                 })

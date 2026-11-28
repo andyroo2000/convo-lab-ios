@@ -182,6 +182,20 @@ final class JournalTypingCoordinatorTests: XCTestCase {
         coordinator.stop()
     }
 
+    func testDraftActionsFollowTheKeyboardInAResizedWindow() {
+        let window = CGRect(x: 100, y: 200, width: 375, height: 490)
+        var dock = JournalKeyboardDock(focusedWindow: window)
+        XCTAssertNil(dock.actionEdge)
+        dock.keyboardFrame = CGRect(x: 0, y: 720, width: 756, height: 400)
+        XCTAssertNil(dock.actionEdge)
+        dock.showsIPadCandidates = true
+        XCTAssertEqual(dock.actionEdge, .top)
+        dock.keyboardFrame.origin.y = 540
+        XCTAssertEqual(dock.actionEdge, .bottom)
+        dock.focusedWindow = nil
+        XCTAssertNil(dock.actionEdge)
+    }
+
     func testOnlyThisEditorsDockedKeyboardShowsTheFooter() {
         let window = CGRect(x: 0, y: 0, width: 400, height: 800)
         let keyboard = CGRect(x: 0, y: 500, width: 400, height: 300)

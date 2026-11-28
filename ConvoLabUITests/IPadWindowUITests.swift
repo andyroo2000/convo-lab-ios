@@ -76,6 +76,49 @@ final class IPadWindowUITests: XCTestCase {
         XCTAssertEqual(entry.value as? String, draft)
     }
 
+    func testSubmitWithExpandedSuggestionsInSmallPortraitWindow() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Requires iPad")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "mode-navigation", "-journal-keyboard-onboarding", "-journal-clarification-fixture"]
+        app.launch()
+        maximizeWindow(app)
+        let window = app.windows.firstMatch
+        let handle = window.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.99))
+        handle.press(forDuration: 0.2, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.28)))
+        defer { maximizeWindow(app) }
+        let resized = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in window.frame.height < 550 }, object: window)
+        try XCTSkipUnless(XCTWaiter.wait(for: [resized], timeout: 5) == .completed, "Requires a small resizable iPad window")
+        XCTAssertLessThan(window.frame.width, window.frame.height)
+        XCTAssertLessThan(window.frame.height, 550)
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
+        app.buttons["JournalKeyboard-builtIn"].tap()
+        app.buttons["JournalKeyboardConfirm"].tap()
+        let field = app.textViews["Journal entry"]
+        field.tap()
+        field.typeText("hon")
+        app.buttons["Close"].tap()
+        let resume = app.buttons["Keep writing"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        resume.tap()
+        XCTAssertEqual(field.value as? String, "ほん")
+        field.tap()
+        field.typeText("\nkyouhatanoshikatta")
+        let strip = app.collectionViews["JournalCandidates"]
+        XCTAssertTrue(strip.cells["今日は楽しかった"].waitForExistence(timeout: 120))
+        let submit = app.buttons["Submit"]
+        XCTAssertTrue(submit.isHittable)
+        XCTAssertLessThanOrEqual(submit.frame.maxY, strip.frame.minY)
+        app.buttons["JournalExpandCandidates"].tap()
+        XCTAssertEqual(app.buttons["JournalExpandCandidates"].value as? String, "Expanded")
+        XCTAssertLessThanOrEqual(submit.frame.maxY, strip.frame.minY)
+        XCTAssertTrue(submit.isHittable)
+        capture("Expanded-suggestions", "Small-portrait")
+        submit.tap()
+        XCTAssertTrue(app.staticTexts["Who was driving?"].waitForExistence(timeout: 8))
+    }
+
     private func maximizeWindow(_ app: XCUIApplication) {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let window = app.windows.firstMatch
