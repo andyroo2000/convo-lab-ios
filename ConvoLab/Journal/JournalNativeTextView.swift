@@ -24,6 +24,7 @@ final class JournalNativeTextView: JournalWritingTextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard isFirstResponder, let window else { return }
+        if traitCollection.userInterfaceIdiom == .pad { candidates.fitWritingWindow(window.bounds.size) }
         let frame = window.convert(window.bounds, to: nil)
         guard frame != focusedWindowFrame else { return }
         focusedWindowFrame = frame

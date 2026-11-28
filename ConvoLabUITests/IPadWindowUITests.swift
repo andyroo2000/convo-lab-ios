@@ -41,6 +41,41 @@ final class IPadWindowUITests: XCTestCase {
         maximizeWindow(app)
     }
 
+    func testLandscapeJournalMenusDismissKeyboardAndKeepDraft() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Requires iPad")
+        let device = XCUIDevice.shared
+        let previous = device.orientation
+        defer { device.orientation = previous.isValidInterfaceOrientation ? previous : .portrait }
+        device.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-test-fixture", "mode-navigation"]
+        app.launch()
+        maximizeWindow(app)
+        app.buttons["app-mode-picker"].tap()
+        app.buttons["app-mode-journal"].tap()
+        let entry = app.textViews["Journal entry"]
+        let draft = "My journal draft."
+        entry.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        entry.typeText(draft)
+        app.buttons["app-account-menu"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.isHittable)
+        capture("Avatar-menu", "Landscape")
+        settings.tap()
+        app.buttons["SettingsClose-Settings"].tap()
+        XCTAssertEqual(entry.value as? String, draft)
+
+        entry.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.buttons["app-mode-picker"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["app-mode-time"].isHittable)
+        app.buttons["app-mode-journal"].tap()
+        XCTAssertEqual(entry.value as? String, draft)
+    }
+
     private func maximizeWindow(_ app: XCUIApplication) {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let window = app.windows.firstMatch

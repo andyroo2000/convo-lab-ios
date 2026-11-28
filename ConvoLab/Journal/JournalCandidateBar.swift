@@ -9,7 +9,16 @@ final class JournalCandidateBar: UIView, UICollectionViewDataSource, UICollectio
     private(set) var expanded = false
     private var highlighted = -1
     var sizeChanged: (() -> Void)?
-    private var expandedHeight: CGFloat { traitCollection.verticalSizeClass == .compact ? 96 : 216 }
+    private var landscapeWindow = false
+    private var expandedHeight: CGFloat { landscapeWindow || traitCollection.verticalSizeClass == .compact ? 96 : 216 }
+
+    func fitWritingWindow(_ size: CGSize) {
+        let landscape = size.width > size.height
+        guard landscapeWindow != landscape else { return }
+        landscapeWindow = landscape
+        if expanded { updateLayout() }
+    }
+
     override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: expanded ? expandedHeight : 48) }
     override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
         CGSize(width: targetSize.width, height: intrinsicContentSize.height)
